@@ -1,0 +1,8 @@
+node_modules/
+data/
+config.json
+frontend/dist/
+frontend/node_modules/
+*.db
+*.db-journal
+*.db-wal

@@ -1,0 +1,12 @@
+{
+  "orgs": ["your-org"],
+  "poll_interval_seconds": 30,
+  "db_path": "./data/claude-patrol.db",
+  "port": 3000,
+  "workspace_base_path": "~/.claude-patrol/workspaces",
+  "main_repo_path": "~/work/repo",
+  "symlinks": {
+    "claude_memory": "~/.claude/memory",
+    "jsgr_token": "~/.config/jsgr/token"
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "name": "claude-patrol",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node --test src/**/*.test.js"
+  },
+  "license": "ISC",
+  "packageManager": "pnpm@10.28.0"
+}
