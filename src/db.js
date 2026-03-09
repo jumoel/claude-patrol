@@ -55,6 +55,7 @@ export function initDb(dbPath) {
     )
   `);
   db.exec('CREATE INDEX IF NOT EXISTS idx_workspaces_pr ON workspaces(pr_id)');
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_workspaces_active_pr ON workspaces(pr_id) WHERE status = 'active'");
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS sessions (

@@ -7,6 +7,7 @@ import { pollerEvents } from './poller.js';
 import { registerPRRoutes } from './routes/prs.js';
 import { registerSyncRoutes } from './routes/sync.js';
 import { registerConfigRoutes } from './routes/config.js';
+import { registerWorkspaceRoutes } from './routes/workspaces.js';
 
 /**
  * Create and configure the Fastify server.
@@ -21,6 +22,7 @@ export async function createServer(config) {
   registerPRRoutes(app);
   registerSyncRoutes(app, config);
   registerConfigRoutes(app, config);
+  registerWorkspaceRoutes(app, config);
 
   // SSE endpoint for live updates
   app.get('/api/events', (request, reply) => {

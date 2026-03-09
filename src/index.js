@@ -20,6 +20,7 @@ configEvents.on('change', (newConfig) => {
   startPoller(newConfig);
   if (server.updateSyncConfig) server.updateSyncConfig(newConfig);
   if (server.updateConfig) server.updateConfig(newConfig);
+  if (server.updateWorkspaceConfig) server.updateWorkspaceConfig(newConfig);
 });
 
 watchConfig();

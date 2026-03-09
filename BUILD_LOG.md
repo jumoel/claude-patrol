@@ -1,6 +1,6 @@
 # Build Log
 
-## 2026-03-09: Plan 01 - Config and GitHub Ingestion
+## 2026-03-09T21:57:00 - Plan 01: Config and GitHub Ingestion
 
 Implemented the core backend: config loading with live-reload, SQLite database with `node:sqlite` (Node 24 built-in), and GitHub PR poller via `gh api graphql`.
 
@@ -16,7 +16,7 @@ Implemented the core backend: config loading with live-reload, SQLite database w
 - Used `node:sqlite` instead of `better-sqlite3` to avoid native addon builds.
 - Poller uses `gh api graphql` to reuse existing `gh auth` - no separate token management.
 
-## 2026-03-09: Plan 02 - API and Frontend
+## 2026-03-09T22:15:00 - Plan 02: API and Frontend
 
 Added Fastify REST API and React frontend with a filterable PR dashboard.
 
@@ -26,7 +26,7 @@ Added Fastify REST API and React frontend with a filterable PR dashboard.
 - `src/routes/sync.js` - POST /api/sync/trigger
 - `src/routes/config.js` - GET /api/config (non-sensitive fields only)
 - `frontend/` - React + Vite + Tailwind v4 + TanStack Table
-- Components: PRTable, FilterBar, StatusBadge - all with CSS modules, no inline styles
+- Components: AppShell, PRTable, FilterBar, StatusBadge - all with CSS modules using `@reference "tailwindcss"` for Tailwind v4 compatibility
 - `frontend/src/hooks/usePRs.js` - SSE-driven auto-refresh
 - `frontend/src/lib/time.js` - shared relative time formatter
 - `frontend/src/lib/api.js` - fetch wrappers
@@ -36,3 +36,16 @@ Added Fastify REST API and React frontend with a filterable PR dashboard.
 - Filter bar derives options from the dataset, no extra endpoint needed.
 
 ![Dashboard empty state](screenshots/plan02-dashboard-styled.png)
+
+## 2026-03-09T22:40:00 - Plan 03: Workspace Manager
+
+Added jj workspace creation/destruction tied to PRs, with symlink setup and Docker cleanup.
+
+**What changed:**
+- `src/workspace.js` - create/destroy workspace logic with insert-first concurrency guard (unique partial index on active workspaces), symlink setup, sequential destroy with warnings
+- `src/routes/workspaces.js` - POST/GET/DELETE /api/workspaces endpoints
+- `src/db.js` - added unique partial index `idx_workspaces_active_pr` to prevent concurrent creation for the same PR
+- `src/server.js` / `src/index.js` - wired workspace routes and config propagation
+
+**Why:**
+- Workspaces are the bridge between the PR dashboard and Claude sessions. Each workspace is a jj workspace checked out to the PR's branch with symlinks for Claude memory and other config.
