@@ -35,4 +35,4 @@ Added Fastify REST API and React frontend with a filterable PR dashboard.
 - Serves the cached PR data through a dashboard UI with live updates via SSE.
 - Filter bar derives options from the dataset, no extra endpoint needed.
 
-![Dashboard empty state](screenshots/plan02-dashboard.png)
+![Dashboard empty state](screenshots/plan02-dashboard-styled.png)

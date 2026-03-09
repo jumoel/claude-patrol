@@ -1,0 +1,34 @@
+@reference "tailwindcss";
+
+.shell {
+  @apply min-h-screen bg-gray-50 text-gray-900;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.header {
+  @apply bg-white border-b border-gray-200 shadow-sm sticky top-0 z-10;
+}
+
+.headerInner {
+  @apply max-w-7xl mx-auto px-6 py-4 flex items-center justify-between;
+}
+
+.title {
+  @apply text-xl font-bold tracking-tight text-gray-900;
+}
+
+.syncArea {
+  @apply flex items-center gap-3;
+}
+
+.syncStatus {
+  @apply text-sm text-gray-500;
+}
+
+.syncButton {
+  @apply px-3 py-1.5 text-sm font-medium text-blue-600 bg-blue-50 rounded-md hover:bg-blue-100 transition-colors cursor-pointer;
+}
+
+.content {
+  @apply max-w-7xl mx-auto px-6 py-6;
+}

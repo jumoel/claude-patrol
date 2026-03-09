@@ -1,13 +1,15 @@
+@reference "tailwindcss";
+
 .table {
-  @apply w-full border-collapse;
+  @apply w-full border-collapse bg-white rounded-lg border border-gray-200 overflow-hidden;
 }
 
 .header {
-  @apply px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:text-gray-700 border-b-2 border-gray-200;
+  @apply px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:text-gray-700 bg-gray-50 border-b border-gray-200;
 }
 
 .row {
-  @apply border-b border-gray-100 hover:bg-gray-50 transition-colors;
+  @apply border-b border-gray-100 hover:bg-blue-50/50 transition-colors;
 }
 
 .draft {
@@ -27,5 +29,5 @@
 }
 
 .empty {
-  @apply text-center text-gray-500 py-12;
+  @apply text-center text-gray-400 py-16 text-sm;
 }
