@@ -49,3 +49,18 @@ Added jj workspace creation/destruction tied to PRs, with symlink setup and Dock
 
 **Why:**
 - Workspaces are the bridge between the PR dashboard and Claude sessions. Each workspace is a jj workspace checked out to the PR's branch with symlinks for Claude memory and other config.
+
+## 2026-03-09T23:10:00 - Plan 04: Terminal Bridge
+
+Added PTY session management with WebSocket streaming and xterm.js frontend.
+
+**What changed:**
+- `src/pty-manager.js` - PTY lifecycle via node-pty, fixed-size RingBuffer for replay (50KB, zero-alloc appends), WebSocket message validation, orphaned session cleanup on startup
+- `src/routes/sessions.js` - POST/GET/DELETE /api/sessions + WebSocket upgrade at /ws/sessions/:id
+- `frontend/src/components/Terminal/` - xterm.js wrapper with WebSocket connection, auto-resize via ResizeObserver
+- `frontend/src/components/GlobalTerminal/` - collapsible drawer at bottom of UI, creates global session on first open
+- `frontend/vite.config.js` - added WebSocket proxy for dev mode
+- `src/server.js` - registered @fastify/websocket plugin and session routes
+
+**Why:**
+- Terminal bridge lets users interact with Claude CLI sessions directly from the dashboard. The ring buffer enables reattaching to running sessions with output history.

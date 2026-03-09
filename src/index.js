@@ -2,11 +2,13 @@ import { loadConfig, watchConfig, configEvents } from './config.js';
 import { initDb } from './db.js';
 import { startPoller, resetStatements } from './poller.js';
 import { createServer } from './server.js';
+import { cleanupOrphanedSessions } from './pty-manager.js';
 
 console.log('[claude-patrol] Starting up...');
 
 const config = loadConfig();
 initDb(config.db_path);
+cleanupOrphanedSessions();
 
 startPoller(config);
 

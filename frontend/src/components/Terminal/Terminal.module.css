@@ -1,0 +1,11 @@
+@reference "tailwindcss";
+
+.wrapper {
+  @apply rounded-lg overflow-hidden border border-gray-700;
+}
+
+.terminal {
+  @apply w-full;
+  min-height: 300px;
+  background: #1a1b26;
+}
