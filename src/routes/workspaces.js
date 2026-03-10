@@ -1,3 +1,4 @@
+import { execFile as execFileCb } from 'node:child_process';
 import { getDb } from '../db.js';
 import { createWorkspace, destroyWorkspace } from '../workspace.js';
 import { formatPR } from '../pr-status.js';
@@ -60,6 +61,18 @@ export function registerWorkspaceRoutes(app) {
     } catch (err) {
       return reply.code(400).send({ error: err.message });
     }
+  });
+
+  app.post('/api/workspaces/:id/terminal', (request, reply) => {
+    const db = getDb();
+    const workspace = db.prepare("SELECT * FROM workspaces WHERE id = ? AND status = 'active'").get(request.params.id);
+    if (!workspace) {
+      return reply.code(404).send({ error: 'Workspace not found or not active' });
+    }
+    execFileCb('open', ['-na', 'Ghostty.app', '--args', '--working-directory', workspace.path], (err) => {
+      if (err) console.warn(`[workspaces] Failed to open Ghostty: ${err.message}`);
+    });
+    return { ok: true };
   });
 
   app.post('/api/workspaces/cleanup', async (request, reply) => {

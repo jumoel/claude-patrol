@@ -20,6 +20,12 @@ function formatCountdown(seconds) {
  */
 function applyFilters(prs, filters) {
   return prs.filter(pr => {
+    // "Needs work" is a meta-filter: show only PRs that need attention
+    // (failing CI, conflicts, or drafts)
+    if (filters.needsWork) {
+      const isGood = pr.ci_status === 'pass' && pr.mergeable === 'MERGEABLE' && !pr.draft;
+      if (isGood) return false;
+    }
     if (filters.org?.length && !filters.org.includes(pr.org)) return false;
     if (filters.repo?.length && !filters.repo.includes(pr.repo)) return false;
     if (filters.ci?.length && !filters.ci.includes(pr.ci_status)) return false;

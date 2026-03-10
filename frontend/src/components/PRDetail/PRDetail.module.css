@@ -28,6 +28,10 @@
   @apply px-3 py-1.5 text-sm font-medium text-gray-600 bg-gray-50 border border-gray-200 rounded-md hover:bg-gray-100 hover:text-gray-800 transition-colors no-underline;
 }
 
+.terminalLink {
+  @apply flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-gray-600 bg-gray-50 border border-gray-200 rounded-md hover:bg-gray-100 hover:text-gray-800 transition-colors cursor-pointer;
+}
+
 .ghButton {
   @apply p-2 text-gray-400 hover:text-gray-700 rounded-md hover:bg-gray-100 transition-colors;
 }
