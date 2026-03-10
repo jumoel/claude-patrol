@@ -7,7 +7,7 @@ import { CommentsList } from '../CommentsList/CommentsList.jsx';
 import { CheckLogViewer } from '../CheckLogViewer/CheckLogViewer.jsx';
 import { StatusBadge } from '../StatusBadge/StatusBadge.jsx';
 import { getRelativeTime } from '../../lib/time.js';
-import { isFailedCheck, isPassedCheck, checkToStatus } from '../../lib/checks.js';
+import { isFailedCheck, isPassedCheck, checkToStatus, isMergeReady as checkMergeReady } from '../../lib/checks.js';
 import styles from './PRDetail.module.css';
 
 const DOT_STYLES = {
@@ -171,6 +171,7 @@ export function PRDetail({ prId, onBack }) {
   const failedChecks = pr.checks.filter(isFailedCheck);
   const passedChecks = pr.checks.filter(isPassedCheck);
   const pendingChecks = pr.checks.filter(c => !isFailedCheck(c) && !isPassedCheck(c));
+  const isMergeReady = checkMergeReady(pr);
 
   return (
     <div className={styles.detail}>
@@ -182,6 +183,12 @@ export function PRDetail({ prId, onBack }) {
             Back
           </button>
           <div className={styles.headerLinks}>
+            {isMergeReady && (
+              <a href={pr.url} target="_blank" rel="noopener noreferrer" className={styles.mergeButton} onClick={(e) => e.stopPropagation()}>
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path fillRule="evenodd" d="M5 3.254V3.25v.005a.75.75 0 110-.005v.004zm.45 1.9a2.25 2.25 0 10-1.95.218v5.256a2.25 2.25 0 101.5 0V7.123A5.735 5.735 0 009.25 9h1.378a2.251 2.251 0 100-1.5H9.25a4.25 4.25 0 01-3.8-2.346zM12.75 9a.75.75 0 100-1.5.75.75 0 000 1.5zm-8.5 4.5a.75.75 0 100-1.5.75.75 0 000 1.5z"/></svg>
+                Merge on GitHub
+              </a>
+            )}
             <a href={`${pr.url}/files`} target="_blank" rel="noopener noreferrer" className={styles.diffLink}>
               View diff
             </a>

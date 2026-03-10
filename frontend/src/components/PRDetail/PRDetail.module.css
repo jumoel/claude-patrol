@@ -20,6 +20,10 @@
   @apply flex items-center gap-2;
 }
 
+.mergeButton {
+  @apply flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-green-600 rounded-md hover:bg-green-700 transition-colors no-underline;
+}
+
 .diffLink {
   @apply px-3 py-1.5 text-xs font-medium text-gray-600 bg-gray-50 border border-gray-200 rounded-md hover:bg-gray-100 hover:text-gray-800 transition-colors no-underline;
 }
