@@ -1,5 +1,11 @@
 # Claude Patrol
 
+## Running the server
+
+- **Production**: `pnpm start` (builds frontend, starts server, opens browser)
+- **Testing/development**: `node src/index.js --no-open` (skips browser open)
+- Always use `--no-open` when starting the server for verification or testing during development
+
 ## Workflow
 
 - **Build log**: Maintain `BUILD_LOG.md` at project root. Each entry: date, what changed, why. If the change is visual, include a screenshot.
