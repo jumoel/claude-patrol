@@ -81,7 +81,7 @@ function MultiSelect({ label, options, selected, onChange }) {
  * Filter controls for the PR table.
  * @param {{ prs: object[], filters: Record<string, string[]>, onFilterChange: (filters: Record<string, string[]>) => void }} props
  */
-export function FilterBar({ prs, filters, onFilterChange }) {
+export function FilterBar({ prs, filters, onFilterChange, onCopyMarkdown, copied }) {
   const orgs = [...new Set(prs.map(p => p.org))].sort();
   const repos = [...new Set(prs.map(p => p.repo))].sort();
 
@@ -123,6 +123,14 @@ export function FilterBar({ prs, filters, onFilterChange }) {
       <MultiSelect label="All reviews" options={REVIEW_OPTIONS} selected={filters.review || []} onChange={(v) => update('review', v)} />
       <MultiSelect label="All merge" options={MERGE_OPTIONS} selected={filters.mergeable || []} onChange={(v) => update('mergeable', v)} />
       <MultiSelect label="All PRs" options={DRAFT_OPTIONS} selected={filters.draft || []} onChange={(v) => update('draft', v)} />
+      {onCopyMarkdown && (
+        <>
+          <div className={styles.separator} />
+          <button className={styles.copyButton} onClick={onCopyMarkdown} type="button">
+            {copied ? 'Copied!' : 'Copy as Markdown'}
+          </button>
+        </>
+      )}
     </div>
   );
 }

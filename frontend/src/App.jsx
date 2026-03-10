@@ -5,7 +5,7 @@ import { FilterBar } from './components/FilterBar/FilterBar.jsx';
 import { GlobalTerminal } from './components/GlobalTerminal/GlobalTerminal.jsx';
 import { DashboardSummary } from './components/DashboardSummary/DashboardSummary.jsx';
 import { PRDetail } from './components/PRDetail/PRDetail.jsx';
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 
 function formatCountdown(seconds) {
   const m = Math.floor(seconds / 60);
@@ -39,10 +39,23 @@ export default function App() {
   const [filters, setFilters] = useState({});
   const [selectedPR, setSelectedPR] = useState(null);
   const [terminalOpen, setTerminalOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const copiedTimeout = useRef(null);
   const toggleTerminal = useCallback(() => setTerminalOpen(prev => !prev), []);
   const { prs: allPRs, syncedAt, loading, error, syncing, countdown, triggerSync } = usePRs(NO_FILTERS);
 
   const filteredPRs = useMemo(() => applyFilters(allPRs, filters), [allPRs, filters]);
+
+  const copyFilteredAsMarkdown = useCallback(() => {
+    const md = filteredPRs
+      .map(pr => `- [#${pr.number}](${pr.url}) - ${pr.title}`)
+      .join('\n');
+    navigator.clipboard.writeText(md).then(() => {
+      setCopied(true);
+      clearTimeout(copiedTimeout.current);
+      copiedTimeout.current = setTimeout(() => setCopied(false), 2000);
+    });
+  }, [filteredPRs]);
 
   // Simple hash-based routing
   useEffect(() => {
@@ -79,7 +92,7 @@ export default function App() {
       ) : (
         <>
           <DashboardSummary prCount={filteredPRs.length} syncedAt={syncedAt} />
-          <FilterBar prs={allPRs} filters={filters} onFilterChange={setFilters} />
+          <FilterBar prs={allPRs} filters={filters} onFilterChange={setFilters} onCopyMarkdown={copyFilteredAsMarkdown} copied={copied} />
           {error && <p>{error}</p>}
           {loading && allPRs.length === 0 && <p>Loading...</p>}
           <PRTable prs={filteredPRs} onRowClick={navigateToPR} />
