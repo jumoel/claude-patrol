@@ -1,7 +1,8 @@
 import { EventEmitter } from 'node:events';
+import { spawn } from 'node:child_process';
 import { getDb } from './db.js';
 import { destroyWorkspace } from './workspace.js';
-import { execFile, makePrId } from './utils.js';
+import { makePrId } from './utils.js';
 
 export const pollerEvents = new EventEmitter();
 
@@ -11,6 +12,7 @@ query($q: String!, $cursor: String) {
     pageInfo { hasNextPage endCursor }
     nodes {
       ... on PullRequest {
+        id
         number
         title
         url
@@ -28,7 +30,7 @@ query($q: String!, $cursor: String) {
             commit {
               statusCheckRollup {
                 contexts(first: 100) {
-                  pageInfo { hasNextPage }
+                  pageInfo { hasNextPage endCursor }
                   nodes {
                     ... on CheckRun { name status conclusion detailsUrl checkSuite { workflowRun { workflow { name } } } }
                     ... on StatusContext { context state targetUrl }
@@ -44,30 +46,92 @@ query($q: String!, $cursor: String) {
 }
 `;
 
+const CHECKS_PAGE_QUERY = `
+query($id: ID!, $cursor: String!) {
+  node(id: $id) {
+    ... on PullRequest {
+      commits(last: 1) {
+        nodes {
+          commit {
+            statusCheckRollup {
+              contexts(first: 100, after: $cursor) {
+                pageInfo { hasNextPage endCursor }
+                nodes {
+                  ... on CheckRun { name status conclusion detailsUrl checkSuite { workflowRun { workflow { name } } } }
+                  ... on StatusContext { context state targetUrl }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+`;
+
 /**
- * Run a gh api graphql command and return parsed JSON.
- * @param {string} qualifier - search qualifier like "org:foo" or "repo:owner/repo"
- * @param {string | null} cursor
+ * Run a gh api graphql command, passing the query body via stdin to avoid
+ * shell argument length limits.
+ * @param {string} query - GraphQL query string
+ * @param {Record<string, string>} variables
  * @returns {Promise<object>}
  */
-async function ghGraphql(qualifier, cursor) {
-  const args = ['api', 'graphql',
-    '-f', `query=${GRAPHQL_QUERY}`,
-    '-f', `q=${qualifier} is:pr is:open author:@me`,
-  ];
-  if (cursor) {
-    args.push('-f', `cursor=${cursor}`);
+function ghGraphql(query, variables) {
+  return new Promise((resolve, reject) => {
+    const child = spawn('gh', ['api', 'graphql', '--input', '-'], {
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    const chunks = [];
+    const errChunks = [];
+    child.stdout.on('data', (d) => chunks.push(d));
+    child.stderr.on('data', (d) => errChunks.push(d));
+
+    child.on('close', (code) => {
+      const stdout = Buffer.concat(chunks).toString();
+      const stderr = Buffer.concat(errChunks).toString();
+      if (code !== 0) {
+        return reject(new Error(`gh graphql failed (exit ${code}): ${stderr || stdout}`));
+      }
+      try {
+        resolve(JSON.parse(stdout));
+      } catch {
+        reject(new Error(`gh graphql returned non-JSON: ${stdout.slice(0, 200)}`));
+      }
+    });
+
+    child.on('error', reject);
+    child.stdin.end(JSON.stringify({ query, variables }));
+  });
+}
+
+/**
+ * Fetch remaining check contexts for a PR via pagination.
+ * @param {string} nodeId - GitHub node ID of the PR
+ * @param {string} startCursor - endCursor from the initial page
+ * @returns {Promise<object[]>} additional context nodes
+ */
+async function fetchRemainingChecks(nodeId, startCursor) {
+  const extra = [];
+  let cursor = startCursor;
+  let hasNext = true;
+
+  while (hasNext) {
+    const result = await ghGraphql(CHECKS_PAGE_QUERY, { id: nodeId, cursor });
+    const contexts = result.data?.node?.commits?.nodes?.[0]?.commit?.statusCheckRollup?.contexts;
+    if (!contexts) break;
+    extra.push(...contexts.nodes);
+    hasNext = contexts.pageInfo.hasNextPage;
+    cursor = contexts.pageInfo.endCursor;
   }
-  try {
-    const { stdout } = await execFile('gh', args, { maxBuffer: 10 * 1024 * 1024 });
-    return JSON.parse(stdout);
-  } catch (err) {
-    throw new Error(`gh graphql failed for ${qualifier}: ${err.stderr || err.message}`);
-  }
+
+  return extra;
 }
 
 /**
  * Fetch all open PRs for a search qualifier, handling pagination.
+ * Also paginates check contexts for PRs that exceed 100 checks.
  * @param {string} qualifier - e.g. "org:foo" or "repo:owner/repo"
  * @returns {Promise<object[]>}
  */
@@ -77,7 +141,9 @@ async function fetchPRs(qualifier) {
   let hasNext = true;
 
   while (hasNext) {
-    const result = await ghGraphql(qualifier, cursor);
+    const vars = { q: `${qualifier} is:pr is:open author:@me` };
+    if (cursor) vars.cursor = cursor;
+    const result = await ghGraphql(GRAPHQL_QUERY, vars);
     const search = result.data?.search;
     if (!search) {
       console.warn(`[poller] Unexpected response shape for ${qualifier}:`, JSON.stringify(result).slice(0, 200));
@@ -86,6 +152,16 @@ async function fetchPRs(qualifier) {
     allPRs.push(...search.nodes);
     hasNext = search.pageInfo.hasNextPage;
     cursor = search.pageInfo.endCursor;
+  }
+
+  // Paginate checks for PRs that have more than 100
+  for (const pr of allPRs) {
+    const contextsConn = pr.commits?.nodes?.[0]?.commit?.statusCheckRollup?.contexts;
+    if (contextsConn?.pageInfo?.hasNextPage) {
+      const extra = await fetchRemainingChecks(pr.id, contextsConn.pageInfo.endCursor);
+      contextsConn.nodes.push(...extra);
+      contextsConn.pageInfo.hasNextPage = false;
+    }
   }
 
   return allPRs;
@@ -98,11 +174,7 @@ async function fetchPRs(qualifier) {
  */
 function extractChecks(pr) {
   const commitNode = pr.commits?.nodes?.[0]?.commit;
-  const contextsConn = commitNode?.statusCheckRollup?.contexts;
-  if (contextsConn?.pageInfo?.hasNextPage) {
-    console.warn(`[poller] PR #${pr.number} has more than 100 checks - some will be missing`);
-  }
-  const contexts = contextsConn?.nodes ?? [];
+  const contexts = commitNode?.statusCheckRollup?.contexts?.nodes ?? [];
   return contexts.map(ctx => {
     if ('name' in ctx) {
       const workflow = ctx.checkSuite?.workflowRun?.workflow?.name;
