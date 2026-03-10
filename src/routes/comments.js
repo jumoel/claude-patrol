@@ -23,9 +23,7 @@ async function ghApi(endpoint) {
 export function registerCommentRoutes(app) {
   app.get('/api/prs/:id/comments', async (request, reply) => {
     const db = getDb();
-    const pr = db.prepare('SELECT org, repo, number FROM prs WHERE id = ?').get(
-      decodeURIComponent(request.params.id),
-    );
+    const pr = db.prepare('SELECT org, repo, number FROM prs WHERE id = ?').get(request.params.id);
     if (!pr) {
       return reply.code(404).send({ error: 'PR not found' });
     }

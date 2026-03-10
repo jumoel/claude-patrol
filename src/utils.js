@@ -20,6 +20,9 @@ export function expandPath(p) {
 /** @type {Set<string>} */
 const FAILED_CONCLUSIONS = new Set(['FAILURE', 'ERROR', 'TIMED_OUT']);
 
+/** @type {Set<string>} */
+const PASSED_CONCLUSIONS = new Set(['SUCCESS', 'NEUTRAL', 'SKIPPED']);
+
 /**
  * Check if a check conclusion represents a failure.
  * @param {string | null} conclusion
@@ -27,6 +30,15 @@ const FAILED_CONCLUSIONS = new Set(['FAILURE', 'ERROR', 'TIMED_OUT']);
  */
 export function isFailedConclusion(conclusion) {
   return FAILED_CONCLUSIONS.has(conclusion);
+}
+
+/**
+ * Check if a check conclusion represents a pass.
+ * @param {string | null} conclusion
+ * @returns {boolean}
+ */
+export function isPassedConclusion(conclusion) {
+  return PASSED_CONCLUSIONS.has(conclusion);
 }
 
 /**

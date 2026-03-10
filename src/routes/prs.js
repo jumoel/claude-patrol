@@ -58,8 +58,7 @@ export function registerPRRoutes(app) {
 
   app.get('/api/prs/:id/diff', async (request, reply) => {
     const db = getDb();
-    const prId = decodeURIComponent(request.params.id);
-    const pr = db.prepare('SELECT org, repo, number FROM prs WHERE id = ?').get(prId);
+    const pr = db.prepare('SELECT org, repo, number FROM prs WHERE id = ?').get(request.params.id);
     if (!pr) {
       return reply.code(404).send({ error: 'PR not found' });
     }

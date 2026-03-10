@@ -33,12 +33,14 @@ function applyFilters(prs, filters) {
   });
 }
 
+const NO_FILTERS = {};
+
 export default function App() {
   const [filters, setFilters] = useState({});
   const [selectedPR, setSelectedPR] = useState(null);
   const [terminalOpen, setTerminalOpen] = useState(false);
   const toggleTerminal = useCallback(() => setTerminalOpen(prev => !prev), []);
-  const { prs: allPRs, syncedAt, loading, error, syncing, countdown, triggerSync } = usePRs({});
+  const { prs: allPRs, syncedAt, loading, error, syncing, countdown, triggerSync } = usePRs(NO_FILTERS);
 
   const filteredPRs = useMemo(() => applyFilters(allPRs, filters), [allPRs, filters]);
 

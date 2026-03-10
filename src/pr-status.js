@@ -1,4 +1,4 @@
-import { isFailedConclusion } from './utils.js';
+import { isFailedConclusion, isPassedConclusion } from './utils.js';
 
 /**
  * Derive overall CI status from checks array.
@@ -10,7 +10,7 @@ export function deriveCIStatus(checks) {
   const hasFailure = checks.some(c => isFailedConclusion(c.conclusion));
   if (hasFailure) return 'fail';
   const allDone = checks.every(c =>
-    c.status === 'COMPLETED' && (c.conclusion === 'SUCCESS' || c.conclusion === 'NEUTRAL' || c.conclusion === 'SKIPPED')
+    c.status === 'COMPLETED' && isPassedConclusion(c.conclusion)
   );
   if (allDone) return 'pass';
   return 'pending';

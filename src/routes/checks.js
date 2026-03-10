@@ -4,6 +4,16 @@ import { execFile, isFailedConclusion } from '../utils.js';
 const RUN_ID_RE = /\/actions\/runs\/(\d+)/;
 
 /**
+ * Parse checks JSON from a PR row and return the failed ones.
+ * @param {object} row - PR database row
+ * @returns {Array<object>}
+ */
+function getFailedChecks(row) {
+  const checks = JSON.parse(row.checks);
+  return checks.filter(c => isFailedConclusion(c.conclusion));
+}
+
+/**
  * Extract unique GitHub Actions run IDs from failed check URLs.
  * @param {Array<{url?: string}>} checks
  * @returns {Set<string>}
@@ -35,8 +45,7 @@ export function registerCheckRoutes(app) {
       return reply.code(404).send({ error: 'PR not found' });
     }
 
-    const checks = JSON.parse(row.checks);
-    const failed = checks.filter(c => isFailedConclusion(c.conclusion));
+    const failed = getFailedChecks(row);
 
     if (failed.length === 0) {
       return { ok: true, retriggered: 0 };
@@ -63,14 +72,12 @@ export function registerCheckRoutes(app) {
 
   app.get('/api/prs/:id/check-logs', async (request, reply) => {
     const db = getDb();
-    const prId = decodeURIComponent(request.params.id);
-    const row = db.prepare('SELECT * FROM prs WHERE id = ?').get(prId);
+    const row = db.prepare('SELECT * FROM prs WHERE id = ?').get(request.params.id);
     if (!row) {
       return reply.code(404).send({ error: 'PR not found' });
     }
 
-    const checks = JSON.parse(row.checks);
-    const failed = checks.filter(c => isFailedConclusion(c.conclusion));
+    const failed = getFailedChecks(row);
 
     if (failed.length === 0) {
       return { logs: [] };

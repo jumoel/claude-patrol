@@ -238,6 +238,15 @@ export function killSession(sessionId) {
 }
 
 /**
+ * Kill all live PTY sessions. Used during graceful shutdown.
+ */
+export function killAllSessions() {
+  for (const [id] of sessions) {
+    killSession(id);
+  }
+}
+
+/**
  * Check if a session is alive in memory and its process is still running.
  * @param {string} sessionId
  * @returns {boolean}

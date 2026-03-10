@@ -62,7 +62,8 @@ export function PRDetail({ prId, onBack }) {
 
   useEffect(() => { loadData(); }, [loadData]);
 
-  const handleOpenInClaude = useCallback(async () => {
+  /** Ensure workspace + session exist, creating them if needed. Returns { ws, sess } or null on failure. */
+  const ensureWorkspaceAndSession = useCallback(async () => {
     setOpeningClaude(true);
     try {
       let ws = workspace;
@@ -78,13 +79,19 @@ export function PRDetail({ prId, onBack }) {
         setSession(sess);
       }
       setOpeningStep('Connecting...');
+      return { ws, sess };
     } catch (err) {
-      console.error('Open in Claude failed:', err);
+      console.error('Failed to set up workspace/session:', err);
+      return null;
     } finally {
       setOpeningClaude(false);
       setOpeningStep('');
     }
   }, [prId, workspace, session]);
+
+  const handleOpenInClaude = useCallback(async () => {
+    await ensureWorkspaceAndSession();
+  }, [ensureWorkspaceAndSession]);
 
   const handleRetriggerFailed = useCallback(async () => {
     if (!pr) return;
@@ -115,50 +122,22 @@ export function PRDetail({ prId, onBack }) {
 
   const handleInvestigateFailures = useCallback(async () => {
     if (!pr) return;
-    const failedChecks = pr.checks
+    const failedCheckNames = pr.checks
       .filter(isFailedCheck)
       .map(c => c.name);
 
-    // Ensure workspace + session exist
-    let ws = workspace;
-    if (!ws) {
-      setOpeningClaude(true);
-      setOpeningStep('Creating workspace...');
-      try {
-        ws = await apiCreateWorkspace(prId);
-        setWorkspace(ws);
-      } catch (err) {
-        console.error('Failed to create workspace:', err);
-        setOpeningClaude(false);
-        setOpeningStep('');
-        return;
-      }
-    }
-    let sess = session;
-    if (!sess) {
-      setOpeningStep('Starting session...');
-      try {
-        sess = await apiCreateSession(ws.id);
-        setSession(sess);
-      } catch (err) {
-        console.error('Failed to create session:', err);
-        setOpeningClaude(false);
-        setOpeningStep('');
-        return;
-      }
-    }
-    setOpeningClaude(false);
-    setOpeningStep('');
+    const result = await ensureWorkspaceAndSession();
+    if (!result) return;
 
     // Send command to the PR terminal
     setTimeout(() => {
       const wsConn = wsRef.current;
       if (wsConn && wsConn.readyState === WebSocket.OPEN) {
-        const command = `Investigate the failed CI checks on this PR (${pr.org}/${pr.repo}#${pr.number}, branch: ${pr.branch}). The following checks failed: ${failedChecks.join(', ')}. Look at the CI logs and determine root causes.\r`;
+        const command = `Investigate the failed CI checks on this PR (${pr.org}/${pr.repo}#${pr.number}, branch: ${pr.branch}). The following checks failed: ${failedCheckNames.join(', ')}. Look at the CI logs and determine root causes.\r`;
         wsConn.send(JSON.stringify({ type: 'input', data: command }));
       }
     }, 500);
-  }, [pr, prId, workspace, session]);
+  }, [pr, ensureWorkspaceAndSession]);
 
   if (loading) {
     return <p className={styles.loading}>Loading...</p>;

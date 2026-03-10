@@ -89,11 +89,11 @@ export async function createWorkspace(prId, config) {
   }
 
   // Run init commands (non-fatal - workspace is usable even if these fail)
+  // Uses /bin/sh -c so commands can contain quotes, pipes, &&, etc.
   if (repoConfig.initCommands) {
     for (const cmd of repoConfig.initCommands) {
       try {
-        const [bin, ...args] = cmd.split(' ');
-        await execFile(bin, args, { cwd: workspacePath, timeout: 120_000 });
+        await execFile('/bin/sh', ['-c', cmd], { cwd: workspacePath, timeout: 120_000 });
       } catch (err) {
         console.warn(`[workspace] Init command failed in ${name}: ${cmd} - ${err.message}`);
       }
