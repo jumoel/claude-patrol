@@ -22,6 +22,33 @@ async function api(path, options = {}) {
   return res.json();
 }
 
+/**
+ * Strip verbose fields from a PR for compact list responses.
+ * Full details are available via get_pr.
+ */
+function summarizePR(pr) {
+  return {
+    id: pr.id,
+    number: pr.number,
+    title: pr.title,
+    org: pr.org,
+    repo: pr.repo,
+    author: pr.author,
+    branch: pr.branch,
+    url: pr.url,
+    draft: pr.draft,
+    ci_status: pr.ci_status,
+    review_status: pr.review_status,
+    mergeable: pr.mergeable,
+    checks_summary: {
+      total: pr.checks?.length ?? 0,
+      failed: pr.checks?.filter(c => ['FAILURE', 'ERROR', 'TIMED_OUT'].includes(c.conclusion)).length ?? 0,
+    },
+    labels: (pr.labels || []).map(l => l.name),
+    updated_at: pr.updated_at,
+  };
+}
+
 const server = new McpServer({
   name: 'patrol',
   version: '1.0.0',
@@ -48,7 +75,8 @@ server.tool(
     if (mergeable) params.set('mergeable', mergeable);
     const qs = params.toString();
     const data = await api(`/api/prs${qs ? `?${qs}` : ''}`);
-    return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] };
+    const compact = { ...data, prs: data.prs.map(summarizePR) };
+    return { content: [{ type: 'text', text: JSON.stringify(compact, null, 2) }] };
   },
 );
 
