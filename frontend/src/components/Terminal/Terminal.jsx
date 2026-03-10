@@ -6,9 +6,9 @@ import styles from './Terminal.module.css';
 
 /**
  * Terminal component backed by xterm.js and a WebSocket connection.
- * @param {{ wsUrl: string, status?: string }} props
+ * @param {{ wsUrl: string, wsRef?: import('react').MutableRefObject<WebSocket | null> }} props
  */
-export function Terminal({ wsUrl, status = 'connecting' }) {
+export function Terminal({ wsUrl, wsRef: externalWsRef }) {
   const containerRef = useRef(null);
   const termRef = useRef(null);
   const wsRef = useRef(null);
@@ -42,6 +42,7 @@ export function Terminal({ wsUrl, status = 'connecting' }) {
     const fullUrl = wsUrl.startsWith('ws') ? wsUrl : `${protocol}//${window.location.host}${wsUrl}`;
     const ws = new WebSocket(fullUrl);
     wsRef.current = ws;
+    if (externalWsRef) externalWsRef.current = ws;
 
     ws.onmessage = (event) => {
       try {

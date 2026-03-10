@@ -1,0 +1,73 @@
+@reference "tailwindcss";
+
+.detail {
+  @apply space-y-6;
+}
+
+.header {
+  @apply flex items-center gap-4;
+}
+
+.backButton {
+  @apply px-3 py-1.5 text-sm text-gray-600 bg-gray-100 rounded-md hover:bg-gray-200 transition-colors cursor-pointer;
+}
+
+.title {
+  @apply text-lg font-bold text-gray-900;
+}
+
+.title a {
+  @apply text-blue-600 hover:text-blue-800 hover:underline;
+}
+
+.meta {
+  @apply flex flex-wrap items-center gap-3 text-sm text-gray-600;
+}
+
+.draft {
+  @apply text-xs text-gray-400 italic;
+}
+
+.labels {
+  @apply flex flex-wrap gap-2;
+}
+
+.label {
+  @apply px-2 py-0.5 text-xs font-medium text-gray-700 border-2 rounded-full;
+}
+
+.section {
+  @apply space-y-3;
+}
+
+.sectionTitle {
+  @apply text-sm font-semibold text-gray-500 uppercase tracking-wider;
+}
+
+.openButton {
+  @apply px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700 disabled:opacity-50 transition-colors cursor-pointer mt-2;
+}
+
+.checksList {
+  @apply space-y-1;
+}
+
+.checkRow {
+  @apply flex items-center justify-between py-1 px-3 text-sm bg-gray-50 rounded;
+}
+
+.checkName {
+  @apply text-gray-700;
+}
+
+.checkStatus {
+  @apply text-xs font-medium text-gray-500;
+}
+
+.loading {
+  @apply text-center text-gray-400 py-12;
+}
+
+.error {
+  @apply text-center text-red-500 py-12;
+}

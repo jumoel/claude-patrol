@@ -64,3 +64,24 @@ Added PTY session management with WebSocket streaming and xterm.js frontend.
 
 **Why:**
 - Terminal bridge lets users interact with Claude CLI sessions directly from the dashboard. The ring buffer enables reattaching to running sessions with output history.
+
+## 2026-03-10T00:00:00 - Plan 05: Integration
+
+Wired workspace and session management into the PR dashboard. Added PR detail view, quick actions, startup validation, and health checks.
+
+**What changed:**
+- `src/startup.js` - validates gh, jj, claude CLI availability and gh auth before starting
+- `src/health.js` - periodic checks (60s) verify session PIDs alive and workspace dirs exist, runs immediately on start
+- `src/index.js` - added startup validation and health check wiring
+- `frontend/src/App.jsx` - hash-based routing for PR detail view, DashboardSummary integration
+- `frontend/src/components/DashboardSummary/` - summary stats bar (PR count, workspace count, session count, sync time)
+- `frontend/src/components/PRDetail/` - full PR detail view with metadata, checks, reviews, labels. Parallel data loading for PR + workspaces.
+- `frontend/src/components/WorkspaceControls/` - create/destroy with confirmation dialog
+- `frontend/src/components/QuickActions/` - sends commands to terminal via WebSocket (rebase, lint fix, custom)
+- `frontend/src/components/Terminal/` - added external wsRef prop so QuickActions can send commands
+- `frontend/src/lib/api.js` - expanded with workspace/session/PR CRUD functions
+
+**Why:**
+- Completes the full flow: PR table -> PR detail -> create workspace -> Claude session with quick actions. Startup validation prevents a half-working server.
+
+![Final dashboard](screenshots/plan05-dashboard-final.png)

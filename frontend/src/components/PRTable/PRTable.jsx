@@ -11,9 +11,9 @@ import styles from './PRTable.module.css';
 
 /**
  * PR data table with TanStack Table for sorting.
- * @param {{ prs: object[] }} props
+ * @param {{ prs: object[], onRowClick?: (prId: string) => void }} props
  */
-export function PRTable({ prs }) {
+export function PRTable({ prs, onRowClick }) {
   const [sorting, setSorting] = useState([]);
 
   const columns = useMemo(() => [
@@ -92,7 +92,7 @@ export function PRTable({ prs }) {
       </thead>
       <tbody>
         {table.getRowModel().rows.map(row => (
-          <tr key={row.id} className={`${styles.row} ${row.original.draft ? styles.draft : ''}`}>
+          <tr key={row.id} className={`${styles.row} ${row.original.draft ? styles.draft : ''}`} onClick={() => onRowClick?.(row.original.id)} style={{ cursor: onRowClick ? 'pointer' : undefined }}>
             {row.getVisibleCells().map(cell => (
               <td key={cell.id} className={styles.cell}>
                 {flexRender(cell.column.columnDef.cell, cell.getContext())}
