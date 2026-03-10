@@ -63,6 +63,15 @@ export function GlobalTerminal({ open, onToggle }) {
     onToggle();
   }, [session, onToggle]);
 
+  const popOutSession = useCallback(async () => {
+    if (!session) return;
+    try {
+      await fetch(`/api/sessions/${session.id}/popout`, { method: 'POST' });
+    } catch (err) {
+      console.error('Failed to pop out session:', err);
+    }
+  }, [session]);
+
   // Drag resize handlers
   const handlePointerDown = useCallback((e) => {
     e.preventDefault();
@@ -125,9 +134,14 @@ export function GlobalTerminal({ open, onToggle }) {
           <span className={styles.handleText}>Global Terminal</span>
           <div className={styles.handleActions}>
             {session && (
-              <button className={styles.killButton} onClick={killSession}>
-                Kill
-              </button>
+              <>
+                <button className={styles.popOutButton} onClick={popOutSession}>
+                  Pop out
+                </button>
+                <button className={styles.killButton} onClick={killSession}>
+                  Kill
+                </button>
+              </>
             )}
             <button className={styles.closeButton} onClick={onToggle}>
               <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">

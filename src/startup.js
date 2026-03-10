@@ -23,6 +23,7 @@ export async function validateStartup() {
     { cmd: 'gh', args: ['--version'], label: 'GitHub CLI (gh)' },
     { cmd: 'jj', args: ['--version'], label: 'Jujutsu (jj)' },
     { cmd: 'claude', args: ['--version'], label: 'Claude CLI' },
+    { cmd: 'tmux', args: ['-V'], label: 'tmux' },
   ];
 
   const errors = [];

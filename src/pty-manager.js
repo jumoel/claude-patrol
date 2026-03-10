@@ -1,7 +1,9 @@
 import pty from 'node-pty';
 import { randomUUID } from 'node:crypto';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { readFileSync, writeFileSync, unlinkSync, chmodSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { tmpdir } from 'node:os';
 import { getDb } from './db.js';
 
 const BUFFER_MAX = 50_000;
@@ -87,6 +89,26 @@ export function cleanupOrphanedSessions() {
 }
 
 /**
+ * Kill any orphaned tmux sessions from a previous server run.
+ */
+export function cleanupOrphanedTmuxSessions() {
+  try {
+    const output = execFileSync('tmux', ['list-sessions', '-F', '#{session_name}'], { encoding: 'utf8', timeout: 5000 });
+    for (const line of output.trim().split('\n')) {
+      const name = line.trim();
+      if (name.startsWith('patrol-')) {
+        try {
+          execFileSync('tmux', ['kill-session', '-t', name], { timeout: 5000 });
+          console.log(`[pty-manager] Killed orphaned tmux session: ${name}`);
+        } catch { /* session may have already died */ }
+      }
+    }
+  } catch {
+    // tmux server not running or no sessions - that's fine
+  }
+}
+
+/**
  * Spawn a new PTY session. Spawns the process first, then inserts into DB.
  * @param {string | null} workspaceId - null for global session
  * @param {string} cwd - working directory
@@ -99,27 +121,36 @@ export function createSession(workspaceId, cwd) {
   if (!workspaceId) {
     const existing = db.prepare("SELECT * FROM sessions WHERE workspace_id IS NULL AND status = 'active'").get();
     if (existing && sessions.has(existing.id)) {
-      const entry = sessions.get(existing.id);
-      try {
-        process.kill(entry.proc.pid, 0);
+      if (isTmuxSessionAlive(existing.id)) {
         return existing;
-      } catch {
-        // Process is dead but map entry is stale - clean up
-        sessions.delete(existing.id);
-        db.prepare("UPDATE sessions SET status = 'killed', ended_at = ? WHERE id = ?").run(new Date().toISOString(), existing.id);
       }
+      // tmux session is dead but map entry is stale - clean up
+      sessions.delete(existing.id);
+      db.prepare("UPDATE sessions SET status = 'killed', ended_at = ? WHERE id = ?").run(new Date().toISOString(), existing.id);
     }
   }
 
-  // Spawn PTY first - if this throws, no DB row is created
-  const args = [];
+  const id = randomUUID();
+  const tmuxName = `patrol-${id}`;
+
+  // Build the claude command with args
+  const claudeArgs = ['claude'];
   if (mcpConfigPath) {
-    args.push('--mcp-config', mcpConfigPath);
-    args.push('--append-system-prompt', PATROL_SYSTEM_PROMPT);
-    args.push('--allowedTools', 'mcp__patrol__*', 'Bash', 'Read', 'Edit', 'Write', 'Glob', 'Grep', 'Agent');
+    claudeArgs.push('--mcp-config', mcpConfigPath);
+    claudeArgs.push('--append-system-prompt', PATROL_SYSTEM_PROMPT);
+    claudeArgs.push('--allowedTools', 'mcp__patrol__*', 'Bash', 'Read', 'Edit', 'Write', 'Glob', 'Grep', 'Agent');
   }
 
-  const proc = pty.spawn('claude', args, {
+  // 1. Create detached tmux session running claude
+  execFileSync('tmux', [
+    'new-session', '-d', '-s', tmuxName,
+    '-x', '120', '-y', '30',
+    '-c', cwd,
+    ...claudeArgs,
+  ], { timeout: 10_000 });
+
+  // 2. Attach node-pty to the tmux session (for WebSocket I/O)
+  const proc = pty.spawn('tmux', ['attach-session', '-t', tmuxName], {
     name: 'xterm-256color',
     cols: 120,
     rows: 30,
@@ -127,7 +158,6 @@ export function createSession(workspaceId, cwd) {
     env: { ...process.env },
   });
 
-  const id = randomUUID();
   const now = new Date().toISOString();
 
   db.prepare('INSERT INTO sessions (id, workspace_id, pid, status, started_at) VALUES (?, ?, ?, ?, ?)').run(
@@ -226,14 +256,20 @@ export function attachSession(sessionId, ws) {
  * @param {string} sessionId
  */
 export function killSession(sessionId) {
-  const entry = sessions.get(sessionId);
-  if (entry) {
-    entry.proc.kill();
-  } else {
-    const db = getDb();
-    db.prepare("UPDATE sessions SET status = 'killed', ended_at = ? WHERE id = ? AND status != 'killed'").run(
-      new Date().toISOString(), sessionId
-    );
+  const tmuxName = `patrol-${sessionId}`;
+  try {
+    execFileSync('tmux', ['kill-session', '-t', tmuxName], { timeout: 5000 });
+  } catch {
+    // tmux session already dead - kill the pty directly as fallback
+    const entry = sessions.get(sessionId);
+    if (entry) {
+      entry.proc.kill();
+    } else {
+      const db = getDb();
+      db.prepare("UPDATE sessions SET status = 'killed', ended_at = ? WHERE id = ? AND status != 'killed'").run(
+        new Date().toISOString(), sessionId
+      );
+    }
   }
 }
 
@@ -247,17 +283,52 @@ export function killAllSessions() {
 }
 
 /**
- * Check if a session is alive in memory and its process is still running.
+ * Check if a tmux session is alive by name.
  * @param {string} sessionId
  * @returns {boolean}
  */
-export function isSessionAlive(sessionId) {
-  const entry = sessions.get(sessionId);
-  if (!entry) return false;
+function isTmuxSessionAlive(sessionId) {
   try {
-    process.kill(entry.proc.pid, 0);
+    execFileSync('tmux', ['has-session', '-t', `patrol-${sessionId}`], { timeout: 5000 });
     return true;
   } catch {
     return false;
   }
+}
+
+/**
+ * Check if a session is alive in memory and its tmux session is still running.
+ * @param {string} sessionId
+ * @returns {boolean}
+ */
+export function isSessionAlive(sessionId) {
+  if (!sessions.has(sessionId)) return false;
+  return isTmuxSessionAlive(sessionId);
+}
+
+/**
+ * Pop out a session into a Ghostty terminal window.
+ * Opens a new Ghostty instance attached to the same tmux session.
+ * @param {string} sessionId
+ */
+export function popOutSession(sessionId) {
+  if (!sessions.has(sessionId)) {
+    throw new Error('Session not found or not running');
+  }
+  if (!isTmuxSessionAlive(sessionId)) {
+    throw new Error('Session tmux process is not alive');
+  }
+
+  const tmuxName = `patrol-${sessionId}`;
+  const scriptPath = resolve(tmpdir(), `patrol-ghostty-${sessionId}.sh`);
+
+  writeFileSync(scriptPath, `#!/bin/sh\nexec tmux attach-session -t ${tmuxName}\n`);
+  chmodSync(scriptPath, 0o755);
+
+  execFileSync('open', ['-na', 'Ghostty.app', '--args', '-e', scriptPath], { timeout: 10_000 });
+
+  // Clean up the temp script after a short delay
+  setTimeout(() => {
+    try { unlinkSync(scriptPath); } catch { /* ignore */ }
+  }, 5000);
 }

@@ -120,6 +120,15 @@ export function PRDetail({ prId, onBack }) {
     }
   }, [session]);
 
+  const handlePopOut = useCallback(async () => {
+    if (!session) return;
+    try {
+      await fetch(`/api/sessions/${session.id}/popout`, { method: 'POST' });
+    } catch (err) {
+      console.error('Failed to pop out session:', err);
+    }
+  }, [session]);
+
   const handleInvestigateFailures = useCallback(async () => {
     if (!pr) return;
     const failedCheckNames = pr.checks
@@ -241,9 +250,14 @@ export function PRDetail({ prId, onBack }) {
         <div className={styles.card}>
           <div className={styles.terminalHeader}>
             <h3 className={styles.sectionTitle}>Terminal</h3>
-            <button className={styles.killSessionButton} onClick={handleKillSession}>
-              Kill session
-            </button>
+            <div className={styles.terminalActions}>
+              <button className={styles.popOutButton} onClick={handlePopOut}>
+                Pop out
+              </button>
+              <button className={styles.killSessionButton} onClick={handleKillSession}>
+                Kill session
+              </button>
+            </div>
           </div>
           <QuickActions wsRef={wsRef} />
           <Terminal wsUrl={`/ws/sessions/${session.id}`} wsRef={wsRef} />

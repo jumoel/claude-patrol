@@ -1,5 +1,5 @@
 import { getDb } from '../db.js';
-import { createSession, attachSession, killSession } from '../pty-manager.js';
+import { createSession, attachSession, killSession, popOutSession } from '../pty-manager.js';
 import { getCurrentConfig } from '../config.js';
 
 /**
@@ -47,6 +47,15 @@ export function registerSessionRoutes(app) {
   app.delete('/api/sessions/:id', (request) => {
     killSession(request.params.id);
     return { ok: true };
+  });
+
+  app.post('/api/sessions/:id/popout', (request, reply) => {
+    try {
+      popOutSession(request.params.id);
+      return { ok: true };
+    } catch (err) {
+      return reply.code(400).send({ error: err.message });
+    }
   });
 
   // WebSocket route for terminal attachment

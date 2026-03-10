@@ -3,7 +3,7 @@ import { loadConfig, watchConfig, unwatchConfig, configEvents, setCurrentConfig 
 import { initDb } from './db.js';
 import { startPoller, stopPoller, resetStatements } from './poller.js';
 import { createServer } from './server.js';
-import { cleanupOrphanedSessions, initMcpConfig, updateMcpConfig, killAllSessions } from './pty-manager.js';
+import { cleanupOrphanedSessions, cleanupOrphanedTmuxSessions, initMcpConfig, updateMcpConfig, killAllSessions } from './pty-manager.js';
 import { validateStartup } from './startup.js';
 import { startHealthChecks, stopHealthChecks } from './health.js';
 
@@ -21,6 +21,7 @@ const config = loadConfig();
 setCurrentConfig(config);
 initDb(config.db_path);
 cleanupOrphanedSessions();
+cleanupOrphanedTmuxSessions();
 
 startPoller(config);
 startHealthChecks();
