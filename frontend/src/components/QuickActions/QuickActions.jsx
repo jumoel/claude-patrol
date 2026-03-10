@@ -4,7 +4,7 @@ const BUILT_IN_ACTIONS = [
   {
     label: 'Rebase onto main',
     command: '/clear\r',
-    followUp: 'Rebase this branch onto main using jj rebase -d main\r',
+    followUp: 'Rebase this branch onto remote main using jj rebase -d main@origin\r',
     delay: 500,
   },
   {
