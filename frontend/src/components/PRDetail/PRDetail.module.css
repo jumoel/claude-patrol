@@ -16,6 +16,14 @@
   @apply flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-600 bg-gray-100 rounded-md hover:bg-gray-200 transition-colors cursor-pointer;
 }
 
+.headerLinks {
+  @apply flex items-center gap-2;
+}
+
+.diffLink {
+  @apply px-3 py-1.5 text-xs font-medium text-gray-600 bg-gray-50 border border-gray-200 rounded-md hover:bg-gray-100 hover:text-gray-800 transition-colors no-underline;
+}
+
 .ghButton {
   @apply p-2 text-gray-400 hover:text-gray-700 rounded-md hover:bg-gray-100 transition-colors;
 }

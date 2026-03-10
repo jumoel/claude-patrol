@@ -1,5 +1,6 @@
 import { getDb } from '../db.js';
 import { formatPR } from '../pr-status.js';
+import { execFile } from '../utils.js';
 
 /**
  * Register PR-related routes.
@@ -53,5 +54,43 @@ export function registerPRRoutes(app) {
       return reply.code(404).send({ error: 'Not found' });
     }
     return formatPR(row);
+  });
+
+  app.get('/api/prs/:id/diff', async (request, reply) => {
+    const db = getDb();
+    const prId = decodeURIComponent(request.params.id);
+    const pr = db.prepare('SELECT org, repo, number FROM prs WHERE id = ?').get(prId);
+    if (!pr) {
+      return reply.code(404).send({ error: 'PR not found' });
+    }
+
+    const nameOnly = request.query.name_only === 'true';
+    const args = ['pr', 'diff', String(pr.number), '-R', `${pr.org}/${pr.repo}`];
+    if (nameOnly) args.push('--name-only');
+
+    try {
+      const { stdout } = await execFile('gh', args, {
+        timeout: 30_000,
+        maxBuffer: 10 * 1024 * 1024,
+      });
+
+      if (nameOnly) {
+        return {
+          files: stdout.trim().split('\n').filter(Boolean),
+          pr_number: pr.number,
+          repo: `${pr.org}/${pr.repo}`,
+        };
+      }
+
+      const truncated = stdout.length > 100_000;
+      return {
+        diff: truncated ? stdout.slice(0, 100_000) : stdout,
+        truncated,
+        pr_number: pr.number,
+        repo: `${pr.org}/${pr.repo}`,
+      };
+    } catch (err) {
+      return reply.code(500).send({ error: `Failed to fetch diff: ${err.message}` });
+    }
   });
 }

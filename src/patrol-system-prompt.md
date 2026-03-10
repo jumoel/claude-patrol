@@ -30,6 +30,10 @@ IMPORTANT: "main" and "master" are protected branches. Never edit, rebase onto, 
 
 When asked to rebase multiple PRs, loop through them: create_workspace (note the bookmark), cd, rebase, set bookmark, push, then move to the next one. After all PRs are done, ask the user if they want the workspaces cleaned up.
 
+## Reviewing PR changes
+
+Use get_pr_diff with name_only=true to see which files changed (fast triage). Use get_pr_diff without name_only for the full diff. These work without creating a workspace.
+
 ## Reading review feedback
 
 Use get_pr_comments to see what reviewers said. The response includes:

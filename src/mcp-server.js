@@ -159,6 +159,20 @@ server.tool(
 );
 
 server.tool(
+  'get_pr_diff',
+  'Get the diff for a PR. Use name_only=true for a quick file list (triage), omit for the full diff. Works without creating a workspace.',
+  {
+    id: z.string().describe('PR database ID (e.g. "org/repo#42")'),
+    name_only: z.boolean().optional().describe('If true, return only changed file names instead of the full diff'),
+  },
+  async ({ id, name_only }) => {
+    const params = name_only ? '?name_only=true' : '';
+    const data = await api(`/api/prs/${encodeURIComponent(id)}/diff${params}`);
+    return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] };
+  },
+);
+
+server.tool(
   'get_check_logs',
   'Get the actual output of failed CI checks for a PR. Extracts only the relevant error sections, not the full job log. Optionally filter by run_id.',
   {
