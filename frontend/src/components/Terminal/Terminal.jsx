@@ -19,7 +19,7 @@ export function Terminal({ wsUrl, wsRef: externalWsRef }) {
 
     const term = new XTerm({
       cursorBlink: true,
-      fontSize: 13,
+      fontSize: 14,
       fontFamily: 'Menlo, Monaco, "Courier New", monospace',
       theme: {
         background: '#1a1b26',
