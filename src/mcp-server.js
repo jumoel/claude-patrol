@@ -11,8 +11,9 @@ const BASE_URL = `http://127.0.0.1:${process.env.PATROL_PORT || 4000}`;
  * @returns {Promise<unknown>}
  */
 async function api(path, options = {}) {
+  const headers = options.body ? { 'Content-Type': 'application/json' } : {};
   const res = await fetch(`${BASE_URL}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     ...options,
   });
   if (!res.ok) {
