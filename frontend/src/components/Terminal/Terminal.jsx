@@ -8,7 +8,7 @@ import styles from './Terminal.module.css';
  * Terminal component backed by xterm.js and a WebSocket connection.
  * @param {{ wsUrl: string, wsRef?: import('react').MutableRefObject<WebSocket | null> }} props
  */
-export function Terminal({ wsUrl, wsRef: externalWsRef }) {
+export function Terminal({ wsUrl, wsRef: externalWsRef, focus }) {
   const containerRef = useRef(null);
   const termRef = useRef(null);
   const wsRef = useRef(null);
@@ -34,6 +34,7 @@ export function Terminal({ wsUrl, wsRef: externalWsRef }) {
     term.loadAddon(fitAddon);
     term.open(containerRef.current);
     fitAddon.fit();
+    term.focus();
 
     termRef.current = term;
     fitRef.current = fitAddon;
@@ -87,8 +88,16 @@ export function Terminal({ wsUrl, wsRef: externalWsRef }) {
     };
   }, [wsUrl]);
 
+  useEffect(() => {
+    if (focus && termRef.current) termRef.current.focus();
+  }, [focus]);
+
+  const handleClick = () => {
+    if (termRef.current) termRef.current.focus();
+  };
+
   return (
-    <div className={styles.wrapper}>
+    <div className={styles.wrapper} onClick={handleClick}>
       <div ref={containerRef} className={styles.terminal} />
     </div>
   );

@@ -153,7 +153,7 @@ export function GlobalTerminal({ open, onToggle }) {
         </div>
         <div className={styles.content}>
           {loading && <p className={styles.loading}>Starting session...</p>}
-          {session && <Terminal wsUrl={`/ws/sessions/${session.id}`} />}
+          {session && <Terminal wsUrl={`/ws/sessions/${session.id}`} focus={open} />}
           {!session && !loading && (
             <div className={styles.placeholder}>
               <button className={styles.startButton} onClick={startSession}>
