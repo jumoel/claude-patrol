@@ -62,6 +62,13 @@ export function PRDetail({ prId, onBack }) {
 
   useEffect(() => { loadData(); }, [loadData]);
 
+  // Re-fetch when a GitHub sync completes
+  useEffect(() => {
+    const source = new EventSource('/api/events');
+    source.addEventListener('sync', () => loadData());
+    return () => source.close();
+  }, [loadData]);
+
   /** Ensure workspace + session exist, creating them if needed. Returns { ws, sess } or null on failure. */
   const ensureWorkspaceAndSession = useCallback(async () => {
     setOpeningClaude(true);
