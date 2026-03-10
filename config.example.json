@@ -4,9 +4,17 @@
   "db_path": "./data/claude-patrol.db",
   "port": 3000,
   "workspace_base_path": "~/.claude-patrol/workspaces",
-  "main_repo_path": "~/work/repo",
-  "symlinks": {
-    "claude_memory": "~/.claude/memory",
-    "jsgr_token": "~/.config/jsgr/token"
+  "work_dir": "~/work",
+  "global_terminal_cwd": "~/work",
+  "symlink_memory": true,
+  "repos": {
+    "your-org/your-repo": {
+      "symlinks": [
+        "./path/to/secret-file"
+      ],
+      "initCommands": [
+        "npm install"
+      ]
+    }
   }
 }

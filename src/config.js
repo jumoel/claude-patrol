@@ -5,7 +5,7 @@ import { expandPath } from './utils.js';
 
 const CONFIG_PATH = resolve(import.meta.dirname, '..', 'config.json');
 
-const PATH_FIELDS = ['db_path', 'workspace_base_path', 'main_repo_path'];
+const PATH_FIELDS = ['db_path', 'workspace_base_path', 'work_dir', 'global_terminal_cwd'];
 
 const REQUIRED_FIELDS = {
   orgs: (v) => Array.isArray(v) && v.length > 0,
@@ -13,7 +13,7 @@ const REQUIRED_FIELDS = {
   db_path: (v) => typeof v === 'string',
   port: (v) => typeof v === 'number',
   workspace_base_path: (v) => typeof v === 'string',
-  main_repo_path: (v) => typeof v === 'string',
+  work_dir: (v) => typeof v === 'string',
 };
 
 /**

@@ -47,6 +47,7 @@ configEvents.on('change', (newConfig) => {
   if (server.updateSyncConfig) server.updateSyncConfig(newConfig);
   if (server.updateConfig) server.updateConfig(newConfig);
   if (server.updateWorkspaceConfig) server.updateWorkspaceConfig(newConfig);
+  if (server.updateSessionConfig) server.updateSessionConfig(newConfig);
 });
 
 watchConfig();

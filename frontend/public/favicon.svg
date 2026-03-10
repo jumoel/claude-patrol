@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <defs>
+    <linearGradient id="r" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#E63428"/>
+      <stop offset="100%" stop-color="#B71C1C"/>
+    </linearGradient>
+  </defs>
+  <!-- Shield -->
+  <path d="M32 2 L58 14 L58 36 Q58 52 32 62 Q6 52 6 36 L6 14 Z" fill="#172338"/>
+  <path d="M32 5 L55 16 L55 35 Q55 50 32 59 Q9 50 9 35 L9 16 Z" fill="url(#r)"/>
+  <!-- Silver top -->
+  <path d="M32 2 L58 14 L58 20 L6 20 L6 14 Z" fill="#C4CCD6"/>
+  <!-- Crab mascot (simplified) -->
+  <g transform="translate(20, 22)">
+    <!-- Ears -->
+    <rect x="2" y="0" width="4" height="3" fill="#FFF"/>
+    <rect x="18" y="0" width="4" height="3" fill="#FFF"/>
+    <!-- Head -->
+    <rect x="4" y="3" width="16" height="4" fill="#FFF"/>
+    <!-- Eyes row -->
+    <rect x="2" y="7" width="20" height="4" fill="#FFF"/>
+    <rect x="6" y="7" width="3" height="4" fill="#172338"/>
+    <rect x="15" y="7" width="3" height="4" fill="#172338"/>
+    <!-- Body + arms -->
+    <rect x="0" y="11" width="24" height="4" fill="#FFF"/>
+    <!-- Lower body -->
+    <rect x="2" y="15" width="20" height="4" fill="#FFF"/>
+    <rect x="4" y="19" width="16" height="3" fill="#FFF"/>
+    <!-- Legs -->
+    <rect x="6" y="22" width="3" height="3" fill="#FFF"/>
+    <rect x="11" y="22" width="3" height="3" fill="#FFF"/>
+    <rect x="15" y="22" width="3" height="3" fill="#FFF"/>
+  </g>
+</svg>

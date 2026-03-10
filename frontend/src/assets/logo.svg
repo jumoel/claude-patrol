@@ -1,0 +1,202 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 560" width="600" height="560">
+  <defs>
+    <linearGradient id="shieldRed" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#E63428;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#B71C1C;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="silverTop" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#E8ECF0;stop-opacity:1" />
+      <stop offset="50%" style="stop-color:#C4CCD6;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#98A4B0;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="blueTxt" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#5CD0F5;stop-opacity:1" />
+      <stop offset="50%" style="stop-color:#2BA8E0;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1478B0;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="yellowTxt" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#FFE84D;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#F0A000;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="termGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#4A4A5A;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#2A2A3A;stop-opacity:1" />
+    </linearGradient>
+    <filter id="dropShadow">
+      <feDropShadow dx="0" dy="5" stdDeviation="8" flood-color="#00000060"/>
+    </filter>
+    <filter id="txtShadow">
+      <feDropShadow dx="2" dy="3" stdDeviation="2" flood-color="#00000080"/>
+    </filter>
+  </defs>
+
+  <!-- ========== SHIELD ========== -->
+  <path d="M300 32 L520 115 L520 295 Q520 420 300 505 Q80 420 80 295 L80 115 Z"
+        fill="#172338" filter="url(#dropShadow)"/>
+  <path d="M300 44 L508 123 L508 290 Q508 410 300 492 Q92 410 92 290 L92 123 Z"
+        fill="url(#shieldRed)"/>
+  <path d="M300 32 L520 115 L520 155 L80 155 L80 115 Z"
+        fill="url(#silverTop)" stroke="#7A8494" stroke-width="1"/>
+  <path d="M300 36 L515 117 L515 134 L85 134 L85 117 Z"
+        fill="#FFFFFF" opacity="0.3"/>
+  <path d="M300 74 L485 145 L485 282 Q485 392 300 468 Q115 392 115 282 L115 145 Z"
+        fill="none" stroke="#FFFFFF" stroke-width="3" opacity="0.15"/>
+  <path d="M300 32 L520 115 L520 295 Q520 420 300 505 Q80 420 80 295 L80 115 Z"
+        fill="none" stroke="#172338" stroke-width="10" stroke-linejoin="round"/>
+
+  <!-- ========== PIXEL CRAB MASCOT ========== -->
+  <!-- Scaled up, each pixel = 9x9, centered -->
+  <g transform="translate(237, 145)">
+    <!-- Row 0: ear nubs -->
+    <rect x="9" y="0" width="9" height="9" fill="#FFFFFF"/>
+    <rect x="18" y="0" width="9" height="9" fill="#FFFFFF"/>
+    <rect x="90" y="0" width="9" height="9" fill="#FFFFFF"/>
+    <rect x="99" y="0" width="9" height="9" fill="#FFFFFF"/>
+
+    <!-- Row 1: top of head -->
+    <rect x="18" y="9" width="9" height="9" fill="#FFFFFF"/>
+    <rect x="27" y="9" width="9" height="9" fill="#FFFFFF"/>
+    <rect x="36" y="9" width="9" height="9" fill="#FFFFFF"/>
+    <rect x="45" y="9" width="9" height="9" fill="#FFFFFF"/>
+    <rect x="54" y="9" width="9" height="9" fill="#FFFFFF"/>
+    <rect x="63" y="9" width="9" height="9" fill="#FFFFFF"/>
+    <rect x="72" y="9" width="9" height="9" fill="#FFFFFF"/>
+    <rect x="81" y="9" width="9" height="9" fill="#FFFFFF"/>
+    <rect x="90" y="9" width="9" height="9" fill="#FFFFFF"/>
+
+    <!-- Row 2: eyes row -->
+    <rect x="9" y="18" width="9" height="9" fill="#FFFFFF"/>
+    <rect x="18" y="18" width="9" height="9" fill="#FFFFFF"/>
+    <rect x="27" y="18" width="9" height="9" fill="#FFFFFF"/>
+    <rect x="36" y="18" width="9" height="9" fill="#172338"/><!-- L eye -->
+    <rect x="45" y="18" width="9" height="9" fill="#FFFFFF"/>
+    <rect x="54" y="18" width="9" height="9" fill="#FFFFFF"/>
+    <rect x="63" y="18" width="9" height="9" fill="#FFFFFF"/>
+    <rect x="72" y="18" width="9" height="9" fill="#FFFFFF"/>
+    <rect x="81" y="18" width="9" height="9" fill="#172338"/><!-- R eye -->
+    <rect x="90" y="18" width="9" height="9" fill="#FFFFFF"/>
+    <rect x="99" y="18" width="9" height="9" fill="#FFFFFF"/>
+
+    <!-- Row 3: body + side arms -->
+    <rect x="0" y="27" width="9" height="9" fill="#FFFFFF"/>
+    <rect x="9" y="27" width="9" height="9" fill="#FFFFFF"/>
+    <rect x="18" y="27" width="9" height="9" fill="#FFFFFF"/>
+    <rect x="27" y="27" width="9" height="9" fill="#FFFFFF"/>
+    <rect x="36" y="27" width="9" height="9" fill="#FFFFFF"/>
+    <rect x="45" y="27" width="9" height="9" fill="#FFFFFF"/>
+    <rect x="54" y="27" width="9" height="9" fill="#FFFFFF"/>
+    <rect x="63" y="27" width="9" height="9" fill="#FFFFFF"/>
+    <rect x="72" y="27" width="9" height="9" fill="#FFFFFF"/>
+    <rect x="81" y="27" width="9" height="9" fill="#FFFFFF"/>
+    <rect x="90" y="27" width="9" height="9" fill="#FFFFFF"/>
+    <rect x="99" y="27" width="9" height="9" fill="#FFFFFF"/>
+    <rect x="108" y="27" width="9" height="9" fill="#FFFFFF"/>
+    <rect x="117" y="27" width="9" height="9" fill="#FFFFFF"/>
+
+    <!-- Row 4: mid body -->
+    <rect x="9" y="36" width="9" height="9" fill="#FFFFFF"/>
+    <rect x="18" y="36" width="9" height="9" fill="#FFFFFF"/>
+    <rect x="27" y="36" width="9" height="9" fill="#FFFFFF"/>
+    <rect x="36" y="36" width="9" height="9" fill="#FFFFFF"/>
+    <rect x="45" y="36" width="9" height="9" fill="#FFFFFF"/>
+    <rect x="54" y="36" width="9" height="9" fill="#FFFFFF"/>
+    <rect x="63" y="36" width="9" height="9" fill="#FFFFFF"/>
+    <rect x="72" y="36" width="9" height="9" fill="#FFFFFF"/>
+    <rect x="81" y="36" width="9" height="9" fill="#FFFFFF"/>
+    <rect x="90" y="36" width="9" height="9" fill="#FFFFFF"/>
+    <rect x="99" y="36" width="9" height="9" fill="#FFFFFF"/>
+    <rect x="108" y="36" width="9" height="9" fill="#FFFFFF"/>
+
+    <!-- Row 5: lower body -->
+    <rect x="18" y="45" width="9" height="9" fill="#FFFFFF"/>
+    <rect x="27" y="45" width="9" height="9" fill="#FFFFFF"/>
+    <rect x="36" y="45" width="9" height="9" fill="#FFFFFF"/>
+    <rect x="45" y="45" width="9" height="9" fill="#FFFFFF"/>
+    <rect x="54" y="45" width="9" height="9" fill="#FFFFFF"/>
+    <rect x="63" y="45" width="9" height="9" fill="#FFFFFF"/>
+    <rect x="72" y="45" width="9" height="9" fill="#FFFFFF"/>
+    <rect x="81" y="45" width="9" height="9" fill="#FFFFFF"/>
+    <rect x="90" y="45" width="9" height="9" fill="#FFFFFF"/>
+    <rect x="99" y="45" width="9" height="9" fill="#FFFFFF"/>
+
+    <!-- Row 6: bottom body -->
+    <rect x="18" y="54" width="9" height="9" fill="#FFFFFF"/>
+    <rect x="27" y="54" width="9" height="9" fill="#FFFFFF"/>
+    <rect x="36" y="54" width="9" height="9" fill="#FFFFFF"/>
+    <rect x="45" y="54" width="9" height="9" fill="#FFFFFF"/>
+    <rect x="54" y="54" width="9" height="9" fill="#FFFFFF"/>
+    <rect x="63" y="54" width="9" height="9" fill="#FFFFFF"/>
+    <rect x="72" y="54" width="9" height="9" fill="#FFFFFF"/>
+    <rect x="81" y="54" width="9" height="9" fill="#FFFFFF"/>
+    <rect x="90" y="54" width="9" height="9" fill="#FFFFFF"/>
+    <rect x="99" y="54" width="9" height="9" fill="#FFFFFF"/>
+
+    <!-- Row 7: legs -->
+    <rect x="27" y="63" width="9" height="9" fill="#FFFFFF"/>
+    <rect x="45" y="63" width="9" height="9" fill="#FFFFFF"/>
+    <rect x="72" y="63" width="9" height="9" fill="#FFFFFF"/>
+    <rect x="90" y="63" width="9" height="9" fill="#FFFFFF"/>
+  </g>
+
+  <!-- ========== "CLAUDE" TEXT - cartoon style with slight letter wobble ========== -->
+  <g filter="url(#txtShadow)">
+    <text x="120" y="330" font-family="'Comic Sans MS', 'Chalkboard SE', 'Marker Felt', cursive"
+          font-size="100" font-weight="900"
+          fill="url(#blueTxt)" stroke="#172338" stroke-width="8" stroke-linejoin="round"
+          paint-order="stroke" transform="rotate(-3, 120, 330)">C</text>
+    <text x="185" y="326" font-family="'Comic Sans MS', 'Chalkboard SE', 'Marker Felt', cursive"
+          font-size="100" font-weight="900"
+          fill="url(#blueTxt)" stroke="#172338" stroke-width="8" stroke-linejoin="round"
+          paint-order="stroke" transform="rotate(1, 185, 326)">L</text>
+    <text x="238" y="332" font-family="'Comic Sans MS', 'Chalkboard SE', 'Marker Felt', cursive"
+          font-size="100" font-weight="900"
+          fill="url(#blueTxt)" stroke="#172338" stroke-width="8" stroke-linejoin="round"
+          paint-order="stroke" transform="rotate(-2, 238, 332)">A</text>
+    <text x="305" y="325" font-family="'Comic Sans MS', 'Chalkboard SE', 'Marker Felt', cursive"
+          font-size="100" font-weight="900"
+          fill="url(#blueTxt)" stroke="#172338" stroke-width="8" stroke-linejoin="round"
+          paint-order="stroke" transform="rotate(2, 305, 325)">U</text>
+    <text x="372" y="330" font-family="'Comic Sans MS', 'Chalkboard SE', 'Marker Felt', cursive"
+          font-size="100" font-weight="900"
+          fill="url(#blueTxt)" stroke="#172338" stroke-width="8" stroke-linejoin="round"
+          paint-order="stroke" transform="rotate(-1, 372, 330)">D</text>
+    <text x="437" y="328" font-family="'Comic Sans MS', 'Chalkboard SE', 'Marker Felt', cursive"
+          font-size="100" font-weight="900"
+          fill="url(#blueTxt)" stroke="#172338" stroke-width="8" stroke-linejoin="round"
+          paint-order="stroke" transform="rotate(2, 437, 328)">E</text>
+  </g>
+
+  <!-- ========== TERMINAL BANNER ========== -->
+  <g transform="translate(300, 420)">
+    <!-- Main bar -->
+    <rect x="-210" y="-26" width="420" height="52" rx="6"
+          fill="url(#termGrad)" stroke="#111120" stroke-width="3"/>
+    <!-- Title bar strip -->
+    <rect x="-210" y="-26" width="420" height="14" rx="6" ry="6" fill="#3A3A4C"/>
+    <rect x="-210" y="-18" width="420" height="6" fill="#3A3A4C"/>
+    <!-- Shine -->
+    <rect x="-208" y="-24" width="416" height="10" rx="4" fill="#FFFFFF" opacity="0.06"/>
+    <!-- Left wing -->
+    <rect x="-244" y="-12" width="42" height="36" rx="6"
+          fill="url(#termGrad)" stroke="#111120" stroke-width="2.5"/>
+    <text x="-223" y="14" font-family="monospace" font-size="24"
+          fill="#5CD0F5" text-anchor="middle" opacity="0.9">&gt;_</text>
+    <!-- Right wing -->
+    <rect x="202" y="-12" width="42" height="36" rx="6"
+          fill="url(#termGrad)" stroke="#111120" stroke-width="2.5"/>
+    <text x="223" y="14" font-family="monospace" font-size="24"
+          fill="#5CD0F5" text-anchor="middle" opacity="0.9">_&lt;</text>
+  </g>
+
+  <!-- === "PATROL" TEXT === -->
+  <g filter="url(#txtShadow)">
+    <text x="290" y="436" font-family="'Comic Sans MS', 'Chalkboard SE', 'Marker Felt', cursive"
+          font-size="58" font-weight="900" letter-spacing="4"
+          fill="url(#yellowTxt)" stroke="#172338" stroke-width="6" stroke-linejoin="round"
+          paint-order="stroke" text-anchor="middle">PATROL</text>
+  </g>
+
+  <!-- Bottom shield accent -->
+  <path d="M300 480 L330 462 L330 474 Q330 494 300 507 Q270 494 270 474 L270 462 Z"
+        fill="#172338" opacity="0.5"/>
+</svg>
