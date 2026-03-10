@@ -28,6 +28,8 @@ export function PRTable({ prs, onRowClick }) {
             <span className={styles.titleText}>
               {pr.title}
               {pr.draft && <span className={styles.draftLabel}>Draft</span>}
+              {pr.has_session && <span className={styles.sessionBadge} title="Running session">S</span>}
+              {pr.has_workspace && !pr.has_session && <span className={styles.workspaceBadge} title="Active workspace">W</span>}
             </span>
             <a
               href={pr.url}

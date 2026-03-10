@@ -43,6 +43,18 @@ export function registerPRRoutes(app) {
       prs = prs.filter(pr => pr.review_status === review);
     }
 
+    // Enrich with workspace/session indicators
+    const activeWorkspaces = new Set(
+      db.prepare("SELECT pr_id FROM workspaces WHERE status = 'active'").all().map(r => r.pr_id)
+    );
+    const activeSessions = new Set(
+      db.prepare("SELECT w.pr_id FROM sessions s JOIN workspaces w ON s.workspace_id = w.id WHERE s.status = 'active'").all().map(r => r.pr_id)
+    );
+    for (const pr of prs) {
+      pr.has_workspace = activeWorkspaces.has(pr.id);
+      pr.has_session = activeSessions.has(pr.id);
+    }
+
     const syncRow = db.prepare('SELECT MAX(synced_at) as synced_at FROM prs').get();
     return { prs, synced_at: syncRow?.synced_at ?? null };
   });

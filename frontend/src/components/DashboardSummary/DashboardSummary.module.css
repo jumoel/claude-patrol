@@ -8,6 +8,34 @@
   @apply font-medium;
 }
 
+.clickable {
+  @apply cursor-pointer hover:text-blue-600 transition-colors bg-transparent border-none text-base text-gray-600 font-medium p-0;
+}
+
+.disabled {
+  @apply cursor-default hover:text-gray-600;
+}
+
 .divider {
   @apply w-px h-4 bg-gray-300;
+}
+
+.dropdownWrapper {
+  @apply relative;
+}
+
+.dropdown {
+  @apply absolute top-full left-0 mt-2 bg-white border border-gray-200 rounded-lg shadow-lg z-30 py-1 min-w-64 max-h-80 overflow-y-auto;
+}
+
+.dropdownItem {
+  @apply flex flex-col gap-0.5 px-4 py-2 hover:bg-gray-50 transition-colors no-underline cursor-pointer;
+}
+
+.itemName {
+  @apply text-sm font-medium text-gray-800;
+}
+
+.itemDetail {
+  @apply text-xs text-gray-400 font-mono truncate;
 }
