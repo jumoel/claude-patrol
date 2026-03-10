@@ -7,10 +7,17 @@ import { DashboardSummary } from './components/DashboardSummary/DashboardSummary
 import { PRDetail } from './components/PRDetail/PRDetail.jsx';
 import { useState, useEffect } from 'react';
 
+function formatCountdown(seconds) {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  if (m > 0) return `${m}m ${s.toString().padStart(2, '0')}s`;
+  return `${s}s`;
+}
+
 export default function App() {
   const [filters, setFilters] = useState({});
   const [selectedPR, setSelectedPR] = useState(null);
-  const { prs, syncedAt, loading, error, triggerSync } = usePRs(filters);
+  const { prs, syncedAt, loading, error, syncing, countdown, triggerSync } = usePRs(filters);
 
   // Simple hash-based routing
   useEffect(() => {
@@ -27,9 +34,10 @@ export default function App() {
     return () => window.removeEventListener('hashchange', handleHash);
   }, []);
 
-  const syncStatus = syncedAt
+  const syncTime = syncedAt
     ? `Last synced: ${new Date(syncedAt).toLocaleTimeString()}`
     : 'Not synced';
+  const nextSync = countdown > 0 ? formatCountdown(countdown) : '';
 
   const navigateToPR = (prId) => {
     window.location.hash = `/pr/${encodeURIComponent(prId)}`;
@@ -40,7 +48,7 @@ export default function App() {
   };
 
   return (
-    <AppShell title="Claude Patrol" syncStatus={syncStatus} onSync={triggerSync}>
+    <AppShell title="Claude Patrol" syncTime={syncTime} nextSync={nextSync} syncing={syncing} onSync={triggerSync}>
       {selectedPR ? (
         <PRDetail prId={selectedPR} onBack={navigateBack} />
       ) : (

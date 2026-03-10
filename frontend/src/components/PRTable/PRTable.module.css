@@ -20,8 +20,16 @@
   @apply px-4 py-3 text-sm text-gray-700;
 }
 
-.link {
-  @apply text-blue-600 hover:text-blue-800 hover:underline font-medium;
+.titleCell {
+  @apply flex items-center gap-2;
+}
+
+.titleText {
+  @apply font-medium text-gray-900 flex-1;
+}
+
+.ghLink {
+  @apply text-gray-400 hover:text-gray-700 flex-shrink-0 transition-colors;
 }
 
 .draftLabel {

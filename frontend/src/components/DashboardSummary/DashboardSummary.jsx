@@ -15,8 +15,6 @@ export function DashboardSummary({ prCount, syncedAt }) {
     fetchSessions().then(ss => setSessionCount(ss.length)).catch(() => {});
   }, [syncedAt]);
 
-  const sinceSync = syncedAt ? timeSince(syncedAt) : 'never';
-
   return (
     <div className={styles.bar}>
       <span className={styles.stat}>{prCount} open PRs</span>
@@ -24,17 +22,6 @@ export function DashboardSummary({ prCount, syncedAt }) {
       <span className={styles.stat}>{workspaceCount} active workspaces</span>
       <span className={styles.divider} />
       <span className={styles.stat}>{sessionCount} running sessions</span>
-      <span className={styles.divider} />
-      <span className={styles.stat}>Last synced: {sinceSync}</span>
     </div>
   );
-}
-
-function timeSince(dateStr) {
-  const diff = Date.now() - new Date(dateStr).getTime();
-  const seconds = Math.floor(diff / 1000);
-  if (seconds < 5) return 'just now';
-  if (seconds < 60) return `${seconds}s ago`;
-  const minutes = Math.floor(seconds / 60);
-  return `${minutes}m ago`;
 }

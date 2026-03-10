@@ -1,6 +1,6 @@
 {
   "orgs": ["your-org"],
-  "poll_interval_seconds": 30,
+  "poll_interval_seconds": 600,
   "db_path": "./data/claude-patrol.db",
   "port": 3000,
   "workspace_base_path": "~/.claude-patrol/workspaces",

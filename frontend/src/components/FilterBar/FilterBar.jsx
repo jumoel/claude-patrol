@@ -52,14 +52,15 @@ export function FilterBar({ prs, filters, onFilterChange }) {
         {reviewStatuses.map(s => <option key={s} value={s}>{s}</option>)}
       </select>
 
-      <label className={styles.checkbox}>
-        <input
-          type="checkbox"
-          checked={filters.draft === 'true'}
-          onChange={(e) => update('draft', e.target.checked ? 'true' : '')}
-        />
-        Drafts only
-      </label>
+      <select
+        className={styles.select}
+        value={filters.draft || 'all'}
+        onChange={(e) => update('draft', e.target.value)}
+      >
+        <option value="all">All PRs</option>
+        <option value="true">Drafts only</option>
+        <option value="false">No drafts</option>
+      </select>
     </div>
   );
 }

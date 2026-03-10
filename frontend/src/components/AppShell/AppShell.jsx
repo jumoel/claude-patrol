@@ -2,18 +2,34 @@ import styles from './AppShell.module.css';
 
 /**
  * Top-level layout shell. Provides page structure, header, and content area.
- * @param {{ title: string, syncStatus: string, onSync: () => void, children: React.ReactNode }} props
+ * @param {{ title: string, syncTime: string, nextSync: string, syncing: boolean, onSync: () => void, children: React.ReactNode }} props
  */
-export function AppShell({ title, syncStatus, onSync, children }) {
+export function AppShell({ title, syncTime, nextSync, syncing, onSync, children }) {
   return (
     <div className={styles.shell}>
       <header className={styles.header}>
         <div className={styles.headerInner}>
           <h1 className={styles.title}>{title}</h1>
           <div className={styles.syncArea}>
-            <span className={styles.syncStatus}>{syncStatus}</span>
-            <button className={styles.syncButton} onClick={onSync}>
-              Sync now
+            <span className={styles.syncStatus}>
+              {syncTime}
+              {nextSync && (
+                <>
+                  {' \u00b7 Next in '}
+                  <span className={styles.countdown}>{nextSync}</span>
+                </>
+              )}
+            </span>
+            <button
+              className={styles.syncButton}
+              onClick={onSync}
+              disabled={syncing}
+            >
+              {syncing ? (
+                <span className={styles.spinner} />
+              ) : (
+                'Sync now'
+              )}
             </button>
           </div>
         </div>
