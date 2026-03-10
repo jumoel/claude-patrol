@@ -60,7 +60,8 @@ export function GlobalTerminal({ open, onToggle }) {
     if (!session) return;
     await fetch(`/api/sessions/${session.id}`, { method: 'DELETE' });
     setSession(null);
-  }, [session]);
+    onToggle();
+  }, [session, onToggle]);
 
   // Drag resize handlers
   const handlePointerDown = useCallback((e) => {
