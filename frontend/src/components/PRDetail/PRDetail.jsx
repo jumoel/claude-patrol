@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { fetchPR, fetchWorkspaces, fetchSessions, createWorkspace as apiCreateWorkspace, createSession as apiCreateSession, killSession as apiKillSession } from '../../lib/api.js';
+import { fetchPR, fetchWorkspaces, fetchSessions, fetchPRComments, createWorkspace as apiCreateWorkspace, createSession as apiCreateSession, killSession as apiKillSession } from '../../lib/api.js';
 import { WorkspaceControls } from '../WorkspaceControls/WorkspaceControls.jsx';
 import { Terminal } from '../Terminal/Terminal.jsx';
 import { QuickActions } from '../QuickActions/QuickActions.jsx';
+import { CommentsList } from '../CommentsList/CommentsList.jsx';
 import { StatusBadge } from '../StatusBadge/StatusBadge.jsx';
 import { getRelativeTime } from '../../lib/time.js';
 import { isFailedCheck, isPassedCheck, checkToStatus } from '../../lib/checks.js';
@@ -22,6 +23,8 @@ export function PRDetail({ prId, onBack }) {
   const [pr, setPR] = useState(null);
   const [workspace, setWorkspace] = useState(null);
   const [session, setSession] = useState(null);
+  const [comments, setComments] = useState(null);
+  const [commentsLoading, setCommentsLoading] = useState(true);
   const [loading, setLoading] = useState(true);
   const [openingClaude, setOpeningClaude] = useState(false);
   const [openingStep, setOpeningStep] = useState('');
@@ -48,6 +51,12 @@ export function PRDetail({ prId, onBack }) {
     } finally {
       setLoading(false);
     }
+    // Fetch comments in parallel (non-blocking)
+    setCommentsLoading(true);
+    fetchPRComments(prId)
+      .then(setComments)
+      .catch(err => console.error('Failed to load comments:', err))
+      .finally(() => setCommentsLoading(false));
   }, [prId]);
 
   useEffect(() => { loadData(); }, [loadData]);
@@ -312,6 +321,18 @@ export function PRDetail({ prId, onBack }) {
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* Review Comments & Conversation */}
+      {(commentsLoading || comments) && (
+        <div className={styles.card}>
+          <h3 className={styles.sectionTitle}>Comments</h3>
+          <CommentsList
+            reviews={comments?.reviews}
+            conversation={comments?.conversation}
+            loading={commentsLoading}
+          />
         </div>
       )}
     </div>

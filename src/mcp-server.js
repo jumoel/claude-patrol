@@ -158,5 +158,17 @@ server.tool(
   },
 );
 
+server.tool(
+  'get_pr_comments',
+  'Get review comments and conversation for a PR. Includes inline code review comments with file paths and diff positions, review summaries with state, and general PR conversation.',
+  {
+    id: z.string().describe('PR database ID (e.g. "org/repo#42")'),
+  },
+  async ({ id }) => {
+    const data = await api(`/api/prs/${encodeURIComponent(id)}/comments`);
+    return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] };
+  },
+);
+
 const transport = new StdioServerTransport();
 await server.connect(transport);

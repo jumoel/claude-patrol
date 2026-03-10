@@ -30,6 +30,15 @@ IMPORTANT: "main" and "master" are protected branches. Never edit, rebase onto, 
 
 When asked to rebase multiple PRs, loop through them: create_workspace (note the bookmark), cd, rebase, set bookmark, push, then move to the next one. After all PRs are done, ask the user if they want the workspaces cleaned up.
 
+## Reading review feedback
+
+Use get_pr_comments to see what reviewers said. The response includes:
+- Review summaries with their state (approved, changes_requested, etc.)
+- Inline code comments with file path and diff position
+- General PR conversation comments
+
+When addressing review feedback, read the comments first, then create a workspace to make the fixes.
+
 ## Retriggering CI
 
 Use retrigger_checks to re-run failed CI checks for a PR. Useful after pushing a fix.

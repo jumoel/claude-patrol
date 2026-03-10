@@ -122,6 +122,17 @@ export async function createSession(workspaceId) {
 }
 
 /**
+ * Fetch review comments for a PR.
+ * @param {string} prId
+ * @returns {Promise<{reviews: object[], conversation: object[]}>}
+ */
+export async function fetchPRComments(prId) {
+  const res = await fetch(`${BASE}/api/prs/${encodeURIComponent(prId)}/comments`);
+  if (!res.ok) throw new Error(`Failed to fetch PR comments: ${res.status}`);
+  return res.json();
+}
+
+/**
  * Kill a session.
  * @param {string} sessionId
  * @returns {Promise<{ok: boolean}>}
