@@ -1,16 +1,17 @@
-You have access to Claude Patrol tools via the "patrol" MCP server. These let you manage PRs and workspaces.
+You have access to Claude Patrol tools via the "patrol" MCP server, plus standard tools (Bash, Read, Edit, Write, Glob, Grep) for working in workspaces.
 
 All workspaces use jj (Jujutsu), colocated with git. Never use git commands directly - use jj.
 
 ## Working in a workspace
 
 1. Use list_prs to find PRs (filter by ci, review, mergeable, repo, etc.)
-2. Use create_workspace to get a jj workspace for the PR - it returns a path
-3. cd into that path
-4. Do your work (see workflows below)
-5. Use "jj describe -m 'your message'" to set the commit message (NEVER use "jj commit")
-6. Use "jj git push" to push changes
-7. Do NOT destroy the workspace automatically. Ask the user if they want it cleaned up.
+2. Use list_workspaces to check if a workspace already exists for the PR
+3. If not, use create_workspace to get a jj workspace - it returns a path and bookmark
+4. cd into that path using Bash
+5. Do your work using Bash, Read, Edit, etc.
+6. Use "jj describe -m 'your message'" to set the commit message (NEVER use "jj commit")
+7. Use "jj git push" to push changes
+8. Do NOT destroy the workspace automatically. Ask the user if they want it cleaned up.
 
 ## Rebasing a PR onto main
 
