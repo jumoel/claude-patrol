@@ -9,11 +9,11 @@
 }
 
 .sectionTitle {
-  @apply text-xs font-semibold text-gray-400 uppercase tracking-wider;
+  @apply text-sm font-semibold text-gray-400 uppercase tracking-wider;
 }
 
 .loading {
-  @apply text-sm text-gray-400 py-4;
+  @apply text-base text-gray-400 py-4;
 }
 
 /* Review cards */
@@ -26,11 +26,11 @@
 }
 
 .author {
-  @apply text-sm font-medium text-gray-700;
+  @apply text-base font-medium text-gray-700;
 }
 
 .badge {
-  @apply text-xs font-medium px-2 py-0.5 rounded-full;
+  @apply text-sm font-medium px-2 py-0.5 rounded-full;
 }
 
 .badgeApproved {
@@ -46,11 +46,11 @@
 }
 
 .timestamp {
-  @apply text-xs text-gray-400;
+  @apply text-sm text-gray-400;
 }
 
 .commentBody {
-  @apply text-sm text-gray-600 whitespace-pre-wrap border-l-2 border-gray-200 pl-3;
+  @apply text-base text-gray-600 whitespace-pre-wrap border-l-2 border-gray-200 pl-3;
 }
 
 /* Inline code comments */
@@ -67,11 +67,11 @@
 }
 
 .filePath {
-  @apply text-xs font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-600;
+  @apply text-sm font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-600;
 }
 
 .diffPos {
-  @apply text-xs font-mono text-gray-400;
+  @apply text-sm font-mono text-gray-400;
 }
 
 /* Conversation */

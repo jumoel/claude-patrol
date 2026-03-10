@@ -17,7 +17,7 @@
 }
 
 .cell {
-  @apply px-4 py-3 text-sm text-gray-700;
+  @apply px-4 py-3 text-base text-gray-700;
 }
 
 .titleCell {
@@ -41,7 +41,7 @@
 }
 
 .draftLabel {
-  @apply ml-2 text-xs text-gray-400 italic;
+  @apply ml-2 text-sm text-gray-400 italic;
 }
 
 .cellCenter {
@@ -61,5 +61,5 @@
 }
 
 .empty {
-  @apply text-center text-gray-400 py-16 text-sm;
+  @apply text-center text-gray-400 py-16 text-base;
 }

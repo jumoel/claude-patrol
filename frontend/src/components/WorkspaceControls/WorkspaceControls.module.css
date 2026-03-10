@@ -5,19 +5,19 @@
 }
 
 .createButton {
-  @apply px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-50 transition-colors cursor-pointer;
+  @apply px-4 py-2 text-base font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-50 transition-colors cursor-pointer;
 }
 
 .activeBadge {
-  @apply px-2 py-1 text-xs font-medium text-green-700 bg-green-100 rounded-full;
+  @apply px-2 py-1 text-sm font-medium text-green-700 bg-green-100 rounded-full;
 }
 
 .path {
-  @apply text-xs text-gray-500 font-mono;
+  @apply text-sm text-gray-500 font-mono;
 }
 
 .destroyButton {
-  @apply px-3 py-1.5 text-sm font-medium text-red-600 bg-red-50 rounded-md hover:bg-red-100 disabled:opacity-50 transition-colors cursor-pointer;
+  @apply px-3 py-1.5 text-base font-medium text-red-600 bg-red-50 rounded-md hover:bg-red-100 disabled:opacity-50 transition-colors cursor-pointer;
 }
 
 .confirmRow {
@@ -25,17 +25,17 @@
 }
 
 .confirmText {
-  @apply text-sm text-red-600 font-medium;
+  @apply text-base text-red-600 font-medium;
 }
 
 .confirmYes {
-  @apply px-3 py-1 text-sm font-medium text-white bg-red-600 rounded-md hover:bg-red-700 disabled:opacity-50 cursor-pointer;
+  @apply px-3 py-1 text-base font-medium text-white bg-red-600 rounded-md hover:bg-red-700 disabled:opacity-50 cursor-pointer;
 }
 
 .confirmNo {
-  @apply px-3 py-1 text-sm text-gray-600 bg-gray-100 rounded-md hover:bg-gray-200 cursor-pointer;
+  @apply px-3 py-1 text-base text-gray-600 bg-gray-100 rounded-md hover:bg-gray-200 cursor-pointer;
 }
 
 .error {
-  @apply text-sm text-red-600 w-full;
+  @apply text-base text-red-600 w-full;
 }
