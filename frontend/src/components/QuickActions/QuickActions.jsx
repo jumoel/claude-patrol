@@ -1,4 +1,3 @@
-import { useState, useRef } from 'react';
 import styles from './QuickActions.module.css';
 
 const BUILT_IN_ACTIONS = [
@@ -19,9 +18,6 @@ const BUILT_IN_ACTIONS = [
  * @param {{ wsRef: { current: WebSocket | null } }} props
  */
 export function QuickActions({ wsRef }) {
-  const [customCommand, setCustomCommand] = useState('');
-  const inputRef = useRef(null);
-
   const sendCommand = (text) => {
     const ws = wsRef.current;
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
@@ -35,13 +31,6 @@ export function QuickActions({ wsRef }) {
     }
   };
 
-  const handleCustom = (e) => {
-    e.preventDefault();
-    if (!customCommand.trim()) return;
-    sendCommand(customCommand + '\r');
-    setCustomCommand('');
-  };
-
   return (
     <div className={styles.actions}>
       <span className={styles.label}>Quick actions:</span>
@@ -50,18 +39,6 @@ export function QuickActions({ wsRef }) {
           {action.label}
         </button>
       ))}
-      <form className={styles.customForm} onSubmit={handleCustom}>
-        <input
-          ref={inputRef}
-          className={styles.customInput}
-          value={customCommand}
-          onChange={(e) => setCustomCommand(e.target.value)}
-          placeholder="Custom command..."
-        />
-        <button type="submit" className={styles.sendButton}>
-          Send
-        </button>
-      </form>
     </div>
   );
 }
