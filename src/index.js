@@ -1,3 +1,4 @@
+import { execFile as execFileCb } from 'node:child_process';
 import { loadConfig, watchConfig, unwatchConfig, configEvents, setCurrentConfig } from './config.js';
 import { initDb } from './db.js';
 import { startPoller, stopPoller, resetStatements } from './poller.js';
@@ -44,7 +45,15 @@ for (let attempt = 0; attempt < 10; attempt++) {
 // differ from config.port if the original port was already in use).
 initMcpConfig({ ...config, port });
 
-console.log(`[claude-patrol] Server listening on http://localhost:${port}`);
+const serverUrl = `http://localhost:${port}`;
+console.log(`[claude-patrol] Server listening on ${serverUrl}`);
+
+// Open browser unless NODE_ENV=test or --no-open flag is passed
+if (process.env.NODE_ENV !== 'test' && !process.argv.includes('--no-open')) {
+  execFileCb('open', [serverUrl], (err) => {
+    if (err) console.warn(`[claude-patrol] Could not open browser: ${err.message}`);
+  });
+}
 
 configEvents.on('change', (newConfig) => {
   console.log('[claude-patrol] Config changed, restarting poller');
