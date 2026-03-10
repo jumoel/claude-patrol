@@ -28,7 +28,7 @@ function InlineComment({ comment }) {
           <span className={styles.diffPos}>diff:{comment.diff_position}</span>
         )}
       </div>
-      <div className={styles.commentBody}>{comment.body}</div>
+      <div className={styles.commentBody} dangerouslySetInnerHTML={{ __html: comment.body_html }} />
     </div>
   );
 }
@@ -43,7 +43,7 @@ function ReviewCard({ review }) {
           <span className={styles.timestamp}>{getRelativeTime(review.submitted_at)}</span>
         )}
       </div>
-      {review.body && <div className={styles.commentBody}>{review.body}</div>}
+      {review.body_html && <div className={styles.commentBody} dangerouslySetInnerHTML={{ __html: review.body_html }} />}
       {review.comments.length > 0 && (
         <div className={styles.inlineList}>
           {review.comments.map((c, i) => (
@@ -62,7 +62,7 @@ function ConversationComment({ comment }) {
         <span className={styles.author}>{comment.author}</span>
         <span className={styles.timestamp}>{getRelativeTime(comment.created_at)}</span>
       </div>
-      <div className={styles.commentBody}>{comment.body}</div>
+      <div className={styles.commentBody} dangerouslySetInnerHTML={{ __html: comment.body_html }} />
     </div>
   );
 }

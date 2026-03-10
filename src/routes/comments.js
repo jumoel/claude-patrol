@@ -7,7 +7,7 @@ import { execFile } from '../utils.js';
  * @returns {Promise<object[]>}
  */
 async function ghApi(endpoint) {
-  const { stdout } = await execFile('gh', ['api', '--paginate', '--slurp', endpoint], {
+  const { stdout } = await execFile('gh', ['api', '--paginate', '--slurp', '-H', 'Accept: application/vnd.github.v3.html+json', endpoint], {
     maxBuffer: 10 * 1024 * 1024,
     timeout: 30_000,
   });
@@ -47,7 +47,7 @@ export function registerCommentRoutes(app) {
       commentsByReview.get(reviewId).push({
         path: c.path,
         diff_position: c.position,
-        body: c.body,
+        body_html: c.body_html || c.body,
         created_at: c.created_at,
       });
     }
@@ -57,7 +57,7 @@ export function registerCommentRoutes(app) {
       id: r.id,
       author: r.user?.login ?? 'unknown',
       state: r.state,
-      body: r.body || '',
+      body_html: r.body_html || r.body || '',
       submitted_at: r.submitted_at,
       comments: commentsByReview.get(r.id) || [],
     }));
@@ -65,7 +65,7 @@ export function registerCommentRoutes(app) {
     // Build conversation
     const conversation = conversationComments.map(c => ({
       author: c.user?.login ?? 'unknown',
-      body: c.body,
+      body_html: c.body_html || c.body,
       created_at: c.created_at,
     }));
 

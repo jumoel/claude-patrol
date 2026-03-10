@@ -50,7 +50,67 @@
 }
 
 .commentBody {
-  @apply text-base text-gray-600 whitespace-pre-wrap border-l-2 border-gray-200 pl-3;
+  @apply text-base text-gray-600 border-l-2 border-gray-200 pl-3;
+}
+
+.commentBody :global(p) {
+  @apply my-1;
+}
+
+.commentBody :global(a) {
+  @apply text-blue-600 hover:underline;
+}
+
+.commentBody :global(code) {
+  @apply text-sm font-mono bg-gray-100 px-1 py-0.5 rounded;
+}
+
+.commentBody :global(pre) {
+  @apply bg-gray-100 rounded p-3 overflow-x-auto my-2;
+}
+
+.commentBody :global(pre code) {
+  @apply bg-transparent p-0;
+}
+
+.commentBody :global(ul),
+.commentBody :global(ol) {
+  @apply pl-5 my-1;
+}
+
+.commentBody :global(ul) {
+  @apply list-disc;
+}
+
+.commentBody :global(ol) {
+  @apply list-decimal;
+}
+
+.commentBody :global(blockquote) {
+  @apply border-l-2 border-gray-300 pl-3 text-gray-500 my-2;
+}
+
+.commentBody :global(img) {
+  @apply max-w-full rounded my-2;
+}
+
+.commentBody :global(h1),
+.commentBody :global(h2),
+.commentBody :global(h3) {
+  @apply font-semibold text-gray-800 mt-3 mb-1;
+}
+
+.commentBody :global(table) {
+  @apply border-collapse border border-gray-200 my-2 text-sm;
+}
+
+.commentBody :global(th),
+.commentBody :global(td) {
+  @apply border border-gray-200 px-3 py-1;
+}
+
+.commentBody :global(th) {
+  @apply bg-gray-50 font-semibold;
 }
 
 /* Inline code comments */
