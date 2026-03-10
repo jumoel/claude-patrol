@@ -10,6 +10,7 @@ import { registerSyncRoutes } from './routes/sync.js';
 import { registerConfigRoutes } from './routes/config.js';
 import { registerWorkspaceRoutes } from './routes/workspaces.js';
 import { registerSessionRoutes } from './routes/sessions.js';
+import { registerCheckRoutes } from './routes/checks.js';
 
 /**
  * Create and configure the Fastify server.
@@ -27,6 +28,7 @@ export async function createServer(config) {
   registerConfigRoutes(app, config);
   registerWorkspaceRoutes(app, config);
   registerSessionRoutes(app, config);
+  registerCheckRoutes(app);
 
   // SSE endpoint for live updates
   app.get('/api/events', (request, reply) => {

@@ -1,39 +1,79 @@
 @reference "tailwindcss";
 
 .detail {
-  @apply space-y-6;
+  @apply space-y-4 pb-16;
 }
 
-.header {
-  @apply flex items-center gap-4;
+.headerCard {
+  @apply bg-white border border-gray-200 rounded-lg p-5 space-y-3;
+}
+
+.headerTop {
+  @apply flex items-center justify-between;
 }
 
 .backButton {
-  @apply px-3 py-1.5 text-sm text-gray-600 bg-gray-100 rounded-md hover:bg-gray-200 transition-colors cursor-pointer;
+  @apply flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-600 bg-gray-100 rounded-md hover:bg-gray-200 transition-colors cursor-pointer;
+}
+
+.ghButton {
+  @apply p-2 text-gray-400 hover:text-gray-700 rounded-md hover:bg-gray-100 transition-colors;
 }
 
 .title {
-  @apply text-lg font-bold text-gray-900;
+  @apply text-lg font-bold text-gray-900 leading-snug;
 }
 
-.title a {
-  @apply text-blue-600 hover:text-blue-800 hover:underline;
+.identityRow {
+  @apply flex flex-wrap items-center gap-2 text-sm text-gray-500;
 }
 
-.meta {
-  @apply flex flex-wrap items-center gap-3 text-sm text-gray-600;
+.repoTag {
+  @apply font-mono text-xs bg-gray-100 px-2 py-0.5 rounded text-gray-600;
 }
 
-.draft {
-  @apply text-xs text-gray-400 italic;
+.branchTag {
+  @apply flex items-center gap-1 font-mono text-xs text-gray-500;
+}
+
+.updatedText {
+  @apply text-xs text-gray-400;
+}
+
+.separator {
+  @apply text-gray-300;
+}
+
+.statusRow {
+  @apply flex items-center gap-4 pt-1;
+}
+
+.statusItem {
+  @apply flex items-center gap-1.5;
+}
+
+.statusLabel {
+  @apply text-xs font-medium text-gray-400 uppercase;
+}
+
+.draftBadge {
+  @apply text-xs font-medium px-2 py-0.5 bg-yellow-50 text-yellow-700 border border-yellow-200 rounded-full;
 }
 
 .labels {
-  @apply flex flex-wrap gap-2;
+  @apply flex flex-wrap gap-2 pt-1;
 }
 
 .label {
-  @apply px-2 py-0.5 text-xs font-medium text-gray-700 border-2 rounded-full;
+  @apply px-2.5 py-0.5 text-xs font-medium border rounded-full;
+}
+
+.actionsRow {
+  @apply bg-white border border-gray-200 rounded-lg p-5;
+}
+
+.card {
+  @apply bg-white border border-gray-200 rounded-lg p-5 space-y-3;
 }
 
 .section {
@@ -41,27 +81,113 @@
 }
 
 .sectionTitle {
-  @apply text-sm font-semibold text-gray-500 uppercase tracking-wider;
+  @apply text-sm font-semibold text-gray-500 uppercase tracking-wider flex items-center gap-3;
 }
 
 .openButton {
   @apply px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700 disabled:opacity-50 transition-colors cursor-pointer mt-2;
 }
 
-.checksList {
-  @apply space-y-1;
+/* Checks */
+.checksHeader {
+  @apply flex items-center justify-between flex-wrap gap-3;
+}
+
+.checksSummary {
+  @apply flex items-center gap-2 text-xs font-normal normal-case tracking-normal;
+}
+
+.summaryPass {
+  @apply text-green-600;
+}
+
+.summaryFail {
+  @apply text-red-600 font-medium;
+}
+
+.summaryPending {
+  @apply text-yellow-600;
+}
+
+.checksActions {
+  @apply flex items-center gap-2;
+}
+
+.retriggerButton {
+  @apply px-3 py-1.5 text-xs font-medium text-orange-700 bg-orange-50 border border-orange-200 rounded-md hover:bg-orange-100 disabled:opacity-50 transition-colors cursor-pointer;
+}
+
+.investigateButton {
+  @apply px-3 py-1.5 text-xs font-medium text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-md hover:bg-indigo-100 transition-colors cursor-pointer;
+}
+
+.checkGroup {
+  @apply space-y-0.5;
 }
 
 .checkRow {
-  @apply flex items-center justify-between py-1 px-3 text-sm bg-gray-50 rounded;
+  @apply flex items-center justify-between py-1.5 px-3 text-sm rounded hover:bg-gray-50 transition-colors;
+}
+
+.checkInfo {
+  @apply flex items-center gap-2 min-w-0 flex-1;
+}
+
+.checkDot {
+  @apply w-2 h-2 rounded-full flex-shrink-0;
 }
 
 .checkName {
-  @apply text-gray-700;
+  @apply text-gray-700 hover:text-blue-600 hover:underline truncate;
 }
 
-.checkStatus {
-  @apply text-xs font-medium text-gray-500;
+.checkNamePlain {
+  @apply text-gray-700 truncate;
+}
+
+.dotPass {
+  @apply bg-green-500;
+}
+
+.dotFail {
+  @apply bg-red-500;
+}
+
+.dotPending {
+  @apply bg-yellow-400;
+}
+
+.toggleButton {
+  @apply text-xs text-gray-500 hover:text-gray-700 py-1.5 px-3 cursor-pointer hover:bg-gray-50 rounded transition-colors;
+}
+
+/* Reviews */
+.reviewsList {
+  @apply space-y-1;
+}
+
+.reviewRow {
+  @apply flex items-center justify-between py-1.5 px-3 text-sm rounded hover:bg-gray-50 transition-colors;
+}
+
+.reviewerName {
+  @apply text-gray-700 font-medium;
+}
+
+.reviewState {
+  @apply text-xs font-medium;
+}
+
+.reviewApproved {
+  @apply text-green-700;
+}
+
+.reviewChanges {
+  @apply text-red-700;
+}
+
+.reviewComment {
+  @apply text-gray-500;
 }
 
 .loading {

@@ -24,8 +24,21 @@ startPoller(config);
 startHealthChecks();
 
 const server = await createServer(config);
-await server.listen({ port: config.port, host: '0.0.0.0' });
-console.log(`[claude-patrol] Server listening on http://localhost:${config.port}`);
+let port = config.port;
+for (let attempt = 0; attempt < 10; attempt++) {
+  try {
+    await server.listen({ port, host: '0.0.0.0' });
+    break;
+  } catch (err) {
+    if (err.code === 'EADDRINUSE') {
+      console.warn(`[claude-patrol] Port ${port} in use, trying ${port + 1}`);
+      port++;
+    } else {
+      throw err;
+    }
+  }
+}
+console.log(`[claude-patrol] Server listening on http://localhost:${port}`);
 
 configEvents.on('change', (newConfig) => {
   console.log('[claude-patrol] Config changed, restarting poller');

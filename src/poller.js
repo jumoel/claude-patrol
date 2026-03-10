@@ -30,7 +30,7 @@ query($q: String!, $cursor: String) {
               statusCheckRollup {
                 contexts(first: 50) {
                   nodes {
-                    ... on CheckRun { name status conclusion detailsUrl }
+                    ... on CheckRun { name status conclusion detailsUrl checkSuite { workflowRun { workflow { name } } } }
                     ... on StatusContext { context state targetUrl }
                   }
                 }
@@ -101,7 +101,9 @@ function extractChecks(pr) {
   const contexts = commitNode?.statusCheckRollup?.contexts?.nodes ?? [];
   return contexts.map(ctx => {
     if ('name' in ctx) {
-      return { name: ctx.name, status: ctx.status, conclusion: ctx.conclusion, url: ctx.detailsUrl };
+      const workflow = ctx.checkSuite?.workflowRun?.workflow?.name;
+      const fullName = workflow ? `${workflow} / ${ctx.name}` : ctx.name;
+      return { name: fullName, status: ctx.status, conclusion: ctx.conclusion, url: ctx.detailsUrl };
     }
     return { name: ctx.context, status: ctx.state, conclusion: null, url: ctx.targetUrl };
   });

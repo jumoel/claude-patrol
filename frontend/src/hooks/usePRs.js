@@ -2,6 +2,18 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { fetchPRs, fetchConfig, triggerSync as apiTriggerSync } from '../lib/api.js';
 
 /**
+ * Calculate remaining seconds until next sync based on last sync time and interval.
+ * @param {string | null} syncedAt
+ * @param {number} intervalSeconds
+ * @returns {number}
+ */
+function calcRemaining(syncedAt, intervalSeconds) {
+  if (!syncedAt) return 0;
+  const elapsed = Math.floor((Date.now() - new Date(syncedAt).getTime()) / 1000);
+  return Math.max(0, intervalSeconds - elapsed);
+}
+
+/**
  * Hook to fetch PRs and auto-refresh via SSE.
  * @param {Record<string, string>} filters
  */
@@ -14,18 +26,17 @@ export function usePRs(filters) {
   const [pollInterval, setPollInterval] = useState(600);
   const [countdown, setCountdown] = useState(0);
   const filtersRef = useRef(filters);
-  const countdownRef = useRef(null);
+  const syncedAtRef = useRef(null);
+  const pollIntervalRef = useRef(600);
   filtersRef.current = filters;
-
-  const resetCountdown = useCallback((seconds) => {
-    setCountdown(seconds);
-  }, []);
 
   const loadPRs = useCallback(async () => {
     try {
       const data = await fetchPRs(filtersRef.current);
       setPRs(data.prs);
       setSyncedAt(data.synced_at);
+      syncedAtRef.current = data.synced_at;
+      setCountdown(calcRemaining(data.synced_at, pollIntervalRef.current));
       setError(null);
     } catch (err) {
       setError(err.message);
@@ -38,16 +49,20 @@ export function usePRs(filters) {
   useEffect(() => {
     fetchConfig().then(cfg => {
       setPollInterval(cfg.poll_interval_seconds);
-      setCountdown(cfg.poll_interval_seconds);
+      pollIntervalRef.current = cfg.poll_interval_seconds;
+      // Recalculate countdown with correct interval if we already have syncedAt
+      if (syncedAtRef.current) {
+        setCountdown(calcRemaining(syncedAtRef.current, cfg.poll_interval_seconds));
+      }
     }).catch(() => {});
   }, []);
 
   // Countdown timer
   useEffect(() => {
-    countdownRef.current = setInterval(() => {
+    const id = setInterval(() => {
       setCountdown(prev => (prev > 0 ? prev - 1 : 0));
     }, 1000);
-    return () => clearInterval(countdownRef.current);
+    return () => clearInterval(id);
   }, []);
 
   // Initial fetch and re-fetch on filter change
@@ -60,14 +75,13 @@ export function usePRs(filters) {
     const source = new EventSource('/api/events');
     source.addEventListener('sync', () => {
       setSyncing(false);
-      resetCountdown(pollInterval);
       loadPRs();
     });
     source.onerror = () => {
       // EventSource auto-reconnects
     };
     return () => source.close();
-  }, [loadPRs, pollInterval, resetCountdown]);
+  }, [loadPRs]);
 
   const triggerSync = useCallback(async () => {
     setSyncing(true);
