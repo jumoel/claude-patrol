@@ -27,7 +27,8 @@ query($q: String!, $cursor: String) {
           nodes {
             commit {
               statusCheckRollup {
-                contexts(first: 50) {
+                contexts(first: 100) {
+                  pageInfo { hasNextPage }
                   nodes {
                     ... on CheckRun { name status conclusion detailsUrl checkSuite { workflowRun { workflow { name } } } }
                     ... on StatusContext { context state targetUrl }
@@ -97,7 +98,11 @@ async function fetchPRs(qualifier) {
  */
 function extractChecks(pr) {
   const commitNode = pr.commits?.nodes?.[0]?.commit;
-  const contexts = commitNode?.statusCheckRollup?.contexts?.nodes ?? [];
+  const contextsConn = commitNode?.statusCheckRollup?.contexts;
+  if (contextsConn?.pageInfo?.hasNextPage) {
+    console.warn(`[poller] PR #${pr.number} has more than 100 checks - some will be missing`);
+  }
+  const contexts = contextsConn?.nodes ?? [];
   return contexts.map(ctx => {
     if ('name' in ctx) {
       const workflow = ctx.checkSuite?.workflowRun?.workflow?.name;
