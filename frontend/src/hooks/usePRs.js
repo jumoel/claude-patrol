@@ -48,11 +48,11 @@ export function usePRs(filters) {
   // Fetch config for poll interval
   useEffect(() => {
     fetchConfig().then(cfg => {
-      setPollInterval(cfg.poll_interval_seconds);
-      pollIntervalRef.current = cfg.poll_interval_seconds;
+      setPollInterval(cfg.poll.interval_seconds);
+      pollIntervalRef.current = cfg.poll.interval_seconds;
       // Recalculate countdown with correct interval if we already have syncedAt
       if (syncedAtRef.current) {
-        setCountdown(calcRemaining(syncedAtRef.current, cfg.poll_interval_seconds));
+        setCountdown(calcRemaining(syncedAtRef.current, cfg.poll.interval_seconds));
       }
     }).catch(() => {});
   }, []);

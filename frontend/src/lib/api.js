@@ -41,7 +41,7 @@ export async function triggerSync() {
 
 /**
  * Fetch public config.
- * @returns {Promise<{orgs: string[], poll_interval_seconds: number}>}
+ * @returns {Promise<{poll: {orgs: string[], repos: string[], interval_seconds: number}}>}
  */
 export async function fetchConfig() {
   const res = await fetch(`${BASE}/api/config`);

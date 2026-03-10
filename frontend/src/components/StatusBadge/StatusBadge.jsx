@@ -7,6 +7,9 @@ const LABELS = {
   approved: 'Approved',
   changes_requested: 'Changes',
   unknown: 'Unknown',
+  MERGEABLE: 'Clean',
+  CONFLICTING: 'Conflict',
+  UNKNOWN: 'Unknown',
 };
 
 /**

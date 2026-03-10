@@ -52,4 +52,8 @@ configEvents.on('change', (newConfig) => {
 
 watchConfig();
 
-console.log(`[claude-patrol] Running. Polling ${config.orgs.join(', ')} every ${config.poll_interval_seconds}s`);
+const pollTargets = [
+  ...config.poll.orgs.map(o => `org:${o}`),
+  ...config.poll.repos.map(r => `repo:${r}`),
+].join(', ');
+console.log(`[claude-patrol] Running. Polling ${pollTargets} every ${config.poll.interval_seconds}s`);

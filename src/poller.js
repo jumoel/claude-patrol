@@ -2,6 +2,7 @@ import { execFile as execFileCb } from 'node:child_process';
 import { promisify } from 'node:util';
 import { EventEmitter } from 'node:events';
 import { getDb } from './db.js';
+import { destroyWorkspace } from './workspace.js';
 
 const execFile = promisify(execFileCb);
 
@@ -18,6 +19,7 @@ query($q: String!, $cursor: String) {
         url
         isDraft
         headRefName
+        mergeable
         createdAt
         updatedAt
         author { login }
@@ -46,14 +48,14 @@ query($q: String!, $cursor: String) {
 
 /**
  * Run a gh api graphql command and return parsed JSON.
- * @param {string} org
+ * @param {string} qualifier - search qualifier like "org:foo" or "repo:owner/repo"
  * @param {string | null} cursor
  * @returns {Promise<object>}
  */
-async function ghGraphql(org, cursor) {
+async function ghGraphql(qualifier, cursor) {
   const args = ['api', 'graphql',
     '-f', `query=${GRAPHQL_QUERY}`,
-    '-f', `q=org:${org} is:pr is:open author:@me`,
+    '-f', `q=${qualifier} is:pr is:open author:@me`,
   ];
   if (cursor) {
     args.push('-f', `cursor=${cursor}`);
@@ -62,25 +64,25 @@ async function ghGraphql(org, cursor) {
     const { stdout } = await execFile('gh', args, { maxBuffer: 10 * 1024 * 1024 });
     return JSON.parse(stdout);
   } catch (err) {
-    throw new Error(`gh graphql failed for ${org}: ${err.stderr || err.message}`);
+    throw new Error(`gh graphql failed for ${qualifier}: ${err.stderr || err.message}`);
   }
 }
 
 /**
- * Fetch all open PRs for an org, handling pagination.
- * @param {string} org
+ * Fetch all open PRs for a search qualifier, handling pagination.
+ * @param {string} qualifier - e.g. "org:foo" or "repo:owner/repo"
  * @returns {Promise<object[]>}
  */
-async function fetchPRsForOrg(org) {
+async function fetchPRs(qualifier) {
   const allPRs = [];
   let cursor = null;
   let hasNext = true;
 
   while (hasNext) {
-    const result = await ghGraphql(org, cursor);
+    const result = await ghGraphql(qualifier, cursor);
     const search = result.data?.search;
     if (!search) {
-      console.warn(`[poller] Unexpected response shape for ${org}:`, JSON.stringify(result).slice(0, 200));
+      console.warn(`[poller] Unexpected response shape for ${qualifier}:`, JSON.stringify(result).slice(0, 200));
       break;
     }
     allPRs.push(...search.nodes);
@@ -134,7 +136,13 @@ function extractLabels(pr) {
 /** @type {import('node:sqlite').StatementSync | null} */
 let upsertStmt = null;
 /** @type {import('node:sqlite').StatementSync | null} */
-let deleteStaleStmt = null;
+let deleteStaleByOrgStmt = null;
+/** @type {import('node:sqlite').StatementSync | null} */
+let deleteStaleByRepoStmt = null;
+/** @type {import('node:sqlite').StatementSync | null} */
+let findStaleByOrgStmt = null;
+/** @type {import('node:sqlite').StatementSync | null} */
+let findStaleByRepoStmt = null;
 
 /**
  * Get or create cached prepared statements.
@@ -143,27 +151,53 @@ function getStatements() {
   const db = getDb();
   if (!upsertStmt) {
     upsertStmt = db.prepare(`
-      INSERT OR REPLACE INTO prs (id, number, title, repo, org, author, url, branch, draft, checks, reviews, labels, created_at, updated_at, synced_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT OR REPLACE INTO prs (id, number, title, repo, org, author, url, branch, draft, mergeable, checks, reviews, labels, created_at, updated_at, synced_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
   }
-  if (!deleteStaleStmt) {
-    deleteStaleStmt = db.prepare('DELETE FROM prs WHERE org = ? AND id NOT IN (SELECT value FROM json_each(?))');
+  if (!deleteStaleByOrgStmt) {
+    deleteStaleByOrgStmt = db.prepare('DELETE FROM prs WHERE org = ? AND id NOT IN (SELECT value FROM json_each(?))');
   }
-  return { upsert: upsertStmt, deleteStale: deleteStaleStmt };
+  if (!deleteStaleByRepoStmt) {
+    deleteStaleByRepoStmt = db.prepare('DELETE FROM prs WHERE org = ? AND repo = ? AND id NOT IN (SELECT value FROM json_each(?))');
+  }
+  if (!findStaleByOrgStmt) {
+    findStaleByOrgStmt = db.prepare('SELECT id FROM prs WHERE org = ? AND id NOT IN (SELECT value FROM json_each(?))');
+  }
+  if (!findStaleByRepoStmt) {
+    findStaleByRepoStmt = db.prepare('SELECT id FROM prs WHERE org = ? AND repo = ? AND id NOT IN (SELECT value FROM json_each(?))');
+  }
+  return { upsert: upsertStmt, deleteStaleByOrg: deleteStaleByOrgStmt, deleteStaleByRepo: deleteStaleByRepoStmt, findStaleByOrg: findStaleByOrgStmt, findStaleByRepo: findStaleByRepoStmt };
 }
 
 /**
- * Upsert PRs into the database and remove stale ones for the org.
- * @param {string} org
- * @param {object[]} prs
+ * Destroy workspaces and clean up DB rows for a stale PR.
+ * @param {string} prId
+ * @param {object} config
  */
-function syncPRsToDb(org, prs) {
+async function cleanupStalePR(prId, config) {
+  const db = getDb();
+  const workspaces = db.prepare("SELECT id FROM workspaces WHERE pr_id = ? AND status = 'active'").all(prId);
+  for (const ws of workspaces) {
+    try {
+      await destroyWorkspace(ws.id, config);
+    } catch (err) {
+      console.warn(`[poller] Failed to destroy workspace ${ws.id} for stale PR ${prId}: ${err.message}`);
+    }
+  }
+  // Clean up any remaining DB rows (sessions, workspaces) before PR deletion
+  db.prepare('DELETE FROM sessions WHERE workspace_id IN (SELECT id FROM workspaces WHERE pr_id = ?)').run(prId);
+  db.prepare('DELETE FROM workspaces WHERE pr_id = ?').run(prId);
+}
+
+/**
+ * Upsert PRs into the database for a given scope.
+ * @param {object[]} prs - raw PR nodes from GraphQL
+ */
+function upsertPRs(prs) {
   const db = getDb();
   const now = new Date().toISOString();
-  const { upsert, deleteStale } = getStatements();
-
-  const seenIds = [];
+  const { upsert } = getStatements();
 
   db.exec('BEGIN');
   try {
@@ -171,7 +205,6 @@ function syncPRsToDb(org, prs) {
       const prOrg = pr.repository.owner.login;
       const repo = pr.repository.name;
       const id = `${prOrg}/${repo}#${pr.number}`;
-      seenIds.push(id);
 
       upsert.run(
         id,
@@ -183,6 +216,7 @@ function syncPRsToDb(org, prs) {
         pr.url,
         pr.headRefName,
         pr.isDraft ? 1 : 0,
+        pr.mergeable || 'UNKNOWN',
         JSON.stringify(extractChecks(pr)),
         JSON.stringify(extractReviews(pr)),
         JSON.stringify(extractLabels(pr)),
@@ -191,10 +225,6 @@ function syncPRsToDb(org, prs) {
         now,
       );
     }
-
-    // Bulk delete PRs no longer open for this org
-    deleteStale.run(org, JSON.stringify(seenIds));
-
     db.exec('COMMIT');
   } catch (err) {
     db.exec('ROLLBACK');
@@ -203,19 +233,80 @@ function syncPRsToDb(org, prs) {
 }
 
 /**
- * Run a single poll cycle across all orgs concurrently.
- * @param {string[]} orgs
+ * Find stale PR IDs and clean them up (destroy workspaces, delete rows).
+ * @param {'org' | 'repo'} scope
+ * @param {string} org
+ * @param {string | null} repo
+ * @param {string[]} seenIds
+ * @param {object} config
  */
-async function pollOnce(orgs) {
-  const results = await Promise.allSettled(orgs.map(async (org) => {
-    const prs = await fetchPRsForOrg(org);
-    syncPRsToDb(org, prs);
-    console.log(`[poller] Synced ${prs.length} PRs for ${org}`);
+async function cleanupStale(scope, org, repo, seenIds, config) {
+  const { findStaleByOrg, findStaleByRepo, deleteStaleByOrg, deleteStaleByRepo } = getStatements();
+  const seenJson = JSON.stringify(seenIds);
+
+  const staleRows = scope === 'org'
+    ? findStaleByOrg.all(org, seenJson)
+    : findStaleByRepo.all(org, repo, seenJson);
+
+  // Destroy workspaces for stale PRs (async operations)
+  for (const row of staleRows) {
+    await cleanupStalePR(row.id, config);
+  }
+
+  // Delete the stale PR rows
+  if (scope === 'org') {
+    deleteStaleByOrg.run(org, seenJson);
+  } else {
+    deleteStaleByRepo.run(org, repo, seenJson);
+  }
+}
+
+/**
+ * Run a single poll cycle across all configured targets.
+ * @param {object} config
+ */
+async function pollOnce(config) {
+  const orgs = config.poll.orgs;
+  const repos = config.poll.repos;
+  const orgSet = new Set(orgs);
+
+  let totalCount = 0;
+
+  // Org-level fetches
+  const orgResults = await Promise.allSettled(orgs.map(async (org) => {
+    const prs = await fetchPRs(`org:${org}`);
+    upsertPRs(prs);
+    const seenIds = prs.map(pr => `${pr.repository.owner.login}/${pr.repository.name}#${pr.number}`);
+    await cleanupStale('org', org, null, seenIds, config);
+    console.log(`[poller] Synced ${prs.length} PRs for org:${org}`);
     return prs.length;
   }));
 
-  let totalCount = 0;
-  for (const result of results) {
+  for (const result of orgResults) {
+    if (result.status === 'fulfilled') {
+      totalCount += result.value;
+    } else {
+      console.error(`[poller] Error polling: ${result.reason.message}`);
+    }
+  }
+
+  // Repo-level fetches
+  const repoResults = await Promise.allSettled(repos.map(async (ownerRepo) => {
+    const [owner, repo] = ownerRepo.split('/');
+    // Skip if this repo's org is already covered by org-level polling
+    if (orgSet.has(owner)) {
+      console.log(`[poller] Skipping repo:${ownerRepo} (org:${owner} already polled)`);
+      return 0;
+    }
+    const prs = await fetchPRs(`repo:${ownerRepo}`);
+    upsertPRs(prs);
+    const seenIds = prs.map(pr => `${pr.repository.owner.login}/${pr.repository.name}#${pr.number}`);
+    await cleanupStale('repo', owner, repo, seenIds, config);
+    console.log(`[poller] Synced ${prs.length} PRs for repo:${ownerRepo}`);
+    return prs.length;
+  }));
+
+  for (const result of repoResults) {
     if (result.status === 'fulfilled') {
       totalCount += result.value;
     } else {
@@ -231,17 +322,21 @@ let intervalHandle = null;
 
 /**
  * Start the polling loop.
- * @param {{ orgs: string[], poll_interval_seconds: number }} config
+ * @param {object} config
  */
 export function startPoller(config) {
   stopPoller();
-  console.log(`[poller] Starting - polling ${config.orgs.join(', ')} every ${config.poll_interval_seconds}s`);
+  const targets = [
+    ...config.poll.orgs.map(o => `org:${o}`),
+    ...config.poll.repos.map(r => `repo:${r}`),
+  ].join(', ');
+  console.log(`[poller] Starting - polling ${targets} every ${config.poll.interval_seconds}s`);
 
   // Run immediately, then on interval
-  pollOnce(config.orgs).catch(err => console.error(`[poller] Poll failed: ${err.message}`));
+  pollOnce(config).catch(err => console.error(`[poller] Poll failed: ${err.message}`));
   intervalHandle = setInterval(
-    () => pollOnce(config.orgs).catch(err => console.error(`[poller] Poll failed: ${err.message}`)),
-    config.poll_interval_seconds * 1000,
+    () => pollOnce(config).catch(err => console.error(`[poller] Poll failed: ${err.message}`)),
+    config.poll.interval_seconds * 1000,
   );
 }
 
@@ -256,12 +351,12 @@ export function stopPoller() {
 }
 
 /**
- * Trigger an immediate poll with the given orgs.
- * @param {string[]} orgs
+ * Trigger an immediate poll with the given config.
+ * @param {object} config
  * @returns {Promise<void>}
  */
-export function triggerPoll(orgs) {
-  return pollOnce(orgs);
+export function triggerPoll(config) {
+  return pollOnce(config);
 }
 
 /**
@@ -269,5 +364,8 @@ export function triggerPoll(orgs) {
  */
 export function resetStatements() {
   upsertStmt = null;
-  deleteStaleStmt = null;
+  deleteStaleByOrgStmt = null;
+  deleteStaleByRepoStmt = null;
+  findStaleByOrgStmt = null;
+  findStaleByRepoStmt = null;
 }

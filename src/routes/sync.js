@@ -3,21 +3,21 @@ import { triggerPoll } from '../poller.js';
 /**
  * Register sync-related routes.
  * @param {import('fastify').FastifyInstance} app
- * @param {{ orgs: string[] }} config
+ * @param {object} config
  */
 export function registerSyncRoutes(app, config) {
-  let currentOrgs = config.orgs;
+  let currentConfig = config;
 
   app.post('/api/sync/trigger', async () => {
-    await triggerPoll(currentOrgs);
+    await triggerPoll(currentConfig);
     return { ok: true };
   });
 
   /**
-   * Update the orgs list when config changes.
-   * @param {{ orgs: string[] }} newConfig
+   * Update the config when it changes.
+   * @param {object} newConfig
    */
   app.decorate('updateSyncConfig', (newConfig) => {
-    currentOrgs = newConfig.orgs;
+    currentConfig = newConfig;
   });
 }

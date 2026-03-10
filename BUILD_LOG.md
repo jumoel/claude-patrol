@@ -85,3 +85,21 @@ Wired workspace and session management into the PR dashboard. Added PR detail vi
 - Completes the full flow: PR table -> PR detail -> create workspace -> Claude session with quick actions. Startup validation prevents a half-working server.
 
 ![Final dashboard](screenshots/plan05-dashboard-final.png)
+
+## 2026-03-10 - Four feature batch: button fix, merge status, poll config, stale cleanup
+
+### Feature 1: "Open in Claude" button persists after workspace creation
+One-line fix in PRDetail.jsx - removed the `!workspace` guard so the button shows whenever there's no active session. The handler already checks for existing workspace before creating one.
+
+### Feature 2: Auto-cleanup workspaces for merged/closed PRs
+When the poller detects PRs that are no longer open, it now destroys their workspaces (kill sessions, docker down, jj forget, rm directory, Claude memory cleanup) before deleting the DB rows. Split into two phases: sync (transaction for upserts) then async cleanup (workspace destruction + stale row deletion).
+
+### Feature 3: Merge/conflict status on dashboard and detail page
+- Added `mergeable` field to GraphQL query and DB schema (migration via ALTER TABLE)
+- New StatusBadge variants for merge status: Clean (green), Conflict (red), Unknown (gray)
+- "Merge" column added to PR table, merge status badge on PR detail page
+
+### Feature 4: Config supports `poll.orgs` + `poll.repos` + `poll.interval_seconds`
+Restructured config from flat `orgs`/`poll_interval_seconds` to nested `poll` object. Supports org-level and individual repo-level polling. Repo-level polls are skipped if the repo's org is already polled. Stale deletion is scoped per-org or per-repo. Backward-compatible migration handles legacy config format.
+
+**Files changed:** PRDetail.jsx, PRTable.jsx, StatusBadge.jsx/css, poller.js, db.js, config.js, routes/sync.js, routes/config.js, index.js, config.json, config.example.json

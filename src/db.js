@@ -42,6 +42,9 @@ export function initDb(dbPath) {
   db.exec('CREATE INDEX IF NOT EXISTS idx_prs_org ON prs(org)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_prs_repo ON prs(repo)');
 
+  // Migration: add mergeable column
+  try { db.exec("ALTER TABLE prs ADD COLUMN mergeable TEXT NOT NULL DEFAULT 'UNKNOWN'"); } catch { /* column already exists */ }
+
   db.exec(`
     CREATE TABLE IF NOT EXISTS workspaces (
       id TEXT PRIMARY KEY,

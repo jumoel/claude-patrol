@@ -201,6 +201,10 @@ export function PRDetail({ prId, onBack }) {
             <span className={styles.statusLabel}>Review</span>
             <StatusBadge status={pr.review_status} type="review" />
           </div>
+          <div className={styles.statusItem}>
+            <span className={styles.statusLabel}>Merge</span>
+            <StatusBadge status={pr.mergeable} type="merge" />
+          </div>
           {pr.draft && (
             <div className={styles.statusItem}>
               <span className={styles.statusLabel}>PR</span>
@@ -225,7 +229,7 @@ export function PRDetail({ prId, onBack }) {
         <div className={styles.section}>
           <h3 className={styles.sectionTitle}>Workspace</h3>
           <WorkspaceControls prId={prId} workspace={workspace} onUpdate={loadData} />
-          {!workspace && !session && (
+          {!session && (
             <button className={styles.openButton} onClick={handleOpenInClaude} disabled={openingClaude}>
               {openingClaude ? openingStep : 'Open in Claude'}
             </button>

@@ -8,8 +8,6 @@ const CONFIG_PATH = resolve(import.meta.dirname, '..', 'config.json');
 const PATH_FIELDS = ['db_path', 'workspace_base_path', 'work_dir', 'global_terminal_cwd'];
 
 const REQUIRED_FIELDS = {
-  orgs: (v) => Array.isArray(v) && v.length > 0,
-  poll_interval_seconds: (v) => typeof v === 'number' && v >= 5,
   db_path: (v) => typeof v === 'string',
   port: (v) => typeof v === 'number',
   workspace_base_path: (v) => typeof v === 'string',
@@ -20,6 +18,8 @@ const REQUIRED_FIELDS = {
  * Validate config object. Throws on invalid.
  * @param {Record<string, unknown>} cfg
  */
+const OWNER_REPO_RE = /^[^/]+\/[^/]+$/;
+
 function validate(cfg) {
   for (const [field, predicate] of Object.entries(REQUIRED_FIELDS)) {
     if (!(field in cfg)) {
@@ -27,6 +27,32 @@ function validate(cfg) {
     }
     if (!predicate(cfg[field])) {
       throw new Error(`Config field "${field}" has invalid value: ${JSON.stringify(cfg[field])}`);
+    }
+  }
+
+  if (!cfg.poll || typeof cfg.poll !== 'object') {
+    throw new Error('Missing required config field: poll (object with orgs and/or repos arrays)');
+  }
+
+  cfg.poll.orgs = cfg.poll.orgs || [];
+  cfg.poll.repos = cfg.poll.repos || [];
+
+  if (!Array.isArray(cfg.poll.orgs)) {
+    throw new Error('Config field "poll.orgs" must be an array');
+  }
+  if (!Array.isArray(cfg.poll.repos)) {
+    throw new Error('Config field "poll.repos" must be an array');
+  }
+  if (cfg.poll.orgs.length === 0 && cfg.poll.repos.length === 0) {
+    throw new Error('Config must specify at least one entry in poll.orgs or poll.repos');
+  }
+
+  if (typeof cfg.poll.interval_seconds !== 'number' || cfg.poll.interval_seconds < 5) {
+    throw new Error('Config field "poll.interval_seconds" must be a number >= 5');
+  }
+  for (const repo of cfg.poll.repos) {
+    if (!OWNER_REPO_RE.test(repo)) {
+      throw new Error(`Invalid poll.repos entry "${repo}" - must be "owner/repo" format`);
     }
   }
 }

@@ -36,6 +36,22 @@
   @apply ml-2 text-xs text-gray-400 italic;
 }
 
+.cellCenter {
+  @apply text-center;
+}
+
+.headerCenter {
+  @apply text-center;
+}
+
+.headerRight {
+  @apply text-right;
+}
+
+.cellRight {
+  @apply text-right;
+}
+
 .empty {
   @apply text-center text-gray-400 py-16 text-sm;
 }

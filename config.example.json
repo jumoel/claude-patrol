@@ -1,6 +1,9 @@
 {
-  "orgs": ["your-org"],
-  "poll_interval_seconds": 600,
+  "poll": {
+    "orgs": ["your-org"],
+    "repos": ["owner/specific-repo"],
+    "interval_seconds": 600
+  },
   "db_path": "./data/claude-patrol.db",
   "port": 3000,
   "workspace_base_path": "~/.claude-patrol/workspaces",

@@ -54,17 +54,27 @@ export function PRTable({ prs, onRowClick }) {
       header: 'CI',
       accessorKey: 'ci_status',
       cell: ({ getValue }) => <StatusBadge status={getValue()} type="ci" />,
+      meta: { centered: true },
     },
     {
       id: 'review_status',
       header: 'Review',
       accessorKey: 'review_status',
       cell: ({ getValue }) => <StatusBadge status={getValue()} type="review" />,
+      meta: { centered: true },
+    },
+    {
+      id: 'mergeable',
+      header: 'Merge',
+      accessorKey: 'mergeable',
+      cell: ({ getValue }) => <StatusBadge status={getValue()} type="merge" />,
+      meta: { centered: true },
     },
     {
       accessorKey: 'updated_at',
       header: 'Updated',
       cell: ({ getValue }) => getRelativeTime(getValue()),
+      meta: { alignRight: true },
     },
   ], []);
 
@@ -89,7 +99,7 @@ export function PRTable({ prs, onRowClick }) {
             {headerGroup.headers.map(header => (
               <th
                 key={header.id}
-                className={styles.header}
+                className={`${styles.header} ${header.column.columnDef.meta?.centered ? styles.headerCenter : ''} ${header.column.columnDef.meta?.alignRight ? styles.headerRight : ''}`}
                 onClick={header.column.getToggleSortingHandler()}
               >
                 {flexRender(header.column.columnDef.header, header.getContext())}
@@ -106,7 +116,7 @@ export function PRTable({ prs, onRowClick }) {
         {table.getRowModel().rows.map(row => (
           <tr key={row.id} className={`${styles.row} ${row.original.draft ? styles.draft : ''}`} onClick={() => onRowClick?.(row.original.id)} style={{ cursor: onRowClick ? 'pointer' : undefined }}>
             {row.getVisibleCells().map(cell => (
-              <td key={cell.id} className={styles.cell}>
+              <td key={cell.id} className={`${styles.cell} ${cell.column.columnDef.meta?.centered ? styles.cellCenter : ''} ${cell.column.columnDef.meta?.alignRight ? styles.cellRight : ''}`}>
                 {flexRender(cell.column.columnDef.cell, cell.getContext())}
               </td>
             ))}
