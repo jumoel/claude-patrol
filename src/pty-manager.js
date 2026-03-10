@@ -116,7 +116,7 @@ export function createSession(workspaceId, cwd) {
   if (mcpConfigPath) {
     args.push('--mcp-config', mcpConfigPath);
     args.push('--append-system-prompt', PATROL_SYSTEM_PROMPT);
-    args.push('--allowedTools', 'mcp__patrol__*', 'Bash', 'Read', 'Edit', 'Write', 'Glob', 'Grep');
+    args.push('--allowedTools', 'mcp__patrol__*', 'Bash', 'Read', 'Edit', 'Write', 'Glob', 'Grep', 'Agent');
   }
 
   const proc = pty.spawn('claude', args, {
