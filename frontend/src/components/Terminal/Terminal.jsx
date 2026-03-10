@@ -19,8 +19,9 @@ export function Terminal({ wsUrl, wsRef: externalWsRef }) {
 
     const term = new XTerm({
       cursorBlink: true,
-      fontSize: 16,
+      fontSize: 14,
       fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+      letterSpacing: 0,
       theme: {
         background: '#1a1b26',
         foreground: '#a9b1d6',
