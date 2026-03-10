@@ -92,45 +92,69 @@ export function FilterBar({ prs, filters, onFilterChange, onCopyMarkdown, copied
     onFilterChange({ ...filters, [key]: value });
   };
 
-  const MERGE_READY_FILTERS = { ci: ['pass'], review: ['approved'], mergeable: ['MERGEABLE'], draft: ['false'] };
+  const REVIEW_READY_FILTERS = { ci: ['pass'], review: ['changes_requested', 'pending'], mergeable: ['MERGEABLE'], draft: ['false'] };
+  const MERGE_READY_FILTERS = { ...REVIEW_READY_FILTERS, review: ['approved'] };
 
-  const isMergeReadyActive = filters.ci?.length === 1 && filters.ci[0] === 'pass'
-    && filters.review?.length === 1 && filters.review[0] === 'approved'
-    && filters.mergeable?.length === 1 && filters.mergeable[0] === 'MERGEABLE'
-    && filters.draft?.length === 1 && filters.draft[0] === 'false';
+  const filtersMatch = (target) => Object.entries(target).every(
+    ([key, values]) => filters[key]?.length === values.length && values.every(v => filters[key].includes(v))
+  );
 
-  const toggleMergeReady = () => {
-    if (isMergeReadyActive) {
+  const isReviewReadyActive = filtersMatch(REVIEW_READY_FILTERS);
+  const isMergeReadyActive = filtersMatch(MERGE_READY_FILTERS);
+  const isNeedsWorkActive = !!filters.needsWork;
+  const hasAnyFilter = Object.values(filters).some(v => v === true || (Array.isArray(v) && v.length > 0));
+
+  const toggleQuickFilter = (target, isActive) => {
+    if (isActive) {
       onFilterChange({});
     } else {
-      onFilterChange({ ...filters, ...MERGE_READY_FILTERS });
+      onFilterChange(target);
     }
   };
 
   return (
-    <div className={styles.bar}>
-      <button
-        className={`${styles.quickFilter} ${isMergeReadyActive ? styles.quickFilterActive : ''}`}
-        onClick={toggleMergeReady}
-        type="button"
-      >
-        Merge Ready
-      </button>
-      <div className={styles.separator} />
-      <MultiSelect label="All orgs" options={orgOptions} selected={filters.org || []} onChange={(v) => update('org', v)} />
-      <MultiSelect label="All repos" options={repoOptions} selected={filters.repo || []} onChange={(v) => update('repo', v)} />
-      <MultiSelect label="All CI" options={CI_OPTIONS} selected={filters.ci || []} onChange={(v) => update('ci', v)} />
-      <MultiSelect label="All reviews" options={REVIEW_OPTIONS} selected={filters.review || []} onChange={(v) => update('review', v)} />
-      <MultiSelect label="All merge" options={MERGE_OPTIONS} selected={filters.mergeable || []} onChange={(v) => update('mergeable', v)} />
-      <MultiSelect label="All PRs" options={DRAFT_OPTIONS} selected={filters.draft || []} onChange={(v) => update('draft', v)} />
-      {onCopyMarkdown && (
-        <>
-          <div className={styles.separator} />
+    <div className={styles.wrapper}>
+      <div className={styles.quickFilters}>
+        <button
+          className={`${styles.quickFilter} ${styles.quickFilterGreen} ${isMergeReadyActive ? styles.quickFilterActive : ''}`}
+          onClick={() => toggleQuickFilter(MERGE_READY_FILTERS, isMergeReadyActive)}
+          type="button"
+        >
+          Merge Ready
+        </button>
+        <button
+          className={`${styles.quickFilter} ${styles.quickFilterOrange} ${isNeedsWorkActive ? styles.quickFilterActive : ''}`}
+          onClick={() => toggleQuickFilter({ needsWork: true }, isNeedsWorkActive)}
+          type="button"
+        >
+          Needs Work
+        </button>
+        <button
+          className={`${styles.quickFilter} ${styles.quickFilterBlue} ${isReviewReadyActive ? styles.quickFilterActive : ''}`}
+          onClick={() => toggleQuickFilter(REVIEW_READY_FILTERS, isReviewReadyActive)}
+          type="button"
+        >
+          Review Ready
+        </button>
+        {hasAnyFilter && (
+          <button className={styles.clearButton} onClick={() => onFilterChange({})} type="button">
+            Clear
+          </button>
+        )}
+        {onCopyMarkdown && (
           <button className={styles.copyButton} onClick={onCopyMarkdown} type="button">
             {copied ? 'Copied!' : 'Copy as Markdown'}
           </button>
-        </>
-      )}
+        )}
+      </div>
+      <div className={styles.bar}>
+        <MultiSelect label="All orgs" options={orgOptions} selected={filters.org || []} onChange={(v) => update('org', v)} />
+        <MultiSelect label="All repos" options={repoOptions} selected={filters.repo || []} onChange={(v) => update('repo', v)} />
+        <MultiSelect label="All CI" options={CI_OPTIONS} selected={filters.ci || []} onChange={(v) => update('ci', v)} />
+        <MultiSelect label="All reviews" options={REVIEW_OPTIONS} selected={filters.review || []} onChange={(v) => update('review', v)} />
+        <MultiSelect label="All merge" options={MERGE_OPTIONS} selected={filters.mergeable || []} onChange={(v) => update('mergeable', v)} />
+        <MultiSelect label="All PRs" options={DRAFT_OPTIONS} selected={filters.draft || []} onChange={(v) => update('draft', v)} />
+      </div>
     </div>
   );
 }

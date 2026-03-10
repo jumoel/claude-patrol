@@ -1,7 +1,15 @@
 @reference "tailwindcss";
 
+.wrapper {
+  @apply space-y-2 mb-4;
+}
+
+.quickFilters {
+  @apply flex flex-wrap gap-3 items-center;
+}
+
 .bar {
-  @apply flex flex-wrap gap-3 items-center py-3 px-4 bg-white border border-gray-200 rounded-lg mb-4;
+  @apply flex flex-wrap gap-3 items-center py-3 px-4 bg-white border border-gray-200 rounded-lg;
 }
 
 .multiSelect {
@@ -34,15 +42,39 @@
 }
 
 .quickFilter {
-  @apply px-3 py-1.5 text-base font-medium border border-green-300 rounded-md bg-white text-green-700 cursor-pointer select-none transition-colors hover:bg-green-50;
+  @apply px-3 py-1.5 text-base font-medium border rounded-md bg-white cursor-pointer select-none transition-colors;
 }
 
-.quickFilterActive {
+.quickFilterGreen {
+  @apply border-green-300 text-green-700 hover:bg-green-50;
+}
+
+.quickFilterGreen.quickFilterActive {
   @apply bg-green-100 border-green-500 text-green-800;
+}
+
+.quickFilterOrange {
+  @apply border-orange-300 text-orange-700 hover:bg-orange-50;
+}
+
+.quickFilterOrange.quickFilterActive {
+  @apply bg-orange-100 border-orange-500 text-orange-800;
+}
+
+.quickFilterBlue {
+  @apply border-blue-300 text-blue-700 hover:bg-blue-50;
+}
+
+.quickFilterBlue.quickFilterActive {
+  @apply bg-blue-100 border-blue-500 text-blue-800;
 }
 
 .separator {
   @apply w-px h-6 bg-gray-200;
+}
+
+.clearButton {
+  @apply px-3 py-1.5 text-base font-medium border border-red-300 rounded-md bg-white text-red-600 cursor-pointer select-none transition-colors hover:bg-red-50;
 }
 
 .copyButton {
