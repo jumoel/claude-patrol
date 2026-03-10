@@ -20,6 +20,7 @@ function loadHeight() {
 
 /**
  * Persistent global terminal drawer at the bottom of the UI.
+ * Stays mounted when closed to preserve the xterm instance and session.
  * @param {{ open: boolean, onToggle: () => void }} props
  */
 export function GlobalTerminal({ open, onToggle }) {
@@ -96,12 +97,19 @@ export function GlobalTerminal({ open, onToggle }) {
     });
   }, []);
 
-  if (!open) return null;
+  // The spacer height is used by the parent to add scroll room.
+  // The drawer itself is position:fixed so it doesn't participate in flow.
+  const spacerHeight = open ? height : 0;
 
   return (
     <>
+      {/* Flow spacer - pushes content up so it's scrollable behind the drawer */}
+      <div style={{ height: spacerHeight, flexShrink: 0 }} />
       {dragging && <div className={styles.dragOverlay} />}
-      <div className={styles.drawer} style={{ height }}>
+      <div
+        className={styles.drawer}
+        style={{ height, display: open ? 'flex' : 'none' }}
+      >
         <div
           className={styles.resizeHandle}
           onPointerDown={handlePointerDown}
