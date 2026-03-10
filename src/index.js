@@ -74,14 +74,24 @@ console.log(`[claude-patrol] Running. Polling ${pollTargets} every ${config.poll
 // Graceful shutdown
 let shuttingDown = false;
 async function shutdown(signal) {
-  if (shuttingDown) return;
+  if (shuttingDown) {
+    console.log('[claude-patrol] Forced exit.');
+    process.exit(1);
+  }
   shuttingDown = true;
   console.log(`\n[claude-patrol] Received ${signal}, shutting down...`);
   unwatchConfig();
   stopPoller();
   stopHealthChecks();
   killAllSessions();
-  await server.close();
+  // server.close() waits for open connections (SSE, WebSocket) to drain,
+  // which can hang indefinitely. Race it against a hard timeout.
+  const forceExit = setTimeout(() => {
+    console.log('[claude-patrol] Shutdown timed out, forcing exit.');
+    process.exit(0);
+  }, 3000);
+  forceExit.unref();
+  try { await server.close(); } catch { /* ignore close errors */ }
   console.log('[claude-patrol] Shutdown complete.');
   process.exit(0);
 }
