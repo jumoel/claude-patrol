@@ -28,8 +28,6 @@ export function PRTable({ prs, onRowClick }) {
             <span className={styles.titleText}>
               {pr.title}
               {pr.draft && <span className={styles.draftLabel}>Draft</span>}
-              {pr.has_session && <span className={styles.sessionBadge} title="Running session">S</span>}
-              {pr.has_workspace && !pr.has_session && <span className={styles.workspaceBadge} title="Active workspace">W</span>}
             </span>
             <a
               href={pr.url}
@@ -51,6 +49,18 @@ export function PRTable({ prs, onRowClick }) {
       id: 'repo',
       header: 'Repo',
       accessorFn: (row) => `${row.org}/${row.repo}`,
+    },
+    {
+      id: 'local',
+      header: 'Local',
+      accessorFn: (row) => row.has_session ? 2 : row.has_workspace ? 1 : 0,
+      cell: ({ row }) => {
+        const pr = row.original;
+        if (pr.has_session) return <span className={styles.sessionBadge} title="Running session">Session</span>;
+        if (pr.has_workspace) return <span className={styles.workspaceBadge} title="Active workspace">Workspace</span>;
+        return null;
+      },
+      meta: { centered: true },
     },
     {
       id: 'ci_status',
