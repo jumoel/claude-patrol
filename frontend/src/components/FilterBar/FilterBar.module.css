@@ -32,3 +32,15 @@
 .checkbox {
   @apply w-3.5 h-3.5 rounded border-gray-300 text-blue-600 accent-blue-600;
 }
+
+.quickFilter {
+  @apply px-3 py-1.5 text-sm font-medium border border-green-300 rounded-md bg-white text-green-700 cursor-pointer select-none transition-colors hover:bg-green-50;
+}
+
+.quickFilterActive {
+  @apply bg-green-100 border-green-500 text-green-800;
+}
+
+.separator {
+  @apply w-px h-6 bg-gray-200;
+}

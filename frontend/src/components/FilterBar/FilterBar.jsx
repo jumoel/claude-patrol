@@ -92,8 +92,31 @@ export function FilterBar({ prs, filters, onFilterChange }) {
     onFilterChange({ ...filters, [key]: value });
   };
 
+  const MERGE_READY_FILTERS = { ci: ['pass'], review: ['approved'], mergeable: ['MERGEABLE'], draft: ['false'] };
+
+  const isMergeReadyActive = filters.ci?.length === 1 && filters.ci[0] === 'pass'
+    && filters.review?.length === 1 && filters.review[0] === 'approved'
+    && filters.mergeable?.length === 1 && filters.mergeable[0] === 'MERGEABLE'
+    && filters.draft?.length === 1 && filters.draft[0] === 'false';
+
+  const toggleMergeReady = () => {
+    if (isMergeReadyActive) {
+      onFilterChange({});
+    } else {
+      onFilterChange({ ...filters, ...MERGE_READY_FILTERS });
+    }
+  };
+
   return (
     <div className={styles.bar}>
+      <button
+        className={`${styles.quickFilter} ${isMergeReadyActive ? styles.quickFilterActive : ''}`}
+        onClick={toggleMergeReady}
+        type="button"
+      >
+        Merge Ready
+      </button>
+      <div className={styles.separator} />
       <MultiSelect label="All orgs" options={orgOptions} selected={filters.org || []} onChange={(v) => update('org', v)} />
       <MultiSelect label="All repos" options={repoOptions} selected={filters.repo || []} onChange={(v) => update('repo', v)} />
       <MultiSelect label="All CI" options={CI_OPTIONS} selected={filters.ci || []} onChange={(v) => update('ci', v)} />
