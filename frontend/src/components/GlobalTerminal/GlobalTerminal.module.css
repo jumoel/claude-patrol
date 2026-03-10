@@ -1,12 +1,36 @@
 @reference "tailwindcss";
 
 .drawer {
-  @apply fixed bottom-0 left-0 right-0 z-20 bg-gray-900;
-  height: 400px;
+  @apply fixed bottom-0 left-0 right-0 z-20 bg-gray-900 flex flex-col;
+}
+
+.resizeHandle {
+  @apply flex items-center justify-center shrink-0;
+  height: 6px;
+  cursor: ns-resize;
+  touch-action: none;
+  user-select: none;
+}
+
+.resizeHandle:hover .resizeGrip,
+.resizeHandle:active .resizeGrip {
+  @apply bg-blue-400;
+}
+
+.resizeGrip {
+  @apply rounded-full bg-gray-600 transition-colors;
+  width: 36px;
+  height: 3px;
+}
+
+/* Covers the page during drag to prevent iframe/selection interference */
+.dragOverlay {
+  @apply fixed inset-0 z-30;
+  cursor: ns-resize;
 }
 
 .handle {
-  @apply flex items-center justify-between px-4 py-2 bg-gray-800 border-t border-gray-700;
+  @apply flex items-center justify-between px-4 py-2 bg-gray-800 border-t border-gray-700 shrink-0;
 }
 
 .handleText {
@@ -26,7 +50,7 @@
 }
 
 .content {
-  @apply h-[calc(100%-36px)] overflow-hidden;
+  @apply flex-1 overflow-hidden min-h-0;
 }
 
 .loading {
