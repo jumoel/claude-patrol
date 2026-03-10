@@ -159,6 +159,20 @@ server.tool(
 );
 
 server.tool(
+  'get_check_logs',
+  'Get the actual output of failed CI checks for a PR. Extracts only the relevant error sections, not the full job log. Optionally filter by run_id.',
+  {
+    id: z.string().describe('PR database ID (e.g. "org/repo#42")'),
+    run_id: z.string().optional().describe('Optional: filter to a specific GitHub Actions run ID'),
+  },
+  async ({ id, run_id }) => {
+    const params = run_id ? `?run_id=${run_id}` : '';
+    const data = await api(`/api/prs/${encodeURIComponent(id)}/check-logs${params}`);
+    return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] };
+  },
+);
+
+server.tool(
   'get_pr_comments',
   'Get review comments and conversation for a PR. Includes inline code review comments with file paths and diff positions, review summaries with state, and general PR conversation.',
   {

@@ -39,6 +39,10 @@ Use get_pr_comments to see what reviewers said. The response includes:
 
 When addressing review feedback, read the comments first, then create a workspace to make the fixes.
 
+## Diagnosing CI failures
+
+Use get_check_logs to see the actual output of failed CI steps. Logs are extracted from the relevant failing sections only (not the full job output). Use this before creating a workspace to understand what needs fixing.
+
 ## Retriggering CI
 
 Use retrigger_checks to re-run failed CI checks for a PR. Useful after pushing a fix.

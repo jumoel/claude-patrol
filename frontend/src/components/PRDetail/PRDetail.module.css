@@ -153,6 +153,14 @@
   @apply text-gray-700 truncate;
 }
 
+.checkActions {
+  @apply flex items-center gap-2;
+}
+
+.viewLogButton {
+  @apply px-2 py-1 text-xs font-medium text-gray-500 bg-gray-50 border border-gray-200 rounded hover:bg-gray-100 transition-colors cursor-pointer;
+}
+
 .dotPass {
   @apply bg-green-500;
 }

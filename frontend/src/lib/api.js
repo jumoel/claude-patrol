@@ -122,6 +122,19 @@ export async function createSession(workspaceId) {
 }
 
 /**
+ * Fetch CI check logs for a PR.
+ * @param {string} prId
+ * @param {string} [runId] - optional run ID filter
+ * @returns {Promise<{logs: object[]}>}
+ */
+export async function fetchCheckLogs(prId, runId) {
+  const params = runId ? `?run_id=${runId}` : '';
+  const res = await fetch(`${BASE}/api/prs/${encodeURIComponent(prId)}/check-logs${params}`);
+  if (!res.ok) throw new Error(`Failed to fetch check logs: ${res.status}`);
+  return res.json();
+}
+
+/**
  * Fetch review comments for a PR.
  * @param {string} prId
  * @returns {Promise<{reviews: object[], conversation: object[]}>}

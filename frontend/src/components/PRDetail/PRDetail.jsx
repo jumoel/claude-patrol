@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { fetchPR, fetchWorkspaces, fetchSessions, fetchPRComments, createWorkspace as apiCreateWorkspace, createSession as apiCreateSession, killSession as apiKillSession } from '../../lib/api.js';
+import { fetchPR, fetchWorkspaces, fetchSessions, fetchPRComments, fetchCheckLogs, createWorkspace as apiCreateWorkspace, createSession as apiCreateSession, killSession as apiKillSession } from '../../lib/api.js';
 import { WorkspaceControls } from '../WorkspaceControls/WorkspaceControls.jsx';
 import { Terminal } from '../Terminal/Terminal.jsx';
 import { QuickActions } from '../QuickActions/QuickActions.jsx';
 import { CommentsList } from '../CommentsList/CommentsList.jsx';
+import { CheckLogViewer } from '../CheckLogViewer/CheckLogViewer.jsx';
 import { StatusBadge } from '../StatusBadge/StatusBadge.jsx';
 import { getRelativeTime } from '../../lib/time.js';
 import { isFailedCheck, isPassedCheck, checkToStatus } from '../../lib/checks.js';
@@ -286,7 +287,7 @@ export function PRDetail({ prId, onBack }) {
           {failedChecks.length > 0 && (
             <div className={styles.checkGroup}>
               {failedChecks.map((c, i) => (
-                <CheckRow key={`fail-${i}`} check={c} />
+                <CheckRow key={`fail-${i}`} check={c} prId={prId} />
               ))}
             </div>
           )}
@@ -339,22 +340,71 @@ export function PRDetail({ prId, onBack }) {
   );
 }
 
-function CheckRow({ check }) {
+function CheckRow({ check, prId }) {
   const status = checkToStatus(check);
   const dotClass = DOT_STYLES[status] || styles.dotPending;
+  const isFailed = isFailedCheck(check);
+  const [logData, setLogData] = useState(null);
+  const [logLoading, setLogLoading] = useState(false);
+  const [logError, setLogError] = useState(null);
+  const [showLog, setShowLog] = useState(false);
+
+  const handleViewLog = useCallback(async () => {
+    setShowLog(prev => {
+      if (prev) return false; // toggle off
+      return true;
+    });
+  }, []);
+
+  // Fetch log data when first shown
+  useEffect(() => {
+    if (!showLog || logData || logLoading || logError) return;
+
+    const match = check.url?.match(/\/actions\/runs\/(\d+)/);
+    if (!match) { setLogError('No run ID found in check URL'); return; }
+
+    setLogLoading(true);
+    fetchCheckLogs(prId, match[1])
+      .then(data => {
+        const jobLog = data.logs?.[0];
+        if (jobLog?.error) setLogError(jobLog.error);
+        else if (jobLog) setLogData(jobLog);
+        else setLogError('No log data returned');
+      })
+      .catch(err => setLogError(err.message))
+      .finally(() => setLogLoading(false));
+  }, [showLog, logData, logLoading, logError, check.url, prId]);
+
   return (
-    <div className={styles.checkRow}>
-      <div className={styles.checkInfo}>
-        <span className={`${styles.checkDot} ${dotClass}`} />
-        {check.url ? (
-          <a href={check.url} target="_blank" rel="noopener noreferrer" className={styles.checkName}>
-            {check.name}
-          </a>
-        ) : (
-          <span className={styles.checkNamePlain}>{check.name}</span>
-        )}
+    <div>
+      <div className={styles.checkRow}>
+        <div className={styles.checkInfo}>
+          <span className={`${styles.checkDot} ${dotClass}`} />
+          {check.url ? (
+            <a href={check.url} target="_blank" rel="noopener noreferrer" className={styles.checkName}>
+              {check.name}
+            </a>
+          ) : (
+            <span className={styles.checkNamePlain}>{check.name}</span>
+          )}
+        </div>
+        <div className={styles.checkActions}>
+          {isFailed && prId && (
+            <button className={styles.viewLogButton} onClick={handleViewLog}>
+              {showLog ? 'Hide log' : 'View log'}
+            </button>
+          )}
+          <StatusBadge status={status} type="ci" />
+        </div>
       </div>
-      <StatusBadge status={status} type="ci" />
+      {showLog && (
+        <CheckLogViewer
+          log={logData?.log}
+          truncated={logData?.truncated}
+          loading={logLoading}
+          error={logError}
+        />
+      )}
     </div>
   );
 }
