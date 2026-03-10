@@ -136,11 +136,9 @@ export function FilterBar({ prs, filters, onFilterChange, onCopyMarkdown, copied
         >
           Review Ready
         </button>
-        {hasAnyFilter && (
-          <button className={styles.clearButton} onClick={() => onFilterChange({})} type="button">
-            Clear
-          </button>
-        )}
+        <button className={styles.clearButton} onClick={() => onFilterChange({})} type="button" disabled={!hasAnyFilter}>
+          Clear
+        </button>
         {onCopyMarkdown && (
           <button className={styles.copyButton} onClick={onCopyMarkdown} type="button">
             {copied ? 'Copied!' : 'Copy as Markdown'}
