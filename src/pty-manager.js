@@ -275,8 +275,18 @@ export function killSession(sessionId) {
 
 /**
  * Kill all live PTY sessions. Used during graceful shutdown.
+ * Closes all WebSockets first so server.close() doesn't hang waiting
+ * for connections to drain.
  */
 export function killAllSessions() {
+  // Close all WebSockets immediately so the HTTP server can shut down cleanly
+  for (const entry of sessions.values()) {
+    for (const ws of entry.websockets) {
+      try { ws.close(); } catch { /* ignore */ }
+    }
+    entry.websockets.clear();
+  }
+  // Now kill the tmux sessions / pty processes
   for (const [id] of sessions) {
     killSession(id);
   }
