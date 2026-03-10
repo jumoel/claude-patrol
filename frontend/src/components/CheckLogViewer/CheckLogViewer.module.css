@@ -16,6 +16,19 @@
   @apply text-sm text-yellow-600 bg-yellow-50 border border-yellow-200 rounded px-2 py-1 mb-2;
 }
 
+.searchBar {
+  @apply flex items-center gap-2 mb-2;
+}
+
+.searchInput {
+  @apply px-2 py-1 text-sm font-mono bg-gray-800 text-gray-200 border border-gray-700 rounded focus:outline-none focus:border-blue-500;
+  min-width: 200px;
+}
+
+.searchCount {
+  @apply text-sm text-gray-500;
+}
+
 .log {
   @apply text-xs font-mono bg-gray-900 text-gray-100 p-3 rounded-lg overflow-auto max-h-80 whitespace-pre-wrap leading-relaxed;
 }
