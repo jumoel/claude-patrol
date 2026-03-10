@@ -23,14 +23,8 @@ export function PRTable({ prs, onRowClick }) {
       header: 'Title',
       cell: ({ row }) => {
         const pr = row.original;
-        const mergeReady = isMergeReady(pr);
         return (
           <span className={styles.titleCell}>
-            {mergeReady && (
-              <span className={styles.mergeIcon} title="Ready to merge">
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path fillRule="evenodd" d="M5 3.254V3.25v.005a.75.75 0 110-.005v.004zm.45 1.9a2.25 2.25 0 10-1.95.218v5.256a2.25 2.25 0 101.5 0V7.123A5.735 5.735 0 009.25 9h1.378a2.251 2.251 0 100-1.5H9.25a4.25 4.25 0 01-3.8-2.346zM12.75 9a.75.75 0 100-1.5.75.75 0 000 1.5zm-8.5 4.5a.75.75 0 100-1.5.75.75 0 000 1.5z"/></svg>
-              </span>
-            )}
             <span className={styles.titleText}>
               {pr.title}
               {pr.draft && <span className={styles.draftLabel}>Draft</span>}
@@ -121,7 +115,7 @@ export function PRTable({ prs, onRowClick }) {
       </thead>
       <tbody>
         {table.getRowModel().rows.map(row => (
-          <tr key={row.id} className={`${styles.row} ${row.original.draft ? styles.draft : ''}`} onClick={() => onRowClick?.(row.original.id)} style={{ cursor: onRowClick ? 'pointer' : undefined }}>
+          <tr key={row.id} className={`${styles.row} ${row.original.draft ? styles.draft : ''} ${isMergeReady(row.original) ? styles.mergeReady : ''}`} onClick={() => onRowClick?.(row.original.id)} style={{ cursor: onRowClick ? 'pointer' : undefined }}>
             {row.getVisibleCells().map(cell => (
               <td key={cell.id} className={`${styles.cell} ${cell.column.columnDef.meta?.centered ? styles.cellCenter : ''} ${cell.column.columnDef.meta?.alignRight ? styles.cellRight : ''}`}>
                 {flexRender(cell.column.columnDef.cell, cell.getContext())}

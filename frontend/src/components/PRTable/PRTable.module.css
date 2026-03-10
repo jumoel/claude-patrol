@@ -28,8 +28,12 @@
   @apply font-medium text-gray-900 flex-1;
 }
 
-.mergeIcon {
-  @apply text-green-600 flex-shrink-0;
+.mergeReady {
+  @apply bg-green-50;
+}
+
+.mergeReady:hover {
+  @apply bg-green-100/70;
 }
 
 .ghLink {
