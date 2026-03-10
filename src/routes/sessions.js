@@ -1,25 +1,19 @@
 import { getDb } from '../db.js';
 import { createSession, attachSession, killSession } from '../pty-manager.js';
+import { getCurrentConfig } from '../config.js';
 
 /**
  * Register session routes.
  * @param {import('fastify').FastifyInstance} app
- * @param {object} config
  */
-export function registerSessionRoutes(app, config) {
-  let currentConfig = config;
-
-  app.decorate('updateSessionConfig', (newConfig) => {
-    currentConfig = newConfig;
-  });
-
+export function registerSessionRoutes(app) {
   app.post('/api/sessions', (request, reply) => {
     const { workspace_id, global: isGlobal } = request.body || {};
     const db = getDb();
 
     let cwd;
     if (isGlobal) {
-      cwd = currentConfig.global_terminal_cwd || process.cwd();
+      cwd = getCurrentConfig().global_terminal_cwd || process.cwd();
     } else if (workspace_id) {
       const workspace = db.prepare("SELECT * FROM workspaces WHERE id = ? AND status = 'active'").get(workspace_id);
       if (!workspace) {

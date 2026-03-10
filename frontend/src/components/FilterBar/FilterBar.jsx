@@ -1,14 +1,92 @@
+import { useState, useRef, useEffect } from 'react';
 import styles from './FilterBar.module.css';
+
+const CI_OPTIONS = [
+  { value: 'pass', label: 'Pass' },
+  { value: 'fail', label: 'Fail' },
+  { value: 'pending', label: 'Pending' },
+];
+const REVIEW_OPTIONS = [
+  { value: 'approved', label: 'Approved' },
+  { value: 'changes_requested', label: 'Changes' },
+  { value: 'pending', label: 'Pending' },
+];
+const MERGE_OPTIONS = [
+  { value: 'MERGEABLE', label: 'Clean' },
+  { value: 'CONFLICTING', label: 'Conflict' },
+  { value: 'UNKNOWN', label: 'Unknown' },
+];
+const DRAFT_OPTIONS = [
+  { value: 'true', label: 'Drafts' },
+  { value: 'false', label: 'Non-drafts' },
+];
+
+/**
+ * Multi-select dropdown component.
+ */
+function MultiSelect({ label, options, selected, onChange }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    const handleClick = (e) => {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, []);
+
+  const toggle = (value) => {
+    const next = selected.includes(value)
+      ? selected.filter(v => v !== value)
+      : [...selected, value];
+    onChange(next);
+  };
+
+  const displayLabel = selected.length === 0
+    ? label
+    : selected.length === 1
+      ? options.find(o => o.value === selected[0])?.label || selected[0]
+      : `${selected.length} selected`;
+
+  return (
+    <div className={styles.multiSelect} ref={ref}>
+      <button
+        className={`${styles.trigger} ${selected.length > 0 ? styles.triggerActive : ''}`}
+        onClick={() => setOpen(prev => !prev)}
+        type="button"
+      >
+        {displayLabel}
+      </button>
+      {open && (
+        <div className={styles.dropdown}>
+          {options.map(opt => (
+            <label key={opt.value} className={styles.option}>
+              <input
+                type="checkbox"
+                className={styles.checkbox}
+                checked={selected.includes(opt.value)}
+                onChange={() => toggle(opt.value)}
+              />
+              {opt.label}
+            </label>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 /**
  * Filter controls for the PR table.
- * @param {{ prs: object[], filters: Record<string, string>, onFilterChange: (filters: Record<string, string>) => void }} props
+ * @param {{ prs: object[], filters: Record<string, string[]>, onFilterChange: (filters: Record<string, string[]>) => void }} props
  */
 export function FilterBar({ prs, filters, onFilterChange }) {
   const orgs = [...new Set(prs.map(p => p.org))].sort();
   const repos = [...new Set(prs.map(p => p.repo))].sort();
-  const ciStatuses = ['pass', 'fail', 'pending'];
-  const reviewStatuses = ['approved', 'changes_requested', 'pending'];
+
+  const orgOptions = orgs.map(o => ({ value: o, label: o }));
+  const repoOptions = repos.map(r => ({ value: r, label: r }));
 
   const update = (key, value) => {
     onFilterChange({ ...filters, [key]: value });
@@ -16,51 +94,12 @@ export function FilterBar({ prs, filters, onFilterChange }) {
 
   return (
     <div className={styles.bar}>
-      <select
-        className={styles.select}
-        value={filters.org || 'all'}
-        onChange={(e) => update('org', e.target.value)}
-      >
-        <option value="all">All orgs</option>
-        {orgs.map(o => <option key={o} value={o}>{o}</option>)}
-      </select>
-
-      <select
-        className={styles.select}
-        value={filters.repo || 'all'}
-        onChange={(e) => update('repo', e.target.value)}
-      >
-        <option value="all">All repos</option>
-        {repos.map(r => <option key={r} value={r}>{r}</option>)}
-      </select>
-
-      <select
-        className={styles.select}
-        value={filters.ci || 'all'}
-        onChange={(e) => update('ci', e.target.value)}
-      >
-        <option value="all">All CI</option>
-        {ciStatuses.map(s => <option key={s} value={s}>{s}</option>)}
-      </select>
-
-      <select
-        className={styles.select}
-        value={filters.review || 'all'}
-        onChange={(e) => update('review', e.target.value)}
-      >
-        <option value="all">All reviews</option>
-        {reviewStatuses.map(s => <option key={s} value={s}>{s}</option>)}
-      </select>
-
-      <select
-        className={styles.select}
-        value={filters.draft || 'all'}
-        onChange={(e) => update('draft', e.target.value)}
-      >
-        <option value="all">All PRs</option>
-        <option value="true">Drafts only</option>
-        <option value="false">No drafts</option>
-      </select>
+      <MultiSelect label="All orgs" options={orgOptions} selected={filters.org || []} onChange={(v) => update('org', v)} />
+      <MultiSelect label="All repos" options={repoOptions} selected={filters.repo || []} onChange={(v) => update('repo', v)} />
+      <MultiSelect label="All CI" options={CI_OPTIONS} selected={filters.ci || []} onChange={(v) => update('ci', v)} />
+      <MultiSelect label="All reviews" options={REVIEW_OPTIONS} selected={filters.review || []} onChange={(v) => update('review', v)} />
+      <MultiSelect label="All merge" options={MERGE_OPTIONS} selected={filters.mergeable || []} onChange={(v) => update('mergeable', v)} />
+      <MultiSelect label="All PRs" options={DRAFT_OPTIONS} selected={filters.draft || []} onChange={(v) => update('draft', v)} />
     </div>
   );
 }

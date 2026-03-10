@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { fetchPR, fetchWorkspaces, fetchSessions, createWorkspace as apiCreateWorkspace, createSession as apiCreateSession } from '../../lib/api.js';
+import { fetchPR, fetchWorkspaces, fetchSessions, createWorkspace as apiCreateWorkspace, createSession as apiCreateSession, killSession as apiKillSession } from '../../lib/api.js';
 import { WorkspaceControls } from '../WorkspaceControls/WorkspaceControls.jsx';
 import { Terminal } from '../Terminal/Terminal.jsx';
 import { QuickActions } from '../QuickActions/QuickActions.jsx';
 import { StatusBadge } from '../StatusBadge/StatusBadge.jsx';
 import { getRelativeTime } from '../../lib/time.js';
+import { isFailedCheck, isPassedCheck, checkToStatus } from '../../lib/checks.js';
 import styles from './PRDetail.module.css';
 
 const DOT_STYLES = {
@@ -12,12 +13,6 @@ const DOT_STYLES = {
   fail: styles.dotFail,
   pending: styles.dotPending,
 };
-
-function checkToStatus(check) {
-  if (check.conclusion === 'FAILURE' || check.conclusion === 'ERROR' || check.conclusion === 'TIMED_OUT') return 'fail';
-  if (check.conclusion === 'SUCCESS' || check.conclusion === 'NEUTRAL' || check.conclusion === 'SKIPPED') return 'pass';
-  return 'pending';
-}
 
 /**
  * PR detail view with workspace and terminal management.
@@ -98,10 +93,20 @@ export function PRDetail({ prId, onBack }) {
     }
   }, [pr, prId]);
 
+  const handleKillSession = useCallback(async () => {
+    if (!session) return;
+    try {
+      await apiKillSession(session.id);
+      setSession(null);
+    } catch (err) {
+      console.error('Failed to kill session:', err);
+    }
+  }, [session]);
+
   const handleInvestigateFailures = useCallback(async () => {
     if (!pr) return;
     const failedChecks = pr.checks
-      .filter(c => c.conclusion === 'FAILURE' || c.conclusion === 'ERROR' || c.conclusion === 'TIMED_OUT')
+      .filter(isFailedCheck)
       .map(c => c.name);
 
     // Ensure workspace + session exist
@@ -153,15 +158,9 @@ export function PRDetail({ prId, onBack }) {
     return <p className={styles.error}>PR not found</p>;
   }
 
-  const failedChecks = pr.checks.filter(c =>
-    c.conclusion === 'FAILURE' || c.conclusion === 'ERROR' || c.conclusion === 'TIMED_OUT'
-  );
-  const passedChecks = pr.checks.filter(c =>
-    c.conclusion === 'SUCCESS' || c.conclusion === 'NEUTRAL' || c.conclusion === 'SKIPPED'
-  );
-  const pendingChecks = pr.checks.filter(c =>
-    !c.conclusion || (c.conclusion !== 'SUCCESS' && c.conclusion !== 'NEUTRAL' && c.conclusion !== 'SKIPPED' && c.conclusion !== 'FAILURE' && c.conclusion !== 'ERROR' && c.conclusion !== 'TIMED_OUT')
-  );
+  const failedChecks = pr.checks.filter(isFailedCheck);
+  const passedChecks = pr.checks.filter(isPassedCheck);
+  const pendingChecks = pr.checks.filter(c => !isFailedCheck(c) && !isPassedCheck(c));
 
   return (
     <div className={styles.detail}>
@@ -239,7 +238,12 @@ export function PRDetail({ prId, onBack }) {
 
       {session && (
         <div className={styles.card}>
-          <h3 className={styles.sectionTitle}>Terminal</h3>
+          <div className={styles.terminalHeader}>
+            <h3 className={styles.sectionTitle}>Terminal</h3>
+            <button className={styles.killSessionButton} onClick={handleKillSession}>
+              Kill session
+            </button>
+          </div>
           <QuickActions wsRef={wsRef} />
           <Terminal wsUrl={`/ws/sessions/${session.id}`} wsRef={wsRef} />
         </div>

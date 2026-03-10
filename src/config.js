@@ -77,6 +77,25 @@ export function loadConfig() {
 
 export const configEvents = new EventEmitter();
 
+/** @type {Readonly<Record<string, unknown>> | null} */
+let currentConfig = null;
+
+/**
+ * Get the current config. Routes import this instead of holding their own copy.
+ * @returns {Readonly<Record<string, unknown>>}
+ */
+export function getCurrentConfig() {
+  return currentConfig;
+}
+
+/**
+ * Set the current config. Called once at startup and on each config change.
+ * @param {Readonly<Record<string, unknown>>} cfg
+ */
+export function setCurrentConfig(cfg) {
+  currentConfig = cfg;
+}
+
 /**
  * Watch config file for changes. Emits 'change' on configEvents with the new config.
  */

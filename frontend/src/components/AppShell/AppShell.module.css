@@ -54,6 +54,14 @@
   to { transform: rotate(360deg); }
 }
 
+.terminalButton {
+  @apply flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-600 bg-gray-100 border border-gray-200 rounded-lg hover:bg-gray-200 hover:text-gray-800 transition-colors cursor-pointer;
+}
+
+.terminalButtonActive {
+  @apply text-white bg-gray-800 border-gray-800 hover:bg-gray-700 hover:text-white;
+}
+
 .content {
   @apply max-w-7xl mx-auto px-6 py-6 pb-14;
 }

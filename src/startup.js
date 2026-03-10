@@ -1,7 +1,4 @@
-import { execFile as execFileCb } from 'node:child_process';
-import { promisify } from 'node:util';
-
-const execFile = promisify(execFileCb);
+import { execFile } from './utils.js';
 
 /**
  * Check that a command is available and runs successfully.

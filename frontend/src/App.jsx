@@ -5,7 +5,7 @@ import { FilterBar } from './components/FilterBar/FilterBar.jsx';
 import { GlobalTerminal } from './components/GlobalTerminal/GlobalTerminal.jsx';
 import { DashboardSummary } from './components/DashboardSummary/DashboardSummary.jsx';
 import { PRDetail } from './components/PRDetail/PRDetail.jsx';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 
 function formatCountdown(seconds) {
   const m = Math.floor(seconds / 60);
@@ -14,10 +14,33 @@ function formatCountdown(seconds) {
   return `${s}s`;
 }
 
+/**
+ * Apply client-side filters. Each filter key maps to an array of allowed values.
+ * Empty array = no filter (show all).
+ */
+function applyFilters(prs, filters) {
+  return prs.filter(pr => {
+    if (filters.org?.length && !filters.org.includes(pr.org)) return false;
+    if (filters.repo?.length && !filters.repo.includes(pr.repo)) return false;
+    if (filters.ci?.length && !filters.ci.includes(pr.ci_status)) return false;
+    if (filters.review?.length && !filters.review.includes(pr.review_status)) return false;
+    if (filters.mergeable?.length && !filters.mergeable.includes(pr.mergeable)) return false;
+    if (filters.draft?.length) {
+      const isDraft = pr.draft ? 'true' : 'false';
+      if (!filters.draft.includes(isDraft)) return false;
+    }
+    return true;
+  });
+}
+
 export default function App() {
   const [filters, setFilters] = useState({});
   const [selectedPR, setSelectedPR] = useState(null);
-  const { prs, syncedAt, loading, error, syncing, countdown, triggerSync } = usePRs(filters);
+  const [terminalOpen, setTerminalOpen] = useState(false);
+  const toggleTerminal = useCallback(() => setTerminalOpen(prev => !prev), []);
+  const { prs: allPRs, syncedAt, loading, error, syncing, countdown, triggerSync } = usePRs({});
+
+  const filteredPRs = useMemo(() => applyFilters(allPRs, filters), [allPRs, filters]);
 
   // Simple hash-based routing
   useEffect(() => {
@@ -48,19 +71,19 @@ export default function App() {
   };
 
   return (
-    <AppShell title="Claude Patrol" syncTime={syncTime} nextSync={nextSync} syncing={syncing} onSync={triggerSync}>
+    <AppShell title="Claude Patrol" syncTime={syncTime} nextSync={nextSync} syncing={syncing} onSync={triggerSync} terminalOpen={terminalOpen} onToggleTerminal={toggleTerminal}>
       {selectedPR ? (
         <PRDetail prId={selectedPR} onBack={navigateBack} />
       ) : (
         <>
-          <DashboardSummary prCount={prs.length} syncedAt={syncedAt} />
-          <FilterBar prs={prs} filters={filters} onFilterChange={setFilters} />
+          <DashboardSummary prCount={filteredPRs.length} syncedAt={syncedAt} />
+          <FilterBar prs={allPRs} filters={filters} onFilterChange={setFilters} />
           {error && <p>{error}</p>}
-          {loading && prs.length === 0 && <p>Loading...</p>}
-          <PRTable prs={prs} onRowClick={navigateToPR} />
+          {loading && allPRs.length === 0 && <p>Loading...</p>}
+          <PRTable prs={filteredPRs} onRowClick={navigateToPR} />
         </>
       )}
-      <GlobalTerminal />
+      <GlobalTerminal open={terminalOpen} onToggle={toggleTerminal} />
     </AppShell>
   );
 }

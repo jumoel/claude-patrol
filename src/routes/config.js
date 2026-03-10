@@ -1,16 +1,11 @@
+import { getCurrentConfig } from '../config.js';
+
 /**
  * Register config endpoint (exposes non-sensitive config to frontend).
  * @param {import('fastify').FastifyInstance} app
- * @param {object} config
  */
-export function registerConfigRoutes(app, config) {
-  let currentConfig = config;
-
+export function registerConfigRoutes(app) {
   app.get('/api/config', () => ({
-    poll: currentConfig.poll,
+    poll: getCurrentConfig().poll,
   }));
-
-  app.decorate('updateConfig', (newConfig) => {
-    currentConfig = newConfig;
-  });
 }

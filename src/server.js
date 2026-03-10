@@ -14,20 +14,19 @@ import { registerCheckRoutes } from './routes/checks.js';
 
 /**
  * Create and configure the Fastify server.
- * @param {{ port: number, orgs: string[] }} config
  * @returns {import('fastify').FastifyInstance}
  */
-export async function createServer(config) {
+export async function createServer() {
   const app = Fastify({ logger: false });
 
   await app.register(fastifyCors, { origin: true });
   await app.register(fastifyWebsocket);
 
   registerPRRoutes(app);
-  registerSyncRoutes(app, config);
-  registerConfigRoutes(app, config);
-  registerWorkspaceRoutes(app, config);
-  registerSessionRoutes(app, config);
+  registerSyncRoutes(app);
+  registerConfigRoutes(app);
+  registerWorkspaceRoutes(app);
+  registerSessionRoutes(app);
   registerCheckRoutes(app);
 
   // SSE endpoint for live updates

@@ -1,12 +1,12 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { Terminal } from '../Terminal/Terminal.jsx';
 import styles from './GlobalTerminal.module.css';
 
 /**
  * Persistent global terminal drawer at the bottom of the UI.
+ * @param {{ open: boolean, onToggle: () => void }} props
  */
-export function GlobalTerminal() {
-  const [open, setOpen] = useState(false);
+export function GlobalTerminal({ open, onToggle }) {
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(false);
 
@@ -29,12 +29,12 @@ export function GlobalTerminal() {
     }
   }, [session]);
 
-  const toggle = useCallback(() => {
-    if (!open && !session) {
+  // Auto-start session when opened for the first time
+  useEffect(() => {
+    if (open && !session && !loading) {
       startSession();
     }
-    setOpen(prev => !prev);
-  }, [open, session, startSession]);
+  }, [open, session, loading, startSession]);
 
   const killSession = useCallback(async () => {
     if (!session) return;
@@ -42,31 +42,37 @@ export function GlobalTerminal() {
     setSession(null);
   }, [session]);
 
+  if (!open) return null;
+
   return (
-    <div className={`${styles.drawer} ${open ? styles.open : styles.closed}`}>
-      <div className={styles.handle} onClick={toggle}>
-        <span className={styles.handleText}>
-          {open ? 'Hide' : 'Show'} Global Terminal
-        </span>
-        {session && (
-          <button className={styles.killButton} onClick={(e) => { e.stopPropagation(); killSession(); }}>
-            Kill
+    <div className={styles.drawer}>
+      <div className={styles.handle}>
+        <span className={styles.handleText}>Global Terminal</span>
+        <div className={styles.handleActions}>
+          {session && (
+            <button className={styles.killButton} onClick={killSession}>
+              Kill
+            </button>
+          )}
+          <button className={styles.closeButton} onClick={onToggle}>
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+              <line x1="3" y1="3" x2="11" y2="11" />
+              <line x1="11" y1="3" x2="3" y2="11" />
+            </svg>
           </button>
+        </div>
+      </div>
+      <div className={styles.content}>
+        {loading && <p className={styles.loading}>Starting session...</p>}
+        {session && <Terminal wsUrl={`/ws/sessions/${session.id}`} />}
+        {!session && !loading && (
+          <div className={styles.placeholder}>
+            <button className={styles.startButton} onClick={startSession}>
+              Start Global Session
+            </button>
+          </div>
         )}
       </div>
-      {open && (
-        <div className={styles.content}>
-          {loading && <p className={styles.loading}>Starting session...</p>}
-          {session && <Terminal wsUrl={`/ws/sessions/${session.id}`} />}
-          {!session && !loading && (
-            <div className={styles.placeholder}>
-              <button className={styles.startButton} onClick={startSession}>
-                Start Global Session
-              </button>
-            </div>
-          )}
-        </div>
-      )}
     </div>
   );
 }

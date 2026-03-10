@@ -1,8 +1,5 @@
-import { execFile as execFileCb } from 'node:child_process';
-import { promisify } from 'node:util';
 import { getDb } from '../db.js';
-
-const execFile = promisify(execFileCb);
+import { execFile, isFailedConclusion } from '../utils.js';
 
 /**
  * Register check-related routes.
@@ -22,9 +19,7 @@ export function registerCheckRoutes(app) {
     }
 
     const checks = JSON.parse(row.checks);
-    const failed = checks.filter(c =>
-      c.conclusion === 'FAILURE' || c.conclusion === 'ERROR' || c.conclusion === 'TIMED_OUT'
-    );
+    const failed = checks.filter(c => isFailedConclusion(c.conclusion));
 
     if (failed.length === 0) {
       return { ok: true, retriggered: 0 };

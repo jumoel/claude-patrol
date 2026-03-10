@@ -1,12 +1,8 @@
-import { execFile as execFileCb } from 'node:child_process';
-import { promisify } from 'node:util';
 import { randomUUID } from 'node:crypto';
 import { symlinkSync, mkdirSync, existsSync, rmSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { getDb } from './db.js';
-import { expandPath } from './utils.js';
-
-const execFile = promisify(execFileCb);
+import { execFile, expandPath } from './utils.js';
 
 /**
  * Ensure a git repo has jj initialized. If .jj/ doesn't exist, runs

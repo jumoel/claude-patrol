@@ -1,8 +1,38 @@
 import pty from 'node-pty';
 import { randomUUID } from 'node:crypto';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { getDb } from './db.js';
 
 const BUFFER_MAX = 50_000;
+
+const PATROL_SYSTEM_PROMPT = readFileSync(resolve(import.meta.dirname, 'patrol-system-prompt.md'), 'utf8');
+
+/** @type {string | null} */
+let mcpConfigPath = null;
+
+/**
+ * Write the MCP config JSON for the patrol server. Called once at startup.
+ * @param {object} config
+ */
+export function initMcpConfig(config) {
+  const mcpServerPath = resolve(import.meta.dirname, 'mcp-server.js');
+  const configJson = {
+    mcpServers: {
+      patrol: {
+        type: 'stdio',
+        command: 'node',
+        args: [mcpServerPath],
+        env: { PATROL_PORT: String(config.port) },
+      },
+    },
+  };
+  mcpConfigPath = resolve(config.db_path, '..', '.patrol-mcp.json');
+  writeFileSync(mcpConfigPath, JSON.stringify(configJson, null, 2));
+}
+
+/** Alias for config change handler - re-writes MCP config with new port. */
+export const updateMcpConfig = initMcpConfig;
 
 /**
  * Fixed-size ring buffer that avoids allocations on append.
@@ -69,12 +99,27 @@ export function createSession(workspaceId, cwd) {
   if (!workspaceId) {
     const existing = db.prepare("SELECT * FROM sessions WHERE workspace_id IS NULL AND status = 'active'").get();
     if (existing && sessions.has(existing.id)) {
-      return existing;
+      const entry = sessions.get(existing.id);
+      try {
+        process.kill(entry.proc.pid, 0);
+        return existing;
+      } catch {
+        // Process is dead but map entry is stale - clean up
+        sessions.delete(existing.id);
+        db.prepare("UPDATE sessions SET status = 'killed', ended_at = ? WHERE id = ?").run(new Date().toISOString(), existing.id);
+      }
     }
   }
 
   // Spawn PTY first - if this throws, no DB row is created
-  const proc = pty.spawn('claude', [], {
+  const args = [];
+  if (mcpConfigPath) {
+    args.push('--mcp-config', mcpConfigPath);
+    args.push('--append-system-prompt', PATROL_SYSTEM_PROMPT);
+    args.push('--allowedTools', 'mcp__patrol__*');
+  }
+
+  const proc = pty.spawn('claude', args, {
     name: 'xterm-256color',
     cols: 120,
     rows: 30,
@@ -193,10 +238,17 @@ export function killSession(sessionId) {
 }
 
 /**
- * Check if a session is alive in memory.
+ * Check if a session is alive in memory and its process is still running.
  * @param {string} sessionId
  * @returns {boolean}
  */
 export function isSessionAlive(sessionId) {
-  return sessions.has(sessionId);
+  const entry = sessions.get(sessionId);
+  if (!entry) return false;
+  try {
+    process.kill(entry.proc.pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
 }

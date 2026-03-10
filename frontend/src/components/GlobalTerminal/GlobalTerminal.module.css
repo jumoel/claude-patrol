@@ -1,27 +1,28 @@
 @reference "tailwindcss";
 
 .drawer {
-  @apply fixed bottom-0 left-0 right-0 z-20 bg-gray-900 transition-all duration-200;
-}
-
-.open {
+  @apply fixed bottom-0 left-0 right-0 z-20 bg-gray-900;
   height: 400px;
 }
 
-.closed {
-  height: 36px;
-}
-
 .handle {
-  @apply flex items-center justify-between px-4 py-2 bg-gray-800 cursor-pointer select-none border-t border-gray-700;
+  @apply flex items-center justify-between px-4 py-2 bg-gray-800 border-t border-gray-700;
 }
 
 .handleText {
   @apply text-sm text-gray-300 font-medium;
 }
 
+.handleActions {
+  @apply flex items-center gap-2;
+}
+
 .killButton {
   @apply px-2 py-0.5 text-xs text-red-400 bg-red-900/30 rounded hover:bg-red-900/50 transition-colors cursor-pointer;
+}
+
+.closeButton {
+  @apply p-1 text-gray-400 hover:text-gray-200 transition-colors cursor-pointer;
 }
 
 .content {

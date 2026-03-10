@@ -1,23 +1,13 @@
 import { triggerPoll } from '../poller.js';
+import { getCurrentConfig } from '../config.js';
 
 /**
  * Register sync-related routes.
  * @param {import('fastify').FastifyInstance} app
- * @param {object} config
  */
-export function registerSyncRoutes(app, config) {
-  let currentConfig = config;
-
+export function registerSyncRoutes(app) {
   app.post('/api/sync/trigger', async () => {
-    await triggerPoll(currentConfig);
+    await triggerPoll(getCurrentConfig());
     return { ok: true };
-  });
-
-  /**
-   * Update the config when it changes.
-   * @param {object} newConfig
-   */
-  app.decorate('updateSyncConfig', (newConfig) => {
-    currentConfig = newConfig;
   });
 }

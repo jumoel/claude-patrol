@@ -1,8 +1,8 @@
-import { loadConfig, watchConfig, configEvents } from './config.js';
+import { loadConfig, watchConfig, configEvents, setCurrentConfig } from './config.js';
 import { initDb } from './db.js';
 import { startPoller, resetStatements } from './poller.js';
 import { createServer } from './server.js';
-import { cleanupOrphanedSessions } from './pty-manager.js';
+import { cleanupOrphanedSessions, initMcpConfig, updateMcpConfig } from './pty-manager.js';
 import { validateStartup } from './startup.js';
 import { startHealthChecks } from './health.js';
 
@@ -17,13 +17,15 @@ try {
 }
 
 const config = loadConfig();
+setCurrentConfig(config);
 initDb(config.db_path);
 cleanupOrphanedSessions();
+initMcpConfig(config);
 
 startPoller(config);
 startHealthChecks();
 
-const server = await createServer(config);
+const server = await createServer();
 let port = config.port;
 for (let attempt = 0; attempt < 10; attempt++) {
   try {
@@ -42,12 +44,10 @@ console.log(`[claude-patrol] Server listening on http://localhost:${port}`);
 
 configEvents.on('change', (newConfig) => {
   console.log('[claude-patrol] Config changed, restarting poller');
+  setCurrentConfig(newConfig);
   resetStatements();
   startPoller(newConfig);
-  if (server.updateSyncConfig) server.updateSyncConfig(newConfig);
-  if (server.updateConfig) server.updateConfig(newConfig);
-  if (server.updateWorkspaceConfig) server.updateWorkspaceConfig(newConfig);
-  if (server.updateSessionConfig) server.updateSessionConfig(newConfig);
+  updateMcpConfig(newConfig);
 });
 
 watchConfig();

@@ -1,10 +1,7 @@
-import { execFile as execFileCb } from 'node:child_process';
-import { promisify } from 'node:util';
 import { EventEmitter } from 'node:events';
 import { getDb } from './db.js';
 import { destroyWorkspace } from './workspace.js';
-
-const execFile = promisify(execFileCb);
+import { execFile, makePrId } from './utils.js';
 
 export const pollerEvents = new EventEmitter();
 
@@ -204,7 +201,7 @@ function upsertPRs(prs) {
     for (const pr of prs) {
       const prOrg = pr.repository.owner.login;
       const repo = pr.repository.name;
-      const id = `${prOrg}/${repo}#${pr.number}`;
+      const id = makePrId(prOrg, repo, pr.number);
 
       upsert.run(
         id,
@@ -276,7 +273,7 @@ async function pollOnce(config) {
   const orgResults = await Promise.allSettled(orgs.map(async (org) => {
     const prs = await fetchPRs(`org:${org}`);
     upsertPRs(prs);
-    const seenIds = prs.map(pr => `${pr.repository.owner.login}/${pr.repository.name}#${pr.number}`);
+    const seenIds = prs.map(pr => makePrId(pr.repository.owner.login, pr.repository.name, pr.number));
     await cleanupStale('org', org, null, seenIds, config);
     console.log(`[poller] Synced ${prs.length} PRs for org:${org}`);
     return prs.length;
@@ -300,7 +297,7 @@ async function pollOnce(config) {
     }
     const prs = await fetchPRs(`repo:${ownerRepo}`);
     upsertPRs(prs);
-    const seenIds = prs.map(pr => `${pr.repository.owner.login}/${pr.repository.name}#${pr.number}`);
+    const seenIds = prs.map(pr => makePrId(pr.repository.owner.login, pr.repository.name, pr.number));
     await cleanupStale('repo', owner, repo, seenIds, config);
     console.log(`[poller] Synced ${prs.length} PRs for repo:${ownerRepo}`);
     return prs.length;
