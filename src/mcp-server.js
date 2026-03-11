@@ -109,6 +109,22 @@ server.tool(
 );
 
 server.tool(
+  'create_scratch_workspace',
+  'Create a scratch workspace to start new work without an existing PR. Specify a repo and branch name. Returns the workspace path you should cd into.',
+  {
+    repo: z.string().describe('Repository in "org/repo" format (e.g. "myorg/myrepo")'),
+    branch: z.string().describe('Branch name for the new work (e.g. "feat/dark-mode")'),
+  },
+  async ({ repo, branch }) => {
+    const data = await api('/api/workspaces', {
+      method: 'POST',
+      body: JSON.stringify({ repo, branch }),
+    });
+    return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] };
+  },
+);
+
+server.tool(
   'list_workspaces',
   'List workspaces. Defaults to active only. Optionally filter by PR ID, status, or repo.',
   {

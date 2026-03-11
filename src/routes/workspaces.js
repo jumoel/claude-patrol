@@ -1,6 +1,6 @@
 import { execFile as execFileCb } from 'node:child_process';
 import { getDb } from '../db.js';
-import { createWorkspace, destroyWorkspace } from '../workspace.js';
+import { createWorkspace, createScratchWorkspace, destroyWorkspace } from '../workspace.js';
 import { formatPR } from '../pr-status.js';
 import { getCurrentConfig } from '../config.js';
 
@@ -11,12 +11,14 @@ import { getCurrentConfig } from '../config.js';
 export function registerWorkspaceRoutes(app) {
 
   app.post('/api/workspaces', async (request, reply) => {
-    const { pr_id } = request.body || {};
-    if (!pr_id) {
-      return reply.code(400).send({ error: 'pr_id is required' });
+    const { pr_id, repo, branch } = request.body || {};
+    if (!pr_id && (!repo || !branch)) {
+      return reply.code(400).send({ error: 'Either pr_id or both repo and branch are required' });
     }
     try {
-      const workspace = await createWorkspace(pr_id, getCurrentConfig());
+      const workspace = pr_id
+        ? await createWorkspace(pr_id, getCurrentConfig())
+        : await createScratchWorkspace(repo, branch, getCurrentConfig());
       return reply.code(201).send(workspace);
     } catch (err) {
       return reply.code(400).send({ error: err.message });
@@ -25,13 +27,13 @@ export function registerWorkspaceRoutes(app) {
 
   app.get('/api/workspaces', (request) => {
     const db = getDb();
-    const { pr_id, status, repo } = request.query;
+    const { pr_id, status, repo, type } = request.query;
 
     let sql = 'SELECT w.* FROM workspaces w';
     const params = [];
 
     if (repo) {
-      sql += ' JOIN prs p ON w.pr_id = p.id';
+      sql += ' LEFT JOIN prs p ON w.pr_id = p.id';
     }
 
     sql += ' WHERE 1=1';
@@ -46,12 +48,26 @@ export function registerWorkspaceRoutes(app) {
       sql += ' AND w.pr_id = ?';
       params.push(pr_id);
     }
+    if (type === 'scratch') {
+      sql += ' AND w.pr_id IS NULL';
+    } else if (type === 'pr') {
+      sql += ' AND w.pr_id IS NOT NULL';
+    }
     if (repo) {
-      sql += ' AND p.repo = ?';
-      params.push(repo);
+      sql += ' AND (p.repo = ? OR w.repo = ?)';
+      params.push(repo, repo);
     }
 
     return db.prepare(sql).all(...params);
+  });
+
+  app.get('/api/workspaces/:id', (request, reply) => {
+    const db = getDb();
+    const workspace = db.prepare('SELECT * FROM workspaces WHERE id = ?').get(request.params.id);
+    if (!workspace) {
+      return reply.code(404).send({ error: 'Workspace not found' });
+    }
+    return workspace;
   });
 
   app.delete('/api/workspaces/:id', async (request, reply) => {

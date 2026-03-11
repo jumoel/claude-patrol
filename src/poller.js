@@ -388,7 +388,43 @@ async function pollOnce(config) {
     }
   }
 
+  // Adopt scratch workspaces whose branch matches a newly-synced PR
+  adoptScratchWorkspaces();
+
   pollerEvents.emit('sync', { synced_at: new Date().toISOString(), pr_count: totalCount });
+}
+
+/** @type {import('node:sqlite').StatementSync | null} */
+let findScratchesStmt = null;
+/** @type {import('node:sqlite').StatementSync | null} */
+let findPrByBranchStmt = null;
+/** @type {import('node:sqlite').StatementSync | null} */
+let adoptWorkspaceStmt = null;
+
+/**
+ * Adopt scratch workspaces that match newly-synced PRs.
+ * A scratch workspace is adopted when its bookmark matches a PR's branch
+ * and its repo column matches the PR's org/repo.
+ */
+function adoptScratchWorkspaces() {
+  const db = getDb();
+  if (!findScratchesStmt) {
+    findScratchesStmt = db.prepare("SELECT * FROM workspaces WHERE pr_id IS NULL AND status = 'active'");
+    findPrByBranchStmt = db.prepare('SELECT id FROM prs WHERE org = ? AND repo = ? AND branch = ?');
+    adoptWorkspaceStmt = db.prepare('UPDATE workspaces SET pr_id = ?, repo = NULL WHERE id = ?');
+  }
+  const scratches = findScratchesStmt.all();
+  if (scratches.length === 0) return;
+
+  for (const ws of scratches) {
+    if (!ws.repo) continue;
+    const [org, repo] = ws.repo.split('/');
+    const pr = findPrByBranchStmt.get(org, repo, ws.bookmark);
+    if (pr) {
+      adoptWorkspaceStmt.run(pr.id, ws.id);
+      console.log(`[poller] Adopted workspace ${ws.name} for PR ${pr.id}`);
+    }
+  }
 }
 
 /** @type {ReturnType<typeof setInterval> | null} */
@@ -442,4 +478,7 @@ export function resetStatements() {
   deleteStaleByRepoStmt = null;
   findStaleByOrgStmt = null;
   findStaleByRepoStmt = null;
+  findScratchesStmt = null;
+  findPrByBranchStmt = null;
+  adoptWorkspaceStmt = null;
 }

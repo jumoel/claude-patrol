@@ -80,6 +80,46 @@ export async function createWorkspace(prId) {
 }
 
 /**
+ * Create a scratch workspace (no PR).
+ * @param {string} repo - "org/repo" format
+ * @param {string} branch - branch name
+ * @returns {Promise<object>}
+ */
+export async function createScratchWorkspace(repo, branch) {
+  const res = await fetch(`${BASE}/api/workspaces`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ repo, branch }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || `Failed to create scratch workspace: ${res.status}`);
+  }
+  return res.json();
+}
+
+/**
+ * Fetch a single workspace by ID.
+ * @param {string} id
+ * @returns {Promise<object>}
+ */
+export async function fetchWorkspace(id) {
+  const res = await fetch(`${BASE}/api/workspaces/${id}`);
+  if (!res.ok) throw new Error(`Failed to fetch workspace: ${res.status}`);
+  return res.json();
+}
+
+/**
+ * Fetch scratch workspaces (no PR).
+ * @returns {Promise<object[]>}
+ */
+export async function fetchScratchWorkspaces() {
+  const res = await fetch(`${BASE}/api/workspaces?type=scratch`);
+  if (!res.ok) throw new Error(`Failed to fetch scratch workspaces: ${res.status}`);
+  return res.json();
+}
+
+/**
  * Destroy a workspace.
  * @param {string} workspaceId
  * @returns {Promise<{ok: boolean}>}

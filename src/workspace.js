@@ -69,11 +69,87 @@ export async function createWorkspace(prId, config) {
     throw new Error(`jj workspace add failed: ${err.message}`);
   }
 
-  // Per-repo config: symlinks + init commands
-  const repoKey = `${pr.org}/${pr.repo}`;
+  await runPostCreateSetup({ id, name, workspacePath, mainRepoPath, repoKey: `${pr.org}/${pr.repo}`, config });
+
+  return { id, pr_id: prId, name, path: workspacePath, bookmark: pr.branch, status: 'active', created_at: now };
+}
+
+/**
+ * Create a scratch workspace for starting new work (no PR yet).
+ * @param {string} repo - "org/repo" format
+ * @param {string} branch - desired branch name
+ * @param {object} config - app config
+ * @returns {Promise<object>} workspace record
+ */
+export async function createScratchWorkspace(repo, branch, config) {
+  const db = getDb();
+  const [org, repoName] = repo.split('/');
+  if (!org || !repoName) {
+    throw new Error(`Invalid repo format: ${repo} (expected "org/repo")`);
+  }
+
+  const id = randomUUID();
+  const slug = branch.replace(/[^a-z0-9-]/gi, '-').toLowerCase();
+  const name = `scratch-${slug}`;
+  const basePath = expandPath(config.workspace_base_path);
+  const workspacePath = resolve(basePath, org, repoName, `scratch-${slug}`);
+  const mainRepoPath = resolve(expandPath(config.work_dir), org, repoName);
+  const now = new Date().toISOString();
+
+  if (!existsSync(mainRepoPath)) {
+    throw new Error(`Main repo does not exist: ${mainRepoPath}`);
+  }
+
+  // Insert with pr_id = NULL, repo set
+  try {
+    db.prepare('INSERT INTO workspaces (id, pr_id, name, path, bookmark, repo, status, created_at) VALUES (?, NULL, ?, ?, ?, ?, ?, ?)').run(
+      id, name, workspacePath, branch, repo, 'active', now
+    );
+  } catch (err) {
+    if (err.message.includes('UNIQUE')) {
+      throw new Error(`Active scratch workspace already exists for ${branch}`);
+    }
+    throw err;
+  }
+
+  await ensureJjInit(mainRepoPath);
+  mkdirSync(dirname(workspacePath), { recursive: true });
+
+  try {
+    await execFile('jj', ['workspace', 'add', workspacePath, '--name', name, '-r', 'main@origin', '-R', mainRepoPath]);
+  } catch (err) {
+    db.prepare('DELETE FROM workspaces WHERE id = ?').run(id);
+    throw new Error(`jj workspace add failed: ${err.message}`);
+  }
+
+  // Create bookmark for the branch
+  try {
+    await execFile('jj', ['bookmark', 'create', branch, '-R', workspacePath]);
+  } catch (err) {
+    // Non-fatal - bookmark may already exist
+    console.warn(`[workspace] Bookmark create failed (may already exist): ${err.message}`);
+  }
+
+  await runPostCreateSetup({ id, name, workspacePath, mainRepoPath, repoKey: repo, config });
+
+  return { id, pr_id: null, repo, name, path: workspacePath, bookmark: branch, status: 'active', created_at: now };
+}
+
+/**
+ * Run post-create setup: symlinks, memory linking, and init commands.
+ * Rolls back (deletes DB row, forgets workspace, removes directory) on failure.
+ * @param {object} opts
+ * @param {string} opts.id - workspace DB id
+ * @param {string} opts.name - jj workspace name
+ * @param {string} opts.workspacePath
+ * @param {string} opts.mainRepoPath
+ * @param {string} opts.repoKey - "org/repo" for config lookup
+ * @param {object} opts.config
+ */
+async function runPostCreateSetup({ id, name, workspacePath, mainRepoPath, repoKey, config }) {
+  const db = getDb();
   const repoConfig = (config.repos || {})[repoKey] || {};
 
-  // Run post-create setup
   try {
     if (config.symlink_memory) {
       symlinkMemory(workspacePath, mainRepoPath);
@@ -88,8 +164,7 @@ export async function createWorkspace(prId, config) {
     throw new Error(`Workspace setup failed: ${err.message}`);
   }
 
-  // Run init commands (non-fatal - workspace is usable even if these fail)
-  // Uses /bin/sh -c so commands can contain quotes, pipes, &&, etc.
+  // Init commands are non-fatal - workspace is usable even if these fail
   if (repoConfig.initCommands) {
     for (const cmd of repoConfig.initCommands) {
       try {
@@ -99,8 +174,6 @@ export async function createWorkspace(prId, config) {
       }
     }
   }
-
-  return { id, pr_id: prId, name, path: workspacePath, bookmark: pr.branch, status: 'active', created_at: now };
 }
 
 /**
@@ -182,11 +255,19 @@ export async function destroyWorkspace(workspaceId, config) {
   }
 
   const warnings = [];
-  // Derive repo path from PR data
-  const pr = db.prepare('SELECT org, repo FROM prs WHERE id = ?').get(workspace.pr_id);
-  const mainRepoPath = pr
-    ? resolve(expandPath(config.work_dir), pr.org, pr.repo)
-    : expandPath(config.work_dir);
+  // Derive repo path from PR data or scratch workspace repo column
+  let mainRepoPath;
+  if (workspace.pr_id) {
+    const pr = db.prepare('SELECT org, repo FROM prs WHERE id = ?').get(workspace.pr_id);
+    mainRepoPath = pr
+      ? resolve(expandPath(config.work_dir), pr.org, pr.repo)
+      : expandPath(config.work_dir);
+  } else if (workspace.repo) {
+    const [org, repoName] = workspace.repo.split('/');
+    mainRepoPath = resolve(expandPath(config.work_dir), org, repoName);
+  } else {
+    mainRepoPath = expandPath(config.work_dir);
+  }
 
   // Mark as destroyed early to prevent concurrent destroy attempts
   db.prepare("UPDATE workspaces SET status = 'destroyed', destroyed_at = ? WHERE id = ?").run(new Date().toISOString(), workspaceId);

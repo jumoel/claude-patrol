@@ -48,10 +48,11 @@ export function initDb(dbPath) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS workspaces (
       id TEXT PRIMARY KEY,
-      pr_id TEXT NOT NULL REFERENCES prs(id),
+      pr_id TEXT REFERENCES prs(id),
       name TEXT NOT NULL,
       path TEXT NOT NULL,
       bookmark TEXT NOT NULL,
+      repo TEXT,
       status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'destroyed')),
       created_at TEXT NOT NULL,
       destroyed_at TEXT
@@ -59,6 +60,40 @@ export function initDb(dbPath) {
   `);
   db.exec('CREATE INDEX IF NOT EXISTS idx_workspaces_pr ON workspaces(pr_id)');
   db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_workspaces_active_pr ON workspaces(pr_id) WHERE status = 'active'");
+
+  // Migration: make pr_id nullable and add repo column (SQLite requires table recreation)
+  {
+    const cols = db.prepare("PRAGMA table_info('workspaces')").all();
+    const prIdCol = cols.find(c => c.name === 'pr_id');
+    const repoCol = cols.find(c => c.name === 'repo');
+    if ((prIdCol && prIdCol.notnull === 1) || !repoCol) {
+      db.exec('PRAGMA foreign_keys = OFF');
+      db.exec('BEGIN');
+      try {
+        db.exec(`CREATE TABLE workspaces_new (
+          id TEXT PRIMARY KEY,
+          pr_id TEXT REFERENCES prs(id),
+          name TEXT NOT NULL,
+          path TEXT NOT NULL,
+          bookmark TEXT NOT NULL,
+          repo TEXT,
+          status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'destroyed')),
+          created_at TEXT NOT NULL,
+          destroyed_at TEXT
+        )`);
+        db.exec('INSERT INTO workspaces_new (id, pr_id, name, path, bookmark, status, created_at, destroyed_at) SELECT id, pr_id, name, path, bookmark, status, created_at, destroyed_at FROM workspaces');
+        db.exec('DROP TABLE workspaces');
+        db.exec('ALTER TABLE workspaces_new RENAME TO workspaces');
+        db.exec('CREATE INDEX idx_workspaces_pr ON workspaces(pr_id)');
+        db.exec("CREATE UNIQUE INDEX idx_workspaces_active_pr ON workspaces(pr_id) WHERE status = 'active'");
+        db.exec('COMMIT');
+      } catch (err) {
+        db.exec('ROLLBACK');
+        throw err;
+      }
+      db.exec('PRAGMA foreign_keys = ON');
+    }
+  }
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS sessions (

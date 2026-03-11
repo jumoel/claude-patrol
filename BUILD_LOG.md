@@ -103,3 +103,20 @@ When the poller detects PRs that are no longer open, it now destroys their works
 Restructured config from flat `orgs`/`poll_interval_seconds` to nested `poll` object. Supports org-level and individual repo-level polling. Repo-level polls are skipped if the repo's org is already polled. Stale deletion is scoped per-org or per-repo. Backward-compatible migration handles legacy config format.
 
 **Files changed:** PRDetail.jsx, PRTable.jsx, StatusBadge.jsx/css, poller.js, db.js, config.js, routes/sync.js, routes/config.js, index.js, config.json, config.example.json
+
+## 2026-03-11 - Plan 11: Scratch Workspaces
+
+Decoupled workspaces from PRs so users can start new work without an existing PR. A "scratch workspace" picks a repo, names a branch, and creates a jj workspace. When a PR is created from that branch, the poller auto-adopts the workspace into the PR flow.
+
+**What changed:**
+- `src/db.js` - made `pr_id` nullable, added `repo` column, SQLite table recreation migration for existing DBs
+- `src/workspace.js` - new `createScratchWorkspace()` function, extracted shared `runPostCreateSetup()` helper, fixed `destroyWorkspace()` to derive repo path from `workspace.repo` for scratch workspaces
+- `src/poller.js` - new `adoptScratchWorkspaces()` runs after each sync, matches scratch workspace branch+repo to newly-synced PRs, cached prepared statements
+- `src/routes/workspaces.js` - extended POST to accept `{repo, branch}` for scratch creation, added `type` filter to GET, added GET `/:id` endpoint, fixed LEFT JOIN for repo filter
+- `src/mcp-server.js` - new `create_scratch_workspace` MCP tool
+- `frontend/src/lib/api.js` - new `createScratchWorkspace()`, `fetchWorkspace()`, `fetchScratchWorkspaces()` functions
+- `frontend/src/App.jsx` - hash routing for `#/workspace/:id`, scratch workspace list on dashboard, "New Work" form with repo selector and branch input
+- `frontend/src/components/WorkspaceDetail/` - new component for scratch workspace detail view with terminal session management
+
+**Why:**
+- Previously all workspaces required an existing PR. This makes the tool useful for greenfield work where you want to start coding before opening a PR.
