@@ -1,15 +1,15 @@
 @reference "tailwindcss";
 
-.wrapper {
-  @apply space-y-2 mb-4;
+.bar {
+  @apply flex flex-col gap-3 py-3 px-4 mb-4 bg-white border border-gray-200 rounded-lg;
 }
 
 .quickFilters {
-  @apply flex flex-wrap gap-3 items-center px-4;
+  @apply flex flex-wrap gap-3 items-center;
 }
 
-.bar {
-  @apply flex flex-wrap gap-3 items-center py-3 px-4 bg-white border border-gray-200 rounded-lg;
+.dropdowns {
+  @apply flex flex-wrap gap-3 items-center;
 }
 
 .multiSelect {

@@ -108,7 +108,7 @@ export function FilterBar({ prs, filters, onFilterChange, onCopyMarkdown, copied
   };
 
   return (
-    <div className={styles.wrapper}>
+    <div className={styles.bar}>
       <div className={styles.quickFilters}>
         <button
           className={`${styles.quickFilter} ${styles.quickFilterGreen} ${isMergeReadyActive ? styles.quickFilterActive : ''}`}
@@ -140,7 +140,7 @@ export function FilterBar({ prs, filters, onFilterChange, onCopyMarkdown, copied
           </button>
         )}
       </div>
-      <div className={styles.bar}>
+      <div className={styles.dropdowns}>
         <MultiSelect label="All orgs" options={orgOptions} selected={filters.org || []} onChange={(v) => update('org', v)} />
         <MultiSelect label="All repos" options={repoOptions} selected={filters.repo || []} onChange={(v) => update('repo', v)} />
         <MultiSelect label="All CI" options={CI_OPTIONS} selected={filters.ci || []} onChange={(v) => update('ci', v)} />
