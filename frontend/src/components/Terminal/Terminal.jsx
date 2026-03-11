@@ -23,8 +23,8 @@ export function Terminal({ wsUrl, wsRef: externalWsRef, focus }) {
 
       term = new GhosttyTerminal({
         cursorBlink: true,
-        fontSize: 14,
-        fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+        fontSize: 13,
+        fontFamily: '"JetBrains Mono", "Fira Code", Menlo, Monaco, "Courier New", monospace',
         theme: {
           background: '#1a1b26',
           foreground: '#a9b1d6',

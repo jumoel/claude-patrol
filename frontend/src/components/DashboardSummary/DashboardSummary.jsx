@@ -50,16 +50,21 @@ export function DashboardSummary({ prCount, syncedAt }) {
       <StatDropdown
         label={`${workspaces.length} active workspaces`}
         items={workspaces}
-        renderItem={(ws) => (
-          <a
-            key={ws.id}
-            className={styles.dropdownItem}
-            href={`#/pr/${encodeURIComponent(ws.pr_id)}`}
-          >
-            <span className={styles.itemName}>{ws.name}</span>
-            <span className={styles.itemDetail}>{ws.path}</span>
-          </a>
-        )}
+        renderItem={(ws) => {
+          const href = ws.pr_id
+            ? `#/pr/${encodeURIComponent(ws.pr_id)}`
+            : `#/workspace/${ws.id}`;
+          return (
+            <a
+              key={ws.id}
+              className={styles.dropdownItem}
+              href={href}
+            >
+              <span className={styles.itemName}>{ws.name}</span>
+              <span className={styles.itemDetail}>{ws.path}</span>
+            </a>
+          );
+        }}
       />
       <span className={styles.divider} />
       <StatDropdown
@@ -69,7 +74,9 @@ export function DashboardSummary({ prCount, syncedAt }) {
           const ws = sess.workspace_id ? wsById[sess.workspace_id] : null;
           const label = ws ? ws.name : 'Global session';
           const detail = `PID ${sess.pid} - started ${new Date(sess.started_at).toLocaleTimeString()}`;
-          const href = ws ? `#/pr/${encodeURIComponent(ws.pr_id)}` : null;
+          const href = ws
+            ? (ws.pr_id ? `#/pr/${encodeURIComponent(ws.pr_id)}` : `#/workspace/${ws.id}`)
+            : null;
           const Tag = href ? 'a' : 'span';
           return (
             <Tag key={sess.id} className={styles.dropdownItem} {...(href ? { href } : {})}>
