@@ -5,13 +5,14 @@ import { readFileSync, writeFileSync, unlinkSync, chmodSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { getDb } from './db.js';
+import { mcpConfigPath as getMcpConfigPath } from './paths.js';
 
 const BUFFER_MAX = 50_000;
 
 const PATROL_SYSTEM_PROMPT = readFileSync(resolve(import.meta.dirname, 'patrol-system-prompt.md'), 'utf8');
 
 /** @type {string | null} */
-let mcpConfigPath = null;
+let mcpConfigPathCached = null;
 
 /**
  * Write the MCP config JSON for the patrol server. Called once at startup.
@@ -29,8 +30,8 @@ export function initMcpConfig(config) {
       },
     },
   };
-  mcpConfigPath = resolve(config.db_path, '..', '.patrol-mcp.json');
-  writeFileSync(mcpConfigPath, JSON.stringify(configJson, null, 2));
+  mcpConfigPathCached = getMcpConfigPath();
+  writeFileSync(mcpConfigPathCached, JSON.stringify(configJson, null, 2));
 }
 
 /** Alias for config change handler - re-writes MCP config with new port. */
@@ -135,8 +136,8 @@ export function createSession(workspaceId, cwd) {
 
   // Build the claude command with args
   const claudeArgs = ['claude'];
-  if (mcpConfigPath) {
-    claudeArgs.push('--mcp-config', mcpConfigPath);
+  if (mcpConfigPathCached) {
+    claudeArgs.push('--mcp-config', mcpConfigPathCached);
     claudeArgs.push('--append-system-prompt', PATROL_SYSTEM_PROMPT);
     claudeArgs.push('--allowedTools', 'mcp__patrol__*', 'Bash', 'Read', 'Edit', 'Write', 'Glob', 'Grep', 'Agent');
   }

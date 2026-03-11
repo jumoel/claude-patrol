@@ -2,6 +2,9 @@
   "name": "claude-patrol",
   "version": "1.0.0",
   "type": "module",
+  "bin": {
+    "claude-patrol": "./bin/claude-patrol.js"
+  },
   "scripts": {
     "start": "pnpm --filter claude-patrol-frontend build && node src/index.js",
     "postinstall": "chmod +x node_modules/node-pty/prebuilds/darwin-*/spawn-helper 2>/dev/null || true",

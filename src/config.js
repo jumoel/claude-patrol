@@ -1,14 +1,14 @@
-import { readFileSync, watchFile, unwatchFile } from 'node:fs';
-import { resolve } from 'node:path';
+import { readFileSync, writeFileSync, watchFile, unwatchFile, existsSync } from 'node:fs';
+import { resolve, isAbsolute } from 'node:path';
 import { EventEmitter } from 'node:events';
 import { expandPath } from './utils.js';
+import { configPath, defaultDbPath, dataDir } from './paths.js';
 
-const CONFIG_PATH = resolve(import.meta.dirname, '..', 'config.json');
+const CONFIG_PATH = configPath();
 
 const PATH_FIELDS = ['db_path', 'workspace_base_path', 'work_dir', 'global_terminal_cwd'];
 
 const REQUIRED_FIELDS = {
-  db_path: (v) => typeof v === 'string',
   port: (v) => typeof v === 'number',
   workspace_base_path: (v) => typeof v === 'string',
   work_dir: (v) => typeof v === 'string',
@@ -61,14 +61,46 @@ function validate(cfg) {
  * Read and validate config from disk. Path fields are expanded (~ -> home).
  * @returns {Readonly<Record<string, unknown>>}
  */
+/**
+ * Ensure a config file exists. If not, write a starter template and return false.
+ * @returns {boolean} true if config exists, false if template was written
+ */
+export function ensureConfig() {
+  if (existsSync(CONFIG_PATH)) return true;
+
+  const template = {
+    port: 3000,
+    workspace_base_path: '~/.claude-patrol/workspaces',
+    work_dir: '~/.claude-patrol/workspaces',
+    poll: {
+      interval_seconds: 30,
+      orgs: [],
+      repos: [],
+    },
+  };
+  writeFileSync(CONFIG_PATH, JSON.stringify(template, null, 2) + '\n');
+  return false;
+}
+
 export function loadConfig() {
   const raw = readFileSync(CONFIG_PATH, 'utf8');
   const cfg = JSON.parse(raw);
+
+  // Default db_path if not set
+  if (!cfg.db_path) {
+    cfg.db_path = defaultDbPath();
+  }
+
   validate(cfg);
 
   for (const field of PATH_FIELDS) {
     if (cfg[field]) {
-      cfg[field] = expandPath(cfg[field]);
+      if (field === 'db_path' && !cfg[field].startsWith('~') && !isAbsolute(cfg[field])) {
+        // Relative db_path resolves against dataDir, not CWD
+        cfg[field] = resolve(dataDir(), cfg[field]);
+      } else {
+        cfg[field] = expandPath(cfg[field]);
+      }
     }
   }
 
