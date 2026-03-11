@@ -114,6 +114,55 @@ export async function startServer(options = {}) {
   }
   process.on('SIGINT', () => shutdown('SIGINT'));
   process.on('SIGTERM', () => shutdown('SIGTERM'));
+
+  // Listen for spacebar to open browser.
+  // The status line is always the last line in the terminal. We intercept
+  // console.log/warn/error so other output clears the status line first,
+  // then redraws it underneath.
+  if (process.stdin.isTTY) {
+    process.stdin.setRawMode(true);
+    process.stdin.resume();
+    process.stdin.setEncoding('utf8');
+
+    const statusLine = `[claude-patrol] Press [space] to open ${serverUrl}`;
+    let statusVisible = false;
+
+    function clearStatus() {
+      if (!statusVisible) return;
+      process.stdout.moveCursor(0, -1);
+      process.stdout.clearLine(0);
+      process.stdout.cursorTo(0);
+      statusVisible = false;
+    }
+
+    function drawStatus() {
+      process.stdout.write(`${statusLine}\n`);
+      statusVisible = true;
+    }
+
+    // Intercept console output to keep status line at the bottom
+    const origLog = console.log.bind(console);
+    const origWarn = console.warn.bind(console);
+    const origError = console.error.bind(console);
+    console.log = (...args) => { clearStatus(); origLog(...args); drawStatus(); };
+    console.warn = (...args) => { clearStatus(); origWarn(...args); drawStatus(); };
+    console.error = (...args) => { clearStatus(); origError(...args); drawStatus(); };
+
+    drawStatus();
+
+    process.stdin.on('data', (key) => {
+      if (key === '\x03') {
+        clearStatus();
+        shutdown('SIGINT');
+        return;
+      }
+      if (key === ' ') {
+        execFileCb('open', [serverUrl], (err) => {
+          if (err) console.warn(`[claude-patrol] Could not open browser: ${err.message}`);
+        });
+      }
+    });
+  }
 }
 
 // Direct execution guard: `node src/index.js` still works

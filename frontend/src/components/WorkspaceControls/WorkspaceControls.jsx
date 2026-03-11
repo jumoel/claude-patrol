@@ -1,28 +1,29 @@
 import { useState, useCallback } from 'react';
-import { createWorkspace, destroyWorkspace } from '../../lib/api.js';
+import { destroyWorkspace } from '../../lib/api.js';
 import styles from './WorkspaceControls.module.css';
 
 /**
  * Workspace create/destroy controls for a PR.
- * @param {{ prId: string, workspace: object | null, onUpdate: () => void }} props
+ * @param {{ prId: string, workspace: object | null, onUpdate: () => void, getOrCreateWorkspace?: () => Promise<object>, claudeWaiting?: boolean }} props
  */
-export function WorkspaceControls({ prId, workspace, onUpdate }) {
+export function WorkspaceControls({ prId, workspace, onUpdate, getOrCreateWorkspace, claudeWaiting }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [confirmDestroy, setConfirmDestroy] = useState(false);
 
   const handleCreate = useCallback(async () => {
+    if (!getOrCreateWorkspace) return;
     setLoading(true);
     setError(null);
     try {
-      await createWorkspace(prId);
+      await getOrCreateWorkspace();
       onUpdate();
     } catch (err) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
-  }, [prId, onUpdate]);
+  }, [getOrCreateWorkspace, onUpdate]);
 
   const handleDestroy = useCallback(async () => {
     if (!workspace) return;
@@ -39,11 +40,13 @@ export function WorkspaceControls({ prId, workspace, onUpdate }) {
     }
   }, [workspace, onUpdate]);
 
+  const busy = loading || claudeWaiting;
+
   if (!workspace) {
     return (
       <div className={styles.controls}>
-        <button className={styles.createButton} onClick={handleCreate} disabled={loading}>
-          {loading ? 'Creating...' : 'Create Workspace'}
+        <button className={styles.createButton} onClick={handleCreate} disabled={busy}>
+          {busy ? 'Creating workspace...' : 'Create Workspace'}
         </button>
         {error && <p className={styles.error}>{error}</p>}
       </div>

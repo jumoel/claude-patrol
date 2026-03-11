@@ -3,6 +3,7 @@ import { getDb } from '../db.js';
 import { createWorkspace, createScratchWorkspace, destroyWorkspace } from '../workspace.js';
 import { formatPR } from '../pr-status.js';
 import { getCurrentConfig } from '../config.js';
+import { emitLocalChange } from '../app-events.js';
 
 /**
  * Register workspace routes.
@@ -19,6 +20,7 @@ export function registerWorkspaceRoutes(app) {
       const workspace = pr_id
         ? await createWorkspace(pr_id, getCurrentConfig())
         : await createScratchWorkspace(repo, branch, getCurrentConfig());
+      emitLocalChange();
       return reply.code(201).send(workspace);
     } catch (err) {
       return reply.code(400).send({ error: err.message });
@@ -73,6 +75,7 @@ export function registerWorkspaceRoutes(app) {
   app.delete('/api/workspaces/:id', async (request, reply) => {
     try {
       const result = await destroyWorkspace(request.params.id, getCurrentConfig());
+      emitLocalChange();
       return result;
     } catch (err) {
       return reply.code(400).send({ error: err.message });
@@ -127,6 +130,7 @@ export function registerWorkspaceRoutes(app) {
       }
     }
 
+    if (results.some(r => r.status === 'destroyed')) emitLocalChange();
     return { ok: true, destroyed: results.filter(r => r.status === 'destroyed').length, workspaces: results };
   });
 

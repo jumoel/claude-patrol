@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { fetchPR, fetchWorkspaces, fetchSessions, fetchPRComments, fetchCheckLogs, createWorkspace as apiCreateWorkspace, createSession as apiCreateSession, killSession as apiKillSession } from '../../lib/api.js';
 import { WorkspaceControls } from '../WorkspaceControls/WorkspaceControls.jsx';
 import { Terminal } from '../Terminal/Terminal.jsx';
@@ -33,6 +33,8 @@ export function PRDetail({ prId, onBack }) {
   const [openingStep, setOpeningStep] = useState('');
   const [retriggering, setRetriggering] = useState(false);
   const wsRef = useRef(null);
+  /** Deduped workspace creation promise so both buttons share a single in-flight request. */
+  const workspacePromiseRef = useRef(null);
 
   const loadData = useCallback(async () => {
     try {
@@ -65,16 +67,32 @@ export function PRDetail({ prId, onBack }) {
   useEffect(() => { loadData(); }, [loadData]);
   useSyncEvents(loadData);
 
+  /**
+   * Get or create a workspace, deduping concurrent requests.
+   * Both "Create Workspace" and "Open in Claude" share this so clicking
+   * either one while the other is in-flight reuses the same promise.
+   */
+  const getOrCreateWorkspace = useCallback(async () => {
+    if (workspace) return workspace;
+    if (workspacePromiseRef.current) return workspacePromiseRef.current;
+    const promise = apiCreateWorkspace(prId).then(ws => {
+      setWorkspace(ws);
+      workspacePromiseRef.current = null;
+      return ws;
+    }).catch(err => {
+      workspacePromiseRef.current = null;
+      throw err;
+    });
+    workspacePromiseRef.current = promise;
+    return promise;
+  }, [prId, workspace]);
+
   /** Ensure workspace + session exist, creating them if needed. Returns { ws, sess } or null on failure. */
   const ensureWorkspaceAndSession = useCallback(async () => {
     setOpeningClaude(true);
     try {
-      let ws = workspace;
-      if (!ws) {
-        setOpeningStep('Creating workspace...');
-        ws = await apiCreateWorkspace(prId);
-        setWorkspace(ws);
-      }
+      setOpeningStep('Creating workspace...');
+      const ws = await getOrCreateWorkspace();
       let sess = session;
       if (!sess) {
         setOpeningStep('Starting session...');
@@ -90,7 +108,7 @@ export function PRDetail({ prId, onBack }) {
       setOpeningClaude(false);
       setOpeningStep('');
     }
-  }, [prId, workspace, session]);
+  }, [getOrCreateWorkspace, session]);
 
   const handleOpenInClaude = useCallback(async () => {
     await ensureWorkspaceAndSession();
@@ -259,7 +277,7 @@ export function PRDetail({ prId, onBack }) {
       <div className={styles.actionsRow}>
         <div className={shared.section}>
           <h3 className={shared.sectionTitle}>Workspace</h3>
-          <WorkspaceControls prId={prId} workspace={workspace} onUpdate={loadData} />
+          <WorkspaceControls prId={prId} workspace={workspace} onUpdate={loadData} getOrCreateWorkspace={getOrCreateWorkspace} claudeWaiting={openingClaude && !workspace} />
           {!session && (
             <button className={`${shared.openButton} ${styles.openButtonSpaced}`} onClick={handleOpenInClaude} disabled={openingClaude}>
               {openingClaude ? openingStep : 'Open in Claude'}

@@ -5,6 +5,7 @@ import fastifyWebsocket from '@fastify/websocket';
 import { resolve } from 'node:path';
 import { existsSync } from 'node:fs';
 import { pollerEvents } from './poller.js';
+import { appEvents } from './app-events.js';
 import { registerPRRoutes } from './routes/prs.js';
 import { registerSyncRoutes } from './routes/sync.js';
 import { registerConfigRoutes } from './routes/config.js';
@@ -44,13 +45,18 @@ export async function createServer() {
 
     sseConnections.add(raw);
 
-    const handler = (data) => {
+    const syncHandler = (data) => {
       raw.write(`event: sync\ndata: ${JSON.stringify(data)}\n\n`);
     };
+    const localHandler = () => {
+      raw.write(`event: local-change\ndata: {}\n\n`);
+    };
 
-    pollerEvents.on('sync', handler);
+    pollerEvents.on('sync', syncHandler);
+    appEvents.on('local-change', localHandler);
     request.raw.on('close', () => {
-      pollerEvents.removeListener('sync', handler);
+      pollerEvents.removeListener('sync', syncHandler);
+      appEvents.removeListener('local-change', localHandler);
       sseConnections.delete(raw);
     });
   });

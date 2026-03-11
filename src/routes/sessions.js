@@ -1,6 +1,7 @@
 import { getDb } from '../db.js';
 import { createSession, attachSession, killSession, popOutSession } from '../pty-manager.js';
 import { getCurrentConfig } from '../config.js';
+import { emitLocalChange } from '../app-events.js';
 
 /**
  * Register session routes.
@@ -26,6 +27,7 @@ export function registerSessionRoutes(app) {
 
     try {
       const session = createSession(isGlobal ? null : workspace_id, cwd);
+      emitLocalChange();
       return reply.code(201).send({
         ...session,
         ws_url: `ws://${request.hostname}/ws/sessions/${session.id}`,
@@ -46,6 +48,7 @@ export function registerSessionRoutes(app) {
 
   app.delete('/api/sessions/:id', (request) => {
     killSession(request.params.id);
+    emitLocalChange();
     return { ok: true };
   });
 

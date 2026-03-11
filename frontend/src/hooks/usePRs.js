@@ -70,11 +70,14 @@ export function usePRs(filters) {
     loadPRs();
   }, [filters, loadPRs]);
 
-  // SSE for live updates
+  // SSE for live updates (sync from GitHub + local workspace/session changes)
   useEffect(() => {
     const source = new EventSource('/api/events');
     source.addEventListener('sync', () => {
       setSyncing(false);
+      loadPRs();
+    });
+    source.addEventListener('local-change', () => {
       loadPRs();
     });
     source.onerror = () => {
