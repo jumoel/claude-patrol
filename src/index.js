@@ -12,7 +12,7 @@ import { initTui, destroyTui, setHeader } from './tui.js';
 
 /**
  * Start the claude-patrol server.
- * @param {{ noOpen?: boolean }} [options]
+ * @param {{ open?: boolean, noOpen?: boolean }} [options]
  */
 export async function startServer(options = {}) {
   const status = isRunning();
@@ -84,9 +84,9 @@ export async function startServer(options = {}) {
 
   console.log(`Server listening on ${serverUrl}`);
 
-  // Open browser unless --no-open
-  const noOpen = options.noOpen || process.env.NODE_ENV === 'test' || process.argv.includes('--no-open');
-  if (!noOpen) {
+  // Only open browser when explicitly requested via --open
+  const shouldOpen = !options.noOpen && (options.open || process.argv.includes('--open'));
+  if (shouldOpen) {
     execFileCb('open', [serverUrl], (err) => {
       if (err) console.warn(`Could not open browser: ${err.message}`);
     });

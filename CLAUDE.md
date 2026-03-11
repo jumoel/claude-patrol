@@ -2,9 +2,9 @@
 
 ## Running the server
 
-- **Production**: `pnpm start` (builds frontend, starts server, opens browser)
-- **Testing/development**: `node src/index.js --no-open` (skips browser open)
-- Always use `--no-open` when starting the server for verification or testing during development
+- **Production**: `pnpm start` (builds frontend, starts server; press space to open browser)
+- **Testing/development**: `node src/index.js` (skips frontend build)
+- Pass `--open` to auto-launch the browser on startup
 
 ## Workflow
 

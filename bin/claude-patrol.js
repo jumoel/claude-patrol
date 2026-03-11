@@ -12,12 +12,12 @@ const command = args[0] || 'start';
 
 switch (command) {
   case 'start': {
-    const noOpen = args.includes('--no-open');
+    const open = args.includes('--open');
     const rootDir = join(dirname(fileURLToPath(import.meta.url)), '..');
     console.log('[claude-patrol] Building frontend...');
     execSync('pnpm --filter claude-patrol-frontend build', { cwd: rootDir, stdio: 'inherit' });
     const { startServer } = await import('../src/index.js');
-    await startServer({ noOpen });
+    await startServer({ open });
     break;
   }
 
@@ -141,7 +141,7 @@ switch (command) {
     console.log(`Usage: claude-patrol <command> [options]
 
 Commands:
-  start [--no-open]  Start the server (default)
+  start [--open]     Start the server (default; --open to launch browser)
   stop               Stop the running server
   status             Check if the server is running
   clean              Remove data files (DB, PID, MCP config)
