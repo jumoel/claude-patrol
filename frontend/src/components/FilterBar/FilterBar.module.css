@@ -5,7 +5,7 @@
 }
 
 .quickFilters {
-  @apply flex flex-wrap gap-3 items-center;
+  @apply flex flex-wrap gap-3 items-center px-4;
 }
 
 .bar {

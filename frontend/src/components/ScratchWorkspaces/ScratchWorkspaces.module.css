@@ -5,7 +5,7 @@
 }
 
 .header {
-  @apply flex items-center justify-between mb-3;
+  @apply flex items-center justify-between mb-3 px-4;
 }
 
 .title {
@@ -77,5 +77,5 @@
 }
 
 .emptyText {
-  @apply text-sm text-gray-400;
+  @apply text-sm text-gray-400 px-4;
 }

@@ -3,6 +3,9 @@
 import { isRunning, readPid, removePid } from '../src/pid.js';
 import { pidPath, stateDir, dataDir, configDir, configPath, defaultDbPath, mcpConfigPath } from '../src/paths.js';
 import { unlinkSync, rmSync, existsSync } from 'node:fs';
+import { execSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 
 const args = process.argv.slice(2);
 const command = args[0] || 'start';
@@ -10,6 +13,9 @@ const command = args[0] || 'start';
 switch (command) {
   case 'start': {
     const noOpen = args.includes('--no-open');
+    const rootDir = join(dirname(fileURLToPath(import.meta.url)), '..');
+    console.log('[claude-patrol] Building frontend...');
+    execSync('pnpm --filter claude-patrol-frontend build', { cwd: rootDir, stdio: 'inherit' });
     const { startServer } = await import('../src/index.js');
     await startServer({ noOpen });
     break;
