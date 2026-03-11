@@ -14,10 +14,18 @@ async function ensureJjInit(repoPath) {
     throw new Error(`Repo directory does not exist: ${repoPath}`);
   }
   const jjDir = resolve(repoPath, '.jj');
-  if (existsSync(jjDir)) return;
+  if (!existsSync(jjDir)) {
+    console.log(`[workspace] Initializing jj in ${repoPath}`);
+    await execFile('jj', ['git', 'init', '--colocate'], { cwd: repoPath });
+    return;
+  }
 
-  console.log(`[workspace] Initializing jj in ${repoPath}`);
-  await execFile('jj', ['git', 'init', '--colocate'], { cwd: repoPath });
+  // Update stale working copy - jj refuses operations on stale repos
+  try {
+    await execFile('jj', ['workspace', 'update-stale', '-R', repoPath]);
+  } catch {
+    // Non-fatal: update-stale fails if workspace isn't stale (exit code 1)
+  }
 }
 
 /**
@@ -55,21 +63,16 @@ export async function createWorkspace(prId, config) {
     throw err;
   }
 
-  // Ensure main repo is jj-initialized (git clones won't have .jj/)
-  await ensureJjInit(mainRepoPath);
-
-  // Ensure parent directories exist (jj won't create them)
-  mkdirSync(dirname(workspacePath), { recursive: true });
-
-  // Create workspace via jj
+  // Everything after DB insert gets full rollback on failure
   try {
+    await ensureJjInit(mainRepoPath);
+    mkdirSync(dirname(workspacePath), { recursive: true });
     await execFile('jj', ['workspace', 'add', workspacePath, '--name', name, '-r', pr.branch, '-R', mainRepoPath]);
+    await runPostCreateSetup(workspacePath, mainRepoPath, name, config, `${pr.org}/${pr.repo}`);
   } catch (err) {
-    db.prepare('DELETE FROM workspaces WHERE id = ?').run(id);
-    throw new Error(`jj workspace add failed: ${err.message}`);
+    await rollbackWorkspace({ id, name, workspacePath, mainRepoPath });
+    throw new Error(`Workspace creation failed: ${err.message}`);
   }
-
-  await runPostCreateSetup({ id, name, workspacePath, mainRepoPath, repoKey: `${pr.org}/${pr.repo}`, config });
 
   return { id, pr_id: prId, name, path: workspacePath, bookmark: pr.branch, status: 'active', created_at: now };
 }
@@ -112,56 +115,73 @@ export async function createScratchWorkspace(repo, branch, config) {
     throw err;
   }
 
-  await ensureJjInit(mainRepoPath);
-  mkdirSync(dirname(workspacePath), { recursive: true });
-
+  // Everything after DB insert gets full rollback on failure
   try {
+    await ensureJjInit(mainRepoPath);
+    mkdirSync(dirname(workspacePath), { recursive: true });
     await execFile('jj', ['workspace', 'add', workspacePath, '--name', name, '-r', 'main@origin', '-R', mainRepoPath]);
-  } catch (err) {
-    db.prepare('DELETE FROM workspaces WHERE id = ?').run(id);
-    throw new Error(`jj workspace add failed: ${err.message}`);
-  }
 
-  // Create bookmark for the branch
-  try {
-    await execFile('jj', ['bookmark', 'create', branch, '-R', workspacePath]);
-  } catch (err) {
-    // Non-fatal - bookmark may already exist
-    console.warn(`[workspace] Bookmark create failed (may already exist): ${err.message}`);
-  }
+    // Create bookmark for the branch (non-fatal - may already exist)
+    try {
+      await execFile('jj', ['bookmark', 'create', branch, '-R', workspacePath]);
+    } catch (err) {
+      console.warn(`[workspace] Bookmark create failed (may already exist): ${err.message}`);
+    }
 
-  await runPostCreateSetup({ id, name, workspacePath, mainRepoPath, repoKey: repo, config });
+    await runPostCreateSetup(workspacePath, mainRepoPath, name, config, repo);
+  } catch (err) {
+    await rollbackWorkspace({ id, name, workspacePath, mainRepoPath });
+    throw new Error(`Workspace creation failed: ${err.message}`);
+  }
 
   return { id, pr_id: null, repo, name, path: workspacePath, bookmark: branch, status: 'active', created_at: now };
 }
 
 /**
- * Run post-create setup: symlinks, memory linking, and init commands.
- * Rolls back (deletes DB row, forgets workspace, removes directory) on failure.
+ * Clean up all artifacts from a failed workspace creation.
+ * Best-effort: logs warnings but does not throw.
  * @param {object} opts
  * @param {string} opts.id - workspace DB id
  * @param {string} opts.name - jj workspace name
  * @param {string} opts.workspacePath
  * @param {string} opts.mainRepoPath
- * @param {string} opts.repoKey - "org/repo" for config lookup
- * @param {object} opts.config
  */
-async function runPostCreateSetup({ id, name, workspacePath, mainRepoPath, repoKey, config }) {
+async function rollbackWorkspace({ id, name, workspacePath, mainRepoPath }) {
   const db = getDb();
-  const repoConfig = (config.repos || {})[repoKey] || {};
+
+  db.prepare('DELETE FROM workspaces WHERE id = ?').run(id);
+
+  await execFile('jj', ['workspace', 'forget', name, '-R', mainRepoPath]).catch(() => {});
+
+  try { rmSync(workspacePath, { recursive: true, force: true }); } catch { /* best effort */ }
 
   try {
-    if (config.symlink_memory) {
-      symlinkMemory(workspacePath, mainRepoPath);
+    const claudeProjects = expandPath('~/.claude/projects');
+    const wsKey = toClaudeProjectKey(workspacePath);
+    const wsProjectDir = resolve(claudeProjects, wsKey);
+    if (existsSync(wsProjectDir)) {
+      rmSync(wsProjectDir, { recursive: true, force: true });
     }
-    if (repoConfig.symlinks) {
-      setupRepoSymlinks(workspacePath, mainRepoPath, repoConfig.symlinks);
-    }
-  } catch (err) {
-    db.prepare('DELETE FROM workspaces WHERE id = ?').run(id);
-    await execFile('jj', ['workspace', 'forget', name, '-R', mainRepoPath]).catch(() => {});
-    rmSync(workspacePath, { recursive: true, force: true });
-    throw new Error(`Workspace setup failed: ${err.message}`);
+  } catch { /* best effort */ }
+}
+
+/**
+ * Run post-create setup: symlinks, memory linking, and init commands.
+ * On failure, caller is responsible for rollback.
+ * @param {string} workspacePath
+ * @param {string} mainRepoPath
+ * @param {string} name - jj workspace name (for log messages)
+ * @param {object} config
+ * @param {string} repoKey - "org/repo" for config lookup
+ */
+async function runPostCreateSetup(workspacePath, mainRepoPath, name, config, repoKey) {
+  const repoConfig = (config.repos || {})[repoKey] || {};
+
+  if (config.symlink_memory) {
+    symlinkMemory(workspacePath, mainRepoPath);
+  }
+  if (repoConfig.symlinks) {
+    setupRepoSymlinks(workspacePath, mainRepoPath, repoConfig.symlinks);
   }
 
   // Init commands are non-fatal - workspace is usable even if these fail
