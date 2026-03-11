@@ -4,7 +4,7 @@ import styles from './GlobalTerminal.module.css';
 
 const MIN_HEIGHT = 150;
 const MAX_HEIGHT_RATIO = 0.85;
-const DEFAULT_HEIGHT = 400;
+const DEFAULT_HEIGHT = 600;
 const STORAGE_KEY = 'claude-patrol-terminal-height';
 
 function loadHeight() {
@@ -28,6 +28,7 @@ export function GlobalTerminal({ open, onToggle }) {
   const [loading, setLoading] = useState(false);
   const [height, setHeight] = useState(loadHeight);
   const [dragging, setDragging] = useState(false);
+  const [maximized, setMaximized] = useState(false);
   const dragStartRef = useRef(null);
 
   const startSession = useCallback(async () => {
@@ -98,6 +99,14 @@ export function GlobalTerminal({ open, onToggle }) {
     });
   }, []);
 
+  // Escape key to un-maximize
+  useEffect(() => {
+    if (!maximized) return;
+    const handler = (e) => { if (e.key === 'Escape') setMaximized(false); };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [maximized]);
+
   // Double-click toggles between min and default
   const handleDoubleClick = useCallback(() => {
     setHeight(prev => {
@@ -109,7 +118,7 @@ export function GlobalTerminal({ open, onToggle }) {
 
   // The spacer height is used by the parent to add scroll room.
   // The drawer itself is position:fixed so it doesn't participate in flow.
-  const spacerHeight = open ? height : 0;
+  const spacerHeight = open && !maximized ? height : 0;
 
   return (
     <>
@@ -117,24 +126,29 @@ export function GlobalTerminal({ open, onToggle }) {
       <div style={{ height: spacerHeight, flexShrink: 0 }} />
       {dragging && <div className={styles.dragOverlay} />}
       <div
-        className={styles.drawer}
-        style={{ height, display: open ? 'flex' : 'none' }}
+        className={maximized ? styles.maximized : styles.drawer}
+        style={maximized ? { display: open ? 'flex' : 'none' } : { height, display: open ? 'flex' : 'none' }}
       >
-        <div
-          className={styles.resizeHandle}
-          onPointerDown={handlePointerDown}
-          onPointerMove={handlePointerMove}
-          onPointerUp={handlePointerUp}
-          onPointerCancel={handlePointerUp}
-          onDoubleClick={handleDoubleClick}
-        >
-          <div className={styles.resizeGrip} />
-        </div>
+        {!maximized && (
+          <div
+            className={styles.resizeHandle}
+            onPointerDown={handlePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+            onPointerCancel={handlePointerUp}
+            onDoubleClick={handleDoubleClick}
+          >
+            <div className={styles.resizeGrip} />
+          </div>
+        )}
         <div className={styles.handle}>
           <span className={styles.handleText}>Global Terminal</span>
           <div className={styles.handleActions}>
             {session && (
               <>
+                <button className={styles.maximizeButton} onClick={() => setMaximized(m => !m)}>
+                  {maximized ? 'Restore' : 'Maximize'}
+                </button>
                 <button className={styles.popOutButton} onClick={popOutSession}>
                   Pop out
                 </button>
@@ -143,7 +157,7 @@ export function GlobalTerminal({ open, onToggle }) {
                 </button>
               </>
             )}
-            <button className={styles.closeButton} onClick={onToggle}>
+            <button className={styles.closeButton} onClick={() => { setMaximized(false); onToggle(); }}>
               <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
                 <line x1="3" y1="3" x2="11" y2="11" />
                 <line x1="11" y1="3" x2="3" y2="11" />

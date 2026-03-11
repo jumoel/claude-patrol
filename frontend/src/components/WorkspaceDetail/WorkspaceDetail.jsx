@@ -9,12 +9,20 @@ import styles from './WorkspaceDetail.module.css';
  * Scratch workspace detail view.
  * @param {{ workspaceId: string, onBack: () => void }} props
  */
+const DEFAULT_TERMINAL_HEIGHT = 600;
+const MIN_TERMINAL_HEIGHT = 200;
+const MAX_TERMINAL_HEIGHT = 1200;
+
 export function WorkspaceDetail({ workspaceId, onBack }) {
   const [workspace, setWorkspace] = useState(null);
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
   const [openingSession, setOpeningSession] = useState(false);
   const [destroying, setDestroying] = useState(false);
+  const [maximized, setMaximized] = useState(false);
+  const [termHeight, setTermHeight] = useState(DEFAULT_TERMINAL_HEIGHT);
+  const [dragging, setDragging] = useState(false);
+  const dragStartRef = useRef(null);
   const wsRef = useRef(null);
 
   const loadData = useCallback(async () => {
@@ -78,6 +86,35 @@ export function WorkspaceDetail({ workspaceId, onBack }) {
     }
   }, [workspace, onBack]);
 
+  // Escape key to un-maximize
+  useEffect(() => {
+    if (!maximized) return;
+    const handler = (e) => { if (e.key === 'Escape') setMaximized(false); };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [maximized]);
+
+  // Terminal resize handlers
+  const handleResizePointerDown = useCallback((e) => {
+    e.preventDefault();
+    dragStartRef.current = { y: e.clientY, height: termHeight };
+    setDragging(true);
+    e.target.setPointerCapture(e.pointerId);
+  }, [termHeight]);
+
+  const handleResizePointerMove = useCallback((e) => {
+    if (!dragStartRef.current) return;
+    const delta = e.clientY - dragStartRef.current.y;
+    const newHeight = Math.min(MAX_TERMINAL_HEIGHT, Math.max(MIN_TERMINAL_HEIGHT, dragStartRef.current.height + delta));
+    setTermHeight(newHeight);
+  }, []);
+
+  const handleResizePointerUp = useCallback(() => {
+    if (!dragStartRef.current) return;
+    dragStartRef.current = null;
+    setDragging(false);
+  }, []);
+
   const handleSendCommand = useCallback((command) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ type: 'input', data: command + '\r' }));
@@ -131,34 +168,74 @@ export function WorkspaceDetail({ workspaceId, onBack }) {
 
       {/* Terminal */}
       {workspace.status === 'active' && (
-        <div className={styles.card}>
-          <div className={styles.section}>
-            <div className={styles.terminalHeader}>
-              <h3 className={styles.sectionTitle}>Terminal</h3>
-              <div className={styles.terminalActions}>
-                {session && (
-                  <button className={styles.killSessionButton} onClick={handleKillSession}>
+        <>
+          {maximized && session && (
+            <div className={styles.terminalOverlay}>
+              <div className={styles.overlayHeader}>
+                <span className={styles.overlayTitle}>Terminal - {workspace.bookmark}</span>
+                <div className={styles.terminalActions}>
+                  <button className={styles.maximizeButton} onClick={() => setMaximized(false)}>
+                    Restore
+                  </button>
+                  <button className={styles.killSessionButton} onClick={() => { setMaximized(false); handleKillSession(); }}>
                     Kill Session
+                  </button>
+                </div>
+              </div>
+              <div className={styles.overlayContent}>
+                <Terminal wsUrl={`/ws/sessions/${session.id}`} wsRef={wsRef} />
+              </div>
+              <QuickActions onSend={handleSendCommand} />
+            </div>
+          )}
+          {!maximized && (
+            <div className={styles.card}>
+              <div className={styles.section}>
+                <div className={styles.terminalHeader}>
+                  <h3 className={styles.sectionTitle}>Terminal</h3>
+                  <div className={styles.terminalActions}>
+                    {session && (
+                      <>
+                        <button className={styles.maximizeButton} onClick={() => setMaximized(true)}>
+                          Maximize
+                        </button>
+                        <button className={styles.killSessionButton} onClick={handleKillSession}>
+                          Kill Session
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+                {session ? (
+                  <>
+                    {dragging && <div className={styles.dragOverlay} />}
+                    <div className={styles.terminalContainer} style={{ height: termHeight }}>
+                      <Terminal wsUrl={`/ws/sessions/${session.id}`} wsRef={wsRef} />
+                    </div>
+                    <div
+                      className={styles.resizeHandle}
+                      onPointerDown={handleResizePointerDown}
+                      onPointerMove={handleResizePointerMove}
+                      onPointerUp={handleResizePointerUp}
+                      onPointerCancel={handleResizePointerUp}
+                    >
+                      <div className={styles.resizeGrip} />
+                    </div>
+                    <QuickActions onSend={handleSendCommand} />
+                  </>
+                ) : (
+                  <button
+                    className={styles.openButton}
+                    onClick={handleStartSession}
+                    disabled={openingSession}
+                  >
+                    {openingSession ? 'Starting session...' : 'Start Terminal Session'}
                   </button>
                 )}
               </div>
             </div>
-            {session ? (
-              <>
-                <Terminal sessionId={session.id} wsRef={wsRef} />
-                <QuickActions onSend={handleSendCommand} />
-              </>
-            ) : (
-              <button
-                className={styles.openButton}
-                onClick={handleStartSession}
-                disabled={openingSession}
-              >
-                {openingSession ? 'Starting session...' : 'Start Terminal Session'}
-              </button>
-            )}
-          </div>
-        </div>
+          )}
+        </>
       )}
     </div>
   );

@@ -131,3 +131,21 @@ Replaced `@xterm/xterm` + `@xterm/addon-fit` with `ghostty-web` (v0.4.0) for the
 
 **Why:**
 - ghostty-web renders to a canvas element, which avoids xterm.js's DOM-heavy rendering. The API surface we use is small (Terminal, FitAddon, onData, onResize, write, focus, dispose) and fully supported by ghostty-web. Pre-1.0 caveat acknowledged - the risk is low given our limited API usage.
+
+## 2026-03-11 - Add maximize buttons to terminal windows
+
+Added a maximize/restore toggle to both the GlobalTerminal drawer and WorkspaceDetail terminal card. When maximized, the terminal fills the entire viewport (fixed positioning, z-index 40). Restore via the button or Escape key.
+
+**What changed:**
+- `frontend/src/components/GlobalTerminal/GlobalTerminal.jsx` - added `maximized` state, maximize/restore toggle button in header bar, Escape key listener, conditional `.maximized` CSS class that replaces `.drawer` positioning, hides resize handle when maximized, close button also un-maximizes
+- `frontend/src/components/GlobalTerminal/GlobalTerminal.module.css` - new `.maximized` class (fixed inset-0 z-40), `.maximizeButton` styled as neutral gray pill
+- `frontend/src/components/WorkspaceDetail/WorkspaceDetail.jsx` - added `maximized` state, maximize button next to Kill Session, full-viewport overlay with header bar showing workspace name, Escape key listener. Also fixed pre-existing bug: Terminal was receiving `sessionId` prop (which it ignores) instead of `wsUrl`
+- `frontend/src/components/WorkspaceDetail/WorkspaceDetail.module.css` - new `.maximizeButton`, `.terminalOverlay`, `.overlayHeader`, `.overlayTitle`, `.overlayContent`, `.terminalContainer` (400px explicit height for card-embedded terminal) classes
+
+**Why:**
+- Terminal windows were constrained to a drawer or card with no way to focus on a single session. Maximizing fills the browser window so you can work in the terminal without the surrounding dashboard chrome.
+- Default terminal height increased from 400px to 600px (both GlobalTerminal and WorkspaceDetail) for better usability.
+- Workspace terminal is now resizable via a drag handle, matching the GlobalTerminal's existing resize behavior.
+
+![Global terminal with maximize button](screenshots/global-terminal-maximize-button.png)
+![Workspace terminal resizable](screenshots/workspace-terminal-resizable.png)

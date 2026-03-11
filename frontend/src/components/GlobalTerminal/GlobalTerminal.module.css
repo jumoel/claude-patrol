@@ -4,6 +4,10 @@
   @apply fixed bottom-0 left-0 right-0 z-20 bg-gray-900 flex flex-col;
 }
 
+.maximized {
+  @apply fixed inset-0 z-40 bg-gray-900 flex flex-col;
+}
+
 .resizeHandle {
   @apply flex items-center justify-center shrink-0;
   height: 6px;
@@ -39,6 +43,10 @@
 
 .handleActions {
   @apply flex items-center gap-2;
+}
+
+.maximizeButton {
+  @apply px-2 py-0.5 text-xs text-gray-300 bg-gray-700/50 rounded hover:bg-gray-700 transition-colors cursor-pointer;
 }
 
 .popOutButton {
