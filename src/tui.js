@@ -174,17 +174,21 @@ export function setFooter(text) {
   render();
 }
 
-/** Tear down the TUI, restoring console methods. */
+/** Tear down the TUI, restoring console methods and clearing the screen. */
 export function destroyTui() {
   if (!active) return;
   active = false;
   process.stdout.removeListener('resize', render);
-  // Show cursor
-  process.stdout.write('\x1b[?25h');
-  // Restore console
+  // Restore console methods first so subsequent output works normally
   if (origLog) console.log = origLog;
   if (origWarn) console.warn = origWarn;
   if (origError) console.error = origError;
+  // Clear screen, move cursor home, show cursor
+  process.stdout.write('\x1b[2J\x1b[H\x1b[?25h');
+  // Disable raw mode so the terminal returns to normal
+  if (process.stdin.isTTY && process.stdin.isRaw) {
+    process.stdin.setRawMode(false);
+  }
 }
 
 /**
