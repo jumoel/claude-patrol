@@ -32,22 +32,35 @@ export async function createServer() {
   registerCommentRoutes(app);
 
   // SSE endpoint for live updates
+  const sseConnections = new Set();
   app.get('/api/events', (request, reply) => {
     reply.hijack();
-    reply.raw.writeHead(200, {
+    const raw = reply.raw;
+    raw.writeHead(200, {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
       Connection: 'keep-alive',
     });
 
+    sseConnections.add(raw);
+
     const handler = (data) => {
-      reply.raw.write(`event: sync\ndata: ${JSON.stringify(data)}\n\n`);
+      raw.write(`event: sync\ndata: ${JSON.stringify(data)}\n\n`);
     };
 
     pollerEvents.on('sync', handler);
     request.raw.on('close', () => {
       pollerEvents.removeListener('sync', handler);
+      sseConnections.delete(raw);
     });
+  });
+
+  // Expose a method to close all hijacked SSE connections so server.close() can finish
+  app.decorate('closeSSE', () => {
+    for (const conn of sseConnections) {
+      conn.end();
+    }
+    sseConnections.clear();
   });
 
   // Serve frontend build if it exists

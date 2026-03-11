@@ -107,11 +107,7 @@ export async function startServer(options = {}) {
     stopHealthChecks();
     killAllSessions();
     removePid();
-    const forceExit = setTimeout(() => {
-      console.log('[claude-patrol] Shutdown timed out, forcing exit.');
-      process.exit(0);
-    }, 3000);
-    forceExit.unref();
+    server.closeSSE();
     try { await server.close(); } catch { /* ignore close errors */ }
     console.log('[claude-patrol] Shutdown complete.');
     process.exit(0);
