@@ -120,3 +120,14 @@ Decoupled workspaces from PRs so users can start new work without an existing PR
 
 **Why:**
 - Previously all workspaces required an existing PR. This makes the tool useful for greenfield work where you want to start coding before opening a PR.
+
+## 2026-03-11 - Plan 12: Switch from xterm.js to ghostty-web
+
+Replaced `@xterm/xterm` + `@xterm/addon-fit` with `ghostty-web` (v0.4.0) for the terminal emulator component. ghostty-web uses Ghostty's Zig parser compiled to WASM, providing the same xterm.js-compatible API surface with canvas-based rendering.
+
+**What changed:**
+- `frontend/package.json` - swapped `@xterm/xterm` and `@xterm/addon-fit` for `ghostty-web`
+- `frontend/src/components/Terminal/Terminal.jsx` - replaced xterm.js imports with ghostty-web, added async WASM init with cancellation flag pattern, removed `letterSpacing` option (not supported, was 0 anyway), removed xterm CSS import
+
+**Why:**
+- ghostty-web renders to a canvas element, which avoids xterm.js's DOM-heavy rendering. The API surface we use is small (Terminal, FitAddon, onData, onResize, write, focus, dispose) and fully supported by ghostty-web. Pre-1.0 caveat acknowledged - the risk is low given our limited API usage.
