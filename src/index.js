@@ -8,6 +8,7 @@ import { cleanupOrphanedSessions, cleanupOrphanedTmuxSessions, initMcpConfig, up
 import { validateStartup } from './startup.js';
 import { startHealthChecks, stopHealthChecks } from './health.js';
 import { writePid, removePid, isRunning } from './pid.js';
+import { initTui, destroyTui, setHeader } from './tui.js';
 
 /**
  * Start the claude-patrol server.
@@ -67,41 +68,59 @@ export async function startServer(options = {}) {
   writePid(port);
 
   const serverUrl = `http://localhost:${port}`;
-  console.log(`[claude-patrol] Server listening on ${serverUrl}`);
+
+  // Start TUI if running in an interactive terminal
+  const isTTY = process.stdin.isTTY && process.stdout.isTTY;
+  if (isTTY) {
+    const pollTargets = [
+      ...config.poll.orgs.map(o => `org:${o}`),
+      ...config.poll.repos.map(r => `repo:${r}`),
+    ].join(', ');
+    initTui({
+      header: `${serverUrl}  |  polling ${pollTargets} every ${config.poll.interval_seconds}s`,
+      footer: '[space] open browser  [ctrl-c] quit',
+    });
+  }
+
+  console.log(`Server listening on ${serverUrl}`);
 
   // Open browser unless --no-open
   const noOpen = options.noOpen || process.env.NODE_ENV === 'test' || process.argv.includes('--no-open');
   if (!noOpen) {
     execFileCb('open', [serverUrl], (err) => {
-      if (err) console.warn(`[claude-patrol] Could not open browser: ${err.message}`);
+      if (err) console.warn(`Could not open browser: ${err.message}`);
     });
   }
 
   configEvents.on('change', (newConfig) => {
-    console.log('[claude-patrol] Config changed, restarting poller');
+    console.log('Config changed, restarting poller');
     setCurrentConfig(newConfig);
     resetStatements();
     startPoller(newConfig);
     updateMcpConfig(newConfig);
+    // Update header with new config
+    if (isTTY) {
+      const targets = [
+        ...newConfig.poll.orgs.map(o => `org:${o}`),
+        ...newConfig.poll.repos.map(r => `repo:${r}`),
+      ].join(', ');
+      setHeader(`${serverUrl}  |  polling ${targets} every ${newConfig.poll.interval_seconds}s`);
+    }
   });
 
   watchConfig();
 
-  const pollTargets = [
-    ...config.poll.orgs.map(o => `org:${o}`),
-    ...config.poll.repos.map(r => `repo:${r}`),
-  ].join(', ');
-  console.log(`[claude-patrol] Running. Polling ${pollTargets} every ${config.poll.interval_seconds}s`);
+  console.log('Running');
 
   // Graceful shutdown
   let shuttingDown = false;
   async function shutdown(signal) {
     if (shuttingDown) {
-      console.log('[claude-patrol] Forced exit.');
       process.exit(1);
     }
     shuttingDown = true;
-    console.log(`\n[claude-patrol] Received ${signal}, shutting down...`);
+    destroyTui();
+    console.log(`Received ${signal}, shutting down...`);
     unwatchConfig();
     stopPoller();
     stopHealthChecks();
@@ -109,56 +128,27 @@ export async function startServer(options = {}) {
     removePid();
     server.closeSSE();
     try { await server.close(); } catch { /* ignore close errors */ }
-    console.log('[claude-patrol] Shutdown complete.');
+    console.log('Shutdown complete.');
     process.exit(0);
   }
   process.on('SIGINT', () => shutdown('SIGINT'));
   process.on('SIGTERM', () => shutdown('SIGTERM'));
 
-  // Listen for spacebar to open browser.
-  // The status line is always the last line in the terminal. We intercept
-  // console.log/warn/error so other output clears the status line first,
-  // then redraws it underneath.
-  if (process.stdin.isTTY) {
+  // Listen for keyboard input in interactive mode
+  if (isTTY) {
     process.stdin.setRawMode(true);
     process.stdin.resume();
     process.stdin.setEncoding('utf8');
 
-    const statusLine = `[claude-patrol] Press [space] to open ${serverUrl}`;
-    let statusVisible = false;
-
-    function clearStatus() {
-      if (!statusVisible) return;
-      process.stdout.moveCursor(0, -1);
-      process.stdout.clearLine(0);
-      process.stdout.cursorTo(0);
-      statusVisible = false;
-    }
-
-    function drawStatus() {
-      process.stdout.write(`${statusLine}\n`);
-      statusVisible = true;
-    }
-
-    // Intercept console output to keep status line at the bottom
-    const origLog = console.log.bind(console);
-    const origWarn = console.warn.bind(console);
-    const origError = console.error.bind(console);
-    console.log = (...args) => { clearStatus(); origLog(...args); drawStatus(); };
-    console.warn = (...args) => { clearStatus(); origWarn(...args); drawStatus(); };
-    console.error = (...args) => { clearStatus(); origError(...args); drawStatus(); };
-
-    drawStatus();
-
     process.stdin.on('data', (key) => {
       if (key === '\x03') {
-        clearStatus();
         shutdown('SIGINT');
         return;
       }
       if (key === ' ') {
+        console.log(`Opening ${serverUrl}...`);
         execFileCb('open', [serverUrl], (err) => {
-          if (err) console.warn(`[claude-patrol] Could not open browser: ${err.message}`);
+          if (err) console.warn(`Could not open browser: ${err.message}`);
         });
       }
     });
