@@ -2,17 +2,17 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { fetchWorkspace, fetchSessions, createSession as apiCreateSession, killSession as apiKillSession, destroyWorkspace as apiDestroyWorkspace } from '../../lib/api.js';
 import { Terminal } from '../Terminal/Terminal.jsx';
 import { QuickActions } from '../QuickActions/QuickActions.jsx';
+import { useEscapeKey } from '../../hooks/useEscapeKey.js';
+import { useResizeHandle } from '../../hooks/useResizeHandle.js';
+import { useSyncEvents } from '../../hooks/useSyncEvents.js';
 import { getRelativeTime } from '../../lib/time.js';
+import shared from '../../styles/shared.module.css';
 import styles from './WorkspaceDetail.module.css';
 
 /**
  * Scratch workspace detail view.
  * @param {{ workspaceId: string, onBack: () => void }} props
  */
-const DEFAULT_TERMINAL_HEIGHT = 600;
-const MIN_TERMINAL_HEIGHT = 200;
-const MAX_TERMINAL_HEIGHT = 1200;
-
 export function WorkspaceDetail({ workspaceId, onBack }) {
   const [workspace, setWorkspace] = useState(null);
   const [session, setSession] = useState(null);
@@ -20,10 +20,16 @@ export function WorkspaceDetail({ workspaceId, onBack }) {
   const [openingSession, setOpeningSession] = useState(false);
   const [destroying, setDestroying] = useState(false);
   const [maximized, setMaximized] = useState(false);
-  const [termHeight, setTermHeight] = useState(DEFAULT_TERMINAL_HEIGHT);
-  const [dragging, setDragging] = useState(false);
-  const dragStartRef = useRef(null);
   const wsRef = useRef(null);
+
+  const { height: termHeight, dragging, handleProps } = useResizeHandle({
+    initial: 600,
+    min: 200,
+    max: 1200,
+    direction: 'down',
+  });
+
+  useEscapeKey(maximized, useCallback(() => setMaximized(false), []));
 
   const loadData = useCallback(async () => {
     try {
@@ -43,13 +49,7 @@ export function WorkspaceDetail({ workspaceId, onBack }) {
   }, [workspaceId]);
 
   useEffect(() => { loadData(); }, [loadData]);
-
-  // Listen for SSE sync events to detect PR adoption
-  useEffect(() => {
-    const es = new EventSource('/api/events');
-    es.addEventListener('sync', () => loadData());
-    return () => es.close();
-  }, [loadData]);
+  useSyncEvents(loadData);
 
   const handleStartSession = useCallback(async () => {
     if (!workspace) return;
@@ -86,59 +86,29 @@ export function WorkspaceDetail({ workspaceId, onBack }) {
     }
   }, [workspace, onBack]);
 
-  // Escape key to un-maximize
-  useEffect(() => {
-    if (!maximized) return;
-    const handler = (e) => { if (e.key === 'Escape') setMaximized(false); };
-    document.addEventListener('keydown', handler);
-    return () => document.removeEventListener('keydown', handler);
-  }, [maximized]);
-
-  // Terminal resize handlers
-  const handleResizePointerDown = useCallback((e) => {
-    e.preventDefault();
-    dragStartRef.current = { y: e.clientY, height: termHeight };
-    setDragging(true);
-    e.target.setPointerCapture(e.pointerId);
-  }, [termHeight]);
-
-  const handleResizePointerMove = useCallback((e) => {
-    if (!dragStartRef.current) return;
-    const delta = e.clientY - dragStartRef.current.y;
-    const newHeight = Math.min(MAX_TERMINAL_HEIGHT, Math.max(MIN_TERMINAL_HEIGHT, dragStartRef.current.height + delta));
-    setTermHeight(newHeight);
-  }, []);
-
-  const handleResizePointerUp = useCallback(() => {
-    if (!dragStartRef.current) return;
-    dragStartRef.current = null;
-    setDragging(false);
-  }, []);
-
   const handleSendCommand = useCallback((command) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ type: 'input', data: command + '\r' }));
     }
   }, []);
 
-  if (loading) return <div className={styles.loading}>Loading workspace...</div>;
-  if (!workspace) return <div className={styles.error}>Workspace not found</div>;
+  if (loading) return <div className={shared.loading}>Loading workspace...</div>;
+  if (!workspace) return <div className={shared.error}>Workspace not found</div>;
 
-  const [org, repo] = (workspace.repo || '').split('/');
   const adopted = workspace.pr_id && !workspace.repo;
 
   return (
-    <div className={styles.detail}>
+    <div className={shared.detail}>
       {/* Header */}
-      <div className={styles.headerCard}>
-        <div className={styles.headerTop}>
-          <button className={styles.backButton} onClick={onBack}>
+      <div className={shared.headerCard}>
+        <div className={shared.headerTop}>
+          <button className={shared.backButton} onClick={onBack}>
             &larr; Back
           </button>
           <div className={styles.headerActions}>
             {workspace.status === 'active' && (
               <button
-                className={styles.destroyButton}
+                className={shared.destroyButton}
                 onClick={handleDestroy}
                 disabled={destroying}
               >
@@ -150,11 +120,11 @@ export function WorkspaceDetail({ workspaceId, onBack }) {
         <div className={styles.title}>
           {workspace.bookmark}
         </div>
-        <div className={styles.identityRow}>
-          {workspace.repo && <span className={styles.repoTag}>{workspace.repo}</span>}
-          <span className={styles.branchTag}>{workspace.bookmark}</span>
-          <span className={styles.separator}>-</span>
-          <span className={styles.updatedText}>Created {getRelativeTime(workspace.created_at)}</span>
+        <div className={shared.identityRow}>
+          {workspace.repo && <span className={shared.repoTag}>{workspace.repo}</span>}
+          <span className={shared.branchTag}>{workspace.bookmark}</span>
+          <span className={shared.separator}>-</span>
+          <span className={shared.updatedText}>Created {getRelativeTime(workspace.created_at)}</span>
           {workspace.status === 'destroyed' && (
             <span className={styles.destroyedBadge}>Destroyed</span>
           )}
@@ -170,36 +140,36 @@ export function WorkspaceDetail({ workspaceId, onBack }) {
       {workspace.status === 'active' && (
         <>
           {maximized && session && (
-            <div className={styles.terminalOverlay}>
-              <div className={styles.overlayHeader}>
-                <span className={styles.overlayTitle}>Terminal - {workspace.bookmark}</span>
-                <div className={styles.terminalActions}>
-                  <button className={styles.maximizeButton} onClick={() => setMaximized(false)}>
+            <div className={shared.terminalOverlay}>
+              <div className={shared.overlayHeader}>
+                <span className={shared.overlayTitle}>Terminal - {workspace.bookmark}</span>
+                <div className={shared.terminalActions}>
+                  <button className={shared.maximizeButton} onClick={() => setMaximized(false)}>
                     Restore
                   </button>
-                  <button className={styles.killSessionButton} onClick={() => { setMaximized(false); handleKillSession(); }}>
+                  <button className={shared.killSessionButton} onClick={() => { setMaximized(false); handleKillSession(); }}>
                     Kill Session
                   </button>
                 </div>
               </div>
-              <div className={styles.overlayContent}>
+              <div className={shared.overlayContent}>
                 <Terminal wsUrl={`/ws/sessions/${session.id}`} wsRef={wsRef} />
               </div>
               <QuickActions onSend={handleSendCommand} />
             </div>
           )}
           {!maximized && (
-            <div className={styles.card}>
-              <div className={styles.section}>
-                <div className={styles.terminalHeader}>
-                  <h3 className={styles.sectionTitle}>Terminal</h3>
-                  <div className={styles.terminalActions}>
+            <div className={shared.card}>
+              <div className={shared.section}>
+                <div className={shared.terminalHeader}>
+                  <h3 className={shared.sectionTitle}>Terminal</h3>
+                  <div className={shared.terminalActions}>
                     {session && (
                       <>
-                        <button className={styles.maximizeButton} onClick={() => setMaximized(true)}>
+                        <button className={shared.maximizeButton} onClick={() => setMaximized(true)}>
                           Maximize
                         </button>
-                        <button className={styles.killSessionButton} onClick={handleKillSession}>
+                        <button className={shared.killSessionButton} onClick={handleKillSession}>
                           Kill Session
                         </button>
                       </>
@@ -208,24 +178,18 @@ export function WorkspaceDetail({ workspaceId, onBack }) {
                 </div>
                 {session ? (
                   <>
-                    {dragging && <div className={styles.dragOverlay} />}
-                    <div className={styles.terminalContainer} style={{ height: termHeight }}>
+                    {dragging && <div className={shared.dragOverlay} />}
+                    <div style={{ height: termHeight }}>
                       <Terminal wsUrl={`/ws/sessions/${session.id}`} wsRef={wsRef} />
                     </div>
-                    <div
-                      className={styles.resizeHandle}
-                      onPointerDown={handleResizePointerDown}
-                      onPointerMove={handleResizePointerMove}
-                      onPointerUp={handleResizePointerUp}
-                      onPointerCancel={handleResizePointerUp}
-                    >
-                      <div className={styles.resizeGrip} />
+                    <div className={shared.resizeHandle} {...handleProps}>
+                      <div className={shared.resizeGrip} />
                     </div>
                     <QuickActions onSend={handleSendCommand} />
                   </>
                 ) : (
                   <button
-                    className={styles.openButton}
+                    className={shared.openButton}
                     onClick={handleStartSession}
                     disabled={openingSession}
                   >

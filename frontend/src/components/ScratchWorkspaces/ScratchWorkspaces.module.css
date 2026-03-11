@@ -1,0 +1,81 @@
+@reference "tailwindcss";
+
+.container {
+  @apply mt-6;
+}
+
+.header {
+  @apply flex items-center justify-between mb-3;
+}
+
+.title {
+  @apply text-sm font-semibold text-gray-500 uppercase tracking-wide;
+}
+
+.newWorkBtn {
+  @apply py-1.5 px-3 text-sm font-medium text-indigo-600 bg-indigo-50 border border-indigo-200 rounded-md cursor-pointer hover:bg-indigo-100 transition-colors;
+}
+
+.form {
+  @apply bg-white border border-gray-200 rounded-lg p-4 mb-3 flex gap-2 items-end flex-wrap;
+}
+
+.fieldGroup {
+  @apply flex flex-col;
+}
+
+.fieldGroupFlex {
+  @apply flex flex-col flex-1 min-w-[200px];
+}
+
+.label {
+  @apply block text-xs font-medium text-gray-500 mb-1;
+}
+
+.select {
+  @apply py-1.5 px-2 border border-gray-300 rounded-md text-sm;
+}
+
+.input {
+  @apply w-full py-1.5 px-2 border border-gray-300 rounded-md text-sm;
+}
+
+.submitBtn {
+  @apply py-1.5 px-4 text-sm font-medium text-white border-none rounded-md cursor-pointer transition-colors;
+}
+
+.submitBtn:not(:disabled) {
+  @apply bg-indigo-600 hover:bg-indigo-700;
+}
+
+.submitBtn:disabled {
+  @apply bg-gray-400 cursor-not-allowed;
+}
+
+.list {
+  @apply bg-white border border-gray-200 rounded-lg overflow-hidden;
+}
+
+.row {
+  @apply flex items-center justify-between py-3 px-4 border-b border-gray-100 cursor-pointer hover:bg-gray-50 transition-colors;
+}
+
+.rowLeft {
+  @apply flex items-center gap-3;
+}
+
+.bookmark {
+  @apply font-mono text-sm font-semibold text-gray-900;
+}
+
+.repoTag {
+  @apply text-xs text-gray-500 bg-gray-100 py-0.5 px-2 rounded;
+}
+
+.timeLabel {
+  @apply text-xs text-gray-400;
+}
+
+.emptyText {
+  @apply text-sm text-gray-400;
+}

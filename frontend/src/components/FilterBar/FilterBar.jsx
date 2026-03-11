@@ -1,4 +1,5 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useCallback } from 'react';
+import { useClickOutside } from '../../hooks/useClickOutside.js';
 import styles from './FilterBar.module.css';
 
 const CI_OPTIONS = [
@@ -28,13 +29,7 @@ function MultiSelect({ label, options, selected, onChange }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
 
-  useEffect(() => {
-    const handleClick = (e) => {
-      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
-    };
-    document.addEventListener('mousedown', handleClick);
-    return () => document.removeEventListener('mousedown', handleClick);
-  }, []);
+  useClickOutside(ref, useCallback(() => setOpen(false), []));
 
   const toggle = (value) => {
     const next = selected.includes(value)

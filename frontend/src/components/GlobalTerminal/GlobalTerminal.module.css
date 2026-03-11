@@ -8,6 +8,7 @@
   @apply fixed inset-0 z-40 bg-gray-900 flex flex-col;
 }
 
+/* Drawer-specific resize handle (dark theme, thinner) */
 .resizeHandle {
   @apply flex items-center justify-center shrink-0;
   height: 6px;
@@ -25,12 +26,6 @@
   @apply rounded-full bg-gray-600 transition-colors;
   width: 36px;
   height: 3px;
-}
-
-/* Covers the page during drag to prevent iframe/selection interference */
-.dragOverlay {
-  @apply fixed inset-0 z-30;
-  cursor: ns-resize;
 }
 
 .handle {

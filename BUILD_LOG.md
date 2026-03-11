@@ -149,3 +149,22 @@ Added a maximize/restore toggle to both the GlobalTerminal drawer and WorkspaceD
 
 ![Global terminal with maximize button](screenshots/global-terminal-maximize-button.png)
 ![Workspace terminal resizable](screenshots/workspace-terminal-resizable.png)
+
+## 2026-03-11 - Extract shared hooks and CSS module
+
+Consolidated duplicated patterns across frontend components into shared hooks and a shared CSS module. Reduced CSS bundle from 94.7KB to 89.1KB.
+
+**What changed:**
+- `frontend/src/hooks/useEscapeKey.js` - extracted from GlobalTerminal + WorkspaceDetail
+- `frontend/src/hooks/useResizeHandle.js` - extracted from GlobalTerminal + WorkspaceDetail, unified delta calculation (was inconsistent between the two), returns `handleProps` spread object
+- `frontend/src/hooks/useClickOutside.js` - extracted from DashboardSummary + FilterBar
+- `frontend/src/hooks/useSyncEvents.js` - extracted SSE listener from PRDetail + WorkspaceDetail
+- `frontend/src/styles/shared.module.css` - consolidated ~20 CSS classes duplicated across PRDetail, WorkspaceDetail, and GlobalTerminal (card, headerCard, backButton, sectionTitle, identityRow, killSessionButton, maximizeButton, destroyButton, openButton, terminalHeader/Actions/Overlay, resizeHandle/Grip/dragOverlay, loading, error)
+- `frontend/src/components/PRDetail/` - imports shared styles, removed ~60 lines of duplicated CSS
+- `frontend/src/components/WorkspaceDetail/` - imports shared hooks + styles, removed ~90 lines of duplicated CSS/JS
+- `frontend/src/components/GlobalTerminal/` - uses useEscapeKey + useResizeHandle hooks
+- `frontend/src/components/DashboardSummary/` - uses useClickOutside hook
+- `frontend/src/components/FilterBar/` - uses useClickOutside hook
+
+**Why:**
+- The same CSS classes and JS patterns were copy-pasted across 3-5 components. Extracting them into shared modules means one source of truth for button styles, layout patterns, and behavioral hooks.

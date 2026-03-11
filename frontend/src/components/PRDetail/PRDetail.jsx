@@ -6,8 +6,10 @@ import { QuickActions } from '../QuickActions/QuickActions.jsx';
 import { CommentsList } from '../CommentsList/CommentsList.jsx';
 import { CheckLogViewer } from '../CheckLogViewer/CheckLogViewer.jsx';
 import { StatusBadge } from '../StatusBadge/StatusBadge.jsx';
+import { useSyncEvents } from '../../hooks/useSyncEvents.js';
 import { getRelativeTime } from '../../lib/time.js';
 import { isFailedCheck, isPassedCheck, checkToStatus, isMergeReady as checkMergeReady } from '../../lib/checks.js';
+import shared from '../../styles/shared.module.css';
 import styles from './PRDetail.module.css';
 
 const DOT_STYLES = {
@@ -61,13 +63,7 @@ export function PRDetail({ prId, onBack }) {
   }, [prId]);
 
   useEffect(() => { loadData(); }, [loadData]);
-
-  // Re-fetch when a GitHub sync completes
-  useEffect(() => {
-    const source = new EventSource('/api/events');
-    source.addEventListener('sync', () => loadData());
-    return () => source.close();
-  }, [loadData]);
+  useSyncEvents(loadData);
 
   /** Ensure workspace + session exist, creating them if needed. Returns { ws, sess } or null on failure. */
   const ensureWorkspaceAndSession = useCallback(async () => {
@@ -165,11 +161,11 @@ export function PRDetail({ prId, onBack }) {
   }, [pr, ensureWorkspaceAndSession]);
 
   if (loading) {
-    return <p className={styles.loading}>Loading...</p>;
+    return <p className={shared.loading}>Loading...</p>;
   }
 
   if (!pr) {
-    return <p className={styles.error}>PR not found</p>;
+    return <p className={shared.error}>PR not found</p>;
   }
 
   const failedChecks = pr.checks.filter(isFailedCheck);
@@ -178,11 +174,11 @@ export function PRDetail({ prId, onBack }) {
   const isMergeReady = checkMergeReady(pr);
 
   return (
-    <div className={styles.detail}>
+    <div className={shared.detail}>
       {/* Header */}
-      <div className={styles.headerCard}>
-        <div className={styles.headerTop}>
-          <button className={styles.backButton} onClick={onBack}>
+      <div className={shared.headerCard}>
+        <div className={shared.headerTop}>
+          <button className={shared.backButton} onClick={onBack}>
             <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path fillRule="evenodd" d="M7.78 12.53a.75.75 0 01-1.06 0L2.47 8.28a.75.75 0 010-1.06l4.25-4.25a.75.75 0 011.06 1.06L4.81 7h7.44a.75.75 0 010 1.5H4.81l2.97 2.97a.75.75 0 010 1.06z"/></svg>
             Back
           </button>
@@ -216,15 +212,15 @@ export function PRDetail({ prId, onBack }) {
 
         <h2 className={styles.title}>{pr.title}</h2>
 
-        <div className={styles.identityRow}>
-          <span className={styles.repoTag}>{pr.org}/{pr.repo} #{pr.number}</span>
-          <span className={styles.separator}>·</span>
-          <span className={styles.branchTag}>
+        <div className={shared.identityRow}>
+          <span className={shared.repoTag}>{pr.org}/{pr.repo} #{pr.number}</span>
+          <span className={shared.separator}>·</span>
+          <span className={shared.branchTag}>
             <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path fillRule="evenodd" d="M11.75 2.5a.75.75 0 100 1.5.75.75 0 000-1.5zm-2.25.75a2.25 2.25 0 113 2.122V6A2.5 2.5 0 0110 8.5H6a1 1 0 00-1 1v1.128a2.251 2.251 0 11-1.5 0V5.372a2.25 2.25 0 111.5 0v1.836A2.492 2.492 0 016 7h4a1 1 0 001-1v-.628A2.25 2.25 0 019.5 3.25zM4.25 12a.75.75 0 100 1.5.75.75 0 000-1.5zM3.5 3.25a.75.75 0 111.5 0 .75.75 0 01-1.5 0z"/></svg>
             {pr.branch}
           </span>
-          <span className={styles.separator}>·</span>
-          <span className={styles.updatedText}>Updated {getRelativeTime(pr.updated_at)}</span>
+          <span className={shared.separator}>·</span>
+          <span className={shared.updatedText}>Updated {getRelativeTime(pr.updated_at)}</span>
         </div>
 
         <div className={styles.statusRow}>
@@ -261,11 +257,11 @@ export function PRDetail({ prId, onBack }) {
 
       {/* Actions row */}
       <div className={styles.actionsRow}>
-        <div className={styles.section}>
-          <h3 className={styles.sectionTitle}>Workspace</h3>
+        <div className={shared.section}>
+          <h3 className={shared.sectionTitle}>Workspace</h3>
           <WorkspaceControls prId={prId} workspace={workspace} onUpdate={loadData} />
           {!session && (
-            <button className={styles.openButton} onClick={handleOpenInClaude} disabled={openingClaude}>
+            <button className={`${shared.openButton} ${styles.openButtonSpaced}`} onClick={handleOpenInClaude} disabled={openingClaude}>
               {openingClaude ? openingStep : 'Open in Claude'}
             </button>
           )}
@@ -273,14 +269,14 @@ export function PRDetail({ prId, onBack }) {
       </div>
 
       {session && (
-        <div className={styles.card}>
-          <div className={styles.terminalHeader}>
-            <h3 className={styles.sectionTitle}>Terminal</h3>
-            <div className={styles.terminalActions}>
+        <div className={shared.card}>
+          <div className={shared.terminalHeader}>
+            <h3 className={shared.sectionTitle}>Terminal</h3>
+            <div className={shared.terminalActions}>
               <button className={styles.popOutButton} onClick={handlePopOut}>
                 Pop out
               </button>
-              <button className={styles.killSessionButton} onClick={handleKillSession}>
+              <button className={shared.killSessionButton} onClick={handleKillSession}>
                 Kill session
               </button>
             </div>
@@ -292,9 +288,9 @@ export function PRDetail({ prId, onBack }) {
 
       {/* Checks */}
       {pr.checks.length > 0 && (
-        <div className={styles.card}>
+        <div className={shared.card}>
           <div className={styles.checksHeader}>
-            <h3 className={styles.sectionTitle}>
+            <h3 className={`${shared.sectionTitle} ${styles.sectionTitleFlex}`}>
               Checks
               <span className={styles.checksSummary}>
                 {passedChecks.length > 0 && <span className={styles.summaryPass}>{passedChecks.length} passed</span>}
@@ -341,8 +337,8 @@ export function PRDetail({ prId, onBack }) {
 
       {/* Reviews */}
       {pr.reviews.length > 0 && (
-        <div className={styles.card}>
-          <h3 className={styles.sectionTitle}>Reviews</h3>
+        <div className={shared.card}>
+          <h3 className={shared.sectionTitle}>Reviews</h3>
           <div className={styles.reviewsList}>
             {pr.reviews.map((r, i) => (
               <div key={i} className={styles.reviewRow}>
@@ -358,8 +354,8 @@ export function PRDetail({ prId, onBack }) {
 
       {/* Review Comments & Conversation */}
       {(commentsLoading || comments) && (
-        <div className={styles.card}>
-          <h3 className={styles.sectionTitle}>Comments</h3>
+        <div className={shared.card}>
+          <h3 className={shared.sectionTitle}>Comments</h3>
           <CommentsList
             reviews={comments?.reviews}
             conversation={comments?.conversation}

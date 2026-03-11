@@ -1,5 +1,8 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { Terminal } from '../Terminal/Terminal.jsx';
+import { useEscapeKey } from '../../hooks/useEscapeKey.js';
+import { useResizeHandle } from '../../hooks/useResizeHandle.js';
+import shared from '../../styles/shared.module.css';
 import styles from './GlobalTerminal.module.css';
 
 const MIN_HEIGHT = 150;
@@ -18,6 +21,10 @@ function loadHeight() {
   return DEFAULT_HEIGHT;
 }
 
+function persistHeight(h) {
+  try { localStorage.setItem(STORAGE_KEY, String(Math.round(h))); } catch { /* ignore */ }
+}
+
 /**
  * Persistent global terminal drawer at the bottom of the UI.
  * Stays mounted when closed to preserve the xterm instance and session.
@@ -26,10 +33,17 @@ function loadHeight() {
 export function GlobalTerminal({ open, onToggle }) {
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [height, setHeight] = useState(loadHeight);
-  const [dragging, setDragging] = useState(false);
   const [maximized, setMaximized] = useState(false);
-  const dragStartRef = useRef(null);
+
+  const { height, setHeight, dragging, handleProps } = useResizeHandle({
+    initial: loadHeight(),
+    min: MIN_HEIGHT,
+    max: window.innerHeight * MAX_HEIGHT_RATIO,
+    direction: 'up',
+    onPersist: persistHeight,
+  });
+
+  useEscapeKey(maximized, useCallback(() => setMaximized(false), []));
 
   const startSession = useCallback(async () => {
     if (session) return;
@@ -73,48 +87,14 @@ export function GlobalTerminal({ open, onToggle }) {
     }
   }, [session]);
 
-  // Drag resize handlers
-  const handlePointerDown = useCallback((e) => {
-    e.preventDefault();
-    dragStartRef.current = { y: e.clientY, height };
-    setDragging(true);
-    e.target.setPointerCapture(e.pointerId);
-  }, [height]);
-
-  const handlePointerMove = useCallback((e) => {
-    if (!dragStartRef.current) return;
-    const delta = dragStartRef.current.y - e.clientY;
-    const maxHeight = window.innerHeight * MAX_HEIGHT_RATIO;
-    const newHeight = Math.min(maxHeight, Math.max(MIN_HEIGHT, dragStartRef.current.height + delta));
-    setHeight(newHeight);
-  }, []);
-
-  const handlePointerUp = useCallback(() => {
-    if (!dragStartRef.current) return;
-    dragStartRef.current = null;
-    setDragging(false);
-    setHeight(h => {
-      try { localStorage.setItem(STORAGE_KEY, String(Math.round(h))); } catch { /* ignore */ }
-      return h;
-    });
-  }, []);
-
-  // Escape key to un-maximize
-  useEffect(() => {
-    if (!maximized) return;
-    const handler = (e) => { if (e.key === 'Escape') setMaximized(false); };
-    document.addEventListener('keydown', handler);
-    return () => document.removeEventListener('keydown', handler);
-  }, [maximized]);
-
   // Double-click toggles between min and default
   const handleDoubleClick = useCallback(() => {
     setHeight(prev => {
       const next = prev <= MIN_HEIGHT + 20 ? DEFAULT_HEIGHT : MIN_HEIGHT;
-      try { localStorage.setItem(STORAGE_KEY, String(next)); } catch { /* ignore */ }
+      persistHeight(next);
       return next;
     });
-  }, []);
+  }, [setHeight]);
 
   // The spacer height is used by the parent to add scroll room.
   // The drawer itself is position:fixed so it doesn't participate in flow.
@@ -124,20 +104,13 @@ export function GlobalTerminal({ open, onToggle }) {
     <>
       {/* Flow spacer - pushes content up so it's scrollable behind the drawer */}
       <div style={{ height: spacerHeight, flexShrink: 0 }} />
-      {dragging && <div className={styles.dragOverlay} />}
+      {dragging && <div className={shared.dragOverlay} />}
       <div
         className={maximized ? styles.maximized : styles.drawer}
         style={maximized ? { display: open ? 'flex' : 'none' } : { height, display: open ? 'flex' : 'none' }}
       >
         {!maximized && (
-          <div
-            className={styles.resizeHandle}
-            onPointerDown={handlePointerDown}
-            onPointerMove={handlePointerMove}
-            onPointerUp={handlePointerUp}
-            onPointerCancel={handlePointerUp}
-            onDoubleClick={handleDoubleClick}
-          >
+          <div className={styles.resizeHandle} {...handleProps} onDoubleClick={handleDoubleClick}>
             <div className={styles.resizeGrip} />
           </div>
         )}
