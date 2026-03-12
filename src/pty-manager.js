@@ -131,6 +131,18 @@ export function createSession(workspaceId, cwd) {
     }
   }
 
+  // For workspace sessions, return existing if alive (prevent concurrent edits)
+  if (workspaceId) {
+    const existing = db.prepare("SELECT * FROM sessions WHERE workspace_id = ? AND status = 'active'").get(workspaceId);
+    if (existing && sessions.has(existing.id)) {
+      if (isTmuxSessionAlive(existing.id)) {
+        return existing;
+      }
+      sessions.delete(existing.id);
+      db.prepare("UPDATE sessions SET status = 'killed', ended_at = ? WHERE id = ?").run(new Date().toISOString(), existing.id);
+    }
+  }
+
   const id = randomUUID();
   const tmuxName = `patrol-${id}`;
 
