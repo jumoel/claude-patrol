@@ -56,6 +56,32 @@
   @apply p-1 text-gray-400 hover:text-gray-200 transition-colors cursor-pointer;
 }
 
+.promoteButton {
+  @apply px-2 py-0.5 text-xs text-green-400 bg-green-900/30 rounded hover:bg-green-900/50 transition-colors cursor-pointer;
+}
+
+.promoteForm {
+  @apply flex items-center gap-2 px-4 py-2 bg-gray-800/80 border-b border-gray-700 shrink-0;
+}
+
+.promoteSelect {
+  @apply px-2 py-1 text-sm bg-gray-700 text-gray-200 rounded border border-gray-600 focus:border-green-500 focus:outline-none;
+}
+
+.promoteInput {
+  @apply px-2 py-1 text-sm bg-gray-700 text-gray-200 rounded border border-gray-600 focus:border-green-500 focus:outline-none flex-1;
+  min-width: 160px;
+  max-width: 280px;
+}
+
+.promoteSubmit {
+  @apply px-3 py-1 text-sm text-white bg-green-700 rounded hover:bg-green-600 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed;
+}
+
+.promoteCancel {
+  @apply px-2 py-1 text-sm text-gray-400 hover:text-gray-200 transition-colors cursor-pointer;
+}
+
 .content {
   @apply flex-1 overflow-hidden min-h-0;
 }

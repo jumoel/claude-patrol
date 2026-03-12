@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect } from 'react';
 import { Terminal } from '../Terminal/Terminal.jsx';
 import { useEscapeKey } from '../../hooks/useEscapeKey.js';
 import { useResizeHandle } from '../../hooks/useResizeHandle.js';
+import { promoteSession, fetchConfig } from '../../lib/api.js';
 import shared from '../../styles/shared.module.css';
 import styles from './GlobalTerminal.module.css';
 
@@ -34,6 +35,11 @@ export function GlobalTerminal({ open, onToggle }) {
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(false);
   const [maximized, setMaximized] = useState(false);
+  const [showPromote, setShowPromote] = useState(false);
+  const [promoteRepo, setPromoteRepo] = useState('');
+  const [promoteBranch, setPromoteBranch] = useState('');
+  const [promoting, setPromoting] = useState(false);
+  const [repos, setRepos] = useState([]);
 
   const { height, setHeight, dragging, handleProps } = useResizeHandle({
     initial: loadHeight(),
@@ -91,6 +97,35 @@ export function GlobalTerminal({ open, onToggle }) {
     }
   }, [session]);
 
+  // Fetch repos for the promote dropdown
+  useEffect(() => {
+    if (!showPromote) return;
+    fetchConfig().then(cfg => {
+      const repoList = (cfg.poll?.repos || []).filter(r => r.includes('/') && !r.includes('*'));
+      setRepos(repoList);
+      if (repoList.length > 0 && !promoteRepo) setPromoteRepo(repoList[0]);
+    }).catch(() => {});
+  }, [showPromote]);
+
+  const handlePromote = useCallback(async () => {
+    if (!session || !promoteRepo || !promoteBranch) return;
+    setPromoting(true);
+    try {
+      const result = await promoteSession(session.id, promoteRepo, promoteBranch);
+      setSession(null);
+      setShowPromote(false);
+      setPromoteBranch('');
+      setMaximized(false);
+      onToggle();
+      window.location.hash = `#/workspace/${result.workspace.id}`;
+    } catch (err) {
+      console.error('Failed to promote session:', err);
+      alert(`Promote failed: ${err.message}`);
+    } finally {
+      setPromoting(false);
+    }
+  }, [session, promoteRepo, promoteBranch, onToggle]);
+
   // Double-click toggles between min and default
   const handleDoubleClick = useCallback(() => {
     setHeight(prev => {
@@ -123,6 +158,9 @@ export function GlobalTerminal({ open, onToggle }) {
           <div className={styles.handleActions}>
             {session && (
               <>
+                <button className={styles.promoteButton} onClick={() => setShowPromote(s => !s)}>
+                  Promote
+                </button>
                 <button className={styles.maximizeButton} onClick={() => setMaximized(m => !m)}>
                   {maximized ? 'Restore' : 'Maximize'}
                 </button>
@@ -142,6 +180,42 @@ export function GlobalTerminal({ open, onToggle }) {
             </button>
           </div>
         </div>
+        {showPromote && (
+          <div className={styles.promoteForm}>
+            <select
+              className={styles.promoteSelect}
+              value={promoteRepo}
+              onChange={e => setPromoteRepo(e.target.value)}
+              disabled={promoting}
+            >
+              {repos.length === 0 && <option value="">Loading...</option>}
+              {repos.map(r => <option key={r} value={r}>{r}</option>)}
+            </select>
+            <input
+              className={styles.promoteInput}
+              type="text"
+              placeholder="branch-name"
+              value={promoteBranch}
+              onChange={e => setPromoteBranch(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handlePromote()}
+              disabled={promoting}
+            />
+            <button
+              className={styles.promoteSubmit}
+              onClick={handlePromote}
+              disabled={promoting || !promoteRepo || !promoteBranch}
+            >
+              {promoting ? 'Promoting...' : 'Go'}
+            </button>
+            <button
+              className={styles.promoteCancel}
+              onClick={() => setShowPromote(false)}
+              disabled={promoting}
+            >
+              Cancel
+            </button>
+          </div>
+        )}
         <div className={styles.content}>
           {loading && <p className={styles.loading}>Starting session...</p>}
           {session && <Terminal wsUrl={`/ws/sessions/${session.id}`} focus={open} onExit={handleSessionExit} />}

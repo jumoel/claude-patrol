@@ -1,11 +1,12 @@
-import { readFileSync, existsSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { readFileSync, existsSync, mkdirSync, copyFileSync, readdirSync, cpSync } from 'node:fs';
+import { resolve, basename } from 'node:path';
 import { getDb } from '../db.js';
-import { createSession, attachSession, killSession, popOutSession, reattachSession } from '../pty-manager.js';
+import { createSession, attachSession, killSession, popOutSession, reattachSession, createResumedSession } from '../pty-manager.js';
 import { getCurrentConfig } from '../config.js';
 import { emitLocalChange } from '../app-events.js';
 import { findSessionJsonl } from '../transcripts.js';
-import { expandPath, toClaudeProjectKey } from '../utils.js';
+import { expandPath, toClaudeProjectKey, execFile } from '../utils.js';
+import { createScratchWorkspace } from '../workspace.js';
 
 /**
  * Register session routes.
@@ -166,6 +167,76 @@ export function registerSessionRoutes(app) {
       return entries;
     } catch (err) {
       return reply.code(500).send({ error: `Failed to read transcript: ${err.message}` });
+    }
+  });
+
+  // Promote a global session to a scratch workspace
+  app.post('/api/sessions/:id/promote', async (request, reply) => {
+    const { repo, branch } = request.body || {};
+    if (!repo || !branch) {
+      return reply.code(400).send({ error: 'repo and branch are required' });
+    }
+
+    const db = getDb();
+    const session = db.prepare("SELECT * FROM sessions WHERE id = ? AND status = 'active'").get(request.params.id);
+    if (!session) {
+      return reply.code(404).send({ error: 'Session not found or not active' });
+    }
+    if (session.workspace_id) {
+      return reply.code(400).send({ error: 'Session is already in a workspace' });
+    }
+
+    const config = getCurrentConfig();
+    const [org, repoName] = repo.split('/');
+    const mainRepoPath = resolve(expandPath(config.work_dir), org, repoName);
+
+    try {
+      // 1. Create scratch workspace starting from default@- (parent of main working copy)
+      const workspace = await createScratchWorkspace(repo, branch, config, { startRevision: 'default@-' });
+
+      // 2. Migrate changes via jj squash (non-fatal if empty)
+      try {
+        await execFile('jj', ['squash', '--from', 'default@', '--into', `${workspace.name}@`, '-R', mainRepoPath]);
+      } catch (err) {
+        console.warn(`[promote] jj squash non-fatal: ${err.message}`);
+      }
+
+      // 3. Copy Claude session files to new workspace's project dir
+      let claudeSessionUuid = null;
+      if (session.claude_project_dir) {
+        const jsonlPath = findSessionJsonl(session.claude_project_dir, session.started_at, null);
+        if (jsonlPath) {
+          claudeSessionUuid = basename(jsonlPath, '.jsonl');
+          const targetProjectDir = resolve(expandPath('~/.claude/projects'), toClaudeProjectKey(workspace.path));
+          mkdirSync(targetProjectDir, { recursive: true });
+
+          // Copy the .jsonl file
+          copyFileSync(jsonlPath, resolve(targetProjectDir, basename(jsonlPath)));
+
+          // Copy the session directory (contains tool results, images, etc.) if it exists
+          const sessionDir = resolve(session.claude_project_dir, claudeSessionUuid);
+          const targetSessionDir = resolve(targetProjectDir, claudeSessionUuid);
+          if (existsSync(sessionDir)) {
+            cpSync(sessionDir, targetSessionDir, { recursive: true });
+          }
+        }
+      }
+
+      // 4. Kill the old global session
+      killSession(session.id);
+
+      // 5. Create new session in workspace with --resume
+      let newSession;
+      if (claudeSessionUuid) {
+        newSession = createResumedSession(workspace.id, workspace.path, claudeSessionUuid);
+      } else {
+        newSession = createSession(workspace.id, workspace.path);
+      }
+
+      emitLocalChange();
+      return reply.code(201).send({ workspace, session: newSession });
+    } catch (err) {
+      return reply.code(500).send({ error: `Promote failed: ${err.message}` });
     }
   });
 

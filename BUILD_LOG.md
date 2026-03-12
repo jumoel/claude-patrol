@@ -1,5 +1,9 @@
 # Build Log
 
+## 2026-03-12 - Promote global terminal to scratch workspace
+
+New feature to promote a running global terminal session into a proper scratch workspace. Backend endpoint `POST /api/sessions/:id/promote` creates a jj workspace, moves uncommitted changes via `jj squash`, copies Claude session files to the new project dir, kills the old session, and restarts Claude with `--resume` in the workspace directory. Frontend adds a "Promote" button in the global terminal header with inline repo/branch form. Navigation redirects to the new workspace detail page after promotion.
+
 ## 2026-03-12 - Interactive setup wizard via web UI
 
 Replaced the "edit JSON manually" first-run experience with a 3-step web wizard for configuring poll targets and interval. Accessible via Settings button for reconfiguration.

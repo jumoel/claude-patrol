@@ -85,7 +85,7 @@ export async function createWorkspace(prId, config) {
  * @param {object} config - app config
  * @returns {Promise<object>} workspace record
  */
-export async function createScratchWorkspace(repo, branch, config) {
+export async function createScratchWorkspace(repo, branch, config, { startRevision = 'main@origin' } = {}) {
   const db = getDb();
   const [org, repoName] = repo.split('/');
   if (!org || !repoName) {
@@ -120,7 +120,7 @@ export async function createScratchWorkspace(repo, branch, config) {
   try {
     await ensureJjInit(mainRepoPath);
     mkdirSync(dirname(workspacePath), { recursive: true });
-    await execFile('jj', ['workspace', 'add', workspacePath, '--name', name, '-r', 'main@origin', '-R', mainRepoPath]);
+    await execFile('jj', ['workspace', 'add', workspacePath, '--name', name, '-r', startRevision, '-R', mainRepoPath]);
 
     // Create bookmark for the branch (non-fatal - may already exist)
     try {

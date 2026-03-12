@@ -196,6 +196,26 @@ export async function killSession(sessionId) {
   return res.json();
 }
 
+/**
+ * Promote a global session to a scratch workspace.
+ * @param {string} sessionId
+ * @param {string} repo - "org/repo" format
+ * @param {string} branch - branch name
+ * @returns {Promise<{workspace: object, session: object}>}
+ */
+export async function promoteSession(sessionId, repo, branch) {
+  const res = await fetch(`${BASE}/api/sessions/${sessionId}/promote`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ repo, branch }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || `Failed to promote session: ${res.status}`);
+  }
+  return res.json();
+}
+
 export async function reattachSession(sessionId) {
   const res = await fetch(`${BASE}/api/sessions/${sessionId}/reattach`, { method: 'POST' });
   if (!res.ok) throw new Error(`Failed to reattach session: ${res.status}`);

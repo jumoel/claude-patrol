@@ -274,6 +274,50 @@ export function createSession(workspaceId, cwd) {
 }
 
 /**
+ * Create a session that resumes an existing Claude conversation.
+ * Same as createSession but adds `--resume <claudeSessionId>` to the claude args.
+ * @param {string | null} workspaceId
+ * @param {string} cwd
+ * @param {string} claudeSessionId - Claude CLI session UUID to resume
+ * @returns {object} session record
+ */
+export function createResumedSession(workspaceId, cwd, claudeSessionId) {
+  const db = getDb();
+  const id = randomUUID();
+  const tmuxName = `patrol-${id}`;
+
+  const claudeArgs = ['claude', '--resume', claudeSessionId];
+  if (mcpConfigPathCached) {
+    claudeArgs.push('--mcp-config', mcpConfigPathCached);
+
+    const promptFile = resolve(tmpdir(), `patrol-prompt-${id}.txt`);
+    writeFileSync(promptFile, PATROL_SYSTEM_PROMPT);
+    claudeArgs.push('--append-system-prompt-file', promptFile);
+
+    claudeArgs.push('--allowedTools', 'mcp__patrol__*', 'Bash', 'Read', 'Edit', 'Write', 'Glob', 'Grep', 'Agent');
+  }
+
+  const shellCmd = claudeArgs.map(a => "'" + a.replace(/'/g, "'\\''") + "'").join(' ');
+  execFileSync('tmux', [
+    'new-session', '-d', '-s', tmuxName,
+    '-x', '120', '-y', '30',
+    '-c', cwd,
+    shellCmd,
+  ], { timeout: 10_000 });
+
+  const now = new Date().toISOString();
+  const claudeProjectDir = resolve(expandPath('~/.claude/projects'), toClaudeProjectKey(cwd));
+
+  db.prepare('INSERT INTO sessions (id, workspace_id, pid, status, started_at, claude_project_dir) VALUES (?, ?, ?, ?, ?, ?)').run(
+    id, workspaceId, 0, 'active', now, claudeProjectDir
+  );
+
+  attachPtyToTmux(id, { claudeProjectDir, startedAt: now });
+
+  return { id, workspace_id: workspaceId, status: 'active', started_at: now, claude_project_dir: claudeProjectDir };
+}
+
+/**
  * Parse and validate a WebSocket message.
  * @param {string} raw
  * @returns {{ type: string, data?: string, cols?: number, rows?: number } | null}
