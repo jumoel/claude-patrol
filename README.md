@@ -2,6 +2,8 @@
 
 A self-hosted PR monitoring dashboard that watches your GitHub orgs and repos, shows CI/review/merge status at a glance, and lets you spin up jj workspaces with embedded Claude Code terminal sessions. When something needs attention, you can dispatch Claude to investigate and fix it - all from one place.
 
+![Claude Patrol dashboard](screenshots/dashboard.png)
+
 ## What it does
 
 - **PR dashboard** - live-updating table of open PRs across your GitHub orgs and repos. Filter by org, repo, CI status, review state, merge readiness, draft. Quick filters for "Merge Ready", "Review Ready", and "Needs Work".
