@@ -138,3 +138,4 @@ export function Terminal({ wsUrl, wsRef: externalWsRef, focus }) {
     </div>
   );
 }
+// fix terminal resize
