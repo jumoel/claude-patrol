@@ -166,7 +166,7 @@ export function reattachOrphanedSessions() {
       proc.onExit(({ exitCode }) => {
         const exitMsg = JSON.stringify({ type: 'exit', code: exitCode });
         for (const ws of entry.websockets) {
-          if (ws.readyState === 1) { ws.send(exitMsg); ws.close(); }
+          if (ws.readyState === 1) { ws.send(exitMsg); ws.close(1000); }
         }
         sessions.delete(session.id);
         const endedAt = new Date().toISOString();
@@ -279,7 +279,7 @@ export function createSession(workspaceId, cwd) {
     for (const ws of entry.websockets) {
       if (ws.readyState === 1) {
         ws.send(exitMsg);
-        ws.close();
+        ws.close(1000);
       }
     }
     sessions.delete(id);
@@ -322,7 +322,7 @@ export function attachSession(sessionId, ws) {
   const entry = sessions.get(sessionId);
   if (!entry) {
     ws.send(JSON.stringify({ type: 'error', message: 'Session not found or not running' }));
-    ws.close();
+    ws.close(1000);
     return;
   }
 

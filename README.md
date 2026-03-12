@@ -88,7 +88,7 @@ Running without a subcommand defaults to `start`.
 | `db_path` | Path to the SQLite database file |
 | `port` | Server port (auto-increments if in use) |
 | `workspace_base_path` | Base directory for jj workspaces |
-| `work_dir` | Base directory where your repos are cloned |
+| `work_dir` | Base directory where your repos are cloned. Expects a `<org>/<repo>` structure (e.g. `~/work/acme/api-server`, `~/work/acme/webapp`). When creating jj workspaces, Claude Patrol resolves the main repo at `<work_dir>/<org>/<repo>`. |
 | `global_terminal_cwd` | Working directory for the global terminal |
 | `symlink_memory` | Create `.claude/memory` symlinks in workspaces |
 | `repos.<org/repo>.symlinks` | Additional symlinks to create in workspaces |
@@ -123,7 +123,7 @@ No native database dependencies - `node:sqlite` is built into Node.js.
 
 **PRs**: `GET /api/prs` (filterable), `GET /api/prs/:id`, `GET /api/prs/:id/diff`, `GET /api/prs/:id/comments`, `GET /api/prs/:id/check-logs`
 
-**Workspaces**: `POST /api/workspaces`, `GET /api/workspaces`, `DELETE /api/workspaces/:id`, `POST /api/workspaces/:id/terminal`, `POST /api/workspaces/cleanup`
+**Workspaces**: `POST /api/workspaces`, `GET /api/workspaces`, `GET /api/workspaces/:id`, `DELETE /api/workspaces/:id`, `POST /api/workspaces/:id/terminal`, `POST /api/workspaces/cleanup`
 
 **Sessions**: `POST /api/sessions`, `GET /api/sessions`, `DELETE /api/sessions/:id`, `POST /api/sessions/:id/popout`, `GET /api/sessions/history`, `GET /api/sessions/:id/transcript`
 
@@ -136,8 +136,10 @@ When Claude Code connects via the auto-generated MCP config, it gets access to:
 - `list_prs` - list and filter PRs
 - `get_pr` / `get_pr_diff` / `get_pr_comments` - PR details
 - `get_check_logs` - failed CI logs with error extraction
-- `create_workspace` / `destroy_workspace` / `cleanup_workspaces` - workspace management
+- `create_workspace` / `create_scratch_workspace` / `destroy_workspace` / `cleanup_workspaces` - workspace management
+- `list_workspaces` - list workspaces with filtering
 - `retrigger_checks` - re-run failed CI
+- `wait_for_checks` - poll until CI checks reach a final state
 - `trigger_sync` - force a GitHub poll
 
 ## License

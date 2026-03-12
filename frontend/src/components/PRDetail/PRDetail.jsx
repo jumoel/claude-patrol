@@ -164,6 +164,10 @@ export function PRDetail({ prId, onBack }) {
     }
   }, [session]);
 
+  const handleSessionExit = useCallback(() => {
+    setSession(null);
+  }, []);
+
   const handlePopOut = useCallback(async () => {
     if (!session) return;
     try {
@@ -336,7 +340,7 @@ export function PRDetail({ prId, onBack }) {
           </div>
           <QuickActions wsRef={wsRef} />
           <div style={{ height: termHeight }}>
-            <Terminal wsUrl={`/ws/sessions/${session.id}`} wsRef={wsRef} />
+            <Terminal wsUrl={`/ws/sessions/${session.id}`} wsRef={wsRef} onExit={handleSessionExit} />
           </div>
           <div className={shared.resizeHandle} {...handleProps}>
             <div className={shared.resizeGrip} />

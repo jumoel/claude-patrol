@@ -13,7 +13,7 @@ const RECONNECT_DELAYS = [500, 1000, 2000, 4000];
  * Auto-reconnects on disconnect (for server restarts in watch mode).
  * @param {{ wsUrl: string, wsRef?: import('react').MutableRefObject<WebSocket | null> }} props
  */
-export function Terminal({ wsUrl, wsRef: externalWsRef, focus }) {
+export function Terminal({ wsUrl, wsRef: externalWsRef, focus, onExit }) {
   const containerRef = useRef(null);
   const termRef = useRef(null);
   const wsRef = useRef(null);
@@ -125,8 +125,11 @@ export function Terminal({ wsUrl, wsRef: externalWsRef, focus }) {
             term.write(msg.data);
           } else if (msg.type === 'exit') {
             term.write(`\r\n[Process exited with code ${msg.code}]\r\n`);
+            cancelled = true;
+            if (onExit) onExit(msg.code);
           } else if (msg.type === 'error') {
             term.write(`\r\n[Error: ${msg.message}]\r\n`);
+            cancelled = true;
           }
         } catch {
           // Ignore malformed messages

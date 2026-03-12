@@ -78,6 +78,10 @@ export function GlobalTerminal({ open, onToggle }) {
     onToggle();
   }, [session, onToggle]);
 
+  const handleSessionExit = useCallback(() => {
+    setSession(null);
+  }, []);
+
   const popOutSession = useCallback(async () => {
     if (!session) return;
     try {
@@ -140,7 +144,7 @@ export function GlobalTerminal({ open, onToggle }) {
         </div>
         <div className={styles.content}>
           {loading && <p className={styles.loading}>Starting session...</p>}
-          {session && <Terminal wsUrl={`/ws/sessions/${session.id}`} focus={open} />}
+          {session && <Terminal wsUrl={`/ws/sessions/${session.id}`} focus={open} onExit={handleSessionExit} />}
           {!session && !loading && (
             <div className={styles.placeholder}>
               <button className={styles.startButton} onClick={startSession}>

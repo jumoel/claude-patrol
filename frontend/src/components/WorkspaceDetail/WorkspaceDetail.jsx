@@ -75,6 +75,11 @@ export function WorkspaceDetail({ workspaceId, onBack }) {
     }
   }, [session]);
 
+  const handleSessionExit = useCallback(() => {
+    setSession(null);
+    setMaximized(false);
+  }, []);
+
   const handleDestroy = useCallback(async () => {
     if (!workspace) return;
     setDestroying(true);
@@ -154,7 +159,7 @@ export function WorkspaceDetail({ workspaceId, onBack }) {
                 </div>
               </div>
               <div className={shared.overlayContent}>
-                <Terminal wsUrl={`/ws/sessions/${session.id}`} wsRef={wsRef} />
+                <Terminal wsUrl={`/ws/sessions/${session.id}`} wsRef={wsRef} onExit={handleSessionExit} />
               </div>
               <QuickActions onSend={handleSendCommand} />
             </div>
@@ -181,7 +186,7 @@ export function WorkspaceDetail({ workspaceId, onBack }) {
                   <>
                     {dragging && <div className={shared.dragOverlay} />}
                     <div style={{ height: termHeight }}>
-                      <Terminal wsUrl={`/ws/sessions/${session.id}`} wsRef={wsRef} />
+                      <Terminal wsUrl={`/ws/sessions/${session.id}`} wsRef={wsRef} onExit={handleSessionExit} />
                     </div>
                     <div className={shared.resizeHandle} {...handleProps}>
                       <div className={shared.resizeGrip} />
