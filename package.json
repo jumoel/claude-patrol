@@ -7,6 +7,7 @@
   },
   "scripts": {
     "start": "pnpm --filter claude-patrol-frontend build && node src/index.js",
+    "watch": "pnpm --filter claude-patrol-frontend build && node src/watch.js",
     "postinstall": "chmod +x node_modules/node-pty/prebuilds/darwin-*/spawn-helper 2>/dev/null || true",
     "test": "node --test src/**/*.test.js"
   },
