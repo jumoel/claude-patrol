@@ -8,15 +8,33 @@ import { CheckLogViewer } from '../CheckLogViewer/CheckLogViewer.jsx';
 import { TranscriptViewer } from '../TranscriptViewer/TranscriptViewer.jsx';
 import { StatusBadge } from '../StatusBadge/StatusBadge.jsx';
 import { useSyncEvents } from '../../hooks/useSyncEvents.js';
+import { useResizeHandle } from '../../hooks/useResizeHandle.js';
 import { getRelativeTime } from '../../lib/time.js';
-import { isFailedCheck, isPassedCheck, checkToStatus, isMergeReady as checkMergeReady } from '../../lib/checks.js';
+import { isFailedCheck, isPassedCheck, isRunningCheck, isScheduledCheck, checkToStatus, statusColorGroup, isMergeReady as checkMergeReady } from '../../lib/checks.js';
 import shared from '../../styles/shared.module.css';
 import styles from './PRDetail.module.css';
 
 const DOT_STYLES = {
-  pass: styles.dotPass,
-  fail: styles.dotFail,
-  pending: styles.dotPending,
+  green: styles.dotPass,
+  red: styles.dotFail,
+  blue: styles.dotRunning,
+  yellow: styles.dotScheduled,
+  gray: styles.dotScheduled,
+};
+
+const CHECK_STATUS_LABELS = {
+  SUCCESS: 'success',
+  NEUTRAL: 'neutral',
+  SKIPPED: 'skipped',
+  FAILURE: 'failure',
+  ERROR: 'error',
+  TIMED_OUT: 'timed out',
+  IN_PROGRESS: 'running',
+  QUEUED: 'queued',
+  WAITING: 'waiting',
+  PENDING: 'pending',
+  REQUESTED: 'requested',
+  EXPECTED: 'expected',
 };
 
 /**
@@ -33,7 +51,11 @@ export function PRDetail({ prId, onBack }) {
   const [openingClaude, setOpeningClaude] = useState(false);
   const [openingStep, setOpeningStep] = useState('');
   const [retriggering, setRetriggering] = useState(false);
+  const [copiedBranch, setCopiedBranch] = useState(false);
   const wsRef = useRef(null);
+  const { height: termHeight, dragging, handleProps } = useResizeHandle({
+    initial: 400, min: 150, max: 900,
+  });
   /** Deduped workspace creation promise so both buttons share a single in-flight request. */
   const workspacePromiseRef = useRef(null);
 
@@ -189,7 +211,8 @@ export function PRDetail({ prId, onBack }) {
 
   const failedChecks = pr.checks.filter(isFailedCheck);
   const passedChecks = pr.checks.filter(isPassedCheck);
-  const pendingChecks = pr.checks.filter(c => !isFailedCheck(c) && !isPassedCheck(c));
+  const runningChecks = pr.checks.filter(isRunningCheck);
+  const scheduledChecks = pr.checks.filter(isScheduledCheck);
   const isMergeReady = checkMergeReady(pr);
 
   return (
@@ -234,10 +257,19 @@ export function PRDetail({ prId, onBack }) {
         <div className={shared.identityRow}>
           <span className={shared.repoTag}>{pr.org}/{pr.repo} #{pr.number}</span>
           <span className={shared.separator}>·</span>
-          <span className={shared.branchTag}>
+          <button
+            className={shared.branchTag}
+            title="Copy branch name"
+            onClick={() => {
+              navigator.clipboard.writeText(pr.branch);
+              setCopiedBranch(true);
+              setTimeout(() => setCopiedBranch(false), 1500);
+            }}
+          >
             <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path fillRule="evenodd" d="M11.75 2.5a.75.75 0 100 1.5.75.75 0 000-1.5zm-2.25.75a2.25 2.25 0 113 2.122V6A2.5 2.5 0 0110 8.5H6a1 1 0 00-1 1v1.128a2.251 2.251 0 11-1.5 0V5.372a2.25 2.25 0 111.5 0v1.836A2.492 2.492 0 016 7h4a1 1 0 001-1v-.628A2.25 2.25 0 019.5 3.25zM4.25 12a.75.75 0 100 1.5.75.75 0 000-1.5zM3.5 3.25a.75.75 0 111.5 0 .75.75 0 01-1.5 0z"/></svg>
             {pr.branch}
-          </span>
+            {copiedBranch && <span className={styles.copiedToast}>Copied!</span>}
+          </button>
           <span className={shared.separator}>·</span>
           <span className={shared.updatedText}>Updated {getRelativeTime(pr.updated_at)}</span>
         </div>
@@ -272,6 +304,8 @@ export function PRDetail({ prId, onBack }) {
             ))}
           </div>
         )}
+
+        {pr.body_html && <PRDescription bodyHtml={pr.body_html} />}
       </div>
 
       {/* Actions row */}
@@ -301,7 +335,13 @@ export function PRDetail({ prId, onBack }) {
             </div>
           </div>
           <QuickActions wsRef={wsRef} />
-          <Terminal wsUrl={`/ws/sessions/${session.id}`} wsRef={wsRef} />
+          <div style={{ height: termHeight }}>
+            <Terminal wsUrl={`/ws/sessions/${session.id}`} wsRef={wsRef} />
+          </div>
+          <div className={shared.resizeHandle} {...handleProps}>
+            <div className={shared.resizeGrip} />
+          </div>
+          {dragging && <div className={shared.dragOverlay} />}
         </div>
       )}
 
@@ -319,7 +359,8 @@ export function PRDetail({ prId, onBack }) {
               <span className={styles.checksSummary}>
                 {passedChecks.length > 0 && <span className={styles.summaryPass}>{passedChecks.length} passed</span>}
                 {failedChecks.length > 0 && <span className={styles.summaryFail}>{failedChecks.length} failed</span>}
-                {pendingChecks.length > 0 && <span className={styles.summaryPending}>{pendingChecks.length} pending</span>}
+                {runningChecks.length > 0 && <span className={styles.summaryRunning}>{runningChecks.length} running</span>}
+                {scheduledChecks.length > 0 && <span className={styles.summaryScheduled}>{scheduledChecks.length} queued</span>}
               </span>
             </h3>
             {failedChecks.length > 0 && (
@@ -343,11 +384,20 @@ export function PRDetail({ prId, onBack }) {
             </div>
           )}
 
-          {/* Pending checks */}
-          {pendingChecks.length > 0 && (
+          {/* Running checks */}
+          {runningChecks.length > 0 && (
             <div className={styles.checkGroup}>
-              {pendingChecks.map((c, i) => (
-                <CheckRow key={`pending-${i}`} check={c} />
+              {runningChecks.map((c, i) => (
+                <CheckRow key={`running-${i}`} check={c} />
+              ))}
+            </div>
+          )}
+
+          {/* Scheduled checks */}
+          {scheduledChecks.length > 0 && (
+            <div className={styles.checkGroup}>
+              {scheduledChecks.map((c, i) => (
+                <CheckRow key={`scheduled-${i}`} check={c} />
               ))}
             </div>
           )}
@@ -393,7 +443,8 @@ export function PRDetail({ prId, onBack }) {
 
 function CheckRow({ check, prId }) {
   const status = checkToStatus(check);
-  const dotClass = DOT_STYLES[status] || styles.dotPending;
+  const colorGroup = statusColorGroup(status);
+  const dotClass = DOT_STYLES[colorGroup] || styles.dotScheduled;
   const isFailed = isFailedCheck(check);
   const [jobLogs, setJobLogs] = useState(null);
   const [logLoading, setLogLoading] = useState(false);
@@ -443,7 +494,9 @@ function CheckRow({ check, prId }) {
               {showLog ? 'Hide log' : 'View log'}
             </button>
           )}
-          <StatusBadge status={status} type="ci" />
+          <span className={`${styles.checkBadge} ${styles[`checkBadge-${colorGroup}`]}`}>
+            {CHECK_STATUS_LABELS[status] || status.toLowerCase()}
+          </span>
         </div>
       </div>
       {showLog && jobLogs?.map((job, i) => (
@@ -480,6 +533,22 @@ function PassedChecksGroup({ checks }) {
       {expanded && checks.map((c, i) => (
         <CheckRow key={`pass-${i}`} check={c} />
       ))}
+    </div>
+  );
+}
+
+function PRDescription({ bodyHtml }) {
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <div className={styles.description}>
+      <button className={styles.descriptionToggle} onClick={() => setExpanded(!expanded)}>
+        <span className={styles.descriptionLabel}>Description</span>
+        <span className={`${styles.chevron} ${expanded ? styles.chevronOpen : ''}`}>&#x25B8;</span>
+      </button>
+      {expanded && (
+        <div className={styles.descriptionBody} dangerouslySetInnerHTML={{ __html: bodyHtml }} />
+      )}
     </div>
   );
 }
@@ -535,7 +604,7 @@ function SessionHistory({ workspaceId }) {
         <div className={styles.reviewsList}>
           {history.map(sess => (
             <div key={sess.id}>
-              <div className={styles.checkRow}>
+              <button className={styles.checkRow} onClick={() => handleViewTranscript(sess.id)}>
                 <div className={styles.checkInfo}>
                   <span style={{ fontSize: '14px', color: '#6b7280' }}>
                     {new Date(sess.started_at).toLocaleString()}
@@ -544,13 +613,8 @@ function SessionHistory({ workspaceId }) {
                     {formatDuration(sess.started_at, sess.ended_at)}
                   </span>
                 </div>
-                <button
-                  className={styles.viewLogButton}
-                  onClick={() => handleViewTranscript(sess.id)}
-                >
-                  {transcripts[sess.id] ? 'Hide transcript' : 'View transcript'}
-                </button>
-              </div>
+                <span className={`${styles.chevron} ${transcripts[sess.id] ? styles.chevronOpen : ''}`}>&#x25B8;</span>
+              </button>
               {(transcripts[sess.id] || transcriptLoading[sess.id] || transcriptErrors[sess.id]) && (
                 <TranscriptViewer
                   entries={transcripts[sess.id] || null}

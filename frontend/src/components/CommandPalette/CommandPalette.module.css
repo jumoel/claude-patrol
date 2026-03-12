@@ -1,0 +1,85 @@
+@reference "tailwindcss";
+
+.overlay {
+  @apply fixed inset-0 z-50 flex items-start justify-center;
+  background: rgba(0, 0, 0, 0.5);
+  padding-top: 20vh;
+}
+
+.dialog {
+  @apply bg-white rounded-xl shadow-2xl border border-gray-200 overflow-hidden;
+  width: 560px;
+  max-height: 420px;
+  display: flex;
+  flex-direction: column;
+}
+
+.inputWrapper {
+  @apply flex items-center gap-2 px-4 border-b border-gray-200;
+}
+
+.searchIcon {
+  @apply text-gray-400 shrink-0;
+}
+
+.input {
+  @apply w-full py-3 text-base bg-transparent outline-none placeholder-gray-400;
+}
+
+.hint {
+  @apply text-xs text-gray-400 shrink-0 font-mono;
+}
+
+.results {
+  @apply overflow-y-auto;
+  max-height: 340px;
+}
+
+.empty {
+  @apply text-sm text-gray-400 text-center py-6;
+}
+
+.result {
+  @apply px-4 py-2.5 cursor-pointer;
+}
+
+.result:hover,
+.resultSelected {
+  @apply bg-indigo-50;
+}
+
+.resultInfo {
+  @apply min-w-0 space-y-0.5;
+}
+
+.resultTitle {
+  @apply text-sm font-medium text-gray-900 truncate;
+}
+
+.resultMeta {
+  @apply flex items-center gap-1.5 text-xs text-gray-500;
+}
+
+.resultRepo {
+  @apply font-mono;
+}
+
+.resultNumber {
+  @apply text-gray-400;
+}
+
+.resultBranch {
+  @apply font-mono text-gray-400 truncate;
+}
+
+.resultBadges {
+  @apply flex items-center gap-1 mt-1;
+}
+
+.draftPill {
+  @apply text-xs font-medium px-1.5 py-0.5 bg-yellow-50 text-yellow-700 border border-yellow-200 rounded-full;
+}
+
+.workspaceTag {
+  @apply text-xs font-medium px-1.5 py-0.5 bg-purple-50 text-purple-700 border border-purple-200 rounded-full;
+}

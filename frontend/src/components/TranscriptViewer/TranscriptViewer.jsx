@@ -76,11 +76,25 @@ export function TranscriptViewer({ entries, loading, error }) {
       </div>
 
       <div className={styles.conversation}>
-        {filtered.map((entry, i) => (
-          <div key={i} className={`${styles.entry} ${entry.role === 'user' ? styles.entryUser : styles.entryAssistant}`}>
+        {filtered.map((entry, i) => {
+          const isHuman = entry.isHuman;
+          const entryClass = isHuman ? styles.entryHuman
+            : entry.role === 'assistant' ? styles.entryAssistant
+            : styles.entryTool;
+          const badgeClass = isHuman ? styles.roleHuman
+            : entry.role === 'assistant' ? styles.roleAssistant
+            : styles.roleTool;
+          const hasToolResult = entry.role === 'user' && !isHuman && entry.content.every(b => b.type === 'tool_result');
+          const badgeLabel = isHuman ? 'You'
+            : entry.role === 'assistant' ? 'Claude'
+            : hasToolResult ? 'Tool Result'
+            : 'System';
+
+          return (
+          <div key={i} className={`${styles.entry} ${entryClass}`}>
             <div className={styles.entryHeader}>
-              <span className={`${styles.roleBadge} ${entry.role === 'user' ? styles.roleUser : styles.roleAssistant}`}>
-                {entry.role === 'user' ? 'User' : 'Assistant'}
+              <span className={`${styles.roleBadge} ${badgeClass}`}>
+                {badgeLabel}
               </span>
               {entry.timestamp && (
                 <span className={styles.timestamp}>
@@ -137,7 +151,8 @@ export function TranscriptViewer({ entries, loading, error }) {
               })}
             </div>
           </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

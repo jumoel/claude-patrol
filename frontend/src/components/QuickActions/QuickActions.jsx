@@ -11,6 +11,10 @@ const BUILT_IN_ACTIONS = [
     label: 'Fix lint errors',
     command: 'Run the linter. Fix all errors and warnings. Show me what you changed.\r',
   },
+  {
+    label: 'Update PR description',
+    command: 'Read the diff for the PR on this branch, then update the PR description using `gh pr edit` with `--body`. Follow any PR description conventions configured for this project.\r',
+  },
 ];
 
 /**

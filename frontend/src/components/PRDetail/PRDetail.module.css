@@ -83,8 +83,12 @@
   @apply text-red-600 font-medium;
 }
 
-.summaryPending {
-  @apply text-yellow-600;
+.summaryRunning {
+  @apply text-blue-600;
+}
+
+.summaryScheduled {
+  @apply text-gray-500;
 }
 
 .checksActions {
@@ -104,7 +108,10 @@
 }
 
 .checkRow {
-  @apply flex items-center justify-between py-1.5 px-3 text-base rounded hover:bg-gray-50 transition-colors;
+  @apply flex items-center justify-between py-1.5 px-3 text-base rounded hover:bg-gray-50 transition-colors w-full cursor-pointer;
+  background: none;
+  border: none;
+  text-align: left;
 }
 
 .checkInfo {
@@ -143,8 +150,37 @@
   @apply bg-red-500;
 }
 
-.dotPending {
-  @apply bg-yellow-400;
+.dotRunning {
+  @apply bg-blue-500;
+}
+
+.dotScheduled {
+  @apply bg-gray-400;
+}
+
+/* Check status badges (per-check, using real GitHub statuses) */
+.checkBadge {
+  @apply inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium;
+}
+
+.checkBadge-green {
+  @apply bg-green-100 text-green-800;
+}
+
+.checkBadge-red {
+  @apply bg-red-100 text-red-800;
+}
+
+.checkBadge-blue {
+  @apply bg-blue-100 text-blue-800;
+}
+
+.checkBadge-yellow {
+  @apply bg-yellow-100 text-yellow-800;
+}
+
+.checkBadge-gray {
+  @apply bg-gray-100 text-gray-600;
 }
 
 .toggleButton {
@@ -178,4 +214,125 @@
 
 .reviewComment {
   @apply text-gray-500;
+}
+
+/* Session row chevron */
+.chevron {
+  @apply text-gray-400 text-sm transition-transform duration-150;
+  display: inline-block;
+}
+
+.chevronOpen {
+  transform: rotate(90deg);
+}
+
+/* PR Description */
+.description {
+  @apply border-t border-gray-100 pt-3 mt-1;
+}
+
+.descriptionToggle {
+  @apply flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 cursor-pointer transition-colors;
+  background: none;
+  border: none;
+  padding: 0;
+}
+
+.descriptionLabel {
+  @apply font-medium;
+}
+
+.descriptionBody {
+  @apply mt-2 text-sm text-gray-700 leading-relaxed;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.descriptionBody :global(p) {
+  @apply my-1.5;
+}
+
+.descriptionBody :global(a) {
+  @apply text-blue-600 hover:underline;
+}
+
+.descriptionBody :global(code) {
+  @apply text-sm font-mono bg-gray-100 px-1 py-0.5 rounded;
+}
+
+.descriptionBody :global(pre) {
+  @apply bg-gray-100 rounded p-3 overflow-x-auto my-2;
+}
+
+.descriptionBody :global(pre code) {
+  @apply bg-transparent p-0;
+}
+
+.descriptionBody :global(ul),
+.descriptionBody :global(ol) {
+  @apply pl-5 my-1.5;
+}
+
+.descriptionBody :global(ul) {
+  @apply list-disc;
+}
+
+.descriptionBody :global(ol) {
+  @apply list-decimal;
+}
+
+.descriptionBody :global(blockquote) {
+  @apply border-l-2 border-gray-300 pl-3 text-gray-500 my-2;
+}
+
+.descriptionBody :global(img) {
+  @apply max-w-full rounded my-2;
+}
+
+.descriptionBody :global(h1),
+.descriptionBody :global(h2),
+.descriptionBody :global(h3) {
+  @apply font-semibold text-gray-800 mt-3 mb-1;
+}
+
+.descriptionBody :global(h1) {
+  @apply text-base;
+}
+
+.descriptionBody :global(h2) {
+  @apply text-sm;
+}
+
+.descriptionBody :global(h3) {
+  @apply text-sm;
+}
+
+.descriptionBody :global(table) {
+  @apply border-collapse border border-gray-200 my-2 text-sm;
+}
+
+.descriptionBody :global(th),
+.descriptionBody :global(td) {
+  @apply border border-gray-200 px-3 py-1;
+}
+
+.descriptionBody :global(th) {
+  @apply bg-gray-50 font-semibold;
+}
+
+.descriptionBody :global(hr) {
+  @apply border-gray-200 my-3;
+}
+
+/* Copy-to-clipboard toast */
+.copiedToast {
+  @apply text-xs font-medium text-green-400 ml-1;
+  animation: fadeInOut 1.5s ease-in-out;
+}
+
+@keyframes fadeInOut {
+  0% { opacity: 0; }
+  15% { opacity: 1; }
+  70% { opacity: 1; }
+  100% { opacity: 0; }
 }

@@ -266,8 +266,8 @@ function SessionHistory({ workspaceId }) {
         <div style={{ marginTop: '8px' }}>
           {history.map(sess => (
             <div key={sess.id}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 0' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <button className={styles.sessionRow} onClick={() => handleViewTranscript(sess.id)}>
+                <div className={styles.sessionInfo}>
                   <span style={{ fontSize: '14px', color: '#6b7280' }}>
                     {new Date(sess.started_at).toLocaleString()}
                   </span>
@@ -275,16 +275,8 @@ function SessionHistory({ workspaceId }) {
                     {formatDuration(sess.started_at, sess.ended_at)}
                   </span>
                 </div>
-                <button
-                  onClick={() => handleViewTranscript(sess.id)}
-                  style={{
-                    background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '4px',
-                    padding: '4px 8px', fontSize: '13px', color: '#6b7280', cursor: 'pointer',
-                  }}
-                >
-                  {transcripts[sess.id] ? 'Hide transcript' : 'View transcript'}
-                </button>
-              </div>
+                <span className={`${styles.chevron} ${transcripts[sess.id] ? styles.chevronOpen : ''}`}>&#x25B8;</span>
+              </button>
               {(transcripts[sess.id] || transcriptLoading[sess.id] || transcriptErrors[sess.id]) && (
                 <TranscriptViewer
                   entries={transcripts[sess.id] || null}

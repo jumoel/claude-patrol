@@ -14,7 +14,8 @@
 }
 
 .brand {
-  @apply flex items-center gap-2.5;
+  @apply flex items-center gap-2.5 no-underline;
+  color: inherit;
 }
 
 .logo {

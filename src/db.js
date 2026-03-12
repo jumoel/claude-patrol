@@ -45,6 +45,10 @@ export function initDb(dbPath) {
   // Migration: add mergeable column
   try { db.exec("ALTER TABLE prs ADD COLUMN mergeable TEXT NOT NULL DEFAULT 'UNKNOWN'"); } catch { /* column already exists */ }
 
+  // Migration: add body/body_html columns for PR descriptions
+  try { db.exec("ALTER TABLE prs ADD COLUMN body TEXT NOT NULL DEFAULT ''"); } catch { /* column already exists */ }
+  try { db.exec("ALTER TABLE prs ADD COLUMN body_html TEXT NOT NULL DEFAULT ''"); } catch { /* column already exists */ }
+
   db.exec(`
     CREATE TABLE IF NOT EXISTS workspaces (
       id TEXT PRIMARY KEY,

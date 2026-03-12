@@ -10,10 +10,10 @@ export function AppShell({ title, syncTime, nextSync, syncing, onSync, terminalO
     <div className={styles.shell}>
       <header className={styles.header}>
         <div className={styles.headerInner}>
-          <div className={styles.brand}>
+          <a href="#/" className={styles.brand}>
             <img src={logoSvg} alt="" className={styles.logo} />
             <h1 className={styles.title}>{title}</h1>
-          </div>
+          </a>
           <div className={styles.syncArea}>
             <span className={styles.syncStatus}>
               {syncTime}

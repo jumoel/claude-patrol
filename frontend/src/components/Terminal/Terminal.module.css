@@ -1,7 +1,7 @@
 @reference "tailwindcss";
 
 .wrapper {
-  @apply overflow-hidden border border-gray-700 h-full;
+  @apply overflow-hidden border border-gray-700 rounded-md h-full;
 }
 
 .terminal {

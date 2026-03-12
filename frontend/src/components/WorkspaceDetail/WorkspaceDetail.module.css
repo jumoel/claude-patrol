@@ -21,3 +21,23 @@
 .prLink {
   @apply text-green-800 underline hover:text-green-900;
 }
+
+.sessionRow {
+  @apply flex items-center justify-between w-full py-1.5 px-3 rounded hover:bg-gray-50 transition-colors cursor-pointer;
+  background: none;
+  border: none;
+  text-align: left;
+}
+
+.sessionInfo {
+  @apply flex items-center gap-3;
+}
+
+.chevron {
+  @apply text-gray-400 text-sm transition-transform duration-150;
+  display: inline-block;
+}
+
+.chevronOpen {
+  transform: rotate(90deg);
+}

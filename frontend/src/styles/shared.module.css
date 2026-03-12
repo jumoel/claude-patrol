@@ -38,6 +38,14 @@
 
 .branchTag {
   @apply flex items-center gap-1 font-mono text-sm text-gray-500;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+
+.branchTag:hover {
+  @apply text-gray-300;
 }
 
 .updatedText {

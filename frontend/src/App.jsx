@@ -7,6 +7,8 @@ import { DashboardSummary } from './components/DashboardSummary/DashboardSummary
 import { PRDetail } from './components/PRDetail/PRDetail.jsx';
 import { WorkspaceDetail } from './components/WorkspaceDetail/WorkspaceDetail.jsx';
 import { ScratchWorkspaces } from './components/ScratchWorkspaces/ScratchWorkspaces.jsx';
+import { CommandPalette } from './components/CommandPalette/CommandPalette.jsx';
+import { fetchScratchWorkspaces } from './lib/api.js';
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 
 function formatCountdown(seconds) {
@@ -52,6 +54,14 @@ export default function App() {
   const copiedTimeout = useRef(null);
   const toggleTerminal = useCallback(() => setTerminalOpen(prev => !prev), []);
   const { prs: allPRs, syncedAt, loading, error, syncing, countdown, triggerSync } = usePRs(NO_FILTERS);
+  const [scratchWorkspaces, setScratchWorkspaces] = useState([]);
+
+  // Fetch scratch workspaces (refresh when PRs sync)
+  useEffect(() => {
+    fetchScratchWorkspaces()
+      .then(setScratchWorkspaces)
+      .catch(() => {});
+  }, [syncedAt]);
 
   const filteredPRs = useMemo(() => applyFilters(allPRs, filters), [allPRs, filters]);
 
@@ -95,6 +105,10 @@ export default function App() {
     window.location.hash = `/pr/${encodeURIComponent(prId)}`;
   };
 
+  const navigateToWorkspace = (wsId) => {
+    window.location.hash = `/workspace/${wsId}`;
+  };
+
   const navigateBack = () => {
     window.location.hash = '';
   };
@@ -116,6 +130,7 @@ export default function App() {
         </>
       )}
       <GlobalTerminal open={terminalOpen} onToggle={toggleTerminal} />
+      <CommandPalette prs={allPRs} scratchWorkspaces={scratchWorkspaces} onNavigate={navigateToPR} onNavigateWorkspace={navigateToWorkspace} />
     </AppShell>
   );
 }

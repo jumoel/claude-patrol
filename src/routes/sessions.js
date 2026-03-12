@@ -108,16 +108,49 @@ export function registerSessionRoutes(app) {
 
     try {
       const raw = readFileSync(jsonlPath, 'utf8');
-      const entries = raw.trim().split('\n')
+      const parsed = raw.trim().split('\n')
         .map(line => { try { return JSON.parse(line); } catch { return null; } })
         .filter(Boolean)
-        .filter(e => e.type === 'user' || e.type === 'assistant')
-        .map(e => ({
+        .filter(e => e.type === 'user' || e.type === 'assistant');
+
+      // Tag each entry with whether it's a genuine human message.
+      // System-injected user messages include: tool results, skill expansions
+      // (follow a tool_result), and task/system notifications (contain XML tags).
+      const SYSTEM_PATTERNS = [
+        '<task-notification>',
+        '<system-reminder>',
+        '<command-name>',
+        '<automated-',
+        'IMPORTANT: After completing',
+        'Read the output file to retrieve the result:',
+      ];
+
+      let prevWasAssistant = true; // treat start of conversation as "after assistant"
+      const entries = parsed.map(e => {
+        const content = simplifyContent(e.message?.content);
+        const role = e.message?.role || e.type;
+        const hasText = content.some(b => b.type === 'text');
+
+        let isHuman = false;
+        if (role === 'user' && hasText) {
+          // Human messages directly follow an assistant message.
+          // Consecutive user messages are system injections (tool results,
+          // skill expansions, task notifications).
+          const textContent = content.filter(b => b.type === 'text').map(b => b.text).join('');
+          const looksLikeSystem = SYSTEM_PATTERNS.some(p => textContent.includes(p));
+          isHuman = prevWasAssistant && !looksLikeSystem;
+        }
+
+        prevWasAssistant = role === 'assistant';
+
+        return {
           timestamp: e.timestamp,
-          role: e.message?.role || e.type,
-          content: simplifyContent(e.message?.content),
+          role,
+          content,
           model: e.message?.model || null,
-        }));
+          isHuman,
+        };
+      });
 
       return entries;
     } catch (err) {

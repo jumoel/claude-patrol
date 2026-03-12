@@ -3,14 +3,22 @@ import { execFile, isFailedConclusion } from '../utils.js';
 
 const RUN_ID_RE = /\/actions\/runs\/(\d+)/;
 
+/** REST API uses lowercase conclusions; match all failure types. */
+const FAILED_JOB_CONCLUSIONS = new Set(['failure', 'error', 'timed_out']);
+
 /**
  * Parse checks JSON from a PR row and return the failed ones.
+ * Handles both CheckRun (conclusion-based) and StatusContext (status-based).
  * @param {object} row - PR database row
  * @returns {Array<object>}
  */
 function getFailedChecks(row) {
   const checks = JSON.parse(row.checks);
-  return checks.filter(c => isFailedConclusion(c.conclusion));
+  return checks.filter(c =>
+    isFailedConclusion(c.conclusion) ||
+    // StatusContext items have conclusion=null but status may indicate failure
+    (c.conclusion === null && (c.status === 'FAILURE' || c.status === 'ERROR'))
+  );
 }
 
 /**
@@ -100,7 +108,7 @@ export function registerCheckRoutes(app) {
 
         // GitHub REST API uses lowercase conclusions (unlike GraphQL which uses uppercase)
         const failedJobs = (jobsData.jobs || []).filter(j =>
-          j.conclusion === 'failure' || j.conclusion === 'timed_out'
+          FAILED_JOB_CONCLUSIONS.has(j.conclusion)
         );
 
         // Fetch logs for all failed jobs in parallel

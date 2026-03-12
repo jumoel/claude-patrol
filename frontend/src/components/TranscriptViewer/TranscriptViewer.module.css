@@ -46,12 +46,16 @@
   @apply border-b-0;
 }
 
-.entryUser {
-  background-color: rgba(255, 255, 255, 0.03);
+.entryHuman {
+  background-color: rgba(59, 130, 246, 0.06);
 }
 
 .entryAssistant {
   @apply bg-gray-900;
+}
+
+.entryTool {
+  background-color: rgba(255, 255, 255, 0.02);
 }
 
 .entryHeader {
@@ -62,12 +66,16 @@
   @apply text-xs font-semibold uppercase px-1.5 py-0.5 rounded;
 }
 
-.roleUser {
+.roleHuman {
   @apply bg-blue-900/50 text-blue-300;
 }
 
 .roleAssistant {
   @apply bg-purple-900/50 text-purple-300;
+}
+
+.roleTool {
+  @apply bg-gray-800/50 text-gray-400;
 }
 
 .timestamp {

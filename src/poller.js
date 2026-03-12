@@ -16,6 +16,8 @@ query($q: String!, $cursor: String) {
         id
         number
         title
+        body
+        bodyHTML
         url
         isDraft
         headRefName
@@ -270,8 +272,8 @@ function getStatements() {
   const db = getDb();
   if (!upsertStmt) {
     upsertStmt = db.prepare(`
-      INSERT OR REPLACE INTO prs (id, number, title, repo, org, author, url, branch, draft, mergeable, checks, reviews, labels, created_at, updated_at, synced_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT OR REPLACE INTO prs (id, number, title, body, body_html, repo, org, author, url, branch, draft, mergeable, checks, reviews, labels, created_at, updated_at, synced_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
   }
   if (!deleteStaleByOrgStmt) {
@@ -337,6 +339,8 @@ function upsertPRs(prs) {
         id,
         pr.number,
         pr.title,
+        pr.body || '',
+        pr.bodyHTML || '',
         repo,
         prOrg,
         pr.author?.login ?? 'unknown',
