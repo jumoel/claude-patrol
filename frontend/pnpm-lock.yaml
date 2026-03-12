@@ -14,9 +14,12 @@ importers:
       '@tanstack/react-table':
         specifier: ^8.21.3
         version: 8.21.3(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
-      ghostty-web:
-        specifier: ^0.4.0
-        version: 0.4.0
+      '@xterm/addon-fit':
+        specifier: file:../vendor/xterm.js/addons/addon-fit
+        version: file:../vendor/xterm.js/addons/addon-fit
+      '@xterm/xterm':
+        specifier: file:../vendor/xterm.js
+        version: file:../vendor/xterm.js
       react:
         specifier: ^19.2.4
         version: 19.2.4
@@ -543,6 +546,12 @@ packages:
     peerDependencies:
       vite: ^4.2.0 || ^5.0.0 || ^6.0.0 || ^7.0.0
 
+  '@xterm/addon-fit@file:../vendor/xterm.js/addons/addon-fit':
+    resolution: {directory: ../vendor/xterm.js/addons/addon-fit, type: directory}
+
+  '@xterm/xterm@file:../vendor/xterm.js':
+    resolution: {directory: ../vendor/xterm.js, type: directory}
+
   baseline-browser-mapping@2.10.0:
     resolution: {integrity: sha512-lIyg0szRfYbiy67j9KN8IyeD7q7hcmqnJ1ddWmNt19ItGpNN64mnllmxUNFIOdOm6by97jlL6wfpTTJrmnjWAA==}
     engines: {node: '>=6.0.0'}
@@ -605,9 +614,6 @@ packages:
   gensync@1.0.0-beta.2:
     resolution: {integrity: sha512-3hN7NaskYvMDLQY55gnW3NQ+mesEAepTqlg+VEbj7zzqEMBVNhzcGYYeqFo/TlYz6eQiFcp1HcsCZO+nGgS8zg==}
     engines: {node: '>=6.9.0'}
-
-  ghostty-web@0.4.0:
-    resolution: {integrity: sha512-0puDBik2qapbD/QQBW9o5ZHfXnZBqZWx/ctBiVtKZ6ZLds4NYb+wZuw1cRLXZk9zYovIQ908z3rvFhexAvc5Hg==}
 
   graceful-fs@4.2.11:
     resolution: {integrity: sha512-RbJ5/jmFcNNCcDV5o9eTnBLJ/HszWV0P73bc+Ff4nS/rJj+YaS6IGyiOL0VoBYX+l1Wrl3k63h/KrH+nhJ0XvQ==}
@@ -1215,6 +1221,10 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
+  '@xterm/addon-fit@file:../vendor/xterm.js/addons/addon-fit': {}
+
+  '@xterm/xterm@file:../vendor/xterm.js': {}
+
   baseline-browser-mapping@2.10.0: {}
 
   browserslist@4.28.1:
@@ -1281,8 +1291,6 @@ snapshots:
     optional: true
 
   gensync@1.0.0-beta.2: {}
-
-  ghostty-web@0.4.0: {}
 
   graceful-fs@4.2.11: {}
 

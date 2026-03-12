@@ -1,7 +1,8 @@
 /**
  * Watch mode: runs the backend server and `vite build --watch` concurrently.
- * Vite output is prefixed with [vite]; the server inherits stdio directly so
- * the TUI works (raw mode, cursor positioning, etc.).
+ * Vite output is forwarded to the server via IPC so it renders inside the TUI.
+ * The server inherits stdio directly so the TUI works (raw mode, cursor
+ * positioning, etc.).
  *
  * Backend file changes trigger a server restart with --reattach, which
  * preserves active terminal sessions (tmux sessions survive, node-pty
@@ -21,30 +22,48 @@ function prefix(label, color) {
   return `${colors[color] || ''}[${label}]\x1b[0m `;
 }
 
-function pipeWithPrefix(stream, label, color) {
-  const tag = prefix(label, color);
+/**
+ * Collect lines from a stream and call `onLine` for each non-empty line.
+ * @param {import('node:stream').Readable} stream
+ * @param {(line: string) => void} onLine
+ */
+function forEachLine(stream, onLine) {
   let buffer = '';
   stream.on('data', (chunk) => {
     buffer += chunk.toString();
     const lines = buffer.split('\n');
     buffer = lines.pop();
     for (const line of lines) {
-      if (line.trim()) process.stdout.write(tag + line + '\n');
+      if (line.trim()) onLine(line);
     }
   });
   stream.on('end', () => {
-    if (buffer.trim()) process.stdout.write(tag + buffer + '\n');
+    if (buffer.trim()) onLine(buffer);
   });
 }
 
+/**
+ * Send a log line to the server over IPC. Falls back to stdout if the server
+ * isn't connected (e.g. during startup or after a crash).
+ */
+function sendToServer(line, level = 'log') {
+  if (server && server.connected) {
+    server.send({ type: 'log', msg: line, level });
+  } else {
+    process.stdout.write(line + '\n');
+  }
+}
+
 // --- Vite (frontend) ---
-const vite = spawn('npx', ['vite', 'build', '--watch'], {
+const vite = spawn(resolve(FRONTEND, 'node_modules/.bin/vite'), ['build', '--watch'], {
   cwd: FRONTEND,
   stdio: ['ignore', 'pipe', 'pipe'],
   env: { ...process.env },
 });
-pipeWithPrefix(vite.stdout, 'vite', 'cyan');
-pipeWithPrefix(vite.stderr, 'vite', 'cyan');
+
+const viteTag = prefix('vite', 'cyan');
+forEachLine(vite.stdout, (line) => sendToServer(viteTag + line));
+forEachLine(vite.stderr, (line) => sendToServer(viteTag + line, 'warn'));
 
 // --- Server (backend) ---
 let server = null;
@@ -58,7 +77,7 @@ function startServer(reattach) {
 
   server = spawn('node', args, {
     cwd: ROOT,
-    stdio: 'inherit',
+    stdio: ['inherit', 'inherit', 'inherit', 'ipc'],
     env: { ...process.env },
   });
 
@@ -75,6 +94,12 @@ function startServer(reattach) {
       return;
     }
     if (code === null) return; // killed by signal during cleanup
+    // Exit 78 = already running (precondition failure) - exit watch cleanly
+    if (code === 78) {
+      vite.kill('SIGTERM');
+      setTimeout(() => process.exit(1), 1000);
+      return;
+    }
     console.log(`\n${prefix('watch', 'magenta')}Server crashed (exit ${code}), waiting for file changes to restart...`);
   });
 }
@@ -86,11 +111,11 @@ function restartServer() {
 
     // Wait for server to actually exit before starting new one
     server.on('exit', () => {
-      process.stdout.write(`${prefix('watch', 'magenta')}Restarting server (reattaching sessions)...\n`);
+      sendToServer(`${prefix('watch', 'magenta')}Restarting server (reattaching sessions)...`);
       startServer(true);
     });
   } else {
-    process.stdout.write(`${prefix('watch', 'magenta')}Starting server (reattaching sessions)...\n`);
+    sendToServer(`${prefix('watch', 'magenta')}Starting server (reattaching sessions)...`);
     startServer(true);
   }
 }
@@ -109,7 +134,7 @@ watch(SRC, { recursive: true }, (eventType, filename) => {
 
   if (debounceTimer) clearTimeout(debounceTimer);
   debounceTimer = setTimeout(() => {
-    process.stdout.write(`${prefix('watch', 'magenta')}Detected change: src/${filename}\n`);
+    sendToServer(`${prefix('watch', 'magenta')}Detected change: src/${filename}`);
     restartServer();
   }, DEBOUNCE_MS);
 });
@@ -127,6 +152,6 @@ process.on('SIGTERM', () => cleanup('SIGTERM'));
 
 vite.on('exit', (code) => {
   if (code !== 0 && code !== null) {
-    console.log(`\n${prefix('watch', 'cyan')}Vite exited with code ${code}`);
+    sendToServer(`${prefix('vite', 'cyan')}Vite exited with code ${code}`, 'error');
   }
 });

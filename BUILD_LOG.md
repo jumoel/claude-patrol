@@ -1,5 +1,23 @@
 # Build Log
 
+## 2026-03-12 - Switch from ghostty-web to xterm.js (GitHub master)
+
+Replaced `ghostty-web` with `@xterm/xterm` + `@xterm/addon-fit` built from the xterm.js GitHub master branch. The latest npm release (6.0.0) is from December 2024 with 15+ months of unreleased fixes on master, so we vendor-build from source.
+
+**What changed:**
+- `scripts/setup-xterm.sh` (new) - clones xterm.js repo into `vendor/xterm.js`, runs `npm install` + `npm run setup` (tsgo + esbuild). Disables corepack strict mode so npm works inside our pnpm-managed repo.
+- `frontend/package.json` - swapped `ghostty-web` for `file:` refs to `@xterm/xterm` and `@xterm/addon-fit` pointing at `vendor/xterm.js`
+- `frontend/src/components/Terminal/Terminal.jsx` - replaced ghostty-web imports with xterm.js, removed async WASM `init()` wrapper (xterm.js needs none), added CSS import, added `attachCustomKeyEventHandler` for Shift+Enter (`\x1b[13;2u` kitty protocol sequence)
+- `package.json` - added `setup:xterm` script, inlined vendor check into `start`/`watch` commands
+- `src/watch.js` - vite output now forwarded to server via IPC so it renders inside the TUI instead of corrupting it. Spawns vite directly from `node_modules/.bin` instead of via `npx` (avoids npm config warnings).
+- `src/index.js` - added IPC message listener for watch.js log forwarding, distinct exit code (78) for "already running" so watch mode exits cleanly instead of showing a crash message
+- `.gitignore` - added `vendor/`
+
+**Why:**
+- ghostty-web is pre-1.0 and had rendering quirks. xterm.js is the industry standard with a larger ecosystem.
+- The npm release is stale, but master has active development. Vendor-building pins us to a known commit and keeps builds reproducible.
+- Shift+Enter is needed for Claude Code's multi-line input. xterm.js doesn't distinguish it from Enter by default - the custom key handler sends the CSI u sequence that Claude expects.
+
 ## 2026-03-12 - Watch mode with session-safe backend reloading
 
 Added backend file watching to `pnpm watch`. When a `.js` file in `src/` changes, the server restarts with `--reattach` mode that preserves active terminal sessions instead of killing them.

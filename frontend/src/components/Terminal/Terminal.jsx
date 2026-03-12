@@ -1,11 +1,13 @@
 import { useEffect, useRef } from 'react';
-import { init, Terminal as GhosttyTerminal, FitAddon } from 'ghostty-web';
+import { Terminal as XTerm } from '@xterm/xterm';
+import { FitAddon } from '@xterm/addon-fit';
+import '@xterm/xterm/css/xterm.css';
 import styles from './Terminal.module.css';
 
 const RECONNECT_DELAYS = [500, 1000, 2000, 4000];
 
 /**
- * Terminal component backed by ghostty-web and a WebSocket connection.
+ * Terminal component backed by xterm.js and a WebSocket connection.
  * Auto-reconnects on disconnect (for server restarts in watch mode).
  * @param {{ wsUrl: string, wsRef?: import('react').MutableRefObject<WebSocket | null> }} props
  */
@@ -19,9 +21,61 @@ export function Terminal({ wsUrl, wsRef: externalWsRef, focus }) {
     if (!containerRef.current || !wsUrl) return;
 
     let cancelled = false;
-    let term, observer;
+    let observer;
     let reconnectAttempt = 0;
     let reconnectTimer = null;
+
+    const term = new XTerm({
+      cursorBlink: true,
+      fontSize: 13,
+      fontFamily: '"JetBrains Mono", "Fira Code", Menlo, Monaco, "Courier New", monospace',
+      theme: {
+        background: '#1a1b26',
+        foreground: '#a9b1d6',
+        cursor: '#c0caf5',
+        selectionBackground: '#33467c',
+      },
+    });
+
+    const fitAddon = new FitAddon();
+    term.loadAddon(fitAddon);
+    term.open(containerRef.current);
+    fitAddon.fit();
+    term.focus();
+
+    termRef.current = term;
+    fitRef.current = fitAddon;
+
+    term.onData((data) => {
+      const ws = wsRef.current;
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'input', data }));
+      }
+    });
+
+    // xterm.js doesn't distinguish Shift+Enter from Enter by default.
+    // Intercept it and send the CSI u (kitty keyboard protocol) sequence
+    // so programs like Claude Code can tell the difference.
+    term.attachCustomKeyEventHandler((ev) => {
+      if (ev.type === 'keydown' && ev.key === 'Enter' && ev.shiftKey && !ev.ctrlKey && !ev.altKey && !ev.metaKey) {
+        const ws = wsRef.current;
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'input', data: '\x1b[13;2u' }));
+        }
+        return false; // prevent xterm from also sending \r
+      }
+      return true;
+    });
+
+    // Resize handling
+    observer = new ResizeObserver(() => {
+      fitAddon.fit();
+      const ws = wsRef.current;
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+      }
+    });
+    observer.observe(containerRef.current);
 
     function connectWs() {
       if (cancelled || !term) return;
@@ -71,49 +125,7 @@ export function Terminal({ wsUrl, wsRef: externalWsRef, focus }) {
       };
     }
 
-    init().then(() => {
-      if (cancelled) return;
-
-      term = new GhosttyTerminal({
-        cursorBlink: true,
-        fontSize: 13,
-        fontFamily: '"JetBrains Mono", "Fira Code", Menlo, Monaco, "Courier New", monospace',
-        theme: {
-          background: '#1a1b26',
-          foreground: '#a9b1d6',
-          cursor: '#c0caf5',
-          selectionBackground: '#33467c',
-        },
-      });
-
-      const fitAddon = new FitAddon();
-      term.loadAddon(fitAddon);
-      term.open(containerRef.current);
-      fitAddon.fit();
-      term.focus();
-
-      termRef.current = term;
-      fitRef.current = fitAddon;
-
-      term.onData((data) => {
-        const ws = wsRef.current;
-        if (ws && ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: 'input', data }));
-        }
-      });
-
-      // Resize handling
-      observer = new ResizeObserver(() => {
-        fitAddon.fit();
-        const ws = wsRef.current;
-        if (ws && ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
-        }
-      });
-      observer.observe(containerRef.current);
-
-      connectWs();
-    });
+    connectWs();
 
     return () => {
       cancelled = true;

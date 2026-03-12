@@ -20,7 +20,7 @@ export async function startServer(options = {}) {
     const status = isRunning();
     if (status.running) {
       console.error(`[claude-patrol] Already running (pid ${status.pid}, port ${status.port}). Use "claude-patrol stop" to stop it.`);
-      process.exit(1);
+      process.exit(78); // EX_CONFIG (sysexits.h) - not a crash, just a precondition failure
     }
   }
 
@@ -119,6 +119,18 @@ export async function startServer(options = {}) {
   });
 
   watchConfig();
+
+  // Listen for IPC messages from watch.js (vite output, watch status)
+  if (process.send) {
+    process.on('message', (msg) => {
+      if (msg?.type === 'log') {
+        const level = msg.level || 'log';
+        if (level === 'error') console.error(msg.msg);
+        else if (level === 'warn') console.warn(msg.msg);
+        else console.log(msg.msg);
+      }
+    });
+  }
 
   console.log('Running');
 

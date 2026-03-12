@@ -6,8 +6,9 @@
     "claude-patrol": "./bin/claude-patrol.js"
   },
   "scripts": {
-    "start": "pnpm --filter claude-patrol-frontend build && node src/index.js",
-    "watch": "pnpm --filter claude-patrol-frontend build && node src/watch.js",
+    "setup:xterm": "bash scripts/setup-xterm.sh",
+    "start": "([ -d vendor/xterm.js/lib ] || pnpm run setup:xterm) && pnpm --filter claude-patrol-frontend build && node src/index.js",
+    "watch": "([ -d vendor/xterm.js/lib ] || pnpm run setup:xterm) && pnpm --filter claude-patrol-frontend build && node src/watch.js",
     "postinstall": "chmod +x node_modules/node-pty/prebuilds/darwin-*/spawn-helper 2>/dev/null || true",
     "test": "node --test src/**/*.test.js"
   },
