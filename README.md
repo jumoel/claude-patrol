@@ -1,16 +1,17 @@
 # Claude Patrol
 
-A PR dashboard and workspace manager for teams using GitHub, [jj (Jujutsu)](https://martinvonz.github.io/jj/), and [Claude CLI](https://docs.anthropic.com/en/docs/claude-cli). Polls your GitHub orgs and repos for open PRs, shows CI/review/merge status at a glance, and lets you spin up jj workspaces with integrated Claude terminal sessions - all from one place.
+A self-hosted PR monitoring dashboard that watches your GitHub orgs and repos, shows CI/review/merge status at a glance, and lets you spin up jj workspaces with embedded Claude Code terminal sessions. When something needs attention, you can dispatch Claude to investigate and fix it - all from one place.
 
 ![Dashboard with terminal](screenshots/resizable-terminal.png)
 
 ## What it does
 
-- **PR dashboard** with live updates via SSE. Filter by org, repo, CI status, review state, merge status, draft. Quick filters for "Merge Ready", "Review Ready", and "Needs Work".
+- **PR dashboard** - live-updating table of open PRs across your GitHub orgs and repos. Filter by org, repo, CI status, review state, merge readiness, draft. Quick filters for "Merge Ready", "Review Ready", and "Needs Work".
 - **Workspace management** - create jj workspaces for any PR with one click. Supports per-repo symlinks, init commands, and Claude memory linking.
-- **Terminal sessions** - embedded xterm.js terminals running Claude CLI inside tmux. Multiple clients (web + Ghostty) can share the same session. Pop out to a native terminal window at any time.
+- **Terminal sessions** - embedded xterm.js terminals running Claude Code inside tmux. Multiple browser tabs or a native Ghostty window can share the same session. Pop out to Ghostty at any time.
+- **Session transcripts** - Claude Code JSONL transcripts are archived when sessions end. View past conversations with searchable, structured output (tool calls, thinking blocks, results).
 - **CI diagnostics** - view failed check logs inline, extract error context from GitHub Actions, retrigger failed checks.
-- **MCP server** - exposes PR data, workspace ops, and CI logs as tools for Claude CLI. Claude can triage PRs, create workspaces, and investigate failures autonomously.
+- **MCP server** - exposes PR data, workspace ops, and CI logs as tools for Claude Code. Claude can triage PRs, create workspaces, and investigate failures autonomously.
 
 ## Prerequisites
 
@@ -20,8 +21,8 @@ You'll need these installed and on your PATH:
 - **pnpm** - package manager
 - **gh** - GitHub CLI, authenticated (`gh auth login`)
 - **jj** - Jujutsu version control
-- **claude** - Claude CLI
-- **tmux** - terminal multiplexer (for session sharing)
+- **claude** - Claude Code CLI
+- **tmux** - terminal multiplexer (sessions survive server restarts)
 - **Ghostty** (optional) - for the "Pop out" and "Terminal" buttons
 
 ## Getting started
@@ -54,7 +55,28 @@ Then start the server:
 $ pnpm start
 ```
 
-This builds the frontend, starts the server, and opens your browser. For development, use `node src/index.js --no-open` to skip the browser launch.
+This builds the frontend and starts the server. Press space to open the dashboard in your browser, or pass `--open` to launch it automatically.
+
+## Running in development
+
+```sh
+$ pnpm watch
+```
+
+This runs `vite build --watch` for the frontend and the backend server concurrently. The server's TUI (status bar, keyboard shortcuts) works normally. When you edit a backend `.js` file, the server restarts automatically with `--reattach` - active terminal sessions survive the restart and browser WebSockets reconnect.
+
+## CLI
+
+If you install globally (`pnpm install -g`), the `claude-patrol` command is available:
+
+```sh
+$ claude-patrol start [--open]   # build frontend, start server
+$ claude-patrol stop             # graceful shutdown
+$ claude-patrol status           # show running state and uptime
+$ claude-patrol clean            # remove DB, PID file, MCP config
+```
+
+Running without a subcommand defaults to `start`.
 
 ## Configuration
 
@@ -87,7 +109,7 @@ Fastify server
     |-- Poller: gh api graphql -> SQLite
     |-- PTY manager: tmux sessions with node-pty bridge
     |-- Workspace manager: jj workspace create/destroy
-    |-- MCP server: stdio transport for Claude CLI
+    |-- MCP server: stdio transport for Claude Code
     |
 SQLite (node:sqlite) -- prs, workspaces, sessions
 ```
@@ -97,9 +119,19 @@ SQLite (node:sqlite) -- prs, workspaces, sessions
 
 No native database dependencies - `node:sqlite` is built into Node.js.
 
+## API
+
+**PRs**: `GET /api/prs` (filterable), `GET /api/prs/:id`, `GET /api/prs/:id/diff`, `GET /api/prs/:id/comments`, `GET /api/prs/:id/check-logs`
+
+**Workspaces**: `POST /api/workspaces`, `GET /api/workspaces`, `DELETE /api/workspaces/:id`, `POST /api/workspaces/:id/terminal`, `POST /api/workspaces/cleanup`
+
+**Sessions**: `POST /api/sessions`, `GET /api/sessions`, `DELETE /api/sessions/:id`, `POST /api/sessions/:id/popout`, `GET /api/sessions/history`, `GET /api/sessions/:id/transcript`
+
+**Other**: `POST /api/sync/trigger`, `GET /api/config`, `GET /api/events` (SSE), `POST /api/checks/retrigger`
+
 ## MCP tools
 
-When Claude CLI connects via the MCP config, it gets access to:
+When Claude Code connects via the auto-generated MCP config, it gets access to:
 
 - `list_prs` - list and filter PRs
 - `get_pr` / `get_pr_diff` / `get_pr_comments` - PR details
@@ -107,8 +139,6 @@ When Claude CLI connects via the MCP config, it gets access to:
 - `create_workspace` / `destroy_workspace` / `cleanup_workspaces` - workspace management
 - `retrigger_checks` - re-run failed CI
 - `trigger_sync` - force a GitHub poll
-
-The MCP config is auto-generated at startup and passed to Claude sessions.
 
 ## License
 
