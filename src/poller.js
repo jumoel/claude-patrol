@@ -70,14 +70,15 @@ query($id: ID!, $cursor: String!) {
 }
 `;
 
+const MAX_RETRIES = 3;
+const RETRY_BASE_MS = 1000;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
 /**
- * Run a gh api graphql command, passing the query body via stdin to avoid
- * shell argument length limits.
- * @param {string} query - GraphQL query string
- * @param {Record<string, string>} variables
- * @returns {Promise<object>}
+ * Run a single gh api graphql call. Returns { stdout, stderr, code } or
+ * rejects on spawn error.
  */
-function ghGraphql(query, variables) {
+function ghGraphqlOnce(query, variables) {
   return new Promise((resolve, reject) => {
     const child = spawn('gh', ['api', 'graphql', '--input', '-'], {
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -89,21 +90,64 @@ function ghGraphql(query, variables) {
     child.stderr.on('data', (d) => errChunks.push(d));
 
     child.on('close', (code) => {
-      const stdout = Buffer.concat(chunks).toString();
-      const stderr = Buffer.concat(errChunks).toString();
-      if (code !== 0) {
-        return reject(new Error(`gh graphql failed (exit ${code}): ${stderr || stdout}`));
-      }
-      try {
-        resolve(JSON.parse(stdout));
-      } catch {
-        reject(new Error(`gh graphql returned non-JSON: ${stdout.slice(0, 200)}`));
-      }
+      resolve({
+        stdout: Buffer.concat(chunks).toString(),
+        stderr: Buffer.concat(errChunks).toString(),
+        code,
+      });
     });
 
     child.on('error', reject);
     child.stdin.end(JSON.stringify({ query, variables }));
   });
+}
+
+/**
+ * Run a gh api graphql command with retry and exponential backoff.
+ * Retries on non-zero exit codes and spawn errors (transient failures).
+ * Does not retry on JSON parse errors (bad response, not transient).
+ * @param {string} query - GraphQL query string
+ * @param {Record<string, string>} variables
+ * @returns {Promise<object>}
+ */
+async function ghGraphql(query, variables) {
+  let lastError;
+
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const { stdout, stderr, code } = await ghGraphqlOnce(query, variables);
+
+      if (code !== 0) {
+        lastError = new Error(`gh graphql failed (exit ${code}): ${stderr || stdout}`);
+        if (attempt < MAX_RETRIES) {
+          const delay = RETRY_BASE_MS * 2 ** (attempt - 1);
+          console.warn(`[poller] gh graphql failed (attempt ${attempt}/${MAX_RETRIES}), retrying in ${delay}ms: ${(stderr || stdout).slice(0, 120)}`);
+          await sleep(delay);
+          continue;
+        }
+        throw lastError;
+      }
+
+      try {
+        return JSON.parse(stdout);
+      } catch {
+        // JSON parse error - not transient, don't retry
+        throw new Error(`gh graphql returned non-JSON: ${stdout.slice(0, 200)}`);
+      }
+    } catch (err) {
+      lastError = err;
+      // If it's a JSON parse error, don't retry
+      if (err.message.startsWith('gh graphql returned non-JSON')) throw err;
+      if (attempt < MAX_RETRIES) {
+        const delay = RETRY_BASE_MS * 2 ** (attempt - 1);
+        console.warn(`[poller] gh graphql failed (attempt ${attempt}/${MAX_RETRIES}), retrying in ${delay}ms: ${err.message.slice(0, 120)}`);
+        await sleep(delay);
+        continue;
+      }
+    }
+  }
+
+  throw lastError;
 }
 
 /**
