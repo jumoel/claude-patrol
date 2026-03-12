@@ -2,7 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { symlinkSync, mkdirSync, existsSync, rmSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { getDb } from './db.js';
-import { execFile, expandPath } from './utils.js';
+import { execFile, expandPath, toClaudeProjectKey } from './utils.js';
+import { archiveTranscript } from './transcripts.js';
 
 /**
  * Ensure a git repo has jj initialized. If .jj/ doesn't exist, runs
@@ -217,17 +218,6 @@ function setupRepoSymlinks(workspacePath, mainRepoPath, symlinks) {
 }
 
 /**
- * Encode a filesystem path to a Claude project key.
- * Claude uses: replace all `/` and `.` with `-`.
- * e.g. /Users/foo/work/org/repo.js -> -Users-foo-work-org-repo-js
- * @param {string} fsPath
- * @returns {string}
- */
-function toClaudeProjectKey(fsPath) {
-  return fsPath.replace(/[/.]/g, '-');
-}
-
-/**
  * Symlink Claude project memory so the workspace shares memory with the main repo.
  * Source: ~/.claude/projects/<main-repo-key>/memory/
  * Target: ~/.claude/projects/<workspace-key>/memory/ (symlink)
@@ -327,6 +317,14 @@ export async function destroyWorkspace(workspaceId, config) {
     rmSync(workspace.path, { recursive: true, force: true });
   } catch (err) {
     warnings.push(`Directory cleanup failed: ${err.message}`);
+  }
+
+  // Step 4.5: Archive session transcripts before Claude folder is deleted
+  const allSessions = db.prepare('SELECT * FROM sessions WHERE workspace_id = ?').all(workspaceId);
+  for (const sess of allSessions) {
+    if (sess.claude_project_dir && !sess.transcript_path) {
+      archiveTranscript(sess.id, sess.claude_project_dir, sess.started_at, sess.ended_at);
+    }
   }
 
   // Step 5: Clean up Claude project memory symlink

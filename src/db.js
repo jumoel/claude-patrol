@@ -107,6 +107,10 @@ export function initDb(dbPath) {
   `);
   db.exec('CREATE INDEX IF NOT EXISTS idx_sessions_workspace ON sessions(workspace_id)');
 
+  // Migration: add transcript tracking columns
+  try { db.exec("ALTER TABLE sessions ADD COLUMN claude_project_dir TEXT"); } catch { /* exists */ }
+  try { db.exec("ALTER TABLE sessions ADD COLUMN transcript_path TEXT"); } catch { /* exists */ }
+
   return db;
 }
 

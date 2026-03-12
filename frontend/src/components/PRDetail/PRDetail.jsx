@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { fetchPR, fetchWorkspaces, fetchSessions, fetchPRComments, fetchCheckLogs, createWorkspace as apiCreateWorkspace, createSession as apiCreateSession, killSession as apiKillSession } from '../../lib/api.js';
+import { fetchPR, fetchWorkspaces, fetchSessions, fetchPRComments, fetchCheckLogs, fetchSessionHistory, fetchSessionTranscript, createWorkspace as apiCreateWorkspace, createSession as apiCreateSession, killSession as apiKillSession } from '../../lib/api.js';
 import { WorkspaceControls } from '../WorkspaceControls/WorkspaceControls.jsx';
 import { Terminal } from '../Terminal/Terminal.jsx';
 import { QuickActions } from '../QuickActions/QuickActions.jsx';
 import { CommentsList } from '../CommentsList/CommentsList.jsx';
 import { CheckLogViewer } from '../CheckLogViewer/CheckLogViewer.jsx';
+import { TranscriptViewer } from '../TranscriptViewer/TranscriptViewer.jsx';
 import { StatusBadge } from '../StatusBadge/StatusBadge.jsx';
 import { useSyncEvents } from '../../hooks/useSyncEvents.js';
 import { getRelativeTime } from '../../lib/time.js';
@@ -304,6 +305,11 @@ export function PRDetail({ prId, onBack }) {
         </div>
       )}
 
+      {/* Past Sessions */}
+      {workspace && (
+        <SessionHistory workspaceId={workspace.id} />
+      )}
+
       {/* Checks */}
       {pr.checks.length > 0 && (
         <div className={shared.card}>
@@ -474,6 +480,88 @@ function PassedChecksGroup({ checks }) {
       {expanded && checks.map((c, i) => (
         <CheckRow key={`pass-${i}`} check={c} />
       ))}
+    </div>
+  );
+}
+
+function SessionHistory({ workspaceId }) {
+  const [history, setHistory] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const [transcripts, setTranscripts] = useState({});
+  const [transcriptLoading, setTranscriptLoading] = useState({});
+  const [transcriptErrors, setTranscriptErrors] = useState({});
+
+  useEffect(() => {
+    if (!expanded || history) return;
+    setLoading(true);
+    fetchSessionHistory(workspaceId)
+      .then(setHistory)
+      .catch(err => console.error('Failed to load session history:', err))
+      .finally(() => setLoading(false));
+  }, [expanded, history, workspaceId]);
+
+  const handleViewTranscript = useCallback((sessionId) => {
+    if (transcripts[sessionId]) {
+      setTranscripts(prev => { const next = { ...prev }; delete next[sessionId]; return next; });
+      return;
+    }
+    setTranscriptLoading(prev => ({ ...prev, [sessionId]: true }));
+    fetchSessionTranscript(sessionId)
+      .then(entries => setTranscripts(prev => ({ ...prev, [sessionId]: entries })))
+      .catch(err => setTranscriptErrors(prev => ({ ...prev, [sessionId]: err.message })))
+      .finally(() => setTranscriptLoading(prev => ({ ...prev, [sessionId]: false })));
+  }, [transcripts]);
+
+  const formatDuration = (start, end) => {
+    if (!start || !end) return '';
+    const ms = new Date(end) - new Date(start);
+    const mins = Math.floor(ms / 60000);
+    if (mins < 1) return '<1m';
+    if (mins < 60) return `${mins}m`;
+    return `${Math.floor(mins / 60)}h ${mins % 60}m`;
+  };
+
+  return (
+    <div className={shared.card}>
+      <button className={styles.toggleButton} onClick={() => setExpanded(!expanded)} style={{ padding: '0' }}>
+        {expanded ? 'Hide' : 'Show'} past sessions
+      </button>
+      {expanded && loading && <p className={shared.loading}>Loading...</p>}
+      {expanded && history && history.length === 0 && (
+        <p style={{ color: '#9ca3af', fontSize: '14px', marginTop: '8px' }}>No past sessions</p>
+      )}
+      {expanded && history && history.length > 0 && (
+        <div className={styles.reviewsList}>
+          {history.map(sess => (
+            <div key={sess.id}>
+              <div className={styles.checkRow}>
+                <div className={styles.checkInfo}>
+                  <span style={{ fontSize: '14px', color: '#6b7280' }}>
+                    {new Date(sess.started_at).toLocaleString()}
+                  </span>
+                  <span style={{ fontSize: '13px', color: '#9ca3af' }}>
+                    {formatDuration(sess.started_at, sess.ended_at)}
+                  </span>
+                </div>
+                <button
+                  className={styles.viewLogButton}
+                  onClick={() => handleViewTranscript(sess.id)}
+                >
+                  {transcripts[sess.id] ? 'Hide transcript' : 'View transcript'}
+                </button>
+              </div>
+              {(transcripts[sess.id] || transcriptLoading[sess.id] || transcriptErrors[sess.id]) && (
+                <TranscriptViewer
+                  entries={transcripts[sess.id] || null}
+                  loading={!!transcriptLoading[sess.id]}
+                  error={transcriptErrors[sess.id] || null}
+                />
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

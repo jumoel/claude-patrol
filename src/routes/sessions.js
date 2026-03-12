@@ -1,7 +1,9 @@
+import { readFileSync, existsSync } from 'node:fs';
 import { getDb } from '../db.js';
 import { createSession, attachSession, killSession, popOutSession } from '../pty-manager.js';
 import { getCurrentConfig } from '../config.js';
 import { emitLocalChange } from '../app-events.js';
+import { findSessionJsonl } from '../transcripts.js';
 
 /**
  * Register session routes.
@@ -61,8 +63,101 @@ export function registerSessionRoutes(app) {
     }
   });
 
+  // Session history (killed sessions)
+  app.get('/api/sessions/history', (request) => {
+    const db = getDb();
+    const { workspace_id } = request.query;
+    if (workspace_id) {
+      return db.prepare("SELECT * FROM sessions WHERE workspace_id = ? AND status = 'killed' ORDER BY started_at DESC").all(workspace_id);
+    }
+    return db.prepare("SELECT * FROM sessions WHERE status = 'killed' ORDER BY started_at DESC LIMIT 100").all();
+  });
+
+  // Session transcript
+  app.get('/api/sessions/:id/transcript', (request, reply) => {
+    const db = getDb();
+    const session = db.prepare('SELECT * FROM sessions WHERE id = ?').get(request.params.id);
+    if (!session) {
+      return reply.code(404).send({ error: 'Session not found' });
+    }
+
+    let jsonlPath = null;
+
+    // Prefer our archived copy
+    if (session.transcript_path && existsSync(session.transcript_path)) {
+      jsonlPath = session.transcript_path;
+    } else if (session.claude_project_dir) {
+      // Try to find the live JSONL
+      jsonlPath = findSessionJsonl(session.claude_project_dir, session.started_at, session.ended_at);
+    }
+
+    if (!jsonlPath) {
+      return reply.code(404).send({ error: 'No transcript available' });
+    }
+
+    try {
+      const raw = readFileSync(jsonlPath, 'utf8');
+      const entries = raw.trim().split('\n')
+        .map(line => { try { return JSON.parse(line); } catch { return null; } })
+        .filter(Boolean)
+        .filter(e => e.type === 'user' || e.type === 'assistant')
+        .map(e => ({
+          timestamp: e.timestamp,
+          role: e.message?.role || e.type,
+          content: simplifyContent(e.message?.content),
+          model: e.message?.model || null,
+        }));
+
+      return entries;
+    } catch (err) {
+      return reply.code(500).send({ error: `Failed to read transcript: ${err.message}` });
+    }
+  });
+
   // WebSocket route for terminal attachment
   app.get('/ws/sessions/:id', { websocket: true }, (socket, request) => {
     attachSession(request.params.id, socket);
+  });
+}
+
+/**
+ * Simplify Claude message content blocks for the transcript API.
+ * @param {Array | string | undefined} content
+ * @returns {Array}
+ */
+function simplifyContent(content) {
+  if (!content) return [];
+  if (typeof content === 'string') return [{ type: 'text', text: content }];
+  if (!Array.isArray(content)) return [];
+
+  return content.map(block => {
+    if (block.type === 'text') {
+      return { type: 'text', text: block.text };
+    }
+    if (block.type === 'tool_use') {
+      const inputStr = typeof block.input === 'string'
+        ? block.input
+        : JSON.stringify(block.input);
+      return {
+        type: 'tool_use',
+        name: block.name,
+        input_summary: inputStr.length > 200 ? inputStr.slice(0, 200) + '...' : inputStr,
+      };
+    }
+    if (block.type === 'tool_result') {
+      const outputStr = typeof block.content === 'string'
+        ? block.content
+        : JSON.stringify(block.content);
+      return {
+        type: 'tool_result',
+        name: block.name || null,
+        output_summary: outputStr.length > 200 ? outputStr.slice(0, 200) + '...' : outputStr,
+      };
+    }
+    if (block.type === 'thinking') {
+      return { type: 'thinking', text: block.thinking || block.text || '' };
+    }
+    // Pass through unknown types minimally
+    return { type: block.type };
   });
 }

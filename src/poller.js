@@ -1,5 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { spawn } from 'node:child_process';
+import { unlinkSync } from 'node:fs';
 import { getDb } from './db.js';
 import { destroyWorkspace } from './workspace.js';
 import { makePrId } from './utils.js';
@@ -303,6 +304,14 @@ async function cleanupStalePR(prId, config) {
       console.warn(`[poller] Failed to destroy workspace ${ws.id} for stale PR ${prId}: ${err.message}`);
     }
   }
+  // Clean up archived transcript files before deleting session rows
+  const sessionsToDelete = db.prepare('SELECT transcript_path FROM sessions WHERE workspace_id IN (SELECT id FROM workspaces WHERE pr_id = ?)').all(prId);
+  for (const sess of sessionsToDelete) {
+    if (sess.transcript_path) {
+      try { unlinkSync(sess.transcript_path); } catch { /* best effort */ }
+    }
+  }
+
   // Clean up any remaining DB rows (sessions, workspaces) before PR deletion
   db.prepare('DELETE FROM sessions WHERE workspace_id IN (SELECT id FROM workspaces WHERE pr_id = ?)').run(prId);
   db.prepare('DELETE FROM workspaces WHERE pr_id = ?').run(prId);

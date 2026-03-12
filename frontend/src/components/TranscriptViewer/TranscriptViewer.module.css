@@ -1,0 +1,115 @@
+@reference "tailwindcss";
+
+.container {
+  @apply mt-1;
+}
+
+.loading {
+  @apply text-base text-gray-400 py-2;
+}
+
+.error {
+  @apply text-base text-red-500 py-2;
+}
+
+.empty {
+  @apply text-base text-gray-400 py-2;
+}
+
+.toolbar {
+  @apply flex items-center gap-3 mb-3;
+}
+
+.searchInput {
+  @apply px-2 py-1 text-sm font-mono bg-gray-800 text-gray-200 border border-gray-700 rounded focus:outline-none focus:border-blue-500;
+  min-width: 200px;
+}
+
+.toggleLabel {
+  @apply flex items-center gap-1.5 text-sm text-gray-500 cursor-pointer select-none;
+}
+
+.resultCount {
+  @apply text-sm text-gray-500;
+}
+
+.conversation {
+  @apply bg-gray-900 rounded-lg overflow-auto space-y-0;
+  max-height: 500px;
+}
+
+.entry {
+  @apply px-4 py-3 border-b border-gray-800;
+}
+
+.entry:last-child {
+  @apply border-b-0;
+}
+
+.entryUser {
+  background-color: rgba(255, 255, 255, 0.03);
+}
+
+.entryAssistant {
+  @apply bg-gray-900;
+}
+
+.entryHeader {
+  @apply flex items-center gap-2 mb-1.5;
+}
+
+.roleBadge {
+  @apply text-xs font-semibold uppercase px-1.5 py-0.5 rounded;
+}
+
+.roleUser {
+  @apply bg-blue-900/50 text-blue-300;
+}
+
+.roleAssistant {
+  @apply bg-purple-900/50 text-purple-300;
+}
+
+.timestamp {
+  @apply text-xs text-gray-500;
+}
+
+.model {
+  @apply text-xs text-gray-600 font-mono;
+}
+
+.entryContent {
+  @apply space-y-1.5;
+}
+
+.textBlock {
+  @apply text-sm text-gray-200 whitespace-pre-wrap leading-relaxed;
+}
+
+.thinkingBlock {
+  @apply rounded bg-gray-800/50 p-2;
+}
+
+.thinkingLabel {
+  @apply text-xs text-yellow-500/70 font-medium uppercase tracking-wide;
+}
+
+.thinkingText {
+  @apply text-xs text-gray-400 whitespace-pre-wrap mt-1 max-h-32 overflow-auto;
+}
+
+.toolBlock {
+  @apply rounded;
+}
+
+.toolToggle {
+  @apply flex items-center gap-1 text-sm text-gray-400 hover:text-gray-200 cursor-pointer py-0.5 bg-transparent border-0;
+}
+
+.toolIcon {
+  @apply text-xs text-gray-500 w-3;
+}
+
+.toolDetail {
+  @apply text-xs text-gray-400 font-mono bg-gray-800 rounded p-2 mt-1 max-h-40 overflow-auto whitespace-pre-wrap;
+}

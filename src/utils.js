@@ -51,3 +51,14 @@ export function isPassedConclusion(conclusion) {
 export function makePrId(org, repo, number) {
   return `${org}/${repo}#${number}`;
 }
+
+/**
+ * Encode a filesystem path to a Claude project key.
+ * Claude uses: replace all `/` and `.` with `-`.
+ * e.g. /Users/foo/work/org/repo.js -> -Users-foo-work-org-repo-js
+ * @param {string} fsPath
+ * @returns {string}
+ */
+export function toClaudeProjectKey(fsPath) {
+  return fsPath.replace(/[/.]/g, '-');
+}

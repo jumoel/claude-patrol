@@ -195,3 +195,28 @@ export async function killSession(sessionId) {
   if (!res.ok) throw new Error(`Failed to kill session: ${res.status}`);
   return res.json();
 }
+
+/**
+ * Fetch session history (killed sessions).
+ * @param {string} [workspaceId]
+ * @returns {Promise<object[]>}
+ */
+export async function fetchSessionHistory(workspaceId) {
+  const url = workspaceId
+    ? `${BASE}/api/sessions/history?workspace_id=${workspaceId}`
+    : `${BASE}/api/sessions/history`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Failed to fetch session history: ${res.status}`);
+  return res.json();
+}
+
+/**
+ * Fetch a session's transcript.
+ * @param {string} sessionId
+ * @returns {Promise<object[]>}
+ */
+export async function fetchSessionTranscript(sessionId) {
+  const res = await fetch(`${BASE}/api/sessions/${sessionId}/transcript`);
+  if (!res.ok) throw new Error(`Failed to fetch transcript: ${res.status}`);
+  return res.json();
+}

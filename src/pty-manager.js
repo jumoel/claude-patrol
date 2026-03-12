@@ -6,6 +6,8 @@ import { resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { getDb } from './db.js';
 import { mcpConfigPath as getMcpConfigPath } from './paths.js';
+import { expandPath, toClaudeProjectKey } from './utils.js';
+import { archiveTranscript } from './transcripts.js';
 
 const BUFFER_MAX = 50_000;
 
@@ -172,9 +174,10 @@ export function createSession(workspaceId, cwd) {
   });
 
   const now = new Date().toISOString();
+  const claudeProjectDir = resolve(expandPath('~/.claude/projects'), toClaudeProjectKey(cwd));
 
-  db.prepare('INSERT INTO sessions (id, workspace_id, pid, status, started_at) VALUES (?, ?, ?, ?, ?)').run(
-    id, workspaceId, proc.pid, 'active', now
+  db.prepare('INSERT INTO sessions (id, workspace_id, pid, status, started_at, claude_project_dir) VALUES (?, ?, ?, ?, ?, ?)').run(
+    id, workspaceId, proc.pid, 'active', now, claudeProjectDir
   );
 
   const entry = {
@@ -203,12 +206,18 @@ export function createSession(workspaceId, cwd) {
       }
     }
     sessions.delete(id);
-    db.prepare("UPDATE sessions SET status = 'killed', ended_at = ? WHERE id = ?").run(new Date().toISOString(), id);
+    const endedAt = new Date().toISOString();
+    db.prepare("UPDATE sessions SET status = 'killed', ended_at = ? WHERE id = ?").run(endedAt, id);
+
+    // Archive Claude Code transcript (best-effort, with small delay for flush)
+    setTimeout(() => {
+      archiveTranscript(id, claudeProjectDir, now, endedAt);
+    }, 500);
   });
 
   sessions.set(id, entry);
 
-  return { id, workspace_id: workspaceId, pid: proc.pid, status: 'active', started_at: now };
+  return { id, workspace_id: workspaceId, pid: proc.pid, status: 'active', started_at: now, claude_project_dir: claudeProjectDir };
 }
 
 /**

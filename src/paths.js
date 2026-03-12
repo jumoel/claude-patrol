@@ -45,3 +45,10 @@ export function mcpConfigPath() {
 export function pidPath() {
   return join(stateDir(), 'claude-patrol.pid');
 }
+
+/** ~/.local/share/claude-patrol/transcripts (or $XDG_DATA_HOME/claude-patrol/transcripts) */
+export function transcriptsDir() {
+  const dir = join(dataDir(), 'transcripts');
+  mkdirSync(dir, { recursive: true });
+  return dir;
+}

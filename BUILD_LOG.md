@@ -1,5 +1,28 @@
 # Build Log
 
+## 2026-03-12 - Session Transcript Persistence
+
+Added the ability to capture, archive, and view Claude Code JSONL transcripts for patrol sessions.
+
+**What changed:**
+- `src/utils.js` - extracted `toClaudeProjectKey()` from workspace.js for shared use
+- `src/paths.js` - added `transcriptsDir()` for transcript storage at `~/.local/share/claude-patrol/transcripts/`
+- `src/db.js` - added `claude_project_dir` and `transcript_path` columns to sessions table
+- `src/transcripts.js` (new) - `findSessionJsonl()` matches JSONL files by mtime window, `archiveTranscript()` copies them to patrol's storage
+- `src/pty-manager.js` - stores `claude_project_dir` at session creation, archives transcript on session exit (with 500ms delay for flush)
+- `src/workspace.js` - archives all session transcripts before Claude project folder deletion in `destroyWorkspace()`
+- `src/routes/sessions.js` - `GET /api/sessions/:id/transcript` parses and returns simplified conversation entries, `GET /api/sessions/history` returns killed sessions
+- `src/poller.js` - deletes archived transcript files when cleaning up stale PRs
+- `frontend/src/lib/api.js` - `fetchSessionHistory()` and `fetchSessionTranscript()` wrappers
+- `frontend/src/components/TranscriptViewer/` (new) - conversation viewer with search, thinking toggle, collapsible tool calls
+- `frontend/src/components/PRDetail/PRDetail.jsx` - "Past Sessions" section with lazy-loaded history and inline transcript viewing
+- `frontend/src/components/WorkspaceDetail/WorkspaceDetail.jsx` - same session history section
+
+**Why:**
+- Terminal ring buffers get garbage collected when sessions end, and Claude project folders get deleted with workspaces. Without archiving, all session context is lost.
+- Claude Code's JSONL files contain structured conversation data (tool calls, outputs, thinking blocks) - far more useful than raw ANSI terminal bytes.
+- Transcripts are archived on session exit and again before workspace destruction as a safety net.
+
 ## 2026-03-09T21:57:00 - Plan 01: Config and GitHub Ingestion
 
 Implemented the core backend: config loading with live-reload, SQLite database with `node:sqlite` (Node 24 built-in), and GitHub PR poller via `gh api graphql`.
