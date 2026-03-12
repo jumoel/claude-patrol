@@ -1,7 +1,7 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { getDb } from '../db.js';
-import { createSession, attachSession, killSession, popOutSession } from '../pty-manager.js';
+import { createSession, attachSession, killSession, popOutSession, reattachSession } from '../pty-manager.js';
 import { getCurrentConfig } from '../config.js';
 import { emitLocalChange } from '../app-events.js';
 import { findSessionJsonl } from '../transcripts.js';
@@ -59,7 +59,18 @@ export function registerSessionRoutes(app) {
   app.post('/api/sessions/:id/popout', (request, reply) => {
     try {
       popOutSession(request.params.id);
+      emitLocalChange();
       return { ok: true };
+    } catch (err) {
+      return reply.code(400).send({ error: err.message });
+    }
+  });
+
+  app.post('/api/sessions/:id/reattach', (request, reply) => {
+    try {
+      const session = reattachSession(request.params.id);
+      emitLocalChange();
+      return session;
     } catch (err) {
       return reply.code(400).send({ error: err.message });
     }

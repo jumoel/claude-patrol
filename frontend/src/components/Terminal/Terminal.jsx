@@ -127,6 +127,9 @@ export function Terminal({ wsUrl, wsRef: externalWsRef, focus, onExit }) {
             term.write(`\r\n[Process exited with code ${msg.code}]\r\n`);
             cancelled = true;
             if (onExit) onExit(msg.code);
+          } else if (msg.type === 'popped-out') {
+            cancelled = true;
+            if (onExit) onExit(0);
           } else if (msg.type === 'error') {
             term.write(`\r\n[Error: ${msg.message}]\r\n`);
             cancelled = true;

@@ -1,14 +1,12 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { fetchPR, fetchWorkspaces, fetchSessions, fetchPRComments, fetchCheckLogs, fetchSessionHistory, fetchSessionTranscript, createWorkspace as apiCreateWorkspace, createSession as apiCreateSession, killSession as apiKillSession } from '../../lib/api.js';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { fetchPR, fetchWorkspaces, fetchSessions, fetchPRComments, fetchCheckLogs, fetchSessionHistory, fetchSessionTranscript, createWorkspace as apiCreateWorkspace, createSession as apiCreateSession, killSession as apiKillSession, reattachSession as apiReattachSession } from '../../lib/api.js';
 import { WorkspaceControls } from '../WorkspaceControls/WorkspaceControls.jsx';
-import { Terminal } from '../Terminal/Terminal.jsx';
-import { QuickActions } from '../QuickActions/QuickActions.jsx';
+import { TerminalCard } from '../TerminalCard/TerminalCard.jsx';
 import { CommentsList } from '../CommentsList/CommentsList.jsx';
 import { CheckLogViewer } from '../CheckLogViewer/CheckLogViewer.jsx';
 import { TranscriptViewer } from '../TranscriptViewer/TranscriptViewer.jsx';
 import { StatusBadge } from '../StatusBadge/StatusBadge.jsx';
 import { useSyncEvents } from '../../hooks/useSyncEvents.js';
-import { useResizeHandle } from '../../hooks/useResizeHandle.js';
 import { getRelativeTime } from '../../lib/time.js';
 import { isFailedCheck, isPassedCheck, isRunningCheck, isScheduledCheck, checkToStatus, statusColorGroup, isMergeReady as checkMergeReady } from '../../lib/checks.js';
 import shared from '../../styles/shared.module.css';
@@ -53,9 +51,7 @@ export function PRDetail({ prId, onBack }) {
   const [retriggering, setRetriggering] = useState(false);
   const [copiedBranch, setCopiedBranch] = useState(false);
   const wsRef = useRef(null);
-  const { height: termHeight, dragging, handleProps } = useResizeHandle({
-    initial: 400, min: 150, max: 900,
-  });
+
   /** Deduped workspace creation promise so both buttons share a single in-flight request. */
   const workspacePromiseRef = useRef(null);
 
@@ -174,6 +170,16 @@ export function PRDetail({ prId, onBack }) {
       await fetch(`/api/sessions/${session.id}/popout`, { method: 'POST' });
     } catch (err) {
       console.error('Failed to pop out session:', err);
+    }
+  }, [session]);
+
+  const handleReattach = useCallback(async () => {
+    if (!session) return;
+    try {
+      const updated = await apiReattachSession(session.id);
+      setSession(updated);
+    } catch (err) {
+      console.error('Failed to reattach session:', err);
     }
   }, [session]);
 
@@ -326,27 +332,15 @@ export function PRDetail({ prId, onBack }) {
       </div>
 
       {session && (
-        <div className={shared.card}>
-          <div className={shared.terminalHeader}>
-            <h3 className={shared.sectionTitle}>Terminal</h3>
-            <div className={shared.terminalActions}>
-              <button className={styles.popOutButton} onClick={handlePopOut}>
-                Pop out
-              </button>
-              <button className={shared.killSessionButton} onClick={handleKillSession}>
-                Kill session
-              </button>
-            </div>
-          </div>
-          <QuickActions wsRef={wsRef} />
-          <div style={{ height: termHeight }}>
-            <Terminal wsUrl={`/ws/sessions/${session.id}`} wsRef={wsRef} onExit={handleSessionExit} />
-          </div>
-          <div className={shared.resizeHandle} {...handleProps}>
-            <div className={shared.resizeGrip} />
-          </div>
-          {dragging && <div className={shared.dragOverlay} />}
-        </div>
+        <TerminalCard
+          session={session}
+          title={`Terminal - ${pr.org}/${pr.repo} #${pr.number}`}
+          onKill={handleKillSession}
+          onExit={handleSessionExit}
+          onPopOut={handlePopOut}
+          onReattach={handleReattach}
+          wsRef={wsRef}
+        />
       )}
 
       {/* Past Sessions */}

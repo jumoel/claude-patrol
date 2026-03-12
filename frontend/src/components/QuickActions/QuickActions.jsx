@@ -19,11 +19,12 @@ const BUILT_IN_ACTIONS = [
 
 /**
  * Quick action buttons that send commands to an active terminal session.
- * @param {{ wsRef: { current: WebSocket | null } }} props
+ * @param {{ wsRef?: { current: WebSocket | null }, onSend?: (text: string) => void }} props
  */
-export function QuickActions({ wsRef }) {
+export function QuickActions({ wsRef, onSend }) {
   const sendCommand = (text) => {
-    const ws = wsRef.current;
+    if (onSend) { onSend(text); return; }
+    const ws = wsRef?.current;
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
     ws.send(JSON.stringify({ type: 'input', data: text }));
   };

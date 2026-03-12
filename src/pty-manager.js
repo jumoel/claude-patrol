@@ -1,6 +1,6 @@
 import pty from 'node-pty';
 import { randomUUID } from 'node:crypto';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, execFile } from 'node:child_process';
 import { readFileSync, writeFileSync, unlinkSync, chmodSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -84,6 +84,57 @@ class RingBuffer {
 const sessions = new Map();
 
 /**
+ * Spawn a node-pty attached to an existing tmux session and wire up
+ * output buffering, WebSocket broadcast, and exit handling.
+ * @param {string} sessionId
+ * @param {{ claudeProjectDir?: string, startedAt?: string }} meta
+ * @returns {SessionEntry}
+ */
+function attachPtyToTmux(sessionId, meta = {}) {
+  const db = getDb();
+  const tmuxName = `patrol-${sessionId}`;
+  const proc = pty.spawn('tmux', ['attach-session', '-t', tmuxName], {
+    name: 'xterm-256color',
+    cols: 120,
+    rows: 30,
+    env: { ...process.env },
+  });
+
+  db.prepare('UPDATE sessions SET pid = ?, status = ? WHERE id = ?').run(proc.pid, 'active', sessionId);
+
+  const entry = {
+    proc,
+    buffer: new RingBuffer(BUFFER_MAX),
+    websockets: new Set(),
+  };
+
+  proc.onData((data) => {
+    entry.buffer.append(data);
+    const msg = JSON.stringify({ type: 'output', data });
+    for (const ws of entry.websockets) {
+      if (ws.readyState === 1) ws.send(msg);
+    }
+  });
+
+  proc.onExit(({ exitCode }) => {
+    const exitMsg = JSON.stringify({ type: 'exit', code: exitCode });
+    for (const ws of entry.websockets) {
+      if (ws.readyState === 1) { ws.send(exitMsg); ws.close(1000); }
+    }
+    sessions.delete(sessionId);
+    const endedAt = new Date().toISOString();
+    db.prepare("UPDATE sessions SET status = 'killed', ended_at = ? WHERE id = ?").run(endedAt, sessionId);
+
+    if (meta.claudeProjectDir) {
+      setTimeout(() => archiveTranscript(sessionId, meta.claudeProjectDir, meta.startedAt, endedAt), 500);
+    }
+  });
+
+  sessions.set(sessionId, entry);
+  return entry;
+}
+
+/**
  * Mark orphaned sessions from a previous server run as killed.
  */
 export function cleanupOrphanedSessions() {
@@ -120,7 +171,7 @@ export function cleanupOrphanedTmuxSessions() {
  */
 export function reattachOrphanedSessions() {
   const db = getDb();
-  const orphans = db.prepare("SELECT * FROM sessions WHERE status = 'active'").all();
+  const orphans = db.prepare("SELECT * FROM sessions WHERE status IN ('active', 'detached')").all();
   if (orphans.length === 0) return 0;
 
   let reattached = 0;
@@ -128,56 +179,16 @@ export function reattachOrphanedSessions() {
 
   for (const session of orphans) {
     if (!isTmuxSessionAlive(session.id)) {
-      // tmux session is dead - mark killed
       db.prepare("UPDATE sessions SET status = 'killed', ended_at = ? WHERE id = ?").run(now, session.id);
       console.log(`[pty-manager] Orphaned session ${session.id} - tmux dead, marked killed`);
       continue;
     }
 
-    // tmux session is alive - reattach node-pty
     try {
-      const tmuxName = `patrol-${session.id}`;
-      const proc = pty.spawn('tmux', ['attach-session', '-t', tmuxName], {
-        name: 'xterm-256color',
-        cols: 120,
-        rows: 30,
-        env: { ...process.env },
+      attachPtyToTmux(session.id, {
+        claudeProjectDir: session.claude_project_dir,
+        startedAt: session.started_at,
       });
-
-      // Update PID in DB
-      db.prepare('UPDATE sessions SET pid = ? WHERE id = ?').run(proc.pid, session.id);
-
-      const entry = {
-        proc,
-        buffer: new RingBuffer(BUFFER_MAX),
-        websockets: new Set(),
-      };
-
-      const claudeProjectDir = session.claude_project_dir;
-      const startedAt = session.started_at;
-
-      proc.onData((data) => {
-        entry.buffer.append(data);
-        const msg = JSON.stringify({ type: 'output', data });
-        for (const ws of entry.websockets) {
-          if (ws.readyState === 1) ws.send(msg);
-        }
-      });
-
-      proc.onExit(({ exitCode }) => {
-        const exitMsg = JSON.stringify({ type: 'exit', code: exitCode });
-        for (const ws of entry.websockets) {
-          if (ws.readyState === 1) { ws.send(exitMsg); ws.close(1000); }
-        }
-        sessions.delete(session.id);
-        const endedAt = new Date().toISOString();
-        db.prepare("UPDATE sessions SET status = 'killed', ended_at = ? WHERE id = ?").run(endedAt, session.id);
-        if (claudeProjectDir) {
-          setTimeout(() => archiveTranscript(session.id, claudeProjectDir, startedAt, endedAt), 500);
-        }
-      });
-
-      sessions.set(session.id, entry);
       reattached++;
       console.log(`[pty-manager] Reattached to session ${session.id}`);
     } catch (err) {
@@ -250,59 +261,16 @@ export function createSession(workspaceId, cwd) {
   ], { timeout: 10_000 });
 
   // 2. Attach node-pty to the tmux session (for WebSocket I/O)
-  const proc = pty.spawn('tmux', ['attach-session', '-t', tmuxName], {
-    name: 'xterm-256color',
-    cols: 120,
-    rows: 30,
-    cwd,
-    env: { ...process.env },
-  });
-
   const now = new Date().toISOString();
   const claudeProjectDir = resolve(expandPath('~/.claude/projects'), toClaudeProjectKey(cwd));
 
   db.prepare('INSERT INTO sessions (id, workspace_id, pid, status, started_at, claude_project_dir) VALUES (?, ?, ?, ?, ?, ?)').run(
-    id, workspaceId, proc.pid, 'active', now, claudeProjectDir
+    id, workspaceId, 0, 'active', now, claudeProjectDir
   );
 
-  const entry = {
-    proc,
-    buffer: new RingBuffer(BUFFER_MAX),
-    websockets: new Set(),
-  };
+  attachPtyToTmux(id, { claudeProjectDir, startedAt: now });
 
-  proc.onData((data) => {
-    entry.buffer.append(data);
-
-    const msg = JSON.stringify({ type: 'output', data });
-    for (const ws of entry.websockets) {
-      if (ws.readyState === 1) {
-        ws.send(msg);
-      }
-    }
-  });
-
-  proc.onExit(({ exitCode }) => {
-    const exitMsg = JSON.stringify({ type: 'exit', code: exitCode });
-    for (const ws of entry.websockets) {
-      if (ws.readyState === 1) {
-        ws.send(exitMsg);
-        ws.close(1000);
-      }
-    }
-    sessions.delete(id);
-    const endedAt = new Date().toISOString();
-    db.prepare("UPDATE sessions SET status = 'killed', ended_at = ? WHERE id = ?").run(endedAt, id);
-
-    // Archive Claude Code transcript (best-effort, with small delay for flush)
-    setTimeout(() => {
-      archiveTranscript(id, claudeProjectDir, now, endedAt);
-    }, 500);
-  });
-
-  sessions.set(id, entry);
-
-  return { id, workspace_id: workspaceId, pid: proc.pid, status: 'active', started_at: now, claude_project_dir: claudeProjectDir };
+  return { id, workspace_id: workspaceId, status: 'active', started_at: now, claude_project_dir: claudeProjectDir };
 }
 
 /**
@@ -342,12 +310,26 @@ export function attachSession(sessionId, ws) {
 
   entry.websockets.add(ws);
 
+  const tmuxName = `patrol-${sessionId}`;
   ws.on('message', (raw) => {
     const msg = parseWsMessage(raw.toString());
     if (!msg) return;
 
     if (msg.type === 'input') {
-      entry.proc.write(msg.data);
+      // CSI u sequences (kitty keyboard protocol) can't go through
+      // tmux's input parser - it doesn't understand them. Route them
+      // via `tmux send-keys` which writes directly to the inner pane's
+      // PTY, bypassing tmux's own key interpretation.
+      if (msg.data.includes('\x1b[') && /\x1b\[\d+;\d+u/.test(msg.data)) {
+        // Convert raw bytes to hex escape format for tmux send-keys -H
+        const hexKeys = [];
+        for (let i = 0; i < msg.data.length; i++) {
+          hexKeys.push(msg.data.charCodeAt(i).toString(16).padStart(2, '0'));
+        }
+        execFile('tmux', ['send-keys', '-t', tmuxName, '-H', ...hexKeys], { timeout: 2000 }, () => {});
+      } else {
+        entry.proc.write(msg.data);
+      }
     } else if (msg.type === 'resize') {
       entry.proc.resize(msg.cols, msg.rows);
     }
@@ -371,12 +353,15 @@ export function killSession(sessionId) {
     const entry = sessions.get(sessionId);
     if (entry) {
       entry.proc.kill();
-    } else {
-      const db = getDb();
-      db.prepare("UPDATE sessions SET status = 'killed', ended_at = ? WHERE id = ? AND status != 'killed'").run(
-        new Date().toISOString(), sessionId
-      );
     }
+  }
+  // For detached sessions (not in the sessions map), the proc.onExit
+  // handler won't fire, so update the DB directly.
+  if (!sessions.has(sessionId)) {
+    const db = getDb();
+    db.prepare("UPDATE sessions SET status = 'killed', ended_at = ? WHERE id = ? AND status != 'killed'").run(
+      new Date().toISOString(), sessionId
+    );
   }
 }
 
@@ -429,7 +414,8 @@ export function isSessionAlive(sessionId) {
  * @param {string} sessionId
  */
 export function popOutSession(sessionId) {
-  if (!sessions.has(sessionId)) {
+  const entry = sessions.get(sessionId);
+  if (!entry) {
     throw new Error('Session not found or not running');
   }
   if (!isTmuxSessionAlive(sessionId)) {
@@ -444,8 +430,55 @@ export function popOutSession(sessionId) {
 
   execFileSync('open', ['-na', 'Ghostty.app', '--args', '-e', scriptPath], { timeout: 10_000 });
 
+  // Detach the node-pty client from the tmux session so the web
+  // terminal's small dimensions no longer constrain the window size.
+  // Tell all WebSocket clients the session was popped out, then
+  // kill the node-pty process (the tmux session itself stays alive
+  // in Ghostty). Mark as 'detached' so it can be reattached later.
+  const popMsg = JSON.stringify({ type: 'popped-out' });
+  for (const ws of entry.websockets) {
+    if (ws.readyState === 1) {
+      ws.send(popMsg);
+      ws.close(1000);
+    }
+  }
+  entry.proc.kill();
+  sessions.delete(sessionId);
+
+  const db = getDb();
+  db.prepare("UPDATE sessions SET status = 'detached' WHERE id = ?").run(sessionId);
+
   // Clean up the temp script after a short delay
   setTimeout(() => {
     try { unlinkSync(scriptPath); } catch { /* ignore */ }
   }, 5000);
+}
+
+/**
+ * Reattach a detached session (e.g. after pop-out) back to the web UI.
+ * @param {string} sessionId
+ * @returns {object} session record
+ */
+export function reattachSession(sessionId) {
+  if (sessions.has(sessionId)) {
+    // Already attached - return existing
+    const db = getDb();
+    return db.prepare('SELECT * FROM sessions WHERE id = ?').get(sessionId);
+  }
+
+  const db = getDb();
+  const row = db.prepare("SELECT * FROM sessions WHERE id = ? AND status = 'detached'").get(sessionId);
+  if (!row) throw new Error('Session not found or not detached');
+
+  if (!isTmuxSessionAlive(sessionId)) {
+    db.prepare("UPDATE sessions SET status = 'killed', ended_at = ? WHERE id = ?").run(new Date().toISOString(), sessionId);
+    throw new Error('Session tmux process is no longer alive');
+  }
+
+  attachPtyToTmux(sessionId, {
+    claudeProjectDir: row.claude_project_dir,
+    startedAt: row.started_at,
+  });
+
+  return db.prepare('SELECT * FROM sessions WHERE id = ?').get(sessionId);
 }

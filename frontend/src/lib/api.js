@@ -196,6 +196,12 @@ export async function killSession(sessionId) {
   return res.json();
 }
 
+export async function reattachSession(sessionId) {
+  const res = await fetch(`${BASE}/api/sessions/${sessionId}/reattach`, { method: 'POST' });
+  if (!res.ok) throw new Error(`Failed to reattach session: ${res.status}`);
+  return res.json();
+}
+
 /**
  * Fetch session history (killed sessions).
  * @param {string} [workspaceId]

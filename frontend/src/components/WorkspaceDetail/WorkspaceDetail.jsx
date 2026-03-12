@@ -1,10 +1,7 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { fetchWorkspace, fetchSessions, fetchSessionHistory, fetchSessionTranscript, createSession as apiCreateSession, killSession as apiKillSession, destroyWorkspace as apiDestroyWorkspace } from '../../lib/api.js';
-import { Terminal } from '../Terminal/Terminal.jsx';
-import { QuickActions } from '../QuickActions/QuickActions.jsx';
+import { useState, useEffect, useCallback } from 'react';
+import { fetchWorkspace, fetchSessions, fetchSessionHistory, fetchSessionTranscript, createSession as apiCreateSession, killSession as apiKillSession, destroyWorkspace as apiDestroyWorkspace, reattachSession as apiReattachSession } from '../../lib/api.js';
+import { TerminalCard } from '../TerminalCard/TerminalCard.jsx';
 import { TranscriptViewer } from '../TranscriptViewer/TranscriptViewer.jsx';
-import { useEscapeKey } from '../../hooks/useEscapeKey.js';
-import { useResizeHandle } from '../../hooks/useResizeHandle.js';
 import { useSyncEvents } from '../../hooks/useSyncEvents.js';
 import { getRelativeTime } from '../../lib/time.js';
 import shared from '../../styles/shared.module.css';
@@ -20,17 +17,6 @@ export function WorkspaceDetail({ workspaceId, onBack }) {
   const [loading, setLoading] = useState(true);
   const [openingSession, setOpeningSession] = useState(false);
   const [destroying, setDestroying] = useState(false);
-  const [maximized, setMaximized] = useState(false);
-  const wsRef = useRef(null);
-
-  const { height: termHeight, dragging, handleProps } = useResizeHandle({
-    initial: 600,
-    min: 200,
-    max: 1200,
-    direction: 'down',
-  });
-
-  useEscapeKey(maximized, useCallback(() => setMaximized(false), []));
 
   const loadData = useCallback(async () => {
     try {
@@ -77,8 +63,17 @@ export function WorkspaceDetail({ workspaceId, onBack }) {
 
   const handleSessionExit = useCallback(() => {
     setSession(null);
-    setMaximized(false);
   }, []);
+
+  const handleReattach = useCallback(async () => {
+    if (!session) return;
+    try {
+      const updated = await apiReattachSession(session.id);
+      setSession(updated);
+    } catch (err) {
+      console.error('Failed to reattach session:', err);
+    }
+  }, [session]);
 
   const handleDestroy = useCallback(async () => {
     if (!workspace) return;
@@ -91,12 +86,6 @@ export function WorkspaceDetail({ workspaceId, onBack }) {
       setDestroying(false);
     }
   }, [workspace, onBack]);
-
-  const handleSendCommand = useCallback((command) => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: 'input', data: command + '\r' }));
-    }
-  }, []);
 
   if (loading) return <div className={shared.loading}>Loading workspace...</div>;
   if (!workspace) return <div className={shared.error}>Workspace not found</div>;
@@ -144,68 +133,30 @@ export function WorkspaceDetail({ workspaceId, onBack }) {
 
       {/* Terminal */}
       {workspace.status === 'active' && (
-        <>
-          {maximized && session && (
-            <div className={shared.terminalOverlay}>
-              <div className={shared.overlayHeader}>
-                <span className={shared.overlayTitle}>Terminal - {workspace.bookmark}</span>
-                <div className={shared.terminalActions}>
-                  <button className={shared.maximizeButton} onClick={() => setMaximized(false)}>
-                    Restore
-                  </button>
-                  <button className={shared.killSessionButton} onClick={() => { setMaximized(false); handleKillSession(); }}>
-                    Kill Session
-                  </button>
-                </div>
+        session ? (
+          <TerminalCard
+            session={session}
+            title={`Terminal - ${workspace.bookmark}`}
+            onKill={handleKillSession}
+            onExit={handleSessionExit}
+            onReattach={handleReattach}
+          />
+        ) : (
+          <div className={shared.card}>
+            <div className={shared.section}>
+              <div className={shared.terminalHeader}>
+                <h3 className={shared.sectionTitle}>Terminal</h3>
               </div>
-              <div className={shared.overlayContent}>
-                <Terminal wsUrl={`/ws/sessions/${session.id}`} wsRef={wsRef} onExit={handleSessionExit} />
-              </div>
-              <QuickActions onSend={handleSendCommand} />
+              <button
+                className={shared.openButton}
+                onClick={handleStartSession}
+                disabled={openingSession}
+              >
+                {openingSession ? 'Starting session...' : 'Start Terminal Session'}
+              </button>
             </div>
-          )}
-          {!maximized && (
-            <div className={shared.card}>
-              <div className={shared.section}>
-                <div className={shared.terminalHeader}>
-                  <h3 className={shared.sectionTitle}>Terminal</h3>
-                  <div className={shared.terminalActions}>
-                    {session && (
-                      <>
-                        <button className={shared.maximizeButton} onClick={() => setMaximized(true)}>
-                          Maximize
-                        </button>
-                        <button className={shared.killSessionButton} onClick={handleKillSession}>
-                          Kill Session
-                        </button>
-                      </>
-                    )}
-                  </div>
-                </div>
-                {session ? (
-                  <>
-                    {dragging && <div className={shared.dragOverlay} />}
-                    <div style={{ height: termHeight }}>
-                      <Terminal wsUrl={`/ws/sessions/${session.id}`} wsRef={wsRef} onExit={handleSessionExit} />
-                    </div>
-                    <div className={shared.resizeHandle} {...handleProps}>
-                      <div className={shared.resizeGrip} />
-                    </div>
-                    <QuickActions onSend={handleSendCommand} />
-                  </>
-                ) : (
-                  <button
-                    className={shared.openButton}
-                    onClick={handleStartSession}
-                    disabled={openingSession}
-                  >
-                    {openingSession ? 'Starting session...' : 'Start Terminal Session'}
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
-        </>
+          </div>
+        )
       )}
 
       {/* Past Sessions */}
