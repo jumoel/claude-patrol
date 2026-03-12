@@ -1,5 +1,18 @@
 # Build Log
 
+## 2026-03-12 - Watch mode with session-safe backend reloading
+
+Added backend file watching to `pnpm watch`. When a `.js` file in `src/` changes, the server restarts with `--reattach` mode that preserves active terminal sessions instead of killing them.
+
+**What changed:**
+- `src/pty-manager.js` - added `reattachOrphanedSessions()` that finds surviving tmux sessions and re-attaches node-pty to them instead of killing them
+- `src/index.js` - `--reattach` flag skips PID check, calls reattach instead of cleanup, and doesn't kill sessions on shutdown
+- `src/watch.js` - watches `src/*.js` files with debouncing, restarts server with `--reattach` on changes, handles crashes gracefully
+- `frontend/src/components/Terminal/Terminal.jsx` - WebSocket auto-reconnect with exponential backoff (500ms-4s), shows [Connection lost] / [Reconnected] messages in terminal
+
+**Why:**
+- Editing backend code while a Claude session is running would kill the session on server restart. The tmux sessions are independent processes that survive - we just need to re-attach to them. The browser terminal auto-reconnects to the new server and gets the replay buffer.
+
 ## 2026-03-12 - Session Transcript Persistence
 
 Added the ability to capture, archive, and view Claude Code JSONL transcripts for patrol sessions.

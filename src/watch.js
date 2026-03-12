@@ -1,18 +1,23 @@
 /**
  * Watch mode: runs the backend server and `vite build --watch` concurrently,
  * interleaving their output with prefixed labels.
+ *
+ * Backend file changes trigger a server restart with --reattach, which
+ * preserves active terminal sessions (tmux sessions survive, node-pty
+ * reattaches on startup, browser WebSockets auto-reconnect).
  */
 
 import { spawn } from 'node:child_process';
+import { watch } from 'node:fs';
 import { resolve } from 'node:path';
 
 const ROOT = resolve(import.meta.dirname, '..');
 const FRONTEND = resolve(ROOT, 'frontend');
+const SRC = resolve(ROOT, 'src');
 
 function prefix(label, color) {
-  const code = color === 'cyan' ? '\x1b[36m' : '\x1b[33m';
-  const reset = '\x1b[0m';
-  return `${code}[${label}]${reset} `;
+  const colors = { cyan: '\x1b[36m', yellow: '\x1b[33m', magenta: '\x1b[35m' };
+  return `${colors[color] || ''}[${label}]\x1b[0m `;
 }
 
 function pipeWithPrefix(stream, label, color) {
@@ -21,7 +26,7 @@ function pipeWithPrefix(stream, label, color) {
   stream.on('data', (chunk) => {
     buffer += chunk.toString();
     const lines = buffer.split('\n');
-    buffer = lines.pop(); // keep incomplete line in buffer
+    buffer = lines.pop();
     for (const line of lines) {
       if (line.trim()) process.stdout.write(tag + line + '\n');
     }
@@ -31,7 +36,7 @@ function pipeWithPrefix(stream, label, color) {
   });
 }
 
-// 1. Start vite build --watch
+// --- Vite (frontend) ---
 const vite = spawn('npx', ['vite', 'build', '--watch'], {
   cwd: FRONTEND,
   stdio: ['ignore', 'pipe', 'pipe'],
@@ -40,33 +45,83 @@ const vite = spawn('npx', ['vite', 'build', '--watch'], {
 pipeWithPrefix(vite.stdout, 'vite', 'cyan');
 pipeWithPrefix(vite.stderr, 'vite', 'cyan');
 
-// 2. Start the backend server
-const server = spawn('node', [resolve(ROOT, 'src/index.js'), ...process.argv.slice(2)], {
-  cwd: ROOT,
-  stdio: ['inherit', 'pipe', 'pipe'],
-  env: { ...process.env },
-});
-pipeWithPrefix(server.stdout, 'server', 'yellow');
-pipeWithPrefix(server.stderr, 'server', 'yellow');
+// --- Server (backend) ---
+let server = null;
+let serverExitedIntentionally = false;
 
-// Forward exit signals
-function cleanup(signal) {
-  vite.kill(signal);
-  server.kill(signal);
+const serverArgs = process.argv.slice(2);
+
+function startServer(reattach) {
+  const args = [resolve(ROOT, 'src/index.js'), ...serverArgs];
+  if (reattach) args.push('--reattach');
+
+  server = spawn('node', args, {
+    cwd: ROOT,
+    stdio: ['inherit', 'pipe', 'pipe'],
+    env: { ...process.env },
+  });
+  pipeWithPrefix(server.stdout, 'server', 'yellow');
+  pipeWithPrefix(server.stderr, 'server', 'yellow');
+
+  server.on('exit', (code) => {
+    if (serverExitedIntentionally) {
+      serverExitedIntentionally = false;
+      return;
+    }
+    // Unexpected exit
+    console.log(`\n${prefix('watch', 'magenta')}Server crashed (exit ${code}), waiting for file changes to restart...`);
+    server = null;
+  });
 }
 
-process.on('SIGINT', () => cleanup('SIGINT'));
-process.on('SIGTERM', () => cleanup('SIGTERM'));
+function restartServer() {
+  if (server) {
+    serverExitedIntentionally = true;
+    server.kill('SIGTERM');
 
-// Exit when server dies (vite --watch can survive, but without a server it's useless)
-server.on('exit', (code) => {
-  console.log(`\n${prefix('watch', 'yellow')}Server exited with code ${code}`);
-  vite.kill();
-  process.exit(code ?? 1);
+    // Wait for server to actually exit before starting new one
+    server.on('exit', () => {
+      process.stdout.write(`${prefix('watch', 'magenta')}Restarting server (reattaching sessions)...\n`);
+      startServer(true);
+    });
+  } else {
+    process.stdout.write(`${prefix('watch', 'magenta')}Starting server (reattaching sessions)...\n`);
+    startServer(true);
+  }
+}
+
+// Initial start (no reattach - clean start)
+startServer(false);
+
+// --- Backend file watcher ---
+let debounceTimer = null;
+const DEBOUNCE_MS = 300;
+
+watch(SRC, { recursive: true }, (eventType, filename) => {
+  if (!filename) return;
+  // Only watch .js files, skip watch.js itself
+  if (!filename.endsWith('.js') || filename === 'watch.js') return;
+
+  if (debounceTimer) clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(() => {
+    process.stdout.write(`${prefix('watch', 'magenta')}Detected change: src/${filename}\n`);
+    restartServer();
+  }, DEBOUNCE_MS);
 });
 
+// --- Signal handling ---
+function cleanup(signal) {
+  vite.kill(signal);
+  if (server) server.kill(signal);
+  // Give processes a moment to exit, then force
+  setTimeout(() => process.exit(0), 2000);
+}
+
+process.on('SIGINT', () => cleanup('SIGTERM'));
+process.on('SIGTERM', () => cleanup('SIGTERM'));
+
 vite.on('exit', (code) => {
-  if (code !== 0) {
+  if (code !== 0 && code !== null) {
     console.log(`\n${prefix('watch', 'cyan')}Vite exited with code ${code}`);
   }
 });

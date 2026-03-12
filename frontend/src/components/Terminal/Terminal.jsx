@@ -2,8 +2,11 @@ import { useEffect, useRef } from 'react';
 import { init, Terminal as GhosttyTerminal, FitAddon } from 'ghostty-web';
 import styles from './Terminal.module.css';
 
+const RECONNECT_DELAYS = [500, 1000, 2000, 4000];
+
 /**
  * Terminal component backed by ghostty-web and a WebSocket connection.
+ * Auto-reconnects on disconnect (for server restarts in watch mode).
  * @param {{ wsUrl: string, wsRef?: import('react').MutableRefObject<WebSocket | null> }} props
  */
 export function Terminal({ wsUrl, wsRef: externalWsRef, focus }) {
@@ -16,7 +19,57 @@ export function Terminal({ wsUrl, wsRef: externalWsRef, focus }) {
     if (!containerRef.current || !wsUrl) return;
 
     let cancelled = false;
-    let term, ws, observer;
+    let term, observer;
+    let reconnectAttempt = 0;
+    let reconnectTimer = null;
+
+    function connectWs() {
+      if (cancelled || !term) return;
+
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const fullUrl = wsUrl.startsWith('ws') ? wsUrl : `${protocol}//${window.location.host}${wsUrl}`;
+      const ws = new WebSocket(fullUrl);
+      wsRef.current = ws;
+      if (externalWsRef) externalWsRef.current = ws;
+
+      ws.onopen = () => {
+        if (reconnectAttempt > 0) {
+          term.write('\r\n\x1b[32m[Reconnected]\x1b[0m\r\n');
+        }
+        reconnectAttempt = 0;
+        ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          if (msg.type === 'output' || msg.type === 'replay') {
+            term.write(msg.data);
+          } else if (msg.type === 'exit') {
+            term.write(`\r\n[Process exited with code ${msg.code}]\r\n`);
+          } else if (msg.type === 'error') {
+            term.write(`\r\n[Error: ${msg.message}]\r\n`);
+          }
+        } catch {
+          // Ignore malformed messages
+        }
+      };
+
+      ws.onclose = (event) => {
+        if (cancelled) return;
+        // Code 1000 = normal close (e.g. session killed), don't reconnect
+        // Code 1001 = going away (server shutdown), do reconnect
+        // Code 1006 = abnormal (connection lost), do reconnect
+        if (event.code === 1000) return;
+
+        const delay = RECONNECT_DELAYS[Math.min(reconnectAttempt, RECONNECT_DELAYS.length - 1)];
+        reconnectAttempt++;
+        if (reconnectAttempt === 1) {
+          term.write('\r\n\x1b[33m[Connection lost, reconnecting...]\x1b[0m');
+        }
+        reconnectTimer = setTimeout(connectWs, delay);
+      };
+    }
 
     init().then(() => {
       if (cancelled) return;
@@ -42,34 +95,9 @@ export function Terminal({ wsUrl, wsRef: externalWsRef, focus }) {
       termRef.current = term;
       fitRef.current = fitAddon;
 
-      // WebSocket connection
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const fullUrl = wsUrl.startsWith('ws') ? wsUrl : `${protocol}//${window.location.host}${wsUrl}`;
-      ws = new WebSocket(fullUrl);
-      wsRef.current = ws;
-      if (externalWsRef) externalWsRef.current = ws;
-
-      ws.onmessage = (event) => {
-        try {
-          const msg = JSON.parse(event.data);
-          if (msg.type === 'output' || msg.type === 'replay') {
-            term.write(msg.data);
-          } else if (msg.type === 'exit') {
-            term.write(`\r\n[Process exited with code ${msg.code}]\r\n`);
-          } else if (msg.type === 'error') {
-            term.write(`\r\n[Error: ${msg.message}]\r\n`);
-          }
-        } catch {
-          // Ignore malformed messages
-        }
-      };
-
-      ws.onopen = () => {
-        ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
-      };
-
       term.onData((data) => {
-        if (ws.readyState === WebSocket.OPEN) {
+        const ws = wsRef.current;
+        if (ws && ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({ type: 'input', data }));
         }
       });
@@ -77,17 +105,21 @@ export function Terminal({ wsUrl, wsRef: externalWsRef, focus }) {
       // Resize handling
       observer = new ResizeObserver(() => {
         fitAddon.fit();
-        if (ws.readyState === WebSocket.OPEN) {
+        const ws = wsRef.current;
+        if (ws && ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
         }
       });
       observer.observe(containerRef.current);
+
+      connectWs();
     });
 
     return () => {
       cancelled = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
       observer?.disconnect();
-      ws?.close();
+      wsRef.current?.close();
       term?.dispose();
     };
   }, [wsUrl]);

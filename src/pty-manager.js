@@ -112,6 +112,83 @@ export function cleanupOrphanedTmuxSessions() {
 }
 
 /**
+ * Reattach to surviving tmux sessions from a previous server run.
+ * Used in watch/dev mode to preserve sessions across server restarts.
+ * Sessions whose tmux process is dead are marked killed.
+ * @returns {number} number of sessions reattached
+ */
+export function reattachOrphanedSessions() {
+  const db = getDb();
+  const orphans = db.prepare("SELECT * FROM sessions WHERE status = 'active'").all();
+  if (orphans.length === 0) return 0;
+
+  let reattached = 0;
+  const now = new Date().toISOString();
+
+  for (const session of orphans) {
+    if (!isTmuxSessionAlive(session.id)) {
+      // tmux session is dead - mark killed
+      db.prepare("UPDATE sessions SET status = 'killed', ended_at = ? WHERE id = ?").run(now, session.id);
+      console.log(`[pty-manager] Orphaned session ${session.id} - tmux dead, marked killed`);
+      continue;
+    }
+
+    // tmux session is alive - reattach node-pty
+    try {
+      const tmuxName = `patrol-${session.id}`;
+      const proc = pty.spawn('tmux', ['attach-session', '-t', tmuxName], {
+        name: 'xterm-256color',
+        cols: 120,
+        rows: 30,
+        env: { ...process.env },
+      });
+
+      // Update PID in DB
+      db.prepare('UPDATE sessions SET pid = ? WHERE id = ?').run(proc.pid, session.id);
+
+      const entry = {
+        proc,
+        buffer: new RingBuffer(BUFFER_MAX),
+        websockets: new Set(),
+      };
+
+      const claudeProjectDir = session.claude_project_dir;
+      const startedAt = session.started_at;
+
+      proc.onData((data) => {
+        entry.buffer.append(data);
+        const msg = JSON.stringify({ type: 'output', data });
+        for (const ws of entry.websockets) {
+          if (ws.readyState === 1) ws.send(msg);
+        }
+      });
+
+      proc.onExit(({ exitCode }) => {
+        const exitMsg = JSON.stringify({ type: 'exit', code: exitCode });
+        for (const ws of entry.websockets) {
+          if (ws.readyState === 1) { ws.send(exitMsg); ws.close(); }
+        }
+        sessions.delete(session.id);
+        const endedAt = new Date().toISOString();
+        db.prepare("UPDATE sessions SET status = 'killed', ended_at = ? WHERE id = ?").run(endedAt, session.id);
+        if (claudeProjectDir) {
+          setTimeout(() => archiveTranscript(session.id, claudeProjectDir, startedAt, endedAt), 500);
+        }
+      });
+
+      sessions.set(session.id, entry);
+      reattached++;
+      console.log(`[pty-manager] Reattached to session ${session.id}`);
+    } catch (err) {
+      db.prepare("UPDATE sessions SET status = 'killed', ended_at = ? WHERE id = ?").run(now, session.id);
+      console.warn(`[pty-manager] Failed to reattach session ${session.id}: ${err.message}`);
+    }
+  }
+
+  return reattached;
+}
+
+/**
  * Spawn a new PTY session. Spawns the process first, then inserts into DB.
  * @param {string | null} workspaceId - null for global session
  * @param {string} cwd - working directory

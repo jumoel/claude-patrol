@@ -4,7 +4,7 @@ import { configPath } from './paths.js';
 import { initDb } from './db.js';
 import { startPoller, stopPoller, resetStatements } from './poller.js';
 import { createServer } from './server.js';
-import { cleanupOrphanedSessions, cleanupOrphanedTmuxSessions, initMcpConfig, updateMcpConfig, killAllSessions } from './pty-manager.js';
+import { cleanupOrphanedSessions, cleanupOrphanedTmuxSessions, reattachOrphanedSessions, initMcpConfig, updateMcpConfig, killAllSessions } from './pty-manager.js';
 import { validateStartup } from './startup.js';
 import { startHealthChecks, stopHealthChecks } from './health.js';
 import { writePid, removePid, isRunning } from './pid.js';
@@ -15,10 +15,13 @@ import { initTui, destroyTui, setHeader } from './tui.js';
  * @param {{ open?: boolean, noOpen?: boolean }} [options]
  */
 export async function startServer(options = {}) {
-  const status = isRunning();
-  if (status.running) {
-    console.error(`[claude-patrol] Already running (pid ${status.pid}, port ${status.port}). Use "claude-patrol stop" to stop it.`);
-    process.exit(1);
+  const isReattachEarly = options.reattach || process.argv.includes('--reattach');
+  if (!isReattachEarly) {
+    const status = isRunning();
+    if (status.running) {
+      console.error(`[claude-patrol] Already running (pid ${status.pid}, port ${status.port}). Use "claude-patrol stop" to stop it.`);
+      process.exit(1);
+    }
   }
 
   if (!ensureConfig()) {
@@ -39,8 +42,15 @@ export async function startServer(options = {}) {
   const config = loadConfig();
   setCurrentConfig(config);
   initDb(config.db_path);
-  cleanupOrphanedSessions();
-  cleanupOrphanedTmuxSessions();
+
+  const isReattach = options.reattach || process.argv.includes('--reattach');
+  if (isReattach) {
+    const count = reattachOrphanedSessions();
+    console.log(`[claude-patrol] Reattached ${count} surviving session(s)`);
+  } else {
+    cleanupOrphanedSessions();
+    cleanupOrphanedTmuxSessions();
+  }
 
   startPoller(config);
   startHealthChecks();
@@ -124,7 +134,11 @@ export async function startServer(options = {}) {
     unwatchConfig();
     stopPoller();
     stopHealthChecks();
-    killAllSessions();
+    if (!isReattach) {
+      killAllSessions();
+    }
+    // In reattach mode, just close WebSockets without killing tmux sessions
+    // so sessions survive for the next server instance to reattach
     removePid();
     server.closeSSE();
     try { await server.close(); } catch { /* ignore close errors */ }
