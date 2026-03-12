@@ -56,13 +56,18 @@ export function Terminal({ wsUrl, wsRef: externalWsRef, focus }) {
     // xterm.js doesn't distinguish Shift+Enter from Enter by default.
     // Intercept it and send the CSI u (kitty keyboard protocol) sequence
     // so programs like Claude Code can tell the difference.
+    // Both keydown AND keyup must be suppressed - if keyup leaks through,
+    // xterm's internal state gets confused and subsequent Shift+Enter
+    // events are treated as plain Enter.
     term.attachCustomKeyEventHandler((ev) => {
-      if (ev.type === 'keydown' && ev.key === 'Enter' && ev.shiftKey && !ev.ctrlKey && !ev.altKey && !ev.metaKey) {
-        const ws = wsRef.current;
-        if (ws && ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: 'input', data: '\x1b[13;2u' }));
+      if (ev.key === 'Enter' && ev.shiftKey && !ev.ctrlKey && !ev.altKey && !ev.metaKey) {
+        if (ev.type === 'keydown') {
+          const ws = wsRef.current;
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'input', data: '\x1b[13;2u' }));
+          }
         }
-        return false; // prevent xterm from also sending \r
+        return false; // suppress both keydown and keyup from xterm
       }
       return true;
     });
