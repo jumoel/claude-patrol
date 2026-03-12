@@ -168,3 +168,18 @@ Consolidated duplicated patterns across frontend components into shared hooks an
 
 **Why:**
 - The same CSS classes and JS patterns were copy-pasted across 3-5 components. Extracting them into shared modules means one source of truth for button styles, layout patterns, and behavioral hooks.
+
+## 2026-03-12 - Fix functional gaps and add FUTURE-IDEAS.md
+
+Three bug fixes and a documentation file.
+
+**What changed:**
+- `FUTURE-IDEAS.md` - documents three deferred features (notification/alerting, session transcript persistence, automation loop) with enough context to act on later
+- `src/poller.js` - `ghGraphql()` now retries up to 3 times with exponential backoff (1s/2s/4s) on transient failures (non-zero exit codes, spawn errors). JSON parse errors are not retried. All callers (`fetchPRs`, `fetchRemainingChecks`) benefit automatically.
+- `src/pty-manager.js` - `createSession()` now deduplicates workspace sessions the same way it already did for global sessions. Creating a second session for the same workspace returns the existing one instead of spawning a conflicting Claude Code instance.
+- `frontend/src/components/PRDetail/PRDetail.jsx` - `CheckRow` now renders all failed job logs from a workflow run instead of only the first. When a run has multiple jobs, each gets a label above its log viewer.
+
+**Why:**
+- The poller was fragile against transient GitHub API errors - a single 502 or rate limit would leave PR data stale for an entire poll interval.
+- Nothing prevented multiple concurrent Claude sessions in the same worktree, which could cause conflicting edits.
+- Multi-job workflow failures only showed the first job's log, hiding the other failures.
