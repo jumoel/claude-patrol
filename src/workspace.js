@@ -367,3 +367,4 @@ function waitForExit(pid, timeoutMs) {
     check();
   });
 }
+// workspace auto-cleanup
