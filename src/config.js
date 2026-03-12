@@ -150,3 +150,4 @@ export function watchConfig() {
 export function unwatchConfig() {
   unwatchFile(CONFIG_PATH);
 }
+// zod config validation
