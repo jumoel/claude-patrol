@@ -71,8 +71,6 @@ Added Fastify REST API and React frontend with a filterable PR dashboard.
 - Serves the cached PR data through a dashboard UI with live updates via SSE.
 - Filter bar derives options from the dataset, no extra endpoint needed.
 
-![Dashboard empty state](screenshots/plan02-dashboard-styled.png)
-
 ## 2026-03-09T22:40:00 - Plan 03: Workspace Manager
 
 Added jj workspace creation/destruction tied to PRs, with symlink setup and Docker cleanup.
@@ -119,8 +117,6 @@ Wired workspace and session management into the PR dashboard. Added PR detail vi
 
 **Why:**
 - Completes the full flow: PR table -> PR detail -> create workspace -> Claude session with quick actions. Startup validation prevents a half-working server.
-
-![Final dashboard](screenshots/plan05-dashboard-final.png)
 
 ## 2026-03-10 - Four feature batch: button fix, merge status, poll config, stale cleanup
 
@@ -182,9 +178,6 @@ Added a maximize/restore toggle to both the GlobalTerminal drawer and WorkspaceD
 - Terminal windows were constrained to a drawer or card with no way to focus on a single session. Maximizing fills the browser window so you can work in the terminal without the surrounding dashboard chrome.
 - Default terminal height increased from 400px to 600px (both GlobalTerminal and WorkspaceDetail) for better usability.
 - Workspace terminal is now resizable via a drag handle, matching the GlobalTerminal's existing resize behavior.
-
-![Global terminal with maximize button](screenshots/global-terminal-maximize-button.png)
-![Workspace terminal resizable](screenshots/workspace-terminal-resizable.png)
 
 ## 2026-03-11 - Extract shared hooks and CSS module
 
