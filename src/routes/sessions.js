@@ -1,9 +1,11 @@
 import { readFileSync, existsSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { getDb } from '../db.js';
 import { createSession, attachSession, killSession, popOutSession } from '../pty-manager.js';
 import { getCurrentConfig } from '../config.js';
 import { emitLocalChange } from '../app-events.js';
 import { findSessionJsonl } from '../transcripts.js';
+import { expandPath, toClaudeProjectKey } from '../utils.js';
 
 /**
  * Register session routes.
@@ -81,14 +83,23 @@ export function registerSessionRoutes(app) {
       return reply.code(404).send({ error: 'Session not found' });
     }
 
+    // Derive claude_project_dir from workspace path if not stored (pre-migration sessions)
+    let claudeProjectDir = session.claude_project_dir;
+    if (!claudeProjectDir && session.workspace_id) {
+      const ws = db.prepare('SELECT path FROM workspaces WHERE id = ?').get(session.workspace_id);
+      if (ws) {
+        claudeProjectDir = resolve(expandPath('~/.claude/projects'), toClaudeProjectKey(ws.path));
+      }
+    }
+
     let jsonlPath = null;
 
     // Prefer our archived copy
     if (session.transcript_path && existsSync(session.transcript_path)) {
       jsonlPath = session.transcript_path;
-    } else if (session.claude_project_dir) {
+    } else if (claudeProjectDir) {
       // Try to find the live JSONL
-      jsonlPath = findSessionJsonl(session.claude_project_dir, session.started_at, session.ended_at);
+      jsonlPath = findSessionJsonl(claudeProjectDir, session.started_at, session.ended_at);
     }
 
     if (!jsonlPath) {
