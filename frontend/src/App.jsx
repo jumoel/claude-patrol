@@ -8,7 +8,8 @@ import { PRDetail } from './components/PRDetail/PRDetail.jsx';
 import { WorkspaceDetail } from './components/WorkspaceDetail/WorkspaceDetail.jsx';
 import { ScratchWorkspaces } from './components/ScratchWorkspaces/ScratchWorkspaces.jsx';
 import { CommandPalette } from './components/CommandPalette/CommandPalette.jsx';
-import { fetchScratchWorkspaces } from './lib/api.js';
+import { SetupMode } from './components/SetupMode/SetupMode.jsx';
+import { fetchScratchWorkspaces, fetchConfig } from './lib/api.js';
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 
 function formatCountdown(seconds) {
@@ -46,6 +47,8 @@ function applyFilters(prs, filters) {
 const NO_FILTERS = {};
 
 export default function App() {
+  const [needsSetup, setNeedsSetup] = useState(null); // null = loading, true/false
+  const [showSetup, setShowSetup] = useState(false);
   const [filters, setFilters] = useState({});
   const [selectedPR, setSelectedPR] = useState(null);
   const [selectedWorkspace, setSelectedWorkspace] = useState(null);
@@ -55,6 +58,16 @@ export default function App() {
   const toggleTerminal = useCallback(() => setTerminalOpen(prev => !prev), []);
   const { prs: allPRs, syncedAt, loading, error, syncing, countdown, triggerSync } = usePRs(NO_FILTERS);
   const [scratchWorkspaces, setScratchWorkspaces] = useState([]);
+
+  // Check if setup is needed on mount
+  useEffect(() => {
+    fetchConfig()
+      .then(cfg => {
+        setNeedsSetup(cfg.needs_setup);
+        if (cfg.needs_setup) setShowSetup(true);
+      })
+      .catch(() => setNeedsSetup(false));
+  }, []);
 
   // Fetch scratch workspaces (refresh when PRs sync)
   useEffect(() => {
@@ -80,13 +93,20 @@ export default function App() {
   useEffect(() => {
     const handleHash = () => {
       const hash = window.location.hash;
-      if (hash.startsWith('#/pr/')) {
+      if (hash === '#/setup') {
+        setShowSetup(true);
+        setSelectedPR(null);
+        setSelectedWorkspace(null);
+      } else if (hash.startsWith('#/pr/')) {
+        setShowSetup(false);
         setSelectedPR(decodeURIComponent(hash.slice(5)));
         setSelectedWorkspace(null);
       } else if (hash.startsWith('#/workspace/')) {
+        setShowSetup(false);
         setSelectedWorkspace(hash.slice(12));
         setSelectedPR(null);
       } else {
+        setShowSetup(needsSetup === true);
         setSelectedPR(null);
         setSelectedWorkspace(null);
       }
@@ -94,7 +114,7 @@ export default function App() {
     handleHash();
     window.addEventListener('hashchange', handleHash);
     return () => window.removeEventListener('hashchange', handleHash);
-  }, []);
+  }, [needsSetup]);
 
   const syncTime = syncedAt
     ? `Last synced: ${new Date(syncedAt).toLocaleTimeString()}`
@@ -113,9 +133,19 @@ export default function App() {
     window.location.hash = '';
   };
 
+  const handleConfigured = useCallback(() => {
+    setNeedsSetup(false);
+    setShowSetup(false);
+    window.location.hash = '';
+  }, []);
+
+  if (needsSetup === null) return null; // still loading config
+
   return (
-    <AppShell title="Claude Patrol" syncTime={syncTime} nextSync={nextSync} syncing={syncing} onSync={triggerSync} terminalOpen={terminalOpen} onToggleTerminal={toggleTerminal}>
-      {selectedPR ? (
+    <AppShell title="Claude Patrol" syncTime={syncTime} nextSync={nextSync} syncing={syncing} onSync={triggerSync} terminalOpen={terminalOpen} onToggleTerminal={toggleTerminal} onSetup={() => { window.location.hash = '/setup'; }}>
+      {showSetup ? (
+        <SetupMode onConfigured={handleConfigured} isFirstRun={needsSetup === true} />
+      ) : selectedPR ? (
         <PRDetail prId={selectedPR} onBack={navigateBack} />
       ) : selectedWorkspace ? (
         <WorkspaceDetail workspaceId={selectedWorkspace} onBack={navigateBack} />

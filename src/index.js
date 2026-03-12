@@ -1,10 +1,11 @@
 import { execFile as execFileCb } from 'node:child_process';
-import { loadConfig, ensureConfig, watchConfig, unwatchConfig, configEvents, setCurrentConfig } from './config.js';
+import { loadConfig, ensureConfig, watchConfig, unwatchConfig, configEvents, setCurrentConfig, isConfigured } from './config.js';
 import { configPath } from './paths.js';
 import { initDb } from './db.js';
 import { startPoller, stopPoller, resetStatements } from './poller.js';
 import { createServer } from './server.js';
 import { cleanupOrphanedSessions, cleanupOrphanedTmuxSessions, reattachOrphanedSessions, initMcpConfig, updateMcpConfig, killAllSessions } from './pty-manager.js';
+import { emitLocalChange } from './app-events.js';
 import { validateStartup } from './startup.js';
 import { startHealthChecks, stopHealthChecks } from './health.js';
 import { writePid, removePid, isRunning } from './pid.js';
@@ -29,9 +30,7 @@ export async function startServer(options = {}) {
   }
 
   if (!ensureConfig()) {
-    console.log(`[claude-patrol] Created starter config at ${configPath()}`);
-    console.log('[claude-patrol] Edit it to add your poll targets, then run again.');
-    process.exit(0);
+    console.log(`[claude-patrol] First run - starting in setup mode.`);
   }
 
   console.log('[claude-patrol] Starting up...');
@@ -56,7 +55,13 @@ export async function startServer(options = {}) {
     cleanupOrphanedTmuxSessions();
   }
 
-  startPoller(config);
+  let pollerRunning = false;
+  if (isConfigured(config)) {
+    startPoller(config);
+    pollerRunning = true;
+  } else {
+    console.log('[claude-patrol] No poll targets configured - skipping poller (setup mode)');
+  }
   startHealthChecks();
 
   const server = await createServer();
@@ -90,8 +95,11 @@ export async function startServer(options = {}) {
       ...config.poll.orgs.map(o => `org:${o}`),
       ...config.poll.repos.map(r => `repo:${r}`),
     ].join(', ');
+    const headerMsg = pollTargets
+      ? `${serverUrl}  |  polling ${pollTargets} every ${config.poll.interval_seconds}s`
+      : `${serverUrl}  |  setup mode - open browser to configure`;
     initTui({
-      header: `${serverUrl}  |  polling ${pollTargets} every ${config.poll.interval_seconds}s`,
+      header: headerMsg,
       footer: '[space] open browser  [ctrl-c] quit',
     });
   }
@@ -107,11 +115,17 @@ export async function startServer(options = {}) {
   }
 
   configEvents.on('change', (newConfig) => {
-    console.log('Config changed, restarting poller');
     setCurrentConfig(newConfig);
     resetStatements();
-    startPoller(newConfig);
+    if (isConfigured(newConfig)) {
+      console.log('Config changed, ' + (pollerRunning ? 'restarting' : 'starting') + ' poller');
+      startPoller(newConfig);
+      pollerRunning = true;
+    } else {
+      console.log('Config changed but no poll targets yet');
+    }
     updateMcpConfig(newConfig);
+    emitLocalChange();
     // Update header with new config
     if (isTTY) {
       const targets = [

@@ -5,7 +5,7 @@ import logoSvg from '../../assets/logo.svg';
  * Top-level layout shell. Provides page structure, header, and content area.
  * @param {{ title: string, syncTime: string, nextSync: string, syncing: boolean, onSync: () => void, children: React.ReactNode }} props
  */
-export function AppShell({ title, syncTime, nextSync, syncing, onSync, terminalOpen, onToggleTerminal, children }) {
+export function AppShell({ title, syncTime, nextSync, syncing, onSync, terminalOpen, onToggleTerminal, onSetup, children }) {
   return (
     <div className={styles.shell}>
       <header className={styles.header}>
@@ -46,6 +46,22 @@ export function AppShell({ title, syncTime, nextSync, syncing, onSync, terminalO
               </svg>
               Global Claude
             </button>
+            {onSetup && (
+              <button className={styles.settingsButton} onClick={onSetup}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="4" y1="21" x2="4" y2="17" />
+                  <line x1="4" y1="9" x2="4" y2="3" />
+                  <line x1="12" y1="21" x2="12" y2="15" />
+                  <line x1="12" y1="7" x2="12" y2="3" />
+                  <line x1="20" y1="21" x2="20" y2="19" />
+                  <line x1="20" y1="11" x2="20" y2="3" />
+                  <circle cx="4" cy="13" r="3" />
+                  <circle cx="12" cy="11" r="3" />
+                  <circle cx="20" cy="15" r="3" />
+                </svg>
+                Settings
+              </button>
+            )}
           </div>
         </div>
       </header>

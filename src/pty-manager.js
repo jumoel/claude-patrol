@@ -11,6 +11,7 @@ import { archiveTranscript } from './transcripts.js';
 
 const BUFFER_MAX = 50_000;
 
+
 const PATROL_SYSTEM_PROMPT = readFileSync(resolve(import.meta.dirname, 'patrol-system-prompt.md'), 'utf8');
 
 /** @type {string | null} */
@@ -229,16 +230,23 @@ export function createSession(workspaceId, cwd) {
   const claudeArgs = ['claude'];
   if (mcpConfigPathCached) {
     claudeArgs.push('--mcp-config', mcpConfigPathCached);
-    claudeArgs.push('--append-system-prompt', PATROL_SYSTEM_PROMPT);
+
+    // Write system prompt to a temp file to avoid shell escaping issues
+    const promptFile = resolve(tmpdir(), `patrol-prompt-${id}.txt`);
+    writeFileSync(promptFile, PATROL_SYSTEM_PROMPT);
+    claudeArgs.push('--append-system-prompt-file', promptFile);
+
     claudeArgs.push('--allowedTools', 'mcp__patrol__*', 'Bash', 'Read', 'Edit', 'Write', 'Glob', 'Grep', 'Agent');
   }
-
-  // 1. Create detached tmux session running claude
+  // 1. Create detached tmux session running claude.
+  // tmux new-session takes a single shell-command string, so we must
+  // shell-escape each arg and join them into one string.
+  const shellCmd = claudeArgs.map(a => "'" + a.replace(/'/g, "'\\''") + "'").join(' ');
   execFileSync('tmux', [
     'new-session', '-d', '-s', tmuxName,
     '-x', '120', '-y', '30',
     '-c', cwd,
-    ...claudeArgs,
+    shellCmd,
   ], { timeout: 10_000 });
 
   // 2. Attach node-pty to the tmux session (for WebSocket I/O)

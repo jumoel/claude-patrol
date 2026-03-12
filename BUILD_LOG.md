@@ -1,5 +1,26 @@
 # Build Log
 
+## 2026-03-12 - Interactive setup wizard via web UI
+
+Replaced the "edit JSON manually" first-run experience with a 3-step web wizard for configuring poll targets and interval. Accessible via Settings button for reconfiguration.
+
+**What changed:**
+- `src/config.js` - removed empty poll target validation, added `isConfigured()` and `getConfigPath()` exports
+- `src/index.js` - server starts with empty config instead of exiting, conditional poller start, emits `local-change` SSE on config change, updates TUI header on config change
+- `src/routes/config.js` - added `needs_setup` to GET response, added POST `/api/config` endpoint for writing config
+- `src/routes/setup.js` (new) - backend endpoints for GitHub account/repo discovery via `gh` CLI (`/api/setup/accounts`, `/api/setup/repos`)
+- `src/server.js` - registered setup routes
+- `src/poller.js` - tracks `lastTargetsKey` to skip immediate re-poll when only interval changes
+- `frontend/src/App.jsx` - setup mode detection, `#/setup` hash route, Settings button prop
+- `frontend/src/components/SetupMode/SetupMode.jsx` (new) - 3-step wizard: accounts (checkboxes with avatars) -> repos (all/pick per account with lazy-loaded lists) -> settings (preset interval buttons + custom input). Pre-populates from existing config.
+- `frontend/src/components/SetupMode/SetupMode.module.css` (new) - step indicator, preset buttons, settings card styles
+- `frontend/src/components/AppShell/AppShell.jsx` - added Settings button with sliders icon
+- `frontend/src/lib/api.js` - added `saveConfig()`, `fetchSetupAccounts()`, `fetchSetupRepos()`
+- `frontend/src/hooks/usePRs.js` - re-fetches config on `local-change` SSE events, sets countdown directly to new interval
+
+**Why:**
+- First-run required editing JSON by hand - not a real onboarding experience. The wizard discovers GitHub accounts/repos via `gh` on the backend and presents checkboxes in the browser. Reconfiguration is accessible from the dashboard header at any time.
+
 ## 2026-03-12 - Fix xterm.js rendering: WebGL renderer, Unicode 15 graphemes, stale session cleanup
 
 Added xterm.js addons to fix emoji rendering gaps and improve terminal performance. Also fixed stale sessions surviving server restarts.
@@ -15,7 +36,6 @@ Added xterm.js addons to fix emoji rendering gaps and improve terminal performan
 - The DOM renderer has known limitations with glyph rendering. The WebGL renderer is GPU-accelerated and produces tighter, cleaner cells.
 - The stale session bug caused terminals to show reconnect loops after server restarts because `cleanupOrphanedSessions()` only cleaned `'active'` sessions while the frontend queries both `'active'` and `'detached'`.
 
-![Terminal with WebGL renderer and Unicode 15 graphemes](screenshots/terminal-webgl-unicode.png)
 
 ## 2026-03-12 - Switch from ghostty-web to xterm.js (GitHub master)
 

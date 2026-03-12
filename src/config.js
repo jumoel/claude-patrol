@@ -43,10 +43,6 @@ function validate(cfg) {
   if (!Array.isArray(cfg.poll.repos)) {
     throw new Error('Config field "poll.repos" must be an array');
   }
-  if (cfg.poll.orgs.length === 0 && cfg.poll.repos.length === 0) {
-    throw new Error('Config must specify at least one entry in poll.orgs or poll.repos');
-  }
-
   if (typeof cfg.poll.interval_seconds !== 'number' || cfg.poll.interval_seconds < 5) {
     throw new Error('Config field "poll.interval_seconds" must be a number >= 5');
   }
@@ -80,6 +76,23 @@ export function ensureConfig() {
   };
   writeFileSync(CONFIG_PATH, JSON.stringify(template, null, 2) + '\n');
   return false;
+}
+
+/**
+ * Check whether the config has any poll targets configured.
+ * @param {Record<string, unknown>} cfg
+ * @returns {boolean}
+ */
+export function isConfigured(cfg) {
+  return cfg.poll.orgs.length > 0 || cfg.poll.repos.length > 0;
+}
+
+/**
+ * Get the resolved config file path.
+ * @returns {string}
+ */
+export function getConfigPath() {
+  return CONFIG_PATH;
 }
 
 export function loadConfig() {

@@ -486,6 +486,7 @@ function adoptScratchWorkspaces() {
 
 /** @type {ReturnType<typeof setInterval> | null} */
 let intervalHandle = null;
+let lastTargetsKey = null;
 
 /**
  * Start the polling loop.
@@ -493,14 +494,19 @@ let intervalHandle = null;
  */
 export function startPoller(config) {
   stopPoller();
-  const targets = [
+  const targetsKey = [
     ...config.poll.orgs.map(o => `org:${o}`),
     ...config.poll.repos.map(r => `repo:${r}`),
-  ].join(', ');
+  ].sort().join(',');
+  const targets = targetsKey.replace(/,/g, ', ');
   console.log(`[poller] Starting - polling ${targets} every ${config.poll.interval_seconds}s`);
 
-  // Run immediately, then on interval
-  pollOnce(config).catch(err => console.error(`[poller] Poll failed: ${err.message}`));
+  // Only poll immediately if the targets changed (or first start)
+  const targetsChanged = targetsKey !== lastTargetsKey;
+  lastTargetsKey = targetsKey;
+  if (targetsChanged) {
+    pollOnce(config).catch(err => console.error(`[poller] Poll failed: ${err.message}`));
+  }
   intervalHandle = setInterval(
     () => pollOnce(config).catch(err => console.error(`[poller] Poll failed: ${err.message}`)),
     config.poll.interval_seconds * 1000,

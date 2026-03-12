@@ -1,0 +1,217 @@
+@reference "tailwindcss";
+
+.container {
+  @apply flex flex-col gap-4;
+}
+
+.header {
+  @apply flex items-baseline gap-4 flex-wrap;
+}
+
+.title {
+  @apply text-lg font-semibold text-gray-900;
+}
+
+.subtitle {
+  @apply text-sm text-gray-500 mt-0.5;
+}
+
+.backBtn {
+  @apply ml-auto px-3 py-1.5 text-sm font-medium text-gray-600 bg-gray-100 border border-gray-200 rounded-md hover:bg-gray-200 cursor-pointer;
+}
+
+.list {
+  @apply flex flex-col bg-white border border-gray-200 rounded-lg overflow-hidden;
+}
+
+.accountRow {
+  @apply flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-gray-50 transition-colors;
+}
+
+.accountRow + .accountRow {
+  @apply border-t border-gray-100;
+}
+
+.checkbox {
+  @apply w-4 h-4 rounded border-gray-300 text-blue-600 accent-blue-600 cursor-pointer;
+}
+
+.avatar {
+  @apply w-8 h-8 rounded-full;
+}
+
+.avatarSmall {
+  @apply w-5 h-5 rounded-full;
+}
+
+.accountName {
+  @apply text-sm font-medium text-gray-900;
+}
+
+.badge {
+  @apply text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 font-medium;
+}
+
+.actions {
+  @apply flex gap-3 justify-end;
+}
+
+.primaryBtn {
+  @apply px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed;
+}
+
+.secondaryBtn {
+  @apply px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 cursor-pointer;
+}
+
+.retryBtn {
+  @apply px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 cursor-pointer;
+}
+
+.loadingText {
+  @apply text-sm text-gray-500 py-8 text-center;
+}
+
+.errorCard {
+  @apply bg-white border border-red-200 rounded-lg p-6 text-center;
+}
+
+.errorText {
+  @apply text-sm text-red-600 mb-3;
+}
+
+.inlineError {
+  @apply text-sm text-red-600;
+}
+
+.emptyText {
+  @apply text-sm text-gray-400 px-4 py-3;
+}
+
+/* Repo selection per account */
+.repoSection {
+  @apply border-b border-gray-100 last:border-b-0;
+}
+
+.repoSectionHeader {
+  @apply flex items-center gap-3 px-4 py-3;
+}
+
+.modeToggle {
+  @apply ml-auto flex rounded-md overflow-hidden border border-gray-200;
+}
+
+.modeBtn {
+  @apply px-3 py-1 text-xs font-medium text-gray-600 bg-white cursor-pointer hover:bg-gray-50 transition-colors;
+}
+
+.modeBtn + .modeBtn {
+  @apply border-l border-gray-200;
+}
+
+.modeBtnActive {
+  @apply bg-blue-50 text-blue-700;
+}
+
+.intervalRow {
+  @apply flex items-center gap-3;
+}
+
+.intervalLabel {
+  @apply text-sm font-medium text-gray-700;
+}
+
+.intervalInput {
+  @apply flex items-center gap-2;
+}
+
+.numberInput {
+  @apply w-20 px-2 py-1.5 text-sm border border-gray-300 rounded-md bg-white text-right;
+}
+
+.intervalUnit {
+  @apply text-sm text-gray-500;
+}
+
+.repoList {
+  @apply pl-8 pb-2 max-h-64 overflow-y-auto;
+}
+
+.repoRow {
+  @apply flex items-center gap-2.5 px-4 py-1.5 cursor-pointer hover:bg-gray-50 rounded transition-colors;
+}
+
+.repoName {
+  @apply text-sm text-gray-800;
+}
+
+.repoDesc {
+  @apply text-xs text-gray-400 truncate;
+  max-width: 24rem;
+}
+
+/* Step indicator */
+.steps {
+  @apply flex gap-2 items-center;
+}
+
+.step {
+  @apply flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium text-gray-400 bg-gray-50 border border-gray-200 transition-colors;
+}
+
+.stepActive {
+  @apply text-blue-700 bg-blue-50 border-blue-200;
+}
+
+.stepDone {
+  @apply text-green-700 bg-green-50 border-green-200;
+}
+
+.stepNumber {
+  @apply w-4 h-4 flex items-center justify-center text-[10px] font-bold rounded-full bg-gray-200 text-gray-500;
+}
+
+.stepActive .stepNumber {
+  @apply bg-blue-200 text-blue-700;
+}
+
+.stepDone .stepNumber {
+  @apply bg-green-200 text-green-700;
+}
+
+.stepLabel {
+  @apply leading-none;
+}
+
+/* Settings step */
+.settingsCard {
+  @apply bg-white border border-gray-200 rounded-lg p-5;
+}
+
+.settingsLabel {
+  @apply text-sm font-medium text-gray-900;
+}
+
+.settingsHint {
+  @apply text-xs text-gray-500 mt-1 mb-3;
+}
+
+.presets {
+  @apply flex flex-wrap gap-2 mb-3;
+}
+
+.presetBtn {
+  @apply px-3 py-1.5 text-sm font-medium text-gray-600 bg-gray-50 border border-gray-200 rounded-md cursor-pointer hover:bg-gray-100 transition-colors;
+}
+
+.presetBtnActive {
+  @apply bg-blue-50 text-blue-700 border-blue-200;
+}
+
+.customInterval {
+  @apply flex items-center gap-2;
+}
+
+.customLabel {
+  @apply text-sm text-gray-500;
+}

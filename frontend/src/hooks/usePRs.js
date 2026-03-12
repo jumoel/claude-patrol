@@ -78,6 +78,14 @@ export function usePRs(filters) {
       loadPRs();
     });
     source.addEventListener('local-change', () => {
+      // Re-fetch config so interval is up-to-date for the next sync
+      fetchConfig().then(cfg => {
+        setPollInterval(cfg.poll.interval_seconds);
+        pollIntervalRef.current = cfg.poll.interval_seconds;
+        // Set countdown to the new interval directly - the poller just
+        // restarted and will sync soon, so treat it as a fresh cycle
+        setCountdown(cfg.poll.interval_seconds);
+      }).catch(() => {});
       loadPRs();
     });
     source.onerror = () => {

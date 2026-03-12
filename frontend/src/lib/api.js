@@ -220,3 +220,48 @@ export async function fetchSessionTranscript(sessionId) {
   if (!res.ok) throw new Error(`Failed to fetch transcript: ${res.status}`);
   return res.json();
 }
+
+/**
+ * Save config (poll targets).
+ * @param {{ poll: { orgs: string[], repos: string[], interval_seconds: number } }} config
+ * @returns {Promise<{ok: boolean}>}
+ */
+export async function saveConfig(config) {
+  const res = await fetch(`${BASE}/api/config`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(config),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || `Failed to save config: ${res.status}`);
+  }
+  return res.json();
+}
+
+/**
+ * Fetch GitHub accounts (personal + orgs) for setup.
+ * @returns {Promise<{accounts: Array<{login: string, type: string, avatar_url: string}>}>}
+ */
+export async function fetchSetupAccounts() {
+  const res = await fetch(`${BASE}/api/setup/accounts`);
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || `Failed to fetch accounts: ${res.status}`);
+  }
+  return res.json();
+}
+
+/**
+ * Fetch repos for a GitHub account.
+ * @param {string} account
+ * @returns {Promise<{repos: Array<{name: string, nameWithOwner: string, description: string}>}>}
+ */
+export async function fetchSetupRepos(account) {
+  const res = await fetch(`${BASE}/api/setup/repos?account=${encodeURIComponent(account)}`);
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || `Failed to fetch repos: ${res.status}`);
+  }
+  return res.json();
+}
