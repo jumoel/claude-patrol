@@ -15,8 +15,12 @@ import { initTui, destroyTui, setHeader } from './tui.js';
  * @param {{ open?: boolean, noOpen?: boolean }} [options]
  */
 export async function startServer(options = {}) {
+  // --port <number> overrides config.port and skips the single-instance check
+  const portFlagIdx = process.argv.indexOf('--port');
+  const portOverride = portFlagIdx !== -1 ? Number(process.argv[portFlagIdx + 1]) : null;
+
   const isReattachEarly = options.reattach || process.argv.includes('--reattach');
-  if (!isReattachEarly) {
+  if (!isReattachEarly && !portOverride) {
     const status = isRunning();
     if (status.running) {
       console.error(`[claude-patrol] Already running (pid ${status.pid}, port ${status.port}). Use "claude-patrol stop" to stop it.`);
@@ -56,7 +60,7 @@ export async function startServer(options = {}) {
   startHealthChecks();
 
   const server = await createServer();
-  let port = config.port;
+  let port = portOverride || config.port;
   for (let attempt = 0; attempt < 10; attempt++) {
     try {
       await server.listen({ port, host: '0.0.0.0' });

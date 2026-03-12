@@ -1,5 +1,22 @@
 # Build Log
 
+## 2026-03-12 - Fix xterm.js rendering: WebGL renderer, Unicode 15 graphemes, stale session cleanup
+
+Added xterm.js addons to fix emoji rendering gaps and improve terminal performance. Also fixed stale sessions surviving server restarts.
+
+**What changed:**
+- `frontend/package.json` - added `@xterm/addon-unicode-graphemes` and `@xterm/addon-webgl` (vendored local packages)
+- `frontend/src/components/Terminal/Terminal.jsx` - load UnicodeGraphemesAddon (Unicode 15 with grapheme cluster support for proper emoji width), WebglAddon (GPU-accelerated rendering with custom box-drawing glyphs), added `allowProposedApi` and `rescaleOverlappingGlyphs` terminal options
+- `src/pty-manager.js` - `cleanupOrphanedSessions()` now also cleans `'detached'` sessions (previously only `'active'`), preventing stale sessions from persisting across server restarts
+- `src/index.js` - added `--port` CLI flag to override config port and skip single-instance check
+
+**Why:**
+- xterm.js defaults to Unicode 6 width tables where emoji are single-cell-wide, creating visible gaps between characters in the Claude crab mascot. The unicode-graphemes addon provides Unicode 15 tables with proper double-width emoji and ZWJ sequence support.
+- The DOM renderer has known limitations with glyph rendering. The WebGL renderer is GPU-accelerated and produces tighter, cleaner cells.
+- The stale session bug caused terminals to show reconnect loops after server restarts because `cleanupOrphanedSessions()` only cleaned `'active'` sessions while the frontend queries both `'active'` and `'detached'`.
+
+![Terminal with WebGL renderer and Unicode 15 graphemes](screenshots/terminal-webgl-unicode.png)
+
 ## 2026-03-12 - Switch from ghostty-web to xterm.js (GitHub master)
 
 Replaced `ghostty-web` with `@xterm/xterm` + `@xterm/addon-fit` built from the xterm.js GitHub master branch. The latest npm release (6.0.0) is from December 2024 with 15+ months of unreleased fixes on master, so we vendor-build from source.

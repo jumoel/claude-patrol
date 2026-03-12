@@ -13,6 +13,8 @@
     "@tanstack/react-table": "^8.21.3",
     "@xterm/xterm": "file:../vendor/xterm.js",
     "@xterm/addon-fit": "file:../vendor/xterm.js/addons/addon-fit",
+    "@xterm/addon-unicode-graphemes": "file:../vendor/xterm.js/addons/addon-unicode-graphemes",
+    "@xterm/addon-webgl": "file:../vendor/xterm.js/addons/addon-webgl",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "tailwindcss": "^4.2.1"

@@ -1,6 +1,8 @@
 import { useEffect, useRef } from 'react';
 import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
+import { UnicodeGraphemesAddon } from '@xterm/addon-unicode-graphemes';
+import { WebglAddon } from '@xterm/addon-webgl';
 import '@xterm/xterm/css/xterm.css';
 import styles from './Terminal.module.css';
 
@@ -26,9 +28,11 @@ export function Terminal({ wsUrl, wsRef: externalWsRef, focus }) {
     let reconnectTimer = null;
 
     const term = new XTerm({
+      allowProposedApi: true,
       cursorBlink: true,
-      fontSize: 13,
+      fontSize: 16,
       fontFamily: '"JetBrains Mono", "Fira Code", Menlo, Monaco, "Courier New", monospace',
+      rescaleOverlappingGlyphs: true,
       theme: {
         background: '#1a1b26',
         foreground: '#a9b1d6',
@@ -40,6 +44,21 @@ export function Terminal({ wsUrl, wsRef: externalWsRef, focus }) {
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
     term.open(containerRef.current);
+
+    // Unicode 15 with grapheme cluster support - makes emoji double-width,
+    // handles compound emoji, skin tones, ZWJ sequences
+    const unicodeAddon = new UnicodeGraphemesAddon();
+    term.loadAddon(unicodeAddon);
+
+    // GPU-accelerated renderer with custom box-drawing/powerline glyphs
+    try {
+      const webglAddon = new WebglAddon({ customGlyphs: true });
+      webglAddon.onContextLoss(() => webglAddon.dispose());
+      term.loadAddon(webglAddon);
+    } catch {
+      // WebGL not available, fall back to DOM renderer
+    }
+
     fitAddon.fit();
     term.focus();
 

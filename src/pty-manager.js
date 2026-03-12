@@ -88,7 +88,7 @@ const sessions = new Map();
 export function cleanupOrphanedSessions() {
   const db = getDb();
   const now = new Date().toISOString();
-  db.prepare("UPDATE sessions SET status = 'killed', ended_at = ? WHERE status = 'active'").run(now);
+  db.prepare("UPDATE sessions SET status = 'killed', ended_at = ? WHERE status IN ('active', 'detached')").run(now);
 }
 
 /**

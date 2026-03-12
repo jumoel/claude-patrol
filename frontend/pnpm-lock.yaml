@@ -17,6 +17,12 @@ importers:
       '@xterm/addon-fit':
         specifier: file:../vendor/xterm.js/addons/addon-fit
         version: file:../vendor/xterm.js/addons/addon-fit
+      '@xterm/addon-unicode-graphemes':
+        specifier: file:../vendor/xterm.js/addons/addon-unicode-graphemes
+        version: file:../vendor/xterm.js/addons/addon-unicode-graphemes
+      '@xterm/addon-webgl':
+        specifier: file:../vendor/xterm.js/addons/addon-webgl
+        version: file:../vendor/xterm.js/addons/addon-webgl
       '@xterm/xterm':
         specifier: file:../vendor/xterm.js
         version: file:../vendor/xterm.js
@@ -548,6 +554,12 @@ packages:
 
   '@xterm/addon-fit@file:../vendor/xterm.js/addons/addon-fit':
     resolution: {directory: ../vendor/xterm.js/addons/addon-fit, type: directory}
+
+  '@xterm/addon-unicode-graphemes@file:../vendor/xterm.js/addons/addon-unicode-graphemes':
+    resolution: {directory: ../vendor/xterm.js/addons/addon-unicode-graphemes, type: directory}
+
+  '@xterm/addon-webgl@file:../vendor/xterm.js/addons/addon-webgl':
+    resolution: {directory: ../vendor/xterm.js/addons/addon-webgl, type: directory}
 
   '@xterm/xterm@file:../vendor/xterm.js':
     resolution: {directory: ../vendor/xterm.js, type: directory}
@@ -1222,6 +1234,10 @@ snapshots:
       - supports-color
 
   '@xterm/addon-fit@file:../vendor/xterm.js/addons/addon-fit': {}
+
+  '@xterm/addon-unicode-graphemes@file:../vendor/xterm.js/addons/addon-unicode-graphemes': {}
+
+  '@xterm/addon-webgl@file:../vendor/xterm.js/addons/addon-webgl': {}
 
   '@xterm/xterm@file:../vendor/xterm.js': {}
 
