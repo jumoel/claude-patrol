@@ -1,6 +1,7 @@
 /**
- * Watch mode: runs the backend server and `vite build --watch` concurrently,
- * interleaving their output with prefixed labels.
+ * Watch mode: runs the backend server and `vite build --watch` concurrently.
+ * Vite output is prefixed with [vite]; the server inherits stdio directly so
+ * the TUI works (raw mode, cursor positioning, etc.).
  *
  * Backend file changes trigger a server restart with --reattach, which
  * preserves active terminal sessions (tmux sessions survive, node-pty
@@ -57,20 +58,24 @@ function startServer(reattach) {
 
   server = spawn('node', args, {
     cwd: ROOT,
-    stdio: ['inherit', 'pipe', 'pipe'],
+    stdio: 'inherit',
     env: { ...process.env },
   });
-  pipeWithPrefix(server.stdout, 'server', 'yellow');
-  pipeWithPrefix(server.stderr, 'server', 'yellow');
 
   server.on('exit', (code) => {
+    server = null;
     if (serverExitedIntentionally) {
       serverExitedIntentionally = false;
       return;
     }
-    // Unexpected exit
+    // Exit code 0 means clean shutdown (e.g. Ctrl-C) - exit watch too
+    if (code === 0) {
+      vite.kill('SIGTERM');
+      setTimeout(() => process.exit(0), 1000);
+      return;
+    }
+    if (code === null) return; // killed by signal during cleanup
     console.log(`\n${prefix('watch', 'magenta')}Server crashed (exit ${code}), waiting for file changes to restart...`);
-    server = null;
   });
 }
 
