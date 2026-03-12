@@ -389,21 +389,18 @@ function CheckRow({ check, prId }) {
   const status = checkToStatus(check);
   const dotClass = DOT_STYLES[status] || styles.dotPending;
   const isFailed = isFailedCheck(check);
-  const [logData, setLogData] = useState(null);
+  const [jobLogs, setJobLogs] = useState(null);
   const [logLoading, setLogLoading] = useState(false);
   const [logError, setLogError] = useState(null);
   const [showLog, setShowLog] = useState(false);
 
   const handleViewLog = useCallback(async () => {
-    setShowLog(prev => {
-      if (prev) return false; // toggle off
-      return true;
-    });
+    setShowLog(prev => !prev);
   }, []);
 
   // Fetch log data when first shown
   useEffect(() => {
-    if (!showLog || logData || logLoading || logError) return;
+    if (!showLog || jobLogs || logLoading || logError) return;
 
     const match = check.url?.match(/\/actions\/runs\/(\d+)/);
     if (!match) { setLogError('No run ID found in check URL'); return; }
@@ -411,14 +408,15 @@ function CheckRow({ check, prId }) {
     setLogLoading(true);
     fetchCheckLogs(prId, match[1])
       .then(data => {
-        const jobLog = data.logs?.[0];
-        if (jobLog?.error) setLogError(jobLog.error);
-        else if (jobLog) setLogData(jobLog);
+        const validLogs = data.logs?.filter(l => !l.error) ?? [];
+        const errors = data.logs?.filter(l => l.error).map(l => l.error) ?? [];
+        if (validLogs.length > 0) setJobLogs(validLogs);
+        else if (errors.length > 0) setLogError(errors.join('; '));
         else setLogError('No log data returned');
       })
       .catch(err => setLogError(err.message))
       .finally(() => setLogLoading(false));
-  }, [showLog, logData, logLoading, logError, check.url, prId]);
+  }, [showLog, jobLogs, logLoading, logError, check.url, prId]);
 
   return (
     <div>
@@ -442,10 +440,21 @@ function CheckRow({ check, prId }) {
           <StatusBadge status={status} type="ci" />
         </div>
       </div>
-      {showLog && (
+      {showLog && jobLogs?.map((job, i) => (
+        <div key={i}>
+          {jobLogs.length > 1 && <div className={styles.jobLogLabel}>{job.job || `Job ${i + 1}`}</div>}
+          <CheckLogViewer
+            log={job.log}
+            truncated={job.truncated}
+            loading={false}
+            error={null}
+          />
+        </div>
+      ))}
+      {showLog && !jobLogs && (
         <CheckLogViewer
-          log={logData?.log}
-          truncated={logData?.truncated}
+          log={null}
+          truncated={false}
           loading={logLoading}
           error={logError}
         />

@@ -131,6 +131,10 @@
   @apply px-2 py-1 text-sm font-medium text-gray-500 bg-gray-50 border border-gray-200 rounded hover:bg-gray-100 transition-colors cursor-pointer;
 }
 
+.jobLogLabel {
+  @apply text-xs font-medium text-gray-500 px-3 pt-2 pb-1;
+}
+
 .dotPass {
   @apply bg-green-500;
 }
