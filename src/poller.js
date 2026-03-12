@@ -484,6 +484,33 @@ function adoptScratchWorkspaces() {
   }
 }
 
+/**
+ * Remove PRs from the DB that belong to orgs/repos no longer in the config.
+ * Runs when targets change to avoid stale data from removed targets.
+ * @param {object} config
+ */
+async function cleanupRemovedTargets(config) {
+  const db = getDb();
+  const orgSet = new Set(config.poll.orgs);
+  const repoSet = new Set(config.poll.repos);
+
+  // Find all distinct org/repo combos in the DB
+  const dbEntries = db.prepare('SELECT DISTINCT org, repo FROM prs').all();
+  for (const { org, repo } of dbEntries) {
+    const fullRepo = `${org}/${repo}`;
+    // Keep if the org is polled, or the specific repo is polled
+    if (orgSet.has(org) || repoSet.has(fullRepo)) continue;
+
+    // This org/repo combo is no longer monitored - clean it up
+    const staleRows = db.prepare('SELECT id FROM prs WHERE org = ? AND repo = ?').all(org, repo);
+    for (const row of staleRows) {
+      await cleanupStalePR(row.id, config);
+    }
+    db.prepare('DELETE FROM prs WHERE org = ? AND repo = ?').run(org, repo);
+    console.log(`[poller] Cleaned up ${staleRows.length} stale PR(s) from ${fullRepo} (no longer monitored)`);
+  }
+}
+
 /** @type {ReturnType<typeof setInterval> | null} */
 let intervalHandle = null;
 let lastTargetsKey = null;
@@ -505,6 +532,7 @@ export function startPoller(config) {
   const targetsChanged = targetsKey !== lastTargetsKey;
   lastTargetsKey = targetsKey;
   if (targetsChanged) {
+    cleanupRemovedTargets(config).catch(err => console.error(`[poller] Cleanup failed: ${err.message}`));
     pollOnce(config).catch(err => console.error(`[poller] Poll failed: ${err.message}`));
   }
   intervalHandle = setInterval(

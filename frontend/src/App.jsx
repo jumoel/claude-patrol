@@ -58,16 +58,20 @@ export default function App() {
   const toggleTerminal = useCallback(() => setTerminalOpen(prev => !prev), []);
   const { prs: allPRs, syncedAt, loading, error, syncing, countdown, triggerSync } = usePRs(NO_FILTERS);
   const [scratchWorkspaces, setScratchWorkspaces] = useState([]);
+  const [updateAvailable, setUpdateAvailable] = useState(false);
+  const [commitsBehind, setCommitsBehind] = useState(0);
 
-  // Check if setup is needed on mount
+  // Check if setup is needed + update status (re-check on each sync)
   useEffect(() => {
     fetchConfig()
       .then(cfg => {
-        setNeedsSetup(cfg.needs_setup);
-        if (cfg.needs_setup) setShowSetup(true);
+        setNeedsSetup(prev => prev === null ? cfg.needs_setup : prev);
+        if (cfg.needs_setup && needsSetup === null) setShowSetup(true);
+        setUpdateAvailable(cfg.update_available || false);
+        setCommitsBehind(cfg.commits_behind || 0);
       })
-      .catch(() => setNeedsSetup(false));
-  }, []);
+      .catch(() => { if (needsSetup === null) setNeedsSetup(false); });
+  }, [syncedAt]);
 
   // Fetch scratch workspaces (refresh when PRs sync)
   useEffect(() => {
@@ -141,8 +145,11 @@ export default function App() {
 
   if (needsSetup === null) return null; // still loading config
 
+  // ?update=1 forces the update banner visible for testing
+  const forceUpdate = new URLSearchParams(window.location.search).get('update') === '1';
+
   return (
-    <AppShell title="Claude Patrol" syncTime={syncTime} nextSync={nextSync} syncing={syncing} onSync={triggerSync} terminalOpen={terminalOpen} onToggleTerminal={toggleTerminal} onSetup={() => { window.location.hash = '/setup'; }}>
+    <AppShell title="Claude Patrol" syncTime={syncTime} nextSync={nextSync} syncing={syncing} onSync={triggerSync} terminalOpen={terminalOpen} onToggleTerminal={toggleTerminal} onSetup={() => { window.location.hash = '/setup'; }} updateAvailable={updateAvailable || forceUpdate} commitsBehind={commitsBehind || (forceUpdate ? 3 : 0)}>
       {showSetup ? (
         <SetupMode onConfigured={handleConfigured} isFirstRun={needsSetup === true} />
       ) : selectedPR ? (

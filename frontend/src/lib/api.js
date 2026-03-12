@@ -265,3 +265,16 @@ export async function fetchSetupRepos(account) {
   }
   return res.json();
 }
+
+/**
+ * Trigger git pull to update claude-patrol.
+ * @returns {Promise<{ok: boolean, output?: string}>}
+ */
+export async function triggerUpdate() {
+  const res = await fetch(`${BASE}/api/update`, { method: 'POST' });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || `Update failed: ${res.status}`);
+  }
+  return res.json();
+}

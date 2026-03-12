@@ -1,11 +1,31 @@
+import { useState } from 'react';
+import { triggerUpdate } from '../../lib/api.js';
 import styles from './AppShell.module.css';
 import logoSvg from '../../assets/logo.svg';
 
 /**
  * Top-level layout shell. Provides page structure, header, and content area.
- * @param {{ title: string, syncTime: string, nextSync: string, syncing: boolean, onSync: () => void, children: React.ReactNode }} props
+ * @param {{ title: string, syncTime: string, nextSync: string, syncing: boolean, onSync: () => void, updateAvailable: boolean, commitsBehind: number, children: React.ReactNode }} props
  */
-export function AppShell({ title, syncTime, nextSync, syncing, onSync, terminalOpen, onToggleTerminal, onSetup, children }) {
+export function AppShell({ title, syncTime, nextSync, syncing, onSync, terminalOpen, onToggleTerminal, onSetup, updateAvailable, commitsBehind, children }) {
+  const [dismissed, setDismissed] = useState(false);
+  const [pulling, setPulling] = useState(false);
+  const [pullResult, setPullResult] = useState(null);
+  const showBanner = (updateAvailable || pullResult) && !dismissed;
+
+  const handlePull = async () => {
+    setPulling(true);
+    setPullResult(null);
+    try {
+      const result = await triggerUpdate();
+      setPullResult({ ok: true, output: result.output });
+    } catch (err) {
+      setPullResult({ ok: false, error: err.message });
+    } finally {
+      setPulling(false);
+    }
+  };
+
   return (
     <div className={styles.shell}>
       <header className={styles.header}>
@@ -65,6 +85,32 @@ export function AppShell({ title, syncTime, nextSync, syncing, onSync, terminalO
           </div>
         </div>
       </header>
+      {showBanner && (
+        <div className={`${styles.updateBanner} ${pullResult?.ok ? styles.updateBannerSuccess : ''}`}>
+          <div className={styles.updateBannerInner}>
+            <span className={styles.updateText}>
+              {pullResult?.ok ? (
+                <>Updated successfully. Restart the server to apply changes.</>
+              ) : pullResult?.ok === false ? (
+                <>Pull failed: {pullResult.error}</>
+              ) : (
+                <>
+                  Update available - {commitsBehind} new commit{commitsBehind !== 1 ? 's' : ''} on origin/main.
+                  {!pulling && (
+                    <button className={styles.updatePullBtn} onClick={handlePull}>
+                      Update now
+                    </button>
+                  )}
+                  {pulling && <span>Pulling...</span>}
+                </>
+              )}
+            </span>
+            <button className={styles.updateDismiss} onClick={() => setDismissed(true)} title="Dismiss">
+              ×
+            </button>
+          </div>
+        </div>
+      )}
       <main className={styles.content}>
         {children}
       </main>

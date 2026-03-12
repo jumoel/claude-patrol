@@ -1,5 +1,6 @@
 import { writeFileSync } from 'node:fs';
 import { getCurrentConfig, isConfigured, getConfigPath } from '../config.js';
+import { getUpdateStatus, pullUpdate } from '../update-check.js';
 
 /**
  * Register config endpoint (exposes non-sensitive config to frontend).
@@ -11,6 +12,7 @@ export function registerConfigRoutes(app) {
     return {
       poll: cfg.poll,
       needs_setup: !isConfigured(cfg),
+      ...getUpdateStatus(),
     };
   });
 
@@ -42,5 +44,13 @@ export function registerConfigRoutes(app) {
     } catch (err) {
       return reply.code(500).send({ error: `Failed to write config: ${err.message}` });
     }
+  });
+
+  app.post('/api/update', async (request, reply) => {
+    const result = await pullUpdate();
+    if (!result.ok) {
+      return reply.code(500).send({ error: result.error });
+    }
+    return { ok: true, output: result.output };
   });
 }

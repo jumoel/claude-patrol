@@ -8,6 +8,7 @@ import { cleanupOrphanedSessions, cleanupOrphanedTmuxSessions, reattachOrphanedS
 import { emitLocalChange } from './app-events.js';
 import { validateStartup } from './startup.js';
 import { startHealthChecks, stopHealthChecks } from './health.js';
+import { startUpdateChecks, stopUpdateChecks } from './update-check.js';
 import { writePid, removePid, isRunning } from './pid.js';
 import { initTui, destroyTui, setHeader } from './tui.js';
 
@@ -63,6 +64,7 @@ export async function startServer(options = {}) {
     console.log('[claude-patrol] No poll targets configured - skipping poller (setup mode)');
   }
   startHealthChecks();
+  startUpdateChecks();
 
   const server = await createServer();
   let port = portOverride || config.port;
@@ -164,6 +166,7 @@ export async function startServer(options = {}) {
     unwatchConfig();
     stopPoller();
     stopHealthChecks();
+    stopUpdateChecks();
     if (!isReattach) {
       killAllSessions();
     }
