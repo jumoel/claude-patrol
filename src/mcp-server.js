@@ -245,3 +245,4 @@ server.tool(
 
 const transport = new StdioServerTransport();
 await server.connect(transport);
+// MCP session tools
