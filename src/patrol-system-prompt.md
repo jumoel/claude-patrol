@@ -82,6 +82,17 @@ For multiple PRs with CI failures, use subagents to investigate each in parallel
 
 Use retrigger_checks to re-run failed CI checks for a PR. Useful after pushing a fix.
 
+- `check_name`: filter to specific checks by name substring (e.g. "smith-bench" to only retrigger smith-bench failures, not all failures)
+- `require_all_final`: set to true to refuse retriggering if any checks are still running/queued
+
+## Waiting for CI
+
+Use wait_for_checks to block until all CI checks on a PR reach a final state. This is useful when you need to wait for CI before taking action (e.g. retrigger specific failures only after all checks finish). The tool polls PR data and triggers syncs automatically.
+
+Example workflow: "when all checks finish, retrigger the failing smith-bench tests"
+1. wait_for_checks(pr_id) - blocks until all checks are final
+2. retrigger_checks(pr_id, check_name="smith-bench") - retriggers only matching failures
+
 ## Bulk operations
 
 - cleanup_workspaces: destroy workspaces matching PR conditions (e.g. ci="pass", mergeable="MERGEABLE")

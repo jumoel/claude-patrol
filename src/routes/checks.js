@@ -42,7 +42,7 @@ function extractRunIds(checks) {
  */
 export function registerCheckRoutes(app) {
   app.post('/api/checks/retrigger', async (request, reply) => {
-    const { pr_id } = request.body;
+    const { pr_id, check_name } = request.body;
     if (!pr_id) {
       return reply.code(400).send({ error: 'pr_id is required' });
     }
@@ -53,29 +53,74 @@ export function registerCheckRoutes(app) {
       return reply.code(404).send({ error: 'PR not found' });
     }
 
-    const failed = getFailedChecks(row);
+    let failed = getFailedChecks(row);
 
-    if (failed.length === 0) {
-      return { ok: true, retriggered: 0 };
+    // Optional: filter to checks matching a name pattern (case-insensitive substring)
+    if (check_name) {
+      const pattern = check_name.toLowerCase();
+      failed = failed.filter(c => c.name.toLowerCase().includes(pattern));
     }
 
-    const runIds = extractRunIds(failed);
+    if (failed.length === 0) {
+      return { ok: true, retriggered: 0, matched_checks: [] };
+    }
+
+    // Group failed checks by run ID so we can retrigger per-run
+    const runToChecks = new Map();
+    for (const check of failed) {
+      if (!check.url) continue;
+      const match = check.url.match(RUN_ID_RE);
+      if (!match) continue;
+      const runId = match[1];
+      if (!runToChecks.has(runId)) runToChecks.set(runId, []);
+      runToChecks.get(runId).push(check);
+    }
 
     const results = [];
-    for (const runId of runIds) {
+    for (const [runId, checks] of runToChecks) {
       try {
-        await execFile('gh', [
-          'run', 'rerun', runId,
-          '--failed',
-          '--repo', `${row.org}/${row.repo}`,
-        ]);
-        results.push({ run_id: runId, status: 'retriggered' });
+        // When filtering by name, we need to retrigger specific jobs.
+        // gh run rerun --job requires the job ID from the REST API.
+        if (check_name) {
+          const { stdout: jobsJson } = await execFile('gh', [
+            'api', `repos/${row.org}/${row.repo}/actions/runs/${runId}/jobs`,
+          ], { timeout: 30_000 });
+          const jobsData = JSON.parse(jobsJson);
+          const matchedJobs = (jobsData.jobs || []).filter(j =>
+            FAILED_JOB_CONCLUSIONS.has(j.conclusion) &&
+            checks.some(c => j.name.includes(c.name.split(' / ').pop()))
+          );
+          for (const job of matchedJobs) {
+            try {
+              await execFile('gh', [
+                'run', 'rerun', runId,
+                '--job', String(job.id),
+                '--repo', `${row.org}/${row.repo}`,
+              ]);
+              results.push({ run_id: runId, job_name: job.name, status: 'retriggered' });
+            } catch (err) {
+              results.push({ run_id: runId, job_name: job.name, status: 'error', message: err.stderr || err.message });
+            }
+          }
+        } else {
+          await execFile('gh', [
+            'run', 'rerun', runId,
+            '--failed',
+            '--repo', `${row.org}/${row.repo}`,
+          ]);
+          results.push({ run_id: runId, status: 'retriggered' });
+        }
       } catch (err) {
         results.push({ run_id: runId, status: 'error', message: err.stderr || err.message });
       }
     }
 
-    return { ok: true, retriggered: results.length, results };
+    return {
+      ok: true,
+      retriggered: results.filter(r => r.status === 'retriggered').length,
+      matched_checks: failed.map(c => c.name),
+      results,
+    };
   });
 
   app.get('/api/prs/:id/check-logs', async (request, reply) => {

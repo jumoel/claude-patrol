@@ -190,14 +190,41 @@ server.tool(
 
 server.tool(
   'retrigger_checks',
-  'Re-run failed CI checks for a PR.',
+  'Re-run failed CI checks for a PR. Optionally filter to specific checks by name pattern. Use require_all_final=true to only retrigger when no checks are still running or queued.',
   {
     pr_id: z.string().describe('PR database ID (e.g. "org/repo#42")'),
+    check_name: z.string().optional().describe('Only retrigger checks whose name contains this substring (case-insensitive). E.g. "smith-bench" to only retrigger smith-bench failures.'),
+    require_all_final: z.boolean().optional().describe('If true, refuse to retrigger unless all checks are in a final state (no running/queued checks). Prevents retriggering while CI is still in progress.'),
   },
-  async ({ pr_id }) => {
+  async ({ pr_id, check_name, require_all_final }) => {
+    // When require_all_final is set, check that no checks are still in progress
+    if (require_all_final) {
+      const pr = await api(`/api/prs/${encodeURIComponent(pr_id)}`);
+      const nonFinalStatuses = new Set(['IN_PROGRESS', 'QUEUED', 'WAITING', 'PENDING', 'REQUESTED']);
+      const stillRunning = (pr.checks || []).filter(c =>
+        c.status && nonFinalStatuses.has(c.status) && !c.conclusion
+      );
+      if (stillRunning.length > 0) {
+        const names = stillRunning.map(c => c.name).join(', ');
+        return {
+          content: [{
+            type: 'text',
+            text: JSON.stringify({
+              ok: false,
+              error: 'checks_still_running',
+              message: `${stillRunning.length} check(s) are not yet in a final state: ${names}`,
+              still_running: stillRunning.map(c => ({ name: c.name, status: c.status })),
+            }, null, 2),
+          }],
+        };
+      }
+    }
+
+    const body = { pr_id };
+    if (check_name) body.check_name = check_name;
     const data = await api('/api/checks/retrigger', {
       method: 'POST',
-      body: JSON.stringify({ pr_id }),
+      body: JSON.stringify(body),
     });
     return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] };
   },
@@ -240,6 +267,79 @@ server.tool(
   async ({ id }) => {
     const data = await api(`/api/prs/${encodeURIComponent(id)}/comments`);
     return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] };
+  },
+);
+
+const NON_FINAL_STATUSES = new Set(['IN_PROGRESS', 'QUEUED', 'WAITING', 'PENDING', 'REQUESTED']);
+
+server.tool(
+  'wait_for_checks',
+  'Wait until all CI checks on a PR reach a final state (no more running/queued checks). Polls the PR data at a configurable interval. Returns the final check summary. Useful before retriggering specific checks.',
+  {
+    pr_id: z.string().describe('PR database ID (e.g. "org/repo#42")'),
+    poll_seconds: z.number().optional().describe('Seconds between polls (default: 30, min: 10, max: 300)'),
+    timeout_minutes: z.number().optional().describe('Give up after this many minutes (default: 30, max: 120)'),
+  },
+  async ({ pr_id, poll_seconds, timeout_minutes }) => {
+    const interval = Math.max(10, Math.min(300, poll_seconds || 30)) * 1000;
+    const timeout = Math.max(1, Math.min(120, timeout_minutes || 30)) * 60 * 1000;
+    const deadline = Date.now() + timeout;
+
+    // Trigger a sync first so we have fresh data
+    await api('/api/sync/trigger', { method: 'POST' }).catch(() => {});
+
+    while (Date.now() < deadline) {
+      const pr = await api(`/api/prs/${encodeURIComponent(pr_id)}`);
+      const checks = pr.checks || [];
+      const stillRunning = checks.filter(c =>
+        c.status && NON_FINAL_STATUSES.has(c.status) && !c.conclusion
+      );
+
+      if (stillRunning.length === 0) {
+        const failed = checks.filter(c =>
+          ['FAILURE', 'ERROR', 'TIMED_OUT'].includes(c.conclusion)
+        );
+        const passed = checks.filter(c =>
+          ['SUCCESS', 'NEUTRAL', 'SKIPPED'].includes(c.conclusion)
+        );
+        return {
+          content: [{
+            type: 'text',
+            text: JSON.stringify({
+              ok: true,
+              all_final: true,
+              ci_status: pr.ci_status,
+              total: checks.length,
+              passed: passed.length,
+              failed: failed.length,
+              failed_checks: failed.map(c => c.name),
+            }, null, 2),
+          }],
+        };
+      }
+
+      // Wait before next poll, but trigger a sync first
+      await new Promise(r => setTimeout(r, interval));
+      await api('/api/sync/trigger', { method: 'POST' }).catch(() => {});
+    }
+
+    // Timed out
+    const pr = await api(`/api/prs/${encodeURIComponent(pr_id)}`);
+    const checks = pr.checks || [];
+    const stillRunning = checks.filter(c =>
+      c.status && NON_FINAL_STATUSES.has(c.status) && !c.conclusion
+    );
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify({
+          ok: false,
+          error: 'timeout',
+          message: `Timed out after ${timeout_minutes || 30} minutes. ${stillRunning.length} check(s) still running.`,
+          still_running: stillRunning.map(c => ({ name: c.name, status: c.status })),
+        }, null, 2),
+      }],
+    };
   },
 );
 
