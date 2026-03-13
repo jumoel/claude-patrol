@@ -159,6 +159,21 @@ export function initTui({ header = '', footer = '' } = {}) {
   // Redraw on terminal resize
   process.stdout.on('resize', render);
 
+  // Ensure terminal is restored even if process.exit() is called directly
+  // (e.g. by restartServer) without going through the graceful shutdown path.
+  process.on('exit', () => {
+    if (active) {
+      active = false;
+      if (origLog) console.log = origLog;
+      if (origWarn) console.warn = origWarn;
+      if (origError) console.error = origError;
+      process.stdout.write('\x1b[?25h'); // show cursor
+      if (process.stdin.isTTY && process.stdin.isRaw) {
+        try { process.stdin.setRawMode(false); } catch { /* ignore */ }
+      }
+    }
+  });
+
   render();
 }
 

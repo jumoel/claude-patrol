@@ -113,15 +113,34 @@ export function restartServer() {
   const entryPoint = join(REPO_DIR, 'src', 'index.js');
   restartPhase = { phase: 'building', started_at: new Date().toISOString() };
   console.log('[restart] Rebuilding frontend...');
-  // Rebuild frontend before starting new process - inherit stdio so build output is visible
+  // Capture build output and pipe through console.log so it appears in the TUI
   const build = spawn('pnpm', ['--filter', 'claude-patrol-frontend', 'build'], {
     cwd: REPO_DIR,
-    stdio: 'inherit',
+    stdio: ['ignore', 'pipe', 'pipe'],
     timeout: 60_000,
   });
+  const logLines = (stream, level) => {
+    let buffer = '';
+    stream.setEncoding('utf8');
+    stream.on('data', (chunk) => {
+      buffer += chunk;
+      const lines = buffer.split('\n');
+      buffer = lines.pop(); // keep incomplete last line
+      for (const line of lines) {
+        if (line.trim()) console[level](`[build] ${line}`);
+      }
+    });
+    stream.on('end', () => {
+      if (buffer.trim()) console[level](`[build] ${buffer}`);
+    });
+  };
+  logLines(build.stdout, 'log');
+  logLines(build.stderr, 'warn');
   build.on('close', (code) => {
     if (code !== 0) {
       console.warn(`[restart] Frontend build exited with code ${code}, starting anyway`);
+    } else {
+      console.log('[restart] Frontend build complete');
     }
     restartPhase = { phase: 'spawning', started_at: new Date().toISOString() };
     console.log('[restart] Spawning new server with --reattach...');
