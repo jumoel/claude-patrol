@@ -14,7 +14,7 @@ import styles from './PRTable.module.css';
  * PR data table with TanStack Table for sorting.
  * @param {{ prs: object[], onRowClick?: (prId: string) => void }} props
  */
-export function PRTable({ prs, onRowClick, sorting, onSortingChange }) {
+export function PRTable({ prs, onRowClick, sorting, onSortingChange, idleWorkspaces }) {
 
   const columns = useMemo(() => [
     {
@@ -51,9 +51,14 @@ export function PRTable({ prs, onRowClick, sorting, onSortingChange }) {
     {
       id: 'local',
       header: 'Local',
-      accessorFn: (row) => row.has_session ? 2 : row.has_workspace ? 1 : 0,
+      accessorFn: (row) => {
+        const idle = row.workspace_id && idleWorkspaces?.has(row.workspace_id);
+        return idle ? 3 : row.has_session ? 2 : row.has_workspace ? 1 : 0;
+      },
       cell: ({ row }) => {
         const pr = row.original;
+        const idle = pr.workspace_id && idleWorkspaces?.has(pr.workspace_id);
+        if (idle) return <span className={styles.idleBadge} title="Session needs attention">Needs attention</span>;
         if (pr.has_session) return <span className={styles.sessionBadge} title="Running session">Session</span>;
         if (pr.has_workspace) return <span className={styles.workspaceBadge} title="Active workspace">Workspace</span>;
         return null;
@@ -94,7 +99,7 @@ export function PRTable({ prs, onRowClick, sorting, onSortingChange }) {
       cell: ({ getValue }) => getRelativeTime(getValue()),
       meta: { alignRight: true },
     },
-  ], []);
+  ], [idleWorkspaces]);
 
   const table = useReactTable({
     data: prs,

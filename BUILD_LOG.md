@@ -1,5 +1,9 @@
 # Build Log
 
+## 2026-03-13 - Idle session indicator in PR table
+
+Added amber "Needs attention" badge to the Local column in the PR table when a PR's workspace session goes idle. Reuses the existing `idleWorkspaces` set from `useIdleNotification`. Badge pulses and auto-dismisses when the session resumes or the user navigates to the PR.
+
 ## 2026-03-13 - Browser notifications for idle terminal sessions
 
 Server-side idle detection tracks output silence per session and emits SSE events (`session-idle`, `session-active`) with workspace context. Frontend hook (`useIdleNotification`) fires browser notifications when any session goes idle and the tab is hidden. Bell icon button in the header for notification permission. Idle sessions surface as "Needs attention" pills in the cmd-k command palette, sorted to the top. Dismisses automatically when the session resumes output or when the user navigates to the PR/workspace.

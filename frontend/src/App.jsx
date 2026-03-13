@@ -249,7 +249,7 @@ export default function App() {
           <FilterBar prs={allPRs} filters={filters} onFilterChange={handleFilterChange} onCopyMarkdown={copyFilteredAsMarkdown} copied={copied} />
           {error && <p>{error}</p>}
           {loading && allPRs.length === 0 && <p>Loading...</p>}
-          <PRTable prs={filteredPRs} onRowClick={navigateToPR} sorting={sorting} onSortingChange={handleSortingChange} />
+          <PRTable prs={filteredPRs} onRowClick={navigateToPR} sorting={sorting} onSortingChange={handleSortingChange} idleWorkspaces={idleWorkspaces} />
           <ScratchWorkspaces prs={allPRs} syncedAt={syncedAt} />
         </>
       )}
