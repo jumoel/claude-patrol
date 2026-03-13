@@ -46,10 +46,54 @@ function applyFilters(prs, filters) {
 
 const NO_FILTERS = {};
 
+const FILTER_KEYS = ['org', 'repo', 'ci', 'review', 'mergeable', 'draft'];
+
+/** Parse filters and sorting from hash query string. */
+function parseHashParams() {
+  const hash = window.location.hash;
+  const qIdx = hash.indexOf('?');
+  if (qIdx === -1) return { filters: {}, sorting: [] };
+  const params = new URLSearchParams(hash.slice(qIdx + 1));
+  const filters = {};
+  for (const key of FILTER_KEYS) {
+    const val = params.get(key);
+    if (val) filters[key] = val.split(',');
+  }
+  if (params.get('needsWork') === '1') filters.needsWork = true;
+  const sorting = [];
+  const sortId = params.get('sort');
+  if (sortId) {
+    sorting.push({ id: sortId, desc: params.get('dir') === 'desc' });
+  }
+  return { filters, sorting };
+}
+
+/** Write filters and sorting into the hash query string, preserving the path. */
+function writeHashParams(filters, sorting) {
+  const hash = window.location.hash;
+  const qIdx = hash.indexOf('?');
+  const path = qIdx === -1 ? hash : hash.slice(0, qIdx);
+  const params = new URLSearchParams();
+  for (const key of FILTER_KEYS) {
+    if (filters[key]?.length) params.set(key, filters[key].join(','));
+  }
+  if (filters.needsWork) params.set('needsWork', '1');
+  if (sorting.length > 0) {
+    params.set('sort', sorting[0].id);
+    params.set('dir', sorting[0].desc ? 'desc' : 'asc');
+  }
+  const qs = params.toString();
+  const newHash = qs ? `${path || '#/'}?${qs}` : (path || '');
+  // Use replaceState to avoid polluting history with every filter/sort change
+  history.replaceState(null, '', qs ? newHash : (path || window.location.pathname));
+}
+
 export default function App() {
   const [needsSetup, setNeedsSetup] = useState(null); // null = loading, true/false
   const [showSetup, setShowSetup] = useState(false);
-  const [filters, setFilters] = useState({});
+  const initial = useMemo(() => parseHashParams(), []);
+  const [filters, setFilters] = useState(initial.filters);
+  const [sorting, setSorting] = useState(initial.sorting);
   const [selectedPR, setSelectedPR] = useState(null);
   const [selectedWorkspace, setSelectedWorkspace] = useState(null);
   const [terminalOpen, setTerminalOpen] = useState(false);
@@ -86,6 +130,20 @@ export default function App() {
       .catch(() => {});
   }, [syncedAt]);
 
+  // Sync filters + sorting to URL hash
+  const handleFilterChange = useCallback((newFilters) => {
+    setFilters(newFilters);
+    writeHashParams(newFilters, sorting);
+  }, [sorting]);
+
+  const handleSortingChange = useCallback((updater) => {
+    setSorting(prev => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      writeHashParams(filters, next);
+      return next;
+    });
+  }, [filters]);
+
   const filteredPRs = useMemo(() => applyFilters(allPRs, filters), [allPRs, filters]);
 
   const copyFilteredAsMarkdown = useCallback(() => {
@@ -103,22 +161,27 @@ export default function App() {
   useEffect(() => {
     const handleHash = () => {
       const hash = window.location.hash;
-      if (hash === '#/setup') {
+      const path = hash.split('?')[0];
+      if (path === '#/setup') {
         setShowSetup(true);
         setSelectedPR(null);
         setSelectedWorkspace(null);
-      } else if (hash.startsWith('#/pr/')) {
+      } else if (path.startsWith('#/pr/')) {
         setShowSetup(false);
-        setSelectedPR(decodeURIComponent(hash.slice(5)));
+        setSelectedPR(decodeURIComponent(path.slice(5)));
         setSelectedWorkspace(null);
-      } else if (hash.startsWith('#/workspace/')) {
+      } else if (path.startsWith('#/workspace/')) {
         setShowSetup(false);
-        setSelectedWorkspace(hash.slice(12));
+        setSelectedWorkspace(path.slice(12));
         setSelectedPR(null);
       } else {
         setShowSetup(needsSetup === true);
         setSelectedPR(null);
         setSelectedWorkspace(null);
+        // Restore filters + sorting from URL when returning to dashboard
+        const { filters: f, sorting: s } = parseHashParams();
+        setFilters(f);
+        setSorting(s);
       }
     };
     handleHash();
@@ -165,10 +228,10 @@ export default function App() {
       ) : (
         <>
           <DashboardSummary prCount={filteredPRs.length} syncedAt={syncedAt} />
-          <FilterBar prs={allPRs} filters={filters} onFilterChange={setFilters} onCopyMarkdown={copyFilteredAsMarkdown} copied={copied} />
+          <FilterBar prs={allPRs} filters={filters} onFilterChange={handleFilterChange} onCopyMarkdown={copyFilteredAsMarkdown} copied={copied} />
           {error && <p>{error}</p>}
           {loading && allPRs.length === 0 && <p>Loading...</p>}
-          <PRTable prs={filteredPRs} onRowClick={navigateToPR} />
+          <PRTable prs={filteredPRs} onRowClick={navigateToPR} sorting={sorting} onSortingChange={handleSortingChange} />
           <ScratchWorkspaces prs={allPRs} syncedAt={syncedAt} />
         </>
       )}

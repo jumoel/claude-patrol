@@ -4,7 +4,7 @@ import {
   getSortedRowModel,
   flexRender,
 } from '@tanstack/react-table';
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { StatusBadge } from '../StatusBadge/StatusBadge.jsx';
 import { getRelativeTime } from '../../lib/time.js';
 import { isMergeReady } from '../../lib/checks.js';
@@ -14,8 +14,7 @@ import styles from './PRTable.module.css';
  * PR data table with TanStack Table for sorting.
  * @param {{ prs: object[], onRowClick?: (prId: string) => void }} props
  */
-export function PRTable({ prs, onRowClick }) {
-  const [sorting, setSorting] = useState([]);
+export function PRTable({ prs, onRowClick, sorting, onSortingChange }) {
 
   const columns = useMemo(() => [
     {
@@ -101,7 +100,7 @@ export function PRTable({ prs, onRowClick }) {
     data: prs,
     columns,
     state: { sorting },
-    onSortingChange: setSorting,
+    onSortingChange,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
   });
