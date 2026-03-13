@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useSyncExternalStore } from 'react';
 import { triggerUpdate, triggerRestart } from '../../lib/api.js';
 import styles from './AppShell.module.css';
 import logoSvg from '../../assets/logo.svg';
@@ -6,12 +6,32 @@ import logoSvg from '../../assets/logo.svg';
 /**
  * Top-level layout shell. Provides page structure, header, and content area.
  */
+const hasNotificationApi = typeof window !== 'undefined' && 'Notification' in window;
+
+/** Reactive wrapper around Notification.permission (no native change event). */
+let permissionSnapshot = hasNotificationApi ? Notification.permission : 'denied';
+const permissionListeners = new Set();
+function subscribePermission(cb) { permissionListeners.add(cb); return () => permissionListeners.delete(cb); }
+function getPermission() { return permissionSnapshot; }
+function refreshPermission() {
+  if (!hasNotificationApi) return;
+  permissionSnapshot = Notification.permission;
+  for (const cb of permissionListeners) cb();
+}
+
 export function AppShell({ title, syncTime, nextSync, syncing, onSync, terminalOpen, onToggleTerminal, onSetup, updateAvailable, commitsBehind, restartNeeded, startupSha, currentSha, children }) {
   const [dismissed, setDismissed] = useState(false);
   const [pulling, setPulling] = useState(false);
   const [pullResult, setPullResult] = useState(null);
   const [restarting, setRestarting] = useState(false);
   const [restartPhase, setRestartPhase] = useState(null);
+  const notifPermission = useSyncExternalStore(subscribePermission, getPermission);
+
+  const handleRequestNotifications = useCallback(async () => {
+    if (!hasNotificationApi) return;
+    await Notification.requestPermission();
+    refreshPermission();
+  }, []);
   const showBanner = (updateAvailable || pullResult || restartNeeded) && !dismissed;
 
   const handlePull = async () => {
@@ -106,6 +126,18 @@ export function AppShell({ title, syncTime, nextSync, syncing, onSync, terminalO
               </svg>
               Global Claude
             </button>
+            {hasNotificationApi && (
+              <button
+                className={`${styles.notifyButton} ${notifPermission === 'granted' ? styles.notifyButtonActive : ''}`}
+                onClick={handleRequestNotifications}
+                title={notifPermission === 'granted' ? 'Notifications enabled' : notifPermission === 'denied' ? 'Notifications blocked - enable in browser settings' : 'Enable notifications'}
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+                  <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+                </svg>
+              </button>
+            )}
             {onSetup && (
               <button className={styles.settingsButton} onClick={onSetup}>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">

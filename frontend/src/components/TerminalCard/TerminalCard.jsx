@@ -97,7 +97,7 @@ export function TerminalCard({ session, title, onKill, onExit, onPopOut, onReatt
           </div>
         </div>
         <div className={shared.overlayContent}>
-          <Terminal wsUrl={`/ws/sessions/${session.id}`} wsRef={wsRef} onExit={handleExit} />
+          <Terminal wsUrl={`/ws/sessions/${session.id}`} sessionId={session.id} wsRef={wsRef} onExit={handleExit} />
         </div>
         <QuickActions onSend={handleSendCommand} />
       </div>
@@ -150,7 +150,7 @@ export function TerminalCard({ session, title, onKill, onExit, onPopOut, onReatt
       </div>
       <QuickActions onSend={handleSendCommand} />
       <div style={{ height: termHeight }}>
-        <Terminal wsUrl={`/ws/sessions/${session.id}`} wsRef={wsRef} onExit={handleExit} />
+        <Terminal wsUrl={`/ws/sessions/${session.id}`} sessionId={session.id} wsRef={wsRef} onExit={handleExit} />
       </div>
       <div className={shared.resizeHandle} {...handleProps}>
         <div className={shared.resizeGrip} />
