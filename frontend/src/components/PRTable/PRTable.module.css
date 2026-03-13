@@ -13,7 +13,7 @@
 }
 
 .draft {
-  @apply opacity-60;
+  border-left: 3px dashed #9ca3af;
 }
 
 .cell {
@@ -41,7 +41,7 @@
 }
 
 .draftLabel {
-  @apply ml-2 text-sm text-gray-400 italic;
+  @apply ml-2 text-xs font-medium px-2 py-0.5 text-gray-500 bg-gray-100 border border-gray-300 rounded-full;
 }
 
 .sessionBadge {
