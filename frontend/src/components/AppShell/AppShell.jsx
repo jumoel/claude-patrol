@@ -33,25 +33,28 @@ export function AppShell({ title, syncTime, nextSync, syncing, onSync, terminalO
     } catch {
       // Server is already shutting down, request may fail - that's expected
     }
-    // Poll until the new server is up (new SHA should differ from startup_sha)
+    // Poll until the new server is up, then reload to pick up the new frontend bundle.
+    // We wait for the server to go down first, then come back up.
+    let sawDown = false;
     const poll = setInterval(async () => {
       try {
         const res = await fetch('/api/config');
         if (res.ok) {
-          const cfg = await res.json();
-          // New server is up - if its startup_sha matches the current_sha we had, it restarted successfully
-          if (cfg.startup_sha !== startupSha) {
+          if (sawDown) {
+            // Server is back up after going down - restart complete
             clearInterval(poll);
             window.location.reload();
           }
+        } else {
+          sawDown = true;
         }
       } catch {
-        // Server still restarting
+        sawDown = true;
       }
-    }, 1000);
+    }, 500);
     // Safety timeout - reload after 15s regardless
     setTimeout(() => { clearInterval(poll); window.location.reload(); }, 15_000);
-  }, [startupSha]);
+  }, []);
 
   return (
     <div className={styles.shell}>
