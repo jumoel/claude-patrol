@@ -68,6 +68,28 @@ export function registerPRRoutes(app) {
     return formatPR(row);
   });
 
+  app.post('/api/prs/:id/draft', async (request, reply) => {
+    const db = getDb();
+    const pr = db.prepare('SELECT org, repo, number, draft FROM prs WHERE id = ?').get(request.params.id);
+    if (!pr) {
+      return reply.code(404).send({ error: 'PR not found' });
+    }
+    const { draft } = request.body || {};
+    if (typeof draft !== 'boolean') {
+      return reply.code(400).send({ error: 'draft must be a boolean' });
+    }
+    try {
+      const args = ['pr', 'ready', String(pr.number), '-R', `${pr.org}/${pr.repo}`];
+      if (draft) args.push('--undo');
+      await execFile('gh', args, { timeout: 15_000 });
+      // Update local DB immediately so the UI reflects the change
+      db.prepare('UPDATE prs SET draft = ? WHERE id = ?').run(draft ? 1 : 0, request.params.id);
+      return { ok: true, draft };
+    } catch (err) {
+      return reply.code(500).send({ error: `Failed to update draft status: ${err.stderr || err.message}` });
+    }
+  });
+
   app.get('/api/prs/:id/diff', async (request, reply) => {
     const db = getDb();
     const pr = db.prepare('SELECT org, repo, number FROM prs WHERE id = ?').get(request.params.id);

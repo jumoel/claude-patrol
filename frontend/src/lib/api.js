@@ -279,6 +279,25 @@ export async function fetchAllRepos() {
   return res.json();
 }
 
+/**
+ * Toggle a PR's draft status.
+ * @param {string} prId
+ * @param {boolean} draft - true to convert to draft, false to mark ready
+ * @returns {Promise<{ok: boolean, draft: boolean}>}
+ */
+export async function setPRDraft(prId, draft) {
+  const res = await fetch(`${BASE}/api/prs/${encodeURIComponent(prId)}/draft`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ draft }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || `Failed to update draft status: ${res.status}`);
+  }
+  return res.json();
+}
+
 export async function fetchSetupAccounts() {
   const res = await fetch(`${BASE}/api/setup/accounts`);
   if (!res.ok) {

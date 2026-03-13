@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { fetchPR, fetchWorkspaces, fetchSessions, fetchPRComments, fetchCheckLogs, fetchSessionHistory, fetchSessionTranscript, createWorkspace as apiCreateWorkspace, createSession as apiCreateSession, killSession as apiKillSession, reattachSession as apiReattachSession } from '../../lib/api.js';
+import { fetchPR, fetchWorkspaces, fetchSessions, fetchPRComments, fetchCheckLogs, fetchSessionHistory, fetchSessionTranscript, createWorkspace as apiCreateWorkspace, createSession as apiCreateSession, killSession as apiKillSession, reattachSession as apiReattachSession, setPRDraft } from '../../lib/api.js';
 import { WorkspaceControls } from '../WorkspaceControls/WorkspaceControls.jsx';
 import { TerminalCard } from '../TerminalCard/TerminalCard.jsx';
 import { CommentsList } from '../CommentsList/CommentsList.jsx';
@@ -50,6 +50,7 @@ export function PRDetail({ prId, onBack }) {
   const [openingStep, setOpeningStep] = useState('');
   const [retriggering, setRetriggering] = useState(false);
   const [copiedBranch, setCopiedBranch] = useState(false);
+  const [togglingDraft, setTogglingDraft] = useState(false);
   const wsRef = useRef(null);
 
   /** Deduped workspace creation promise so both buttons share a single in-flight request. */
@@ -192,6 +193,20 @@ export function PRDetail({ prId, onBack }) {
     }
   }, [workspace]);
 
+  const handleToggleDraft = useCallback(async () => {
+    if (!pr) return;
+    setTogglingDraft(true);
+    try {
+      const { draft } = await setPRDraft(prId, !pr.draft);
+      setPR(prev => ({ ...prev, draft }));
+    } catch (err) {
+      console.error('Failed to toggle draft:', err);
+      alert(`Failed to toggle draft: ${err.message}`);
+    } finally {
+      setTogglingDraft(false);
+    }
+  }, [pr, prId]);
+
   const handleInvestigateFailures = useCallback(async () => {
     if (!pr) return;
     const failedCheckNames = pr.checks
@@ -241,6 +256,14 @@ export function PRDetail({ prId, onBack }) {
                 Merge on GitHub
               </a>
             )}
+            <button
+              className={pr.draft ? styles.markReadyButton : styles.markDraftButton}
+              onClick={handleToggleDraft}
+              disabled={togglingDraft}
+              type="button"
+            >
+              {togglingDraft ? '...' : pr.draft ? 'Mark ready' : 'Mark draft'}
+            </button>
             <a href={`${pr.url}/files`} target="_blank" rel="noopener noreferrer" className={styles.diffLink}>
               View diff
             </a>
@@ -297,12 +320,10 @@ export function PRDetail({ prId, onBack }) {
             <span className={styles.statusLabel}>Merge</span>
             <StatusBadge status={pr.mergeable} type="merge" />
           </div>
-          {pr.draft && (
-            <div className={styles.statusItem}>
-              <span className={styles.statusLabel}>PR</span>
-              <span className={styles.draftBadge}>Draft</span>
-            </div>
-          )}
+          <div className={styles.statusItem}>
+            <span className={styles.statusLabel}>PR</span>
+            <StatusBadge status={pr.draft ? 'draft' : 'open'} type="status" />
+          </div>
         </div>
 
         {pr.labels.length > 0 && (
