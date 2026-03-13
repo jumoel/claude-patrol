@@ -1,5 +1,13 @@
 # Build Log
 
+## 2026-03-13 - Browser notifications for idle terminal sessions
+
+Client-side idle detection that fires a browser notification when a terminal session produces no output for 5 seconds after being active. Only notifies when the tab is hidden. New bell icon button in the header to request notification permission. Entirely frontend - no server changes needed.
+
+## 2026-03-13 - CLI attach command
+
+New `claude-patrol attach [id]` subcommand that lists active sessions and attaches directly to the backing tmux session. Auto-selects when only one session exists, supports partial ID matching, and shows workspace context for multi-session selection.
+
 ## 2026-03-12 - Promote global terminal to scratch workspace
 
 New feature to promote a running global terminal session into a proper scratch workspace. Backend endpoint `POST /api/sessions/:id/promote` creates a jj workspace, moves uncommitted changes via `jj squash`, copies Claude session files to the new project dir, kills the old session, and restarts Claude with `--resume` in the workspace directory. Frontend adds a "Promote" button in the global terminal header with inline repo/branch form. Navigation redirects to the new workspace detail page after promotion.
