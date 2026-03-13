@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { Terminal } from '../Terminal/Terminal.jsx';
 import { QuickActions } from '../QuickActions/QuickActions.jsx';
 import { useEscapeKey } from '../../hooks/useEscapeKey.js';
@@ -32,17 +32,7 @@ export function TerminalCard({ session, title, onKill, onExit, onPopOut, onReatt
 
   useEscapeKey(maximized, useCallback(() => setMaximized(false), []));
 
-  // Cmd+Enter to toggle maximize
-  useEffect(() => {
-    const handler = (e) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && !e.shiftKey && !e.altKey) {
-        e.preventDefault();
-        setMaximized(prev => !prev);
-      }
-    };
-    document.addEventListener('keydown', handler);
-    return () => document.removeEventListener('keydown', handler);
-  }, []);
+  const toggleMaximize = useCallback(() => setMaximized(prev => !prev), []);
 
   const handleExit = useCallback(() => {
     setMaximized(false);
@@ -109,7 +99,7 @@ export function TerminalCard({ session, title, onKill, onExit, onPopOut, onReatt
           </div>
         </div>
         <div className={shared.overlayContent}>
-          <Terminal wsUrl={`/ws/sessions/${session.id}`} wsRef={wsRef} onExit={handleExit} />
+          <Terminal wsUrl={`/ws/sessions/${session.id}`} wsRef={wsRef} onExit={handleExit} onToggleMaximize={toggleMaximize} />
         </div>
         <QuickActions onSend={handleSendCommand} />
       </div>
@@ -162,7 +152,7 @@ export function TerminalCard({ session, title, onKill, onExit, onPopOut, onReatt
       </div>
       <QuickActions onSend={handleSendCommand} />
       <div style={{ height: termHeight }}>
-        <Terminal wsUrl={`/ws/sessions/${session.id}`} wsRef={wsRef} onExit={handleExit} />
+        <Terminal wsUrl={`/ws/sessions/${session.id}`} wsRef={wsRef} onExit={handleExit} onToggleMaximize={toggleMaximize} />
       </div>
       <div className={shared.resizeHandle} {...handleProps}>
         <div className={shared.resizeGrip} />

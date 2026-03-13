@@ -13,7 +13,7 @@ const RECONNECT_DELAYS = [500, 1000, 2000, 4000];
  * Auto-reconnects on disconnect (for server restarts in watch mode).
  * @param {{ wsUrl: string, wsRef?: import('react').MutableRefObject<WebSocket | null> }} props
  */
-export function Terminal({ wsUrl, wsRef: externalWsRef, focus, onExit }) {
+export function Terminal({ wsUrl, wsRef: externalWsRef, focus, onExit, onToggleMaximize }) {
   const containerRef = useRef(null);
   const termRef = useRef(null);
   const wsRef = useRef(null);
@@ -84,6 +84,11 @@ export function Terminal({ wsUrl, wsRef: externalWsRef, focus, onExit }) {
     // xterm's internal state gets confused and subsequent Shift+Enter
     // events are treated as plain Enter.
     term.attachCustomKeyEventHandler((ev) => {
+      // Cmd+Enter toggles maximize - handle here since xterm captures the event
+      if (ev.key === 'Enter' && (ev.metaKey || ev.ctrlKey) && !ev.shiftKey && !ev.altKey) {
+        if (ev.type === 'keydown' && onToggleMaximize) onToggleMaximize();
+        return false;
+      }
       if (ev.key === 'Enter' && ev.shiftKey && !ev.ctrlKey && !ev.altKey && !ev.metaKey) {
         if (ev.type === 'keydown') {
           const ws = wsRef.current;
