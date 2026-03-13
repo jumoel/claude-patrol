@@ -1,4 +1,5 @@
 import { usePRs } from './hooks/usePRs.js';
+import { useIdleNotification } from './hooks/useIdleNotification.js';
 import { AppShell } from './components/AppShell/AppShell.jsx';
 import { PRTable } from './components/PRTable/PRTable.jsx';
 import { FilterBar } from './components/FilterBar/FilterBar.jsx';
@@ -101,6 +102,7 @@ export default function App() {
   const copiedTimeout = useRef(null);
   const toggleTerminal = useCallback(() => setTerminalOpen(prev => !prev), []);
   const { prs: allPRs, syncedAt, loading, error, syncing, countdown, triggerSync } = usePRs(NO_FILTERS);
+  const { idleWorkspaces, dismissWorkspace } = useIdleNotification();
   const [scratchWorkspaces, setScratchWorkspaces] = useState([]);
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const [commitsBehind, setCommitsBehind] = useState(0);
@@ -195,10 +197,14 @@ export default function App() {
   const nextSync = countdown > 0 ? formatCountdown(countdown) : '';
 
   const navigateToPR = (prId) => {
+    // Dismiss idle indicator for this PR's workspace
+    const pr = allPRs.find(p => p.id === prId);
+    if (pr?.workspace_id) dismissWorkspace(pr.workspace_id);
     window.location.hash = `/pr/${encodeURIComponent(prId)}`;
   };
 
   const navigateToWorkspace = (wsId) => {
+    dismissWorkspace(wsId);
     window.location.hash = `/workspace/${wsId}`;
   };
 
@@ -236,7 +242,7 @@ export default function App() {
         </>
       )}
       <GlobalTerminal open={terminalOpen} onToggle={toggleTerminal} />
-      <CommandPalette prs={allPRs} scratchWorkspaces={scratchWorkspaces} onNavigate={navigateToPR} onNavigateWorkspace={navigateToWorkspace} />
+      <CommandPalette prs={allPRs} scratchWorkspaces={scratchWorkspaces} idleWorkspaces={idleWorkspaces} onNavigate={navigateToPR} onNavigateWorkspace={navigateToWorkspace} />
     </AppShell>
   );
 }

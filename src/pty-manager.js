@@ -8,8 +8,10 @@ import { getDb } from './db.js';
 import { mcpConfigPath as getMcpConfigPath } from './paths.js';
 import { expandPath, toClaudeProjectKey } from './utils.js';
 import { archiveTranscript } from './transcripts.js';
+import { emitSessionIdle, emitSessionActive } from './app-events.js';
 
 const BUFFER_MAX = 50_000;
+const IDLE_THRESHOLD_MS = 5000;
 
 
 const PATROL_SYSTEM_PROMPT = readFileSync(resolve(import.meta.dirname, 'patrol-system-prompt.md'), 'utf8');
@@ -102,6 +104,14 @@ function attachPtyToTmux(sessionId, meta = {}) {
 
   db.prepare('UPDATE sessions SET pid = ?, status = ? WHERE id = ?').run(proc.pid, 'active', sessionId);
 
+  // Look up workspace_id once for idle event payloads
+  const sessionRow = db.prepare('SELECT workspace_id FROM sessions WHERE id = ?').get(sessionId);
+  const workspaceId = sessionRow?.workspace_id || null;
+
+  let idleTimer = null;
+  let wasActive = false;
+  let notifiedIdle = false;
+
   const entry = {
     proc,
     buffer: new RingBuffer(BUFFER_MAX),
@@ -114,9 +124,24 @@ function attachPtyToTmux(sessionId, meta = {}) {
     for (const ws of entry.websockets) {
       if (ws.readyState === 1) ws.send(msg);
     }
+
+    // Reset idle tracking on output
+    wasActive = true;
+    if (notifiedIdle) {
+      notifiedIdle = false;
+      emitSessionActive(sessionId);
+    }
+    if (idleTimer) clearTimeout(idleTimer);
+    idleTimer = setTimeout(() => {
+      if (wasActive && !notifiedIdle) {
+        notifiedIdle = true;
+        emitSessionIdle(sessionId, workspaceId);
+      }
+    }, IDLE_THRESHOLD_MS);
   });
 
   proc.onExit(({ exitCode }) => {
+    if (idleTimer) clearTimeout(idleTimer);
     const exitMsg = JSON.stringify({ type: 'exit', code: exitCode });
     for (const ws of entry.websockets) {
       if (ws.readyState === 1) { ws.send(exitMsg); ws.close(1000); }

@@ -45,15 +45,16 @@ export function registerPRRoutes(app) {
     }
 
     // Enrich with workspace/session indicators
-    const activeWorkspaces = new Set(
-      db.prepare("SELECT pr_id FROM workspaces WHERE status = 'active'").all().map(r => r.pr_id)
-    );
+    const activeWorkspaceRows = db.prepare("SELECT id, pr_id FROM workspaces WHERE status = 'active'").all();
+    const activeWorkspaces = new Set(activeWorkspaceRows.map(r => r.pr_id));
+    const prWorkspaceMap = Object.fromEntries(activeWorkspaceRows.filter(r => r.pr_id).map(r => [r.pr_id, r.id]));
     const activeSessions = new Set(
       db.prepare("SELECT w.pr_id FROM sessions s JOIN workspaces w ON s.workspace_id = w.id WHERE s.status = 'active'").all().map(r => r.pr_id)
     );
     for (const pr of prs) {
       pr.has_workspace = activeWorkspaces.has(pr.id);
       pr.has_session = activeSessions.has(pr.id);
+      pr.workspace_id = prWorkspaceMap[pr.id] || null;
     }
 
     const syncRow = db.prepare('SELECT MAX(synced_at) as synced_at FROM prs').get();

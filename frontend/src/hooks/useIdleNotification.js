@@ -1,44 +1,147 @@
-import { useEffect, useRef } from 'react';
-
-const IDLE_THRESHOLD_MS = 5000;
-const POLL_INTERVAL_MS = 1000;
+import { useEffect, useCallback, useSyncExternalStore } from 'react';
 
 /**
- * Fires a browser notification when a terminal session goes idle
- * (no output for IDLE_THRESHOLD_MS after activity). Only notifies
- * when the page is hidden and permission is granted.
+ * Tracks which sessions/workspaces are idle via SSE events. Fires browser
+ * notifications when the tab is hidden. Returns idle state and a dismiss function.
  *
- * @param {string} sessionId
- * @param {import('react').MutableRefObject<number>} lastOutputRef - ref updated to Date.now() on each output
+ * @returns {{
+ *   idleSessions: Set<string>,
+ *   idleWorkspaces: Set<string>,
+ *   dismissIdle: (sessionId: string) => void,
+ *   dismissWorkspace: (workspaceId: string) => void,
+ * }}
  */
-export function useIdleNotification(sessionId, lastOutputRef) {
-  const notifiedRef = useRef(false);
 
+// Module-level state shared across all hook instances
+let idleSessions = new Set();
+let idleWorkspaces = new Set();
+/** @type {Map<string, string | null>} sessionId -> workspaceId */
+const sessionWorkspaceMap = new Map();
+
+const listeners = new Set();
+function notify() { for (const cb of listeners) cb(); }
+function subscribe(cb) { listeners.add(cb); return () => listeners.delete(cb); }
+
+// Snapshot objects for useSyncExternalStore (must be referentially stable when unchanged)
+let sessionsSnapshot = idleSessions;
+let workspacesSnapshot = idleWorkspaces;
+function getSessionsSnapshot() { return sessionsSnapshot; }
+function getWorkspacesSnapshot() { return workspacesSnapshot; }
+
+/** @type {EventSource | null} */
+let source = null;
+let refCount = 0;
+
+function startSSE() {
+  if (source) return;
+  source = new EventSource('/api/events');
+
+  source.addEventListener('session-idle', (event) => {
+    const { sessionId, workspaceId } = JSON.parse(event.data);
+    sessionWorkspaceMap.set(sessionId, workspaceId);
+
+    let changed = false;
+    if (!idleSessions.has(sessionId)) {
+      idleSessions = new Set(idleSessions);
+      idleSessions.add(sessionId);
+      sessionsSnapshot = idleSessions;
+      changed = true;
+    }
+    if (workspaceId && !idleWorkspaces.has(workspaceId)) {
+      idleWorkspaces = new Set(idleWorkspaces);
+      idleWorkspaces.add(workspaceId);
+      workspacesSnapshot = idleWorkspaces;
+      changed = true;
+    }
+    if (changed) notify();
+
+    if (Notification.permission === 'granted' && document.hidden) {
+      new Notification('Claude is waiting', {
+        body: 'A terminal session needs your attention.',
+        tag: `patrol-idle-${sessionId}`,
+      });
+    }
+  });
+
+  source.addEventListener('session-active', (event) => {
+    const { sessionId } = JSON.parse(event.data);
+    const workspaceId = sessionWorkspaceMap.get(sessionId);
+    sessionWorkspaceMap.delete(sessionId);
+
+    let changed = false;
+    if (idleSessions.has(sessionId)) {
+      idleSessions = new Set(idleSessions);
+      idleSessions.delete(sessionId);
+      sessionsSnapshot = idleSessions;
+      changed = true;
+    }
+    if (workspaceId && idleWorkspaces.has(workspaceId)) {
+      idleWorkspaces = new Set(idleWorkspaces);
+      idleWorkspaces.delete(workspaceId);
+      workspacesSnapshot = idleWorkspaces;
+      changed = true;
+    }
+    if (changed) notify();
+  });
+}
+
+function stopSSE() {
+  if (source) {
+    source.close();
+    source = null;
+  }
+}
+
+export function useIdleNotification() {
   useEffect(() => {
-    if (!sessionId) return;
+    refCount++;
+    startSSE();
+    return () => {
+      refCount--;
+      if (refCount === 0) stopSSE();
+    };
+  }, []);
 
-    const interval = setInterval(() => {
-      const lastOutput = lastOutputRef.current;
-      if (!lastOutput) return; // no output yet
+  const sessions = useSyncExternalStore(subscribe, getSessionsSnapshot);
+  const workspaces = useSyncExternalStore(subscribe, getWorkspacesSnapshot);
 
-      const elapsed = Date.now() - lastOutput;
+  const dismissIdle = useCallback((sessionId) => {
+    const workspaceId = sessionWorkspaceMap.get(sessionId);
+    let changed = false;
+    if (idleSessions.has(sessionId)) {
+      idleSessions = new Set(idleSessions);
+      idleSessions.delete(sessionId);
+      sessionsSnapshot = idleSessions;
+      changed = true;
+    }
+    if (workspaceId && idleWorkspaces.has(workspaceId)) {
+      idleWorkspaces = new Set(idleWorkspaces);
+      idleWorkspaces.delete(workspaceId);
+      workspacesSnapshot = idleWorkspaces;
+      changed = true;
+    }
+    if (changed) notify();
+  }, []);
 
-      if (elapsed >= IDLE_THRESHOLD_MS && !notifiedRef.current && document.hidden) {
-        if (Notification.permission === 'granted') {
-          new Notification('Claude is waiting', {
-            body: 'A terminal session needs your attention.',
-            tag: `patrol-idle-${sessionId}`, // deduplicates
-          });
-        }
-        notifiedRef.current = true;
+  const dismissWorkspace = useCallback((workspaceId) => {
+    let changed = false;
+    if (idleWorkspaces.has(workspaceId)) {
+      idleWorkspaces = new Set(idleWorkspaces);
+      idleWorkspaces.delete(workspaceId);
+      workspacesSnapshot = idleWorkspaces;
+      changed = true;
+    }
+    // Also dismiss any sessions belonging to this workspace
+    for (const [sid, wsId] of sessionWorkspaceMap) {
+      if (wsId === workspaceId && idleSessions.has(sid)) {
+        idleSessions = new Set(idleSessions);
+        idleSessions.delete(sid);
+        sessionsSnapshot = idleSessions;
+        changed = true;
       }
+    }
+    if (changed) notify();
+  }, []);
 
-      // Reset notification flag once activity resumes
-      if (elapsed < IDLE_THRESHOLD_MS) {
-        notifiedRef.current = false;
-      }
-    }, POLL_INTERVAL_MS);
-
-    return () => clearInterval(interval);
-  }, [sessionId]);
+  return { idleSessions: sessions, idleWorkspaces: workspaces, dismissIdle, dismissWorkspace };
 }
