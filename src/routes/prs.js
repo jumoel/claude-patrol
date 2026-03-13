@@ -1,6 +1,7 @@
 import { getDb } from '../db.js';
 import { formatPR } from '../pr-status.js';
 import { execFile } from '../utils.js';
+import { emitLocalChange } from '../app-events.js';
 
 /**
  * Register PR-related routes.
@@ -84,6 +85,7 @@ export function registerPRRoutes(app) {
       await execFile('gh', args, { timeout: 15_000 });
       // Update local DB immediately so the UI reflects the change
       db.prepare('UPDATE prs SET draft = ? WHERE id = ?').run(draft ? 1 : 0, request.params.id);
+      emitLocalChange();
       return { ok: true, draft };
     } catch (err) {
       return reply.code(500).send({ error: `Failed to update draft status: ${err.stderr || err.message}` });
