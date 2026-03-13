@@ -106,7 +106,11 @@ export async function startServer(options = {}) {
     });
   }
 
-  console.log(`Server listening on ${serverUrl}`);
+  if (isReattach) {
+    console.log(`[claude-patrol] Restarted successfully on ${serverUrl}`);
+  } else {
+    console.log(`Server listening on ${serverUrl}`);
+  }
 
   // Only open browser when explicitly requested via --open
   const shouldOpen = !options.noOpen && (options.open || process.argv.includes('--open'));
