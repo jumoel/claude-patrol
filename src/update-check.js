@@ -103,10 +103,15 @@ export function pullUpdate() {
 export function restartServer() {
   const entryPoint = join(REPO_DIR, 'src', 'index.js');
   console.log('[restart] Rebuilding frontend...');
-  // Rebuild frontend before starting new process (uses pnpm filter)
-  execFile('pnpm', ['--filter', 'claude-patrol-frontend', 'build'], { cwd: REPO_DIR, timeout: 60_000 }, (buildErr) => {
-    if (buildErr) {
-      console.warn(`[restart] Frontend build failed, starting anyway: ${buildErr.message}`);
+  // Rebuild frontend before starting new process - inherit stdio so build output is visible
+  const build = spawn('pnpm', ['--filter', 'claude-patrol-frontend', 'build'], {
+    cwd: REPO_DIR,
+    stdio: 'inherit',
+    timeout: 60_000,
+  });
+  build.on('close', (code) => {
+    if (code !== 0) {
+      console.warn(`[restart] Frontend build exited with code ${code}, starting anyway`);
     }
     console.log('[restart] Spawning new server with --reattach...');
     const child = spawn(process.execPath, [entryPoint, '--reattach'], {
