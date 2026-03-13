@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { Terminal } from '../Terminal/Terminal.jsx';
 import { QuickActions } from '../QuickActions/QuickActions.jsx';
 import { useEscapeKey } from '../../hooks/useEscapeKey.js';
@@ -31,6 +31,18 @@ export function TerminalCard({ session, title, onKill, onExit, onPopOut, onReatt
   });
 
   useEscapeKey(maximized, useCallback(() => setMaximized(false), []));
+
+  // Cmd+Enter to toggle maximize
+  useEffect(() => {
+    const handler = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && !e.shiftKey && !e.altKey) {
+        e.preventDefault();
+        setMaximized(prev => !prev);
+      }
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, []);
 
   const handleExit = useCallback(() => {
     setMaximized(false);
@@ -85,7 +97,7 @@ export function TerminalCard({ session, title, onKill, onExit, onPopOut, onReatt
                 Pop out
               </button>
             )}
-            <button className={shared.maximizeButton} onClick={() => setMaximized(false)}>
+            <button className={shared.maximizeButton} onClick={() => setMaximized(false)} title="Restore (Cmd+Enter)">
               Restore
             </button>
             <button className={shared.closeTermButton} onClick={() => { setMaximized(false); setTerminalOpen(false); }}>
@@ -97,7 +109,7 @@ export function TerminalCard({ session, title, onKill, onExit, onPopOut, onReatt
           </div>
         </div>
         <div className={shared.overlayContent}>
-          <Terminal wsUrl={`/ws/sessions/${session.id}`} sessionId={session.id} wsRef={wsRef} onExit={handleExit} />
+          <Terminal wsUrl={`/ws/sessions/${session.id}`} wsRef={wsRef} onExit={handleExit} />
         </div>
         <QuickActions onSend={handleSendCommand} />
       </div>
@@ -112,7 +124,7 @@ export function TerminalCard({ session, title, onKill, onExit, onPopOut, onReatt
           <h3 className={shared.sectionTitle}>Terminal</h3>
           <div className={shared.terminalActions}>
             <button className={shared.maximizeButton} onClick={() => { setTerminalOpen(true); setMaximized(true); }}>
-              Maximize
+              Maximize <kbd style={{ fontSize: '11px', opacity: 0.5 }}>Cmd+Enter</kbd>
             </button>
             <button className={shared.openButton} onClick={() => setTerminalOpen(true)} style={{ padding: '6px 12px', fontSize: '14px' }}>
               Open terminal
@@ -138,7 +150,7 @@ export function TerminalCard({ session, title, onKill, onExit, onPopOut, onReatt
             </button>
           )}
           <button className={shared.maximizeButton} onClick={() => setMaximized(true)}>
-            Maximize
+            Maximize <kbd style={{ fontSize: '11px', opacity: 0.5 }}>Cmd+Enter</kbd>
           </button>
           <button className={shared.closeTermButton} onClick={() => setTerminalOpen(false)}>
             Close
@@ -150,7 +162,7 @@ export function TerminalCard({ session, title, onKill, onExit, onPopOut, onReatt
       </div>
       <QuickActions onSend={handleSendCommand} />
       <div style={{ height: termHeight }}>
-        <Terminal wsUrl={`/ws/sessions/${session.id}`} sessionId={session.id} wsRef={wsRef} onExit={handleExit} />
+        <Terminal wsUrl={`/ws/sessions/${session.id}`} wsRef={wsRef} onExit={handleExit} />
       </div>
       <div className={shared.resizeHandle} {...handleProps}>
         <div className={shared.resizeGrip} />

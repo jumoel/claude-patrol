@@ -4,7 +4,6 @@ import { FitAddon } from '@xterm/addon-fit';
 import { UnicodeGraphemesAddon } from '@xterm/addon-unicode-graphemes';
 import { WebglAddon } from '@xterm/addon-webgl';
 import '@xterm/xterm/css/xterm.css';
-import { useIdleNotification } from '../../hooks/useIdleNotification.js';
 import styles from './Terminal.module.css';
 
 const RECONNECT_DELAYS = [500, 1000, 2000, 4000];
@@ -14,14 +13,11 @@ const RECONNECT_DELAYS = [500, 1000, 2000, 4000];
  * Auto-reconnects on disconnect (for server restarts in watch mode).
  * @param {{ wsUrl: string, wsRef?: import('react').MutableRefObject<WebSocket | null> }} props
  */
-export function Terminal({ wsUrl, sessionId, wsRef: externalWsRef, focus, onExit }) {
+export function Terminal({ wsUrl, wsRef: externalWsRef, focus, onExit }) {
   const containerRef = useRef(null);
   const termRef = useRef(null);
   const wsRef = useRef(null);
   const fitRef = useRef(null);
-  const lastOutputRef = useRef(0);
-
-  useIdleNotification(sessionId, lastOutputRef);
 
   useEffect(() => {
     if (!containerRef.current || !wsUrl) return;
@@ -64,6 +60,11 @@ export function Terminal({ wsUrl, sessionId, wsRef: externalWsRef, focus, onExit
     }
 
     fitAddon.fit();
+    // Schedule a second fit after the browser finishes layout - handles the
+    // case where the container already has its final dimensions at mount time
+    // (e.g. cmd-k navigation between same-sized terminals) so the
+    // ResizeObserver never fires.
+    const rafId = requestAnimationFrame(() => fitAddon.fit());
     term.focus();
 
     termRef.current = term;
@@ -126,7 +127,6 @@ export function Terminal({ wsUrl, sessionId, wsRef: externalWsRef, focus, onExit
         try {
           const msg = JSON.parse(event.data);
           if (msg.type === 'output' || msg.type === 'replay') {
-            if (msg.type === 'output') lastOutputRef.current = Date.now();
             term.write(msg.data);
           } else if (msg.type === 'exit') {
             term.write(`\r\n[Process exited with code ${msg.code}]\r\n`);
@@ -164,6 +164,7 @@ export function Terminal({ wsUrl, sessionId, wsRef: externalWsRef, focus, onExit
 
     return () => {
       cancelled = true;
+      cancelAnimationFrame(rafId);
       if (reconnectTimer) clearTimeout(reconnectTimer);
       observer?.disconnect();
       wsRef.current?.close();

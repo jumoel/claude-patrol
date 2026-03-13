@@ -2,11 +2,16 @@
 
 ## 2026-03-13 - Browser notifications for idle terminal sessions
 
-Client-side idle detection that fires a browser notification when a terminal session produces no output for 5 seconds after being active. Only notifies when the tab is hidden. New bell icon button in the header to request notification permission. Entirely frontend - no server changes needed.
+Server-side idle detection tracks output silence per session and emits SSE events (`session-idle`, `session-active`) with workspace context. Frontend hook (`useIdleNotification`) fires browser notifications when any session goes idle and the tab is hidden. Bell icon button in the header for notification permission. Idle sessions surface as "Needs attention" pills in the cmd-k command palette, sorted to the top. Dismisses automatically when the session resumes output or when the user navigates to the PR/workspace.
 
 ## 2026-03-13 - CLI attach command
 
 New `claude-patrol attach [id]` subcommand that lists active sessions and attaches directly to the backing tmux session. Auto-selects when only one session exists, supports partial ID matching, and shows workspace context for multi-session selection.
+
+## 2026-03-13 - Terminal UX improvements
+
+- Cmd+Enter keyboard shortcut to toggle terminal maximize (shown in button label)
+- Fix terminal sizing on cmd-k navigation by scheduling a post-layout fit via requestAnimationFrame
 
 ## 2026-03-12 - Promote global terminal to scratch workspace
 
