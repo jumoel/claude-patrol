@@ -103,6 +103,7 @@ export default function App() {
   const copiedTimeout = useRef(null);
   const toggleTerminal = useCallback(() => setTerminalOpen(prev => !prev), []);
   const openGlobalTerminal = useCallback(() => setTerminalOpen(true), []);
+  const closeGlobalTerminal = useCallback(() => setTerminalOpen(false), []);
   const { prs: allPRs, syncedAt, loading, error, syncing, countdown, triggerSync } = usePRs(NO_FILTERS);
   const { idleWorkspaces, dismissWorkspace, setActiveWorkspace } = useIdleNotification();
   const [scratchWorkspaces, setScratchWorkspaces] = useState([]);
@@ -256,7 +257,7 @@ export default function App() {
         </>
       )}
       <GlobalTerminal open={terminalOpen} onToggle={toggleTerminal} onSessionChange={setHasGlobalSession} />
-      <CommandPalette prs={allPRs} scratchWorkspaces={scratchWorkspaces} idleWorkspaces={idleWorkspaces} hasGlobalSession={hasGlobalSession} onNavigate={navigateToPR} onNavigateWorkspace={navigateToWorkspace} onOpenGlobalTerminal={openGlobalTerminal} />
+      <CommandPalette prs={allPRs} scratchWorkspaces={scratchWorkspaces} idleWorkspaces={idleWorkspaces} hasGlobalSession={hasGlobalSession} onNavigate={navigateToPR} onNavigateWorkspace={navigateToWorkspace} onOpenGlobalTerminal={openGlobalTerminal} onCloseGlobalTerminal={closeGlobalTerminal} />
     </AppShell>
   );
 }

@@ -33,7 +33,7 @@ function fuzzyMatchWorkspace(query, ws) {
   return { match: true, score };
 }
 
-export function CommandPalette({ prs, scratchWorkspaces, idleWorkspaces, hasGlobalSession, onNavigate, onNavigateWorkspace, onOpenGlobalTerminal }) {
+export function CommandPalette({ prs, scratchWorkspaces, idleWorkspaces, hasGlobalSession, onNavigate, onNavigateWorkspace, onOpenGlobalTerminal, onCloseGlobalTerminal }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -130,15 +130,18 @@ export function CommandPalette({ prs, scratchWorkspaces, idleWorkspaces, hasGlob
   }, [selectedIndex]);
 
   const handleSelect = useCallback((entry) => {
-    if (entry.type === 'pr') {
-      onNavigate(entry.item.id);
-    } else if (entry.type === 'global') {
+    if (entry.type === 'global') {
       onOpenGlobalTerminal();
     } else {
-      onNavigateWorkspace(entry.item.id);
+      onCloseGlobalTerminal?.();
+      if (entry.type === 'pr') {
+        onNavigate(entry.item.id);
+      } else {
+        onNavigateWorkspace(entry.item.id);
+      }
     }
     close();
-  }, [onNavigate, onNavigateWorkspace, onOpenGlobalTerminal, close]);
+  }, [onNavigate, onNavigateWorkspace, onOpenGlobalTerminal, onCloseGlobalTerminal, close]);
 
   const handleKeyDown = (e) => {
     if (e.key === 'ArrowDown') {
