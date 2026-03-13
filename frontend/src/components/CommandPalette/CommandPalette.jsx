@@ -33,7 +33,7 @@ function fuzzyMatchWorkspace(query, ws) {
   return { match: true, score };
 }
 
-export function CommandPalette({ prs, scratchWorkspaces, idleWorkspaces, onNavigate, onNavigateWorkspace }) {
+export function CommandPalette({ prs, scratchWorkspaces, idleWorkspaces, hasGlobalSession, onNavigate, onNavigateWorkspace, onOpenGlobalTerminal }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -91,7 +91,16 @@ export function CommandPalette({ prs, scratchWorkspaces, idleWorkspaces, onNavig
       )
       : [];
 
-    const all = [...prItems, ...wsItems];
+    // Global terminal entry (only if session is active)
+    const globalItems = [];
+    if (hasGlobalSession) {
+      const gLabel = 'Global Terminal';
+      if (!query || gLabel.toLowerCase().includes(query.toLowerCase())) {
+        globalItems.push({ match: true, score: query ? 1 : 0, type: 'global', item: { id: 'global' } });
+      }
+    }
+
+    const all = [...prItems, ...wsItems, ...globalItems];
 
     // Boost idle items to top, then sort by score
     const isIdle = (entry) => {
@@ -106,7 +115,7 @@ export function CommandPalette({ prs, scratchWorkspaces, idleWorkspaces, onNavig
       if (aIdle !== bIdle) return bIdle - aIdle;
       return b.score - a.score;
     });
-  }, [prs, scratchWorkspaces, idleWorkspaces, query]);
+  }, [prs, scratchWorkspaces, idleWorkspaces, hasGlobalSession, query]);
 
   // Reset selection when results change
   useEffect(() => {
@@ -123,11 +132,13 @@ export function CommandPalette({ prs, scratchWorkspaces, idleWorkspaces, onNavig
   const handleSelect = useCallback((entry) => {
     if (entry.type === 'pr') {
       onNavigate(entry.item.id);
+    } else if (entry.type === 'global') {
+      onOpenGlobalTerminal();
     } else {
       onNavigateWorkspace(entry.item.id);
     }
     close();
-  }, [onNavigate, onNavigateWorkspace, close]);
+  }, [onNavigate, onNavigateWorkspace, onOpenGlobalTerminal, close]);
 
   const handleKeyDown = (e) => {
     if (e.key === 'ArrowDown') {
@@ -168,13 +179,15 @@ export function CommandPalette({ prs, scratchWorkspaces, idleWorkspaces, onNavig
           ) : (
             filtered.map((entry, i) => (
               <div
-                key={entry.type === 'pr' ? entry.item.id : `ws-${entry.item.id}`}
+                key={entry.type === 'pr' ? entry.item.id : entry.type === 'global' ? 'global' : `ws-${entry.item.id}`}
                 className={`${styles.result} ${i === selectedIndex ? styles.resultSelected : ''}`}
                 onClick={() => handleSelect(entry)}
                 onMouseEnter={() => setSelectedIndex(i)}
               >
                 {entry.type === 'pr' ? (
                   <PRResult pr={entry.item} idle={entry.item.workspace_id && idleWorkspaces?.has(entry.item.workspace_id)} />
+                ) : entry.type === 'global' ? (
+                  <GlobalResult />
                 ) : (
                   <WorkspaceResult ws={entry.item} idle={idleWorkspaces?.has(entry.item.id)} />
                 )}
@@ -202,6 +215,17 @@ function PRResult({ pr, idle }) {
         {pr.mergeable === 'CONFLICTING' && <StatusBadge status={pr.mergeable} type="merge" />}
         {pr.draft && <span className={styles.draftPill}>Draft</span>}
         {idle && <span className={styles.idlePill}>Needs attention</span>}
+      </div>
+    </div>
+  );
+}
+
+function GlobalResult() {
+  return (
+    <div className={styles.resultInfo}>
+      <div className={styles.resultTitle}>Global Terminal</div>
+      <div className={styles.resultBadges}>
+        <span className={styles.sessionTag}>active session</span>
       </div>
     </div>
   );

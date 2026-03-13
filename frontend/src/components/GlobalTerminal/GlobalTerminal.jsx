@@ -32,7 +32,7 @@ function persistHeight(h) {
  * Stays mounted when closed to preserve the xterm instance and session.
  * @param {{ open: boolean, onToggle: () => void }} props
  */
-export function GlobalTerminal({ open, onToggle }) {
+export function GlobalTerminal({ open, onToggle, onSessionChange }) {
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(false);
   const [maximized, setMaximized] = useState(false);
@@ -50,6 +50,11 @@ export function GlobalTerminal({ open, onToggle }) {
   });
 
   useEscapeKey(maximized, useCallback(() => setMaximized(false), []));
+
+  // Notify parent when session changes
+  useEffect(() => {
+    onSessionChange?.(!!session);
+  }, [session, onSessionChange]);
 
   const startSession = useCallback(async () => {
     if (session) return;

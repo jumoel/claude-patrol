@@ -1,5 +1,9 @@
 # Build Log
 
+## 2026-03-13 - Global terminal in cmd-k command palette
+
+When the global terminal has an active session, it appears as a "Global Terminal" entry in cmd-k with a green "active session" pill. Selecting it opens/focuses the global terminal drawer. GlobalTerminal reports session state up via `onSessionChange` callback.
+
 ## 2026-03-13 - Filter escape-only PTY output from idle detection
 
 Tmux sends cursor positioning, show/hide, status-line redraws, and OSC title sequences through the PTY even when nothing meaningful is happening. These escape sequences were resetting the idle timer and causing false idle/active cycling. Added `hasPrintableContent()` that strips ANSI escape sequences and only counts output as activity if printable characters remain.

@@ -98,9 +98,11 @@ export default function App() {
   const [selectedPR, setSelectedPR] = useState(null);
   const [selectedWorkspace, setSelectedWorkspace] = useState(null);
   const [terminalOpen, setTerminalOpen] = useState(false);
+  const [hasGlobalSession, setHasGlobalSession] = useState(false);
   const [copied, setCopied] = useState(false);
   const copiedTimeout = useRef(null);
   const toggleTerminal = useCallback(() => setTerminalOpen(prev => !prev), []);
+  const openGlobalTerminal = useCallback(() => setTerminalOpen(true), []);
   const { prs: allPRs, syncedAt, loading, error, syncing, countdown, triggerSync } = usePRs(NO_FILTERS);
   const { idleWorkspaces, dismissWorkspace, setActiveWorkspace } = useIdleNotification();
   const [scratchWorkspaces, setScratchWorkspaces] = useState([]);
@@ -253,8 +255,8 @@ export default function App() {
           <ScratchWorkspaces prs={allPRs} syncedAt={syncedAt} />
         </>
       )}
-      <GlobalTerminal open={terminalOpen} onToggle={toggleTerminal} />
-      <CommandPalette prs={allPRs} scratchWorkspaces={scratchWorkspaces} idleWorkspaces={idleWorkspaces} onNavigate={navigateToPR} onNavigateWorkspace={navigateToWorkspace} />
+      <GlobalTerminal open={terminalOpen} onToggle={toggleTerminal} onSessionChange={setHasGlobalSession} />
+      <CommandPalette prs={allPRs} scratchWorkspaces={scratchWorkspaces} idleWorkspaces={idleWorkspaces} hasGlobalSession={hasGlobalSession} onNavigate={navigateToPR} onNavigateWorkspace={navigateToWorkspace} onOpenGlobalTerminal={openGlobalTerminal} />
     </AppShell>
   );
 }
