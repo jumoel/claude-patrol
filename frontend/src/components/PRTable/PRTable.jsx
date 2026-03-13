@@ -45,13 +45,6 @@ export function PRTable({ prs, onRowClick }) {
       },
     },
     {
-      id: 'pr_status',
-      header: 'Status',
-      accessorFn: (row) => row.draft ? 'draft' : 'open',
-      cell: ({ getValue }) => <StatusBadge status={getValue()} type="status" />,
-      meta: { centered: true },
-    },
-    {
       id: 'repo',
       header: 'Repo',
       accessorFn: (row) => `${row.org}/${row.repo}`,
@@ -66,6 +59,13 @@ export function PRTable({ prs, onRowClick }) {
         if (pr.has_workspace) return <span className={styles.workspaceBadge} title="Active workspace">Workspace</span>;
         return null;
       },
+      meta: { centered: true },
+    },
+    {
+      id: 'pr_status',
+      header: 'Status',
+      accessorFn: (row) => row.draft ? 'draft' : 'open',
+      cell: ({ getValue }) => <StatusBadge status={getValue()} type="status" />,
       meta: { centered: true },
     },
     {
