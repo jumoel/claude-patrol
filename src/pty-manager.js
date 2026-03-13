@@ -125,8 +125,14 @@ function attachPtyToTmux(sessionId, meta = {}) {
   const workspaceId = sessionRow?.workspace_id || null;
 
   let idleTimer = null;
-  let wasActive = false;
   let notifiedIdle = false;
+  // Once idle, require a burst of printable outputs to clear it.
+  // This prevents tmux status-bar clock updates (one event every ~15s)
+  // from repeatedly clearing and re-triggering idle notifications.
+  let burstCount = 0;
+  let burstTimer = null;
+  const BURST_THRESHOLD = 3;   // printable output events needed to clear idle
+  const BURST_WINDOW = 2000;   // within this many ms
 
   const entry = {
     proc,
@@ -145,24 +151,39 @@ function attachPtyToTmux(sessionId, meta = {}) {
     // characters. Tmux sends escape sequences for cursor positioning,
     // status-line redraws, and mode changes that aren't real program
     // output - these shouldn't reset the idle timer.
-    if (hasPrintableContent(data)) {
-      wasActive = true;
-      if (notifiedIdle) {
+    if (!hasPrintableContent(data)) return;
+
+    if (notifiedIdle) {
+      // Require a burst of rapid output to clear idle state.
+      // A single tmux status-bar update won't meet the threshold.
+      burstCount++;
+      if (burstTimer) clearTimeout(burstTimer);
+      burstTimer = setTimeout(() => { burstCount = 0; }, BURST_WINDOW);
+
+      if (burstCount >= BURST_THRESHOLD) {
         notifiedIdle = false;
+        burstCount = 0;
         emitSessionActive(sessionId);
-      }
-      if (idleTimer) clearTimeout(idleTimer);
-      idleTimer = setTimeout(() => {
-        if (wasActive && !notifiedIdle) {
+        // Restart idle timer now that we're active again
+        if (idleTimer) clearTimeout(idleTimer);
+        idleTimer = setTimeout(() => {
           notifiedIdle = true;
           emitSessionIdle(sessionId, workspaceId);
-        }
+        }, IDLE_THRESHOLD_MS);
+      }
+    } else {
+      // Normal active state - reset idle timer on each output
+      if (idleTimer) clearTimeout(idleTimer);
+      idleTimer = setTimeout(() => {
+        notifiedIdle = true;
+        emitSessionIdle(sessionId, workspaceId);
       }, IDLE_THRESHOLD_MS);
     }
   });
 
   proc.onExit(({ exitCode }) => {
     if (idleTimer) clearTimeout(idleTimer);
+    if (burstTimer) clearTimeout(burstTimer);
     if (notifiedIdle) emitSessionActive(sessionId);
     const exitMsg = JSON.stringify({ type: 'exit', code: exitCode });
     for (const ws of entry.websockets) {
