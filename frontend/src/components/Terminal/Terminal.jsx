@@ -60,12 +60,16 @@ export function Terminal({ wsUrl, wsRef: externalWsRef, focus, onExit, onToggleM
     }
 
     fitAddon.fit();
-    // Schedule a second fit after the browser finishes layout - handles the
-    // case where the container already has its final dimensions at mount time
-    // (e.g. cmd-k navigation between same-sized terminals) so the
-    // ResizeObserver never fires.
-    const rafId = requestAnimationFrame(() => fitAddon.fit());
     term.focus();
+
+    /** Re-fit and notify the server of the new dimensions. */
+    function fitAndSync() {
+      fitAddon.fit();
+      const ws = wsRef.current;
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+      }
+    }
 
     termRef.current = term;
     fitRef.current = fitAddon;
@@ -101,15 +105,11 @@ export function Terminal({ wsUrl, wsRef: externalWsRef, focus, onExit, onToggleM
       return true;
     });
 
-    // Resize handling
-    observer = new ResizeObserver(() => {
-      fitAddon.fit();
-      const ws = wsRef.current;
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
-      }
-    });
-    observer.observe(containerRef.current);
+    // Resize handling - observe the wrapper (outer div) so we catch
+    // layout changes even when the inner container dimensions haven't
+    // propagated yet.
+    observer = new ResizeObserver(() => fitAndSync());
+    observer.observe(containerRef.current.parentElement);
 
     function connectWs() {
       if (cancelled || !term) return;
@@ -125,7 +125,8 @@ export function Terminal({ wsUrl, wsRef: externalWsRef, focus, onExit, onToggleM
           term.write('\r\n\x1b[32m[Reconnected]\x1b[0m\r\n');
         }
         reconnectAttempt = 0;
-        ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+        // Re-fit now that the connection is live - layout is settled by this point
+        fitAndSync();
       };
 
       ws.onmessage = (event) => {
@@ -133,6 +134,9 @@ export function Terminal({ wsUrl, wsRef: externalWsRef, focus, onExit, onToggleM
           const msg = JSON.parse(event.data);
           if (msg.type === 'output' || msg.type === 'replay') {
             term.write(msg.data);
+            // Fit after replay so content renders at the correct dimensions.
+            // The DOM is guaranteed to be settled by the time WS data arrives.
+            if (msg.type === 'replay') fitAndSync();
           } else if (msg.type === 'exit') {
             term.write(`\r\n[Process exited with code ${msg.code}]\r\n`);
             cancelled = true;
@@ -169,7 +173,6 @@ export function Terminal({ wsUrl, wsRef: externalWsRef, focus, onExit, onToggleM
 
     return () => {
       cancelled = true;
-      cancelAnimationFrame(rafId);
       if (reconnectTimer) clearTimeout(reconnectTimer);
       observer?.disconnect();
       wsRef.current?.close();
