@@ -62,11 +62,19 @@ export function Terminal({ wsUrl, wsRef: externalWsRef, focus, onExit, onToggleM
     fitAddon.fit();
     term.focus();
 
-    /** Re-fit and notify the server of the new dimensions. */
-    function fitAndSync() {
+    /**
+     * Re-fit and notify the server of the new dimensions.
+     * When forceRedraw is true, jiggle the size by 1 row first to force
+     * tmux to SIGWINCH even when dimensions haven't changed - this makes
+     * the app inside tmux redraw at the correct size after stale replay.
+     */
+    function fitAndSync(forceRedraw = false) {
       fitAddon.fit();
       const ws = wsRef.current;
       if (ws && ws.readyState === WebSocket.OPEN) {
+        if (forceRedraw && term.rows > 2) {
+          ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows - 1 }));
+        }
         ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
       }
     }
@@ -134,9 +142,10 @@ export function Terminal({ wsUrl, wsRef: externalWsRef, focus, onExit, onToggleM
           const msg = JSON.parse(event.data);
           if (msg.type === 'output' || msg.type === 'replay') {
             term.write(msg.data);
-            // Fit after replay so content renders at the correct dimensions.
-            // The DOM is guaranteed to be settled by the time WS data arrives.
-            if (msg.type === 'replay') fitAndSync();
+            // After replay, force tmux to redraw. The replay data was
+            // formatted for the previous client's dimensions - jiggling the
+            // size forces a SIGWINCH so the app inside redraws correctly.
+            if (msg.type === 'replay') fitAndSync(true);
           } else if (msg.type === 'exit') {
             term.write(`\r\n[Process exited with code ${msg.code}]\r\n`);
             cancelled = true;
