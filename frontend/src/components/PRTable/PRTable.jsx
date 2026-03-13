@@ -109,6 +109,16 @@ export function PRTable({ prs, onRowClick, sorting, onSortingChange }) {
 
   return (
     <table className={styles.table}>
+      <colgroup>
+        <col className={styles.colTitle} />
+        <col className={styles.colRepo} />
+        <col className={styles.colLocal} />
+        <col className={styles.colStatus} />
+        <col className={styles.colCI} />
+        <col className={styles.colReview} />
+        <col className={styles.colMerge} />
+        <col className={styles.colUpdated} />
+      </colgroup>
       <thead>
         {table.getHeaderGroups().map(headerGroup => (
           <tr key={headerGroup.id}>
