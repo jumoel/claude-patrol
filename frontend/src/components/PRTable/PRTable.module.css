@@ -6,15 +6,15 @@
 }
 
 /* Title takes ~60% of flexible space, Repo gets the rest */
-.colTitle { width: 40%; }
-.colRepo { width: 14%; }
+.colTitle { width: 38%; }
+.colRepo { width: 18%; }
 /* Fixed-width pill/badge/date columns */
-.colLocal { width: 90px; }
-.colStatus { width: 80px; }
-.colCI { width: 80px; }
-.colReview { width: 90px; }
-.colMerge { width: 80px; }
-.colUpdated { width: 100px; }
+.colLocal { width: 80px; }
+.colStatus { width: 70px; }
+.colCI { width: 70px; }
+.colReview { width: 80px; }
+.colMerge { width: 70px; }
+.colUpdated { width: 95px; }
 
 .header {
   @apply px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:text-gray-700 bg-gray-50 border-b border-gray-200 whitespace-nowrap;
@@ -44,7 +44,7 @@
 }
 
 .titleText {
-  @apply font-medium text-gray-900 flex-1 truncate;
+  @apply font-medium text-gray-900 flex-1;
 }
 
 .mergeReady {
@@ -72,11 +72,11 @@
 }
 
 .cellCenter {
-  @apply text-center;
+  @apply text-center px-2;
 }
 
 .headerCenter {
-  @apply text-center;
+  @apply text-center px-2;
 }
 
 .headerRight {
