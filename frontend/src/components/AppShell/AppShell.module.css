@@ -10,7 +10,7 @@
 }
 
 .headerInner {
-  @apply max-w-7xl mx-auto px-6 py-4 flex items-center justify-between;
+  @apply max-w-[1440px] mx-auto px-6 py-4 flex items-center justify-between;
 }
 
 .brand {
@@ -68,7 +68,7 @@
 }
 
 .content {
-  @apply max-w-7xl mx-auto px-6 py-6 pb-14;
+  @apply max-w-[1440px] mx-auto px-6 py-6 pb-14;
 }
 
 .updateBanner {
@@ -80,7 +80,7 @@
 }
 
 .updateBannerInner {
-  @apply max-w-7xl mx-auto px-8 py-3 flex items-center justify-between gap-4;
+  @apply max-w-[1440px] mx-auto px-8 py-3 flex items-center justify-between gap-4;
 }
 
 .updateText {

@@ -7,7 +7,7 @@
 
 /* Title takes ~60% of flexible space, Repo gets the rest */
 .colTitle { width: 38%; }
-.colRepo { width: 18%; }
+.colRepo { width: 22%; }
 /* Fixed-width pill/badge/date columns */
 .colLocal { width: 80px; }
 .colStatus { width: 70px; }
