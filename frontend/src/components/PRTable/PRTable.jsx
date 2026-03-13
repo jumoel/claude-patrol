@@ -58,7 +58,7 @@ export function PRTable({ prs, onRowClick, sorting, onSortingChange, idleWorkspa
       cell: ({ row }) => {
         const pr = row.original;
         const idle = pr.workspace_id && idleWorkspaces?.has(pr.workspace_id);
-        if (idle) return <span className={styles.idleBadge} title="Session needs attention">Needs attention</span>;
+        if (idle) return <span className={styles.idleBadge} title="Session needs attention">Idle</span>;
         if (pr.has_session) return <span className={styles.sessionBadge} title="Running session">Session</span>;
         if (pr.has_workspace) return <span className={styles.workspaceBadge} title="Active workspace">Workspace</span>;
         return null;

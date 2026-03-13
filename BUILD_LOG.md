@@ -1,8 +1,8 @@
 # Build Log
 
-## 2026-03-13 - Idle session indicator in PR table
+## 2026-03-13 - Fix stale idle indicators + idle badge in PR table
 
-Added amber "Needs attention" badge to the Local column in the PR table when a PR's workspace session goes idle. Reuses the existing `idleWorkspaces` set from `useIdleNotification`. Badge pulses and auto-dismisses when the session resumes or the user navigates to the PR.
+Idle state was never cleared when sessions exited or were killed - `proc.onExit` cleared the timer but didn't emit `session-active`, and `killSession` for detached sessions had no idle cleanup at all. Fixed both paths. Also added an amber "Idle" badge to the PR table's Local column and shortened the label from "Needs attention" to "Idle".
 
 ## 2026-03-13 - Browser notifications for idle terminal sessions
 

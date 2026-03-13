@@ -142,6 +142,7 @@ function attachPtyToTmux(sessionId, meta = {}) {
 
   proc.onExit(({ exitCode }) => {
     if (idleTimer) clearTimeout(idleTimer);
+    if (notifiedIdle) emitSessionActive(sessionId);
     const exitMsg = JSON.stringify({ type: 'exit', code: exitCode });
     for (const ws of entry.websockets) {
       if (ws.readyState === 1) { ws.send(exitMsg); ws.close(1000); }
@@ -424,6 +425,9 @@ export function killSession(sessionId) {
       entry.proc.kill();
     }
   }
+  // Always clear idle state - for attached sessions proc.onExit handles it,
+  // but for detached sessions (not in the sessions map) we must do it here.
+  emitSessionActive(sessionId);
   // For detached sessions (not in the sessions map), the proc.onExit
   // handler won't fire, so update the DB directly.
   if (!sessions.has(sessionId)) {

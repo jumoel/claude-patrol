@@ -9,7 +9,7 @@
 .colTitle { width: 38%; }
 .colRepo { width: 22%; }
 /* Fixed-width pill/badge/date columns */
-.colLocal { width: 120px; }
+.colLocal { width: 80px; }
 .colStatus { width: 70px; }
 .colCI { width: 70px; }
 .colReview { width: 80px; }
