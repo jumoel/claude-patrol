@@ -1,5 +1,9 @@
 # Build Log
 
+## 2026-03-13 - Filter escape-only PTY output from idle detection
+
+Tmux sends cursor positioning, show/hide, status-line redraws, and OSC title sequences through the PTY even when nothing meaningful is happening. These escape sequences were resetting the idle timer and causing false idle/active cycling. Added `hasPrintableContent()` that strips ANSI escape sequences and only counts output as activity if printable characters remain.
+
 ## 2026-03-13 - Fix stale idle indicators + idle badge in PR table
 
 Idle state was never cleared when sessions exited or were killed - `proc.onExit` cleared the timer but didn't emit `session-active`, and `killSession` for detached sessions had no idle cleanup at all. Fixed both paths. Also added an amber "Idle" badge to the PR table's Local column and shortened the label from "Needs attention" to "Idle".

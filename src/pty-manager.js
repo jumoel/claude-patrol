@@ -13,6 +13,22 @@ import { emitSessionIdle, emitSessionActive } from './app-events.js';
 const BUFFER_MAX = 50_000;
 const IDLE_THRESHOLD_MS = 5000;
 
+/**
+ * Strip ANSI escape sequences and check if any printable content remains.
+ * Escape-only output (cursor movement, mode changes, status-line redraws)
+ * shouldn't count as real activity for idle detection.
+ */
+const ANSI_RE = /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b\[[0-9;?]*[A-Za-z@`~]|\x1b[()][AB012]|\x1b[=>NOMDEHcZ78]/g;
+function hasPrintableContent(data) {
+  const stripped = data.replace(ANSI_RE, '');
+  // Check if anything visible remains after stripping escapes and control chars
+  for (let i = 0; i < stripped.length; i++) {
+    const c = stripped.charCodeAt(i);
+    if (c >= 0x20 && c !== 0x7f) return true;
+  }
+  return false;
+}
+
 
 const PATROL_SYSTEM_PROMPT = readFileSync(resolve(import.meta.dirname, 'patrol-system-prompt.md'), 'utf8');
 
@@ -125,19 +141,24 @@ function attachPtyToTmux(sessionId, meta = {}) {
       if (ws.readyState === 1) ws.send(msg);
     }
 
-    // Reset idle tracking on output
-    wasActive = true;
-    if (notifiedIdle) {
-      notifiedIdle = false;
-      emitSessionActive(sessionId);
-    }
-    if (idleTimer) clearTimeout(idleTimer);
-    idleTimer = setTimeout(() => {
-      if (wasActive && !notifiedIdle) {
-        notifiedIdle = true;
-        emitSessionIdle(sessionId, workspaceId);
+    // Only treat output as meaningful activity if it contains printable
+    // characters. Tmux sends escape sequences for cursor positioning,
+    // status-line redraws, and mode changes that aren't real program
+    // output - these shouldn't reset the idle timer.
+    if (hasPrintableContent(data)) {
+      wasActive = true;
+      if (notifiedIdle) {
+        notifiedIdle = false;
+        emitSessionActive(sessionId);
       }
-    }, IDLE_THRESHOLD_MS);
+      if (idleTimer) clearTimeout(idleTimer);
+      idleTimer = setTimeout(() => {
+        if (wasActive && !notifiedIdle) {
+          notifiedIdle = true;
+          emitSessionIdle(sessionId, workspaceId);
+        }
+      }, IDLE_THRESHOLD_MS);
+    }
   });
 
   proc.onExit(({ exitCode }) => {
