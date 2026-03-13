@@ -102,7 +102,7 @@ export default function App() {
   const copiedTimeout = useRef(null);
   const toggleTerminal = useCallback(() => setTerminalOpen(prev => !prev), []);
   const { prs: allPRs, syncedAt, loading, error, syncing, countdown, triggerSync } = usePRs(NO_FILTERS);
-  const { idleWorkspaces, dismissWorkspace } = useIdleNotification();
+  const { idleWorkspaces, dismissWorkspace, setActiveWorkspace } = useIdleNotification();
   const [scratchWorkspaces, setScratchWorkspaces] = useState([]);
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const [commitsBehind, setCommitsBehind] = useState(0);
@@ -190,6 +190,18 @@ export default function App() {
     window.addEventListener('hashchange', handleHash);
     return () => window.removeEventListener('hashchange', handleHash);
   }, [needsSetup]);
+
+  // Track which workspace the user is viewing for idle suppression
+  useEffect(() => {
+    if (selectedWorkspace) {
+      setActiveWorkspace(selectedWorkspace);
+    } else if (selectedPR) {
+      const pr = allPRs.find(p => p.id === selectedPR);
+      setActiveWorkspace(pr?.workspace_id || null);
+    } else {
+      setActiveWorkspace(null);
+    }
+  }, [selectedWorkspace, selectedPR, allPRs, setActiveWorkspace]);
 
   const syncTime = syncedAt
     ? `Last synced: ${new Date(syncedAt).toLocaleTimeString()}`

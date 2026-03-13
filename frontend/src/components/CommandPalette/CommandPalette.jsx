@@ -213,6 +213,8 @@ function WorkspaceResult({ ws, idle }) {
       <div className={styles.resultTitle}>{ws.bookmark}</div>
       <div className={styles.resultMeta}>
         {ws.repo && <span className={styles.resultRepo}>{ws.repo}</span>}
+      </div>
+      <div className={styles.resultBadges}>
         <span className={styles.workspaceTag}>scratch workspace</span>
         {idle && <span className={styles.idlePill}>Needs attention</span>}
       </div>

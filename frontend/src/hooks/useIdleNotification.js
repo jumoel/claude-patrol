@@ -28,6 +28,9 @@ let workspacesSnapshot = idleWorkspaces;
 function getSessionsSnapshot() { return sessionsSnapshot; }
 function getWorkspacesSnapshot() { return workspacesSnapshot; }
 
+/** Workspace ID the user is currently viewing (set by the hook consumer). */
+let activeWorkspaceId = null;
+
 /** @type {EventSource | null} */
 let source = null;
 let refCount = 0;
@@ -39,6 +42,9 @@ function startSSE() {
   source.addEventListener('session-idle', (event) => {
     const { sessionId, workspaceId } = JSON.parse(event.data);
     sessionWorkspaceMap.set(sessionId, workspaceId);
+
+    // If the user is currently viewing this workspace and the tab is visible, skip
+    if (workspaceId && workspaceId === activeWorkspaceId && !document.hidden) return;
 
     let changed = false;
     if (!idleSessions.has(sessionId)) {
@@ -143,5 +149,11 @@ export function useIdleNotification() {
     if (changed) notify();
   }, []);
 
-  return { idleSessions: sessions, idleWorkspaces: workspaces, dismissIdle, dismissWorkspace };
+  const setActiveWorkspace = useCallback((wsId) => {
+    activeWorkspaceId = wsId;
+    // Auto-dismiss if the workspace was idle
+    if (wsId) dismissWorkspace(wsId);
+  }, [dismissWorkspace]);
+
+  return { idleSessions: sessions, idleWorkspaces: workspaces, dismissIdle, dismissWorkspace, setActiveWorkspace };
 }
