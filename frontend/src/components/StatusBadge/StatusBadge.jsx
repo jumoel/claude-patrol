@@ -10,6 +10,8 @@ const LABELS = {
   MERGEABLE: 'Clean',
   CONFLICTING: 'Conflict',
   UNKNOWN: 'Unknown',
+  draft: 'Draft',
+  open: 'Open',
 };
 
 /**

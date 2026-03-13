@@ -27,7 +27,6 @@ export function PRTable({ prs, onRowClick }) {
           <span className={styles.titleCell}>
             <span className={styles.titleText}>
               {pr.title}
-              {pr.draft && <span className={styles.draftLabel}>Draft</span>}
             </span>
             <a
               href={pr.url}
@@ -44,6 +43,13 @@ export function PRTable({ prs, onRowClick }) {
           </span>
         );
       },
+    },
+    {
+      id: 'pr_status',
+      header: 'Status',
+      accessorFn: (row) => row.draft ? 'draft' : 'open',
+      cell: ({ getValue }) => <StatusBadge status={getValue()} type="status" />,
+      meta: { centered: true },
     },
     {
       id: 'repo',

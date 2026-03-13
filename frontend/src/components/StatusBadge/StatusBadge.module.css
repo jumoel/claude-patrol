@@ -40,6 +40,14 @@
   @apply bg-gray-100 text-gray-600;
 }
 
+.status-draft {
+  @apply bg-gray-100 text-gray-500;
+}
+
+.status-open {
+  @apply bg-green-100 text-green-800;
+}
+
 .neutral {
   @apply bg-gray-100 text-gray-600;
 }
