@@ -83,3 +83,13 @@
 .workspaceTag {
   @apply text-xs font-medium px-1.5 py-0.5 bg-purple-50 text-purple-700 border border-purple-200 rounded-full;
 }
+
+.idlePill {
+  @apply text-xs font-medium px-1.5 py-0.5 bg-amber-50 text-amber-700 border border-amber-200 rounded-full;
+  animation: pulse-idle 2s ease-in-out infinite;
+}
+
+@keyframes pulse-idle {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}

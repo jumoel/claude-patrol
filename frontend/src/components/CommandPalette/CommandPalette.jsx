@@ -33,7 +33,7 @@ function fuzzyMatchWorkspace(query, ws) {
   return { match: true, score };
 }
 
-export function CommandPalette({ prs, scratchWorkspaces, onNavigate, onNavigateWorkspace }) {
+export function CommandPalette({ prs, scratchWorkspaces, idleWorkspaces, onNavigate, onNavigateWorkspace }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -91,8 +91,22 @@ export function CommandPalette({ prs, scratchWorkspaces, onNavigate, onNavigateW
       )
       : [];
 
-    return [...prItems, ...wsItems].sort((a, b) => b.score - a.score);
-  }, [prs, scratchWorkspaces, query]);
+    const all = [...prItems, ...wsItems];
+
+    // Boost idle items to top, then sort by score
+    const isIdle = (entry) => {
+      if (!idleWorkspaces?.size) return false;
+      if (entry.type === 'workspace') return idleWorkspaces.has(entry.item.id);
+      return entry.item.workspace_id && idleWorkspaces.has(entry.item.workspace_id);
+    };
+
+    return all.sort((a, b) => {
+      const aIdle = isIdle(a) ? 1 : 0;
+      const bIdle = isIdle(b) ? 1 : 0;
+      if (aIdle !== bIdle) return bIdle - aIdle;
+      return b.score - a.score;
+    });
+  }, [prs, scratchWorkspaces, idleWorkspaces, query]);
 
   // Reset selection when results change
   useEffect(() => {
@@ -160,9 +174,9 @@ export function CommandPalette({ prs, scratchWorkspaces, onNavigate, onNavigateW
                 onMouseEnter={() => setSelectedIndex(i)}
               >
                 {entry.type === 'pr' ? (
-                  <PRResult pr={entry.item} />
+                  <PRResult pr={entry.item} idle={entry.item.workspace_id && idleWorkspaces?.has(entry.item.workspace_id)} />
                 ) : (
-                  <WorkspaceResult ws={entry.item} />
+                  <WorkspaceResult ws={entry.item} idle={idleWorkspaces?.has(entry.item.id)} />
                 )}
               </div>
             ))
@@ -173,7 +187,7 @@ export function CommandPalette({ prs, scratchWorkspaces, onNavigate, onNavigateW
   );
 }
 
-function PRResult({ pr }) {
+function PRResult({ pr, idle }) {
   return (
     <div className={styles.resultInfo}>
       <div className={styles.resultTitle}>{pr.title}</div>
@@ -187,18 +201,20 @@ function PRResult({ pr }) {
         <StatusBadge status={pr.review_status} type="review" />
         {pr.mergeable === 'CONFLICTING' && <StatusBadge status={pr.mergeable} type="merge" />}
         {pr.draft && <span className={styles.draftPill}>Draft</span>}
+        {idle && <span className={styles.idlePill}>Needs attention</span>}
       </div>
     </div>
   );
 }
 
-function WorkspaceResult({ ws }) {
+function WorkspaceResult({ ws, idle }) {
   return (
     <div className={styles.resultInfo}>
       <div className={styles.resultTitle}>{ws.bookmark}</div>
       <div className={styles.resultMeta}>
         {ws.repo && <span className={styles.resultRepo}>{ws.repo}</span>}
         <span className={styles.workspaceTag}>scratch workspace</span>
+        {idle && <span className={styles.idlePill}>Needs attention</span>}
       </div>
     </div>
   );
