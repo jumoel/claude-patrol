@@ -1,17 +1,17 @@
-import { useState } from 'react';
-import { triggerUpdate } from '../../lib/api.js';
+import { useState, useCallback } from 'react';
+import { triggerUpdate, triggerRestart } from '../../lib/api.js';
 import styles from './AppShell.module.css';
 import logoSvg from '../../assets/logo.svg';
 
 /**
  * Top-level layout shell. Provides page structure, header, and content area.
- * @param {{ title: string, syncTime: string, nextSync: string, syncing: boolean, onSync: () => void, updateAvailable: boolean, commitsBehind: number, children: React.ReactNode }} props
  */
-export function AppShell({ title, syncTime, nextSync, syncing, onSync, terminalOpen, onToggleTerminal, onSetup, updateAvailable, commitsBehind, children }) {
+export function AppShell({ title, syncTime, nextSync, syncing, onSync, terminalOpen, onToggleTerminal, onSetup, updateAvailable, commitsBehind, restartNeeded, startupSha, currentSha, children }) {
   const [dismissed, setDismissed] = useState(false);
   const [pulling, setPulling] = useState(false);
   const [pullResult, setPullResult] = useState(null);
-  const showBanner = (updateAvailable || pullResult) && !dismissed;
+  const [restarting, setRestarting] = useState(false);
+  const showBanner = (updateAvailable || pullResult || restartNeeded) && !dismissed;
 
   const handlePull = async () => {
     setPulling(true);
@@ -25,6 +25,33 @@ export function AppShell({ title, syncTime, nextSync, syncing, onSync, terminalO
       setPulling(false);
     }
   };
+
+  const handleRestart = useCallback(async () => {
+    setRestarting(true);
+    try {
+      await triggerRestart();
+    } catch {
+      // Server is already shutting down, request may fail - that's expected
+    }
+    // Poll until the new server is up (new SHA should differ from startup_sha)
+    const poll = setInterval(async () => {
+      try {
+        const res = await fetch('/api/config');
+        if (res.ok) {
+          const cfg = await res.json();
+          // New server is up - if its startup_sha matches the current_sha we had, it restarted successfully
+          if (cfg.startup_sha !== startupSha) {
+            clearInterval(poll);
+            window.location.reload();
+          }
+        }
+      } catch {
+        // Server still restarting
+      }
+    }, 1000);
+    // Safety timeout - reload after 15s regardless
+    setTimeout(() => { clearInterval(poll); window.location.reload(); }, 15_000);
+  }, [startupSha]);
 
   return (
     <div className={styles.shell}>
@@ -86,11 +113,18 @@ export function AppShell({ title, syncTime, nextSync, syncing, onSync, terminalO
         </div>
       </header>
       {showBanner && (
-        <div className={`${styles.updateBanner} ${pullResult?.ok ? styles.updateBannerSuccess : ''}`}>
+        <div className={`${styles.updateBanner} ${(pullResult?.ok || restartNeeded) ? styles.updateBannerSuccess : ''}`}>
           <div className={styles.updateBannerInner}>
             <span className={styles.updateText}>
-              {pullResult?.ok ? (
-                <>Updated successfully. Restart the server to apply changes.</>
+              {restarting ? (
+                <>Restarting server... <span className={styles.spinner} /></>
+              ) : (restartNeeded || pullResult?.ok) ? (
+                <>
+                  New version ready ({startupSha} → {currentSha}). Terminal sessions will be preserved.
+                  <button className={styles.updateRestartBtn} onClick={handleRestart}>
+                    Restart now
+                  </button>
+                </>
               ) : pullResult?.ok === false ? (
                 <>Pull failed: {pullResult.error}</>
               ) : (
@@ -105,9 +139,11 @@ export function AppShell({ title, syncTime, nextSync, syncing, onSync, terminalO
                 </>
               )}
             </span>
-            <button className={styles.updateDismiss} onClick={() => setDismissed(true)} title="Dismiss">
-              ×
-            </button>
+            {!restarting && (
+              <button className={styles.updateDismiss} onClick={() => setDismissed(true)} title="Dismiss">
+                ×
+              </button>
+            )}
           </div>
         </div>
       )}

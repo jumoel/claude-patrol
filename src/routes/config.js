@@ -1,6 +1,6 @@
 import { writeFileSync } from 'node:fs';
 import { getCurrentConfig, isConfigured, getConfigPath } from '../config.js';
-import { getUpdateStatus, pullUpdate } from '../update-check.js';
+import { getUpdateStatus, pullUpdate, restartServer } from '../update-check.js';
 
 /**
  * Register config endpoint (exposes non-sensitive config to frontend).
@@ -52,5 +52,14 @@ export function registerConfigRoutes(app) {
       return reply.code(500).send({ error: result.error });
     }
     return { ok: true, output: result.output };
+  });
+
+  app.post('/api/restart', (request, reply) => {
+    const status = getUpdateStatus();
+    if (!status.restart_needed) {
+      return reply.code(400).send({ error: 'No restart needed - already running latest version' });
+    }
+    reply.send({ ok: true, message: 'Restarting server...' });
+    restartServer();
   });
 }

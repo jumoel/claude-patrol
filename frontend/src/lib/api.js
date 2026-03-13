@@ -304,3 +304,18 @@ export async function triggerUpdate() {
   }
   return res.json();
 }
+
+/**
+ * Restart the server to apply a pulled update.
+ * The server spawns a new process with --reattach (preserving terminal sessions)
+ * then exits. The frontend should poll until the new instance is up.
+ * @returns {Promise<{ok: boolean}>}
+ */
+export async function triggerRestart() {
+  const res = await fetch(`${BASE}/api/restart`, { method: 'POST' });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || `Restart failed: ${res.status}`);
+  }
+  return res.json();
+}

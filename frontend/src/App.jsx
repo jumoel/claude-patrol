@@ -60,6 +60,9 @@ export default function App() {
   const [scratchWorkspaces, setScratchWorkspaces] = useState([]);
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const [commitsBehind, setCommitsBehind] = useState(0);
+  const [restartNeeded, setRestartNeeded] = useState(false);
+  const [startupSha, setStartupSha] = useState('');
+  const [currentSha, setCurrentSha] = useState('');
 
   // Check if setup is needed + update status (re-check on each sync)
   useEffect(() => {
@@ -69,6 +72,9 @@ export default function App() {
         if (cfg.needs_setup && needsSetup === null) setShowSetup(true);
         setUpdateAvailable(cfg.update_available || false);
         setCommitsBehind(cfg.commits_behind || 0);
+        setRestartNeeded(cfg.restart_needed || false);
+        if (cfg.startup_sha) setStartupSha(cfg.startup_sha);
+        if (cfg.current_sha) setCurrentSha(cfg.current_sha);
       })
       .catch(() => { if (needsSetup === null) setNeedsSetup(false); });
   }, [syncedAt]);
@@ -149,7 +155,7 @@ export default function App() {
   const forceUpdate = new URLSearchParams(window.location.search).get('update') === '1';
 
   return (
-    <AppShell title="Claude Patrol" syncTime={syncTime} nextSync={nextSync} syncing={syncing} onSync={triggerSync} terminalOpen={terminalOpen} onToggleTerminal={toggleTerminal} onSetup={() => { window.location.hash = '/setup'; }} updateAvailable={updateAvailable || forceUpdate} commitsBehind={commitsBehind || (forceUpdate ? 3 : 0)}>
+    <AppShell title="Claude Patrol" syncTime={syncTime} nextSync={nextSync} syncing={syncing} onSync={triggerSync} terminalOpen={terminalOpen} onToggleTerminal={toggleTerminal} onSetup={() => { window.location.hash = '/setup'; }} updateAvailable={updateAvailable || forceUpdate} commitsBehind={commitsBehind || (forceUpdate ? 3 : 0)} restartNeeded={restartNeeded} startupSha={startupSha} currentSha={currentSha}>
       {showSetup ? (
         <SetupMode onConfigured={handleConfigured} isFirstRun={needsSetup === true} />
       ) : selectedPR ? (

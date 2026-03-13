@@ -95,6 +95,10 @@
   @apply px-3 py-1 text-xs font-medium text-amber-800 bg-amber-200 rounded hover:bg-amber-300 cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
 }
 
+.updateRestartBtn {
+  @apply px-3 py-1 text-xs font-medium text-green-800 bg-green-200 rounded hover:bg-green-300 cursor-pointer transition-colors;
+}
+
 .updateDismiss {
   @apply text-amber-600 hover:text-amber-800 cursor-pointer bg-transparent border-none text-lg leading-none p-1;
 }

@@ -1,9 +1,12 @@
-import { execFile } from 'node:child_process';
-import { dirname } from 'node:path';
+import { execFile, execFileSync, spawn } from 'node:child_process';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_DIR = dirname(__dirname);
+
+/** Git SHA captured at process startup - never changes. */
+const startupSha = execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: REPO_DIR, timeout: 5_000 }).toString().trim();
 
 let updateAvailable = false;
 let remoteCommitCount = 0;
@@ -53,11 +56,26 @@ export function stopUpdateChecks() {
 }
 
 /**
- * Get current update status.
- * @returns {{ update_available: boolean, commits_behind: number }}
+ * Get current on-disk SHA (re-reads every call so it picks up pulls).
+ * @returns {string}
  */
+function currentSha() {
+  try {
+    return execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: REPO_DIR, timeout: 5_000 }).toString().trim();
+  } catch {
+    return startupSha; // fallback if git fails
+  }
+}
+
 export function getUpdateStatus() {
-  return { update_available: updateAvailable, commits_behind: remoteCommitCount };
+  const onDisk = currentSha();
+  return {
+    update_available: updateAvailable,
+    commits_behind: remoteCommitCount,
+    startup_sha: startupSha,
+    current_sha: onDisk,
+    restart_needed: onDisk !== startupSha,
+  };
 }
 
 /**
@@ -75,5 +93,29 @@ export function pullUpdate() {
       remoteCommitCount = 0;
       resolve({ ok: true, output: stdout.trim() });
     });
+  });
+}
+
+/**
+ * Restart the server process. Rebuilds the frontend, spawns a new instance
+ * with --reattach so terminal sessions survive, then exits the current process.
+ */
+export function restartServer() {
+  const entryPoint = join(REPO_DIR, 'src', 'index.js');
+  console.log('[restart] Rebuilding frontend...');
+  // Rebuild frontend before starting new process (uses pnpm filter)
+  execFile('pnpm', ['--filter', 'claude-patrol-frontend', 'build'], { cwd: REPO_DIR, timeout: 60_000 }, (buildErr) => {
+    if (buildErr) {
+      console.warn(`[restart] Frontend build failed, starting anyway: ${buildErr.message}`);
+    }
+    console.log('[restart] Spawning new server with --reattach...');
+    const child = spawn(process.execPath, [entryPoint, '--reattach'], {
+      cwd: REPO_DIR,
+      detached: true,
+      stdio: 'ignore',
+    });
+    child.unref();
+    // Give the new process time to start before exiting
+    setTimeout(() => process.exit(0), 500);
   });
 }
