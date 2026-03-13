@@ -1,6 +1,6 @@
 import { writeFileSync } from 'node:fs';
 import { getCurrentConfig, isConfigured, getConfigPath } from '../config.js';
-import { getUpdateStatus, pullUpdate, restartServer } from '../update-check.js';
+import { getUpdateStatus, pullUpdate, restartServer, getRestartStatus } from '../update-check.js';
 
 /**
  * Register config endpoint (exposes non-sensitive config to frontend).
@@ -52,6 +52,10 @@ export function registerConfigRoutes(app) {
       return reply.code(500).send({ error: result.error });
     }
     return { ok: true, output: result.output };
+  });
+
+  app.get('/api/restart/status', () => {
+    return getRestartStatus() || { phase: null };
   });
 
   app.post('/api/restart', (request, reply) => {

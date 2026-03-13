@@ -11,6 +11,15 @@ const startupSha = execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: 
 let updateAvailable = false;
 let remoteCommitCount = 0;
 let checkInterval = null;
+let restartPhase = null;
+
+/**
+ * Get the current restart phase, or null if no restart in progress.
+ * @returns {{ phase: string, started_at: string } | null}
+ */
+export function getRestartStatus() {
+  return restartPhase;
+}
 
 /**
  * Run git fetch and compare local HEAD with remote.
@@ -102,6 +111,7 @@ export function pullUpdate() {
  */
 export function restartServer() {
   const entryPoint = join(REPO_DIR, 'src', 'index.js');
+  restartPhase = { phase: 'building', started_at: new Date().toISOString() };
   console.log('[restart] Rebuilding frontend...');
   // Rebuild frontend before starting new process - inherit stdio so build output is visible
   const build = spawn('pnpm', ['--filter', 'claude-patrol-frontend', 'build'], {
@@ -113,6 +123,7 @@ export function restartServer() {
     if (code !== 0) {
       console.warn(`[restart] Frontend build exited with code ${code}, starting anyway`);
     }
+    restartPhase = { phase: 'spawning', started_at: new Date().toISOString() };
     console.log('[restart] Spawning new server with --reattach...');
     const child = spawn(process.execPath, [entryPoint, '--reattach'], {
       cwd: REPO_DIR,
@@ -120,6 +131,7 @@ export function restartServer() {
       stdio: 'ignore',
     });
     child.unref();
+    restartPhase = { phase: 'shutting_down', started_at: new Date().toISOString() };
     // Give the new process time to start before exiting
     setTimeout(() => process.exit(0), 500);
   });

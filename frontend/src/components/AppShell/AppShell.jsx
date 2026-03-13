@@ -11,6 +11,7 @@ export function AppShell({ title, syncTime, nextSync, syncing, onSync, terminalO
   const [pulling, setPulling] = useState(false);
   const [pullResult, setPullResult] = useState(null);
   const [restarting, setRestarting] = useState(false);
+  const [restartPhase, setRestartPhase] = useState(null);
   const showBanner = (updateAvailable || pullResult || restartNeeded) && !dismissed;
 
   const handlePull = async () => {
@@ -28,28 +29,37 @@ export function AppShell({ title, syncTime, nextSync, syncing, onSync, terminalO
 
   const handleRestart = useCallback(async () => {
     setRestarting(true);
+    setRestartPhase('starting');
     try {
       await triggerRestart();
     } catch {
       // Server is already shutting down, request may fail - that's expected
     }
-    // Poll until the new server is up, then reload to pick up the new frontend bundle.
-    // We wait for the server to go down first, then come back up.
+    // Poll restart status for phased progress, then detect server down/up for reload.
     let sawDown = false;
     const poll = setInterval(async () => {
       try {
-        const res = await fetch('/api/config');
+        const res = await fetch('/api/restart/status');
         if (res.ok) {
-          if (sawDown) {
-            // Server is back up after going down - restart complete
-            clearInterval(poll);
-            window.location.reload();
-          }
+          const data = await res.json();
+          if (data.phase) setRestartPhase(data.phase);
         } else {
           sawDown = true;
+          setRestartPhase('restarting');
         }
       } catch {
         sawDown = true;
+        setRestartPhase('restarting');
+      }
+      // Also check if server is back up after going down
+      if (sawDown) {
+        try {
+          const configRes = await fetch('/api/config');
+          if (configRes.ok) {
+            clearInterval(poll);
+            window.location.reload();
+          }
+        } catch { /* still down */ }
       }
     }, 500);
     // Safety timeout - reload after 15s regardless
@@ -120,7 +130,14 @@ export function AppShell({ title, syncTime, nextSync, syncing, onSync, terminalO
           <div className={styles.updateBannerInner}>
             <span className={styles.updateText}>
               {restarting ? (
-                <>Restarting server... <span className={styles.spinner} /></>
+                <>
+                  {restartPhase === 'building' ? 'Building frontend...'
+                    : restartPhase === 'spawning' ? 'Starting new server...'
+                    : restartPhase === 'shutting_down' ? 'Shutting down old server...'
+                    : restartPhase === 'restarting' ? 'Waiting for new server...'
+                    : 'Restarting server...'}{' '}
+                  <span className={styles.spinner} />
+                </>
               ) : (restartNeeded || pullResult?.ok) ? (
                 <>
                   New version ready ({startupSha} → {currentSha}). Terminal sessions will be preserved.
