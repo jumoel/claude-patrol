@@ -66,6 +66,14 @@ export function ScratchWorkspaces({ prs, syncedAt }) {
           >
             {newWorkSubmitting ? 'Creating...' : 'Create'}
           </button>
+          <button
+            className={styles.cancelBtn}
+            onClick={() => { setShowNewWork(false); setNewWorkBranch(''); }}
+            disabled={newWorkSubmitting}
+            type="button"
+          >
+            Cancel
+          </button>
         </div>
       )}
       {scratchWorkspaces.length > 0 ? (
