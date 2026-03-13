@@ -1,10 +1,45 @@
 import { execFile } from '../utils.js';
+import { getCurrentConfig } from '../config.js';
 
 /**
  * Register setup routes for GitHub account/repo discovery.
  * @param {import('fastify').FastifyInstance} app
  */
 export function registerSetupRoutes(app) {
+  // List all repos from configured orgs + explicit repos (for workspace creation)
+  app.get('/api/repos', async (request, reply) => {
+    const cfg = getCurrentConfig();
+    const orgs = cfg?.poll?.orgs || [];
+    const explicitRepos = cfg?.poll?.repos || [];
+
+    try {
+      // Fetch repos from all configured orgs in parallel
+      const orgResults = await Promise.all(
+        orgs.map(async (org) => {
+          try {
+            const { stdout } = await execFile('gh', [
+              'repo', 'list', org,
+              '--limit', '200',
+              '--json', 'nameWithOwner,isArchived,isFork',
+              '--jq', '[.[] | select(.isArchived == false) | .nameWithOwner]',
+            ]);
+            return JSON.parse(stdout.trim() || '[]');
+          } catch {
+            return [];
+          }
+        })
+      );
+
+      const allRepos = new Set(explicitRepos);
+      for (const repos of orgResults) {
+        for (const r of repos) allRepos.add(r);
+      }
+
+      return { repos: [...allRepos].sort() };
+    } catch (err) {
+      return reply.code(500).send({ error: `Failed to list repos: ${err.message}` });
+    }
+  });
   // List the authenticated user's personal account and orgs
   app.get('/api/setup/accounts', async (request, reply) => {
     try {

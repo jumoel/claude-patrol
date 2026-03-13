@@ -269,6 +269,16 @@ export async function saveConfig(config) {
  * Fetch GitHub accounts (personal + orgs) for setup.
  * @returns {Promise<{accounts: Array<{login: string, type: string, avatar_url: string}>}>}
  */
+/**
+ * Fetch all available repos from configured orgs + explicit repos.
+ * @returns {Promise<{repos: string[]}>}
+ */
+export async function fetchAllRepos() {
+  const res = await fetch(`${BASE}/api/repos`);
+  if (!res.ok) throw new Error(`Failed to fetch repos: ${res.status}`);
+  return res.json();
+}
+
 export async function fetchSetupAccounts() {
   const res = await fetch(`${BASE}/api/setup/accounts`);
   if (!res.ok) {

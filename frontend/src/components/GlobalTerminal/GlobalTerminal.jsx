@@ -2,7 +2,8 @@ import { useState, useCallback, useEffect } from 'react';
 import { Terminal } from '../Terminal/Terminal.jsx';
 import { useEscapeKey } from '../../hooks/useEscapeKey.js';
 import { useResizeHandle } from '../../hooks/useResizeHandle.js';
-import { promoteSession, fetchConfig } from '../../lib/api.js';
+import { promoteSession } from '../../lib/api.js';
+import { RepoCombobox } from '../ui/RepoCombobox/RepoCombobox.jsx';
 import shared from '../../styles/shared.module.css';
 import styles from './GlobalTerminal.module.css';
 
@@ -39,7 +40,6 @@ export function GlobalTerminal({ open, onToggle }) {
   const [promoteRepo, setPromoteRepo] = useState('');
   const [promoteBranch, setPromoteBranch] = useState('');
   const [promoting, setPromoting] = useState(false);
-  const [repos, setRepos] = useState([]);
 
   const { height, setHeight, dragging, handleProps } = useResizeHandle({
     initial: loadHeight(),
@@ -97,15 +97,6 @@ export function GlobalTerminal({ open, onToggle }) {
     }
   }, [session]);
 
-  // Fetch repos for the promote dropdown
-  useEffect(() => {
-    if (!showPromote) return;
-    fetchConfig().then(cfg => {
-      const repoList = (cfg.poll?.repos || []).filter(r => r.includes('/') && !r.includes('*'));
-      setRepos(repoList);
-      if (repoList.length > 0 && !promoteRepo) setPromoteRepo(repoList[0]);
-    }).catch(() => {});
-  }, [showPromote]);
 
   const handlePromote = useCallback(async () => {
     if (!session || !promoteRepo || !promoteBranch) return;
@@ -182,15 +173,7 @@ export function GlobalTerminal({ open, onToggle }) {
         </div>
         {showPromote && (
           <div className={styles.promoteForm}>
-            <select
-              className={styles.promoteSelect}
-              value={promoteRepo}
-              onChange={e => setPromoteRepo(e.target.value)}
-              disabled={promoting}
-            >
-              {repos.length === 0 && <option value="">Loading...</option>}
-              {repos.map(r => <option key={r} value={r}>{r}</option>)}
-            </select>
+            <RepoCombobox value={promoteRepo} onChange={setPromoteRepo} disabled={promoting} variant="dark" />
             <input
               className={styles.promoteInput}
               type="text"

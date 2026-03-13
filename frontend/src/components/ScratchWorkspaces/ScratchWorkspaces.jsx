@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { fetchScratchWorkspaces, createScratchWorkspace, fetchConfig } from '../../lib/api.js';
+import { useState, useEffect, useCallback } from 'react';
+import { fetchScratchWorkspaces, createScratchWorkspace } from '../../lib/api.js';
 import { getRelativeTime } from '../../lib/time.js';
+import { RepoCombobox } from '../ui/RepoCombobox/RepoCombobox.jsx';
 import styles from './ScratchWorkspaces.module.css';
 
 export function ScratchWorkspaces({ prs, syncedAt }) {
@@ -9,33 +10,12 @@ export function ScratchWorkspaces({ prs, syncedAt }) {
   const [newWorkRepo, setNewWorkRepo] = useState('');
   const [newWorkBranch, setNewWorkBranch] = useState('');
   const [newWorkSubmitting, setNewWorkSubmitting] = useState(false);
-  const [repos, setRepos] = useState([]);
-  const configRef = useRef(null);
 
   useEffect(() => {
     fetchScratchWorkspaces()
       .then(ws => setScratchWorkspaces(ws))
       .catch(() => {});
   }, [syncedAt]);
-
-  useEffect(() => {
-    if (!configRef.current) {
-      fetchConfig().then(cfg => { configRef.current = cfg; }).catch(() => {});
-    }
-  }, []);
-
-  useEffect(() => {
-    const prRepos = [...new Set(prs.map(pr => `${pr.org}/${pr.repo}`))];
-    const cfg = configRef.current;
-    const configRepos = cfg?.poll?.repos || [];
-    const configOrgs = (cfg?.poll?.orgs || []).map(o => `${o}/*`);
-    const all = [...new Set([...prRepos, ...configRepos, ...configOrgs])].sort();
-    setRepos(all);
-    if (!newWorkRepo && all.length > 0) {
-      const first = all.find(r => !r.endsWith('/*')) || '';
-      setNewWorkRepo(first);
-    }
-  }, [prs]);
 
   const handleNewWork = useCallback(async () => {
     if (!newWorkRepo || !newWorkBranch) return;
@@ -66,9 +46,7 @@ export function ScratchWorkspaces({ prs, syncedAt }) {
         <div className={styles.form}>
           <div className={styles.fieldGroup}>
             <label className={styles.label}>Repo</label>
-            <select className={styles.select} value={newWorkRepo} onChange={e => setNewWorkRepo(e.target.value)}>
-              {repos.filter(r => !r.endsWith('/*')).map(r => <option key={r} value={r}>{r}</option>)}
-            </select>
+            <RepoCombobox value={newWorkRepo} onChange={setNewWorkRepo} disabled={newWorkSubmitting} />
           </div>
           <div className={styles.fieldGroupFlex}>
             <label className={styles.label}>Branch</label>
