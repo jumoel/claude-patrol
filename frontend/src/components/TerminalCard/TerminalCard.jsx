@@ -30,7 +30,12 @@ export function TerminalCard({ session, title, onKill, onExit, onPopOut, onReatt
     initial: 400, min: 150, max: 900,
   });
 
-  useEscapeKey(maximized, useCallback(() => setMaximized(false), []));
+  // Only un-maximize on Escape if it didn't come from the terminal
+  // (xterm sends Escape to the PTY, but the DOM event also bubbles up)
+  useEscapeKey(maximized, useCallback((e) => {
+    if (e?.target?.closest?.('.xterm')) return;
+    setMaximized(false);
+  }, []));
 
   const toggleMaximize = useCallback(() => setMaximized(prev => !prev), []);
 

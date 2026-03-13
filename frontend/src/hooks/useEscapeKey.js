@@ -8,7 +8,7 @@ import { useEffect } from 'react';
 export function useEscapeKey(active, callback) {
   useEffect(() => {
     if (!active) return;
-    const handler = (e) => { if (e.key === 'Escape') callback(); };
+    const handler = (e) => { if (e.key === 'Escape') callback(e); };
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
   }, [active, callback]);
