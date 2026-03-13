@@ -10,6 +10,7 @@
 
 .row {
   @apply border-b border-gray-100 hover:bg-blue-50/50 transition-colors;
+  border-left: 3px solid transparent;
 }
 
 .draft {
