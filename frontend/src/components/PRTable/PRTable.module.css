@@ -10,11 +10,21 @@
 
 .row {
   @apply border-b border-gray-100 hover:bg-blue-50/50 transition-colors;
-  border-left: 3px solid transparent;
+  box-shadow: inset 3px 0 0 #6366f1;
 }
 
 .draft {
-  border-left: 3px dashed #9ca3af;
+  box-shadow: inset 3px 0 0 #9ca3af;
+  background-image: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 4px,
+    white 4px,
+    white 8px
+  );
+  background-size: 3px 100%;
+  background-repeat: no-repeat;
+  background-position: left;
 }
 
 .cell {
