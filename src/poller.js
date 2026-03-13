@@ -457,18 +457,22 @@ let findScratchesStmt = null;
 /** @type {import('node:sqlite').StatementSync | null} */
 let findPrByBranchStmt = null;
 /** @type {import('node:sqlite').StatementSync | null} */
+let findPrByBranchSuffixStmt = null;
+/** @type {import('node:sqlite').StatementSync | null} */
 let adoptWorkspaceStmt = null;
 
 /**
  * Adopt scratch workspaces that match newly-synced PRs.
  * A scratch workspace is adopted when its bookmark matches a PR's branch
- * and its repo column matches the PR's org/repo.
+ * and its repo column matches the PR's org/repo. Also handles prefix
+ * mismatches (e.g. bookmark "my-branch" matches PR branch "user/my-branch").
  */
 function adoptScratchWorkspaces() {
   const db = getDb();
   if (!findScratchesStmt) {
     findScratchesStmt = db.prepare("SELECT * FROM workspaces WHERE pr_id IS NULL AND status = 'active'");
     findPrByBranchStmt = db.prepare('SELECT id FROM prs WHERE org = ? AND repo = ? AND branch = ?');
+    findPrByBranchSuffixStmt = db.prepare("SELECT id FROM prs WHERE org = ? AND repo = ? AND branch LIKE '%/' || ?");
     adoptWorkspaceStmt = db.prepare('UPDATE workspaces SET pr_id = ?, repo = NULL WHERE id = ?');
   }
   const scratches = findScratchesStmt.all();
@@ -478,7 +482,9 @@ function adoptScratchWorkspaces() {
   for (const ws of scratches) {
     if (!ws.repo) continue;
     const [org, repo] = ws.repo.split('/');
-    const pr = findPrByBranchStmt.get(org, repo, ws.bookmark);
+    // Exact match first, then suffix match (handles user/ prefixes on branches)
+    const pr = findPrByBranchStmt.get(org, repo, ws.bookmark)
+            || findPrByBranchSuffixStmt.get(org, repo, ws.bookmark);
     if (pr) {
       adoptWorkspaceStmt.run(pr.id, ws.id);
       adopted++;
