@@ -1,6 +1,7 @@
 import { execFile, execFileSync, spawn } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { destroyTui } from './tui.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_DIR = dirname(__dirname);
@@ -144,10 +145,12 @@ export function restartServer() {
     }
     restartPhase = { phase: 'spawning', started_at: new Date().toISOString() };
     console.log('[restart] Spawning new server with --reattach...');
+    // Tear down the TUI before spawning so the new process gets a clean terminal
+    destroyTui();
     const child = spawn(process.execPath, [entryPoint, '--reattach'], {
       cwd: REPO_DIR,
       detached: true,
-      stdio: 'ignore',
+      stdio: 'inherit',
     });
     child.unref();
     restartPhase = { phase: 'shutting_down', started_at: new Date().toISOString() };
