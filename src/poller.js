@@ -4,6 +4,7 @@ import { unlinkSync } from 'node:fs';
 import { getDb } from './db.js';
 import { destroyWorkspace } from './workspace.js';
 import { makePrId } from './utils.js';
+import { emitLocalChange } from './app-events.js';
 
 export const pollerEvents = new EventEmitter();
 
@@ -473,14 +474,21 @@ function adoptScratchWorkspaces() {
   const scratches = findScratchesStmt.all();
   if (scratches.length === 0) return;
 
+  let adopted = 0;
   for (const ws of scratches) {
     if (!ws.repo) continue;
     const [org, repo] = ws.repo.split('/');
     const pr = findPrByBranchStmt.get(org, repo, ws.bookmark);
     if (pr) {
       adoptWorkspaceStmt.run(pr.id, ws.id);
+      adopted++;
       console.log(`[poller] Adopted workspace ${ws.name} for PR ${pr.id}`);
+    } else {
+      console.log(`[poller] No PR match for scratch workspace ${ws.name} (repo=${ws.repo}, bookmark=${ws.bookmark})`);
     }
+  }
+  if (adopted > 0) {
+    emitLocalChange();
   }
 }
 
