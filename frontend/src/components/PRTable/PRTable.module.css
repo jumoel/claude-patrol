@@ -20,6 +20,7 @@
     rgba(0, 0, 0, 0.03) 20px,
     rgba(0, 0, 0, 0.03) 36px
   );
+  background-attachment: fixed;
 }
 
 .cell {
