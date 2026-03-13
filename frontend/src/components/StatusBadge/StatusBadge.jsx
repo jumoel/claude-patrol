@@ -11,7 +11,7 @@ const LABELS = {
   CONFLICTING: 'Conflict',
   UNKNOWN: 'Unknown',
   draft: 'Draft',
-  open: 'Open',
+  open: 'Ready',
 };
 
 /**
