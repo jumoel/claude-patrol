@@ -105,9 +105,7 @@ export function PRTable({ prs, onRowClick, sorting, onSortingChange }) {
     getSortedRowModel: getSortedRowModel(),
   });
 
-  if (prs.length === 0) {
-    return <p className={styles.empty}>No PRs found</p>;
-  }
+  const rows = table.getRowModel().rows;
 
   return (
     <table className={styles.table}>
@@ -131,7 +129,11 @@ export function PRTable({ prs, onRowClick, sorting, onSortingChange }) {
         ))}
       </thead>
       <tbody>
-        {table.getRowModel().rows.map(row => (
+        {rows.length === 0 ? (
+          <tr>
+            <td colSpan={columns.length} className={styles.empty}>No PRs found</td>
+          </tr>
+        ) : rows.map(row => (
           <tr key={row.id} className={`${styles.row} ${row.original.draft ? styles.draft : ''} ${isMergeReady(row.original) ? styles.mergeReady : ''}`} onClick={() => onRowClick?.(row.original.id)} style={{ cursor: onRowClick ? 'pointer' : undefined }}>
             {row.getVisibleCells().map(cell => (
               <td key={cell.id} className={`${styles.cell} ${cell.column.columnDef.meta?.centered ? styles.cellCenter : ''} ${cell.column.columnDef.meta?.alignRight ? styles.cellRight : ''}`}>
