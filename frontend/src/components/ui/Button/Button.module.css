@@ -84,3 +84,16 @@
 .darkGhost {
   @apply text-gray-400 bg-transparent hover:text-gray-200;
 }
+
+/* ---- Dark filled overrides (solid bg in dark context) ---- */
+.darkFilledSuccess {
+  @apply text-white bg-green-700 hover:bg-green-600;
+}
+
+.darkFilledPrimary {
+  @apply text-white bg-blue-700 hover:bg-blue-600;
+}
+
+.darkFilledDanger {
+  @apply text-white bg-red-700 hover:bg-red-600;
+}

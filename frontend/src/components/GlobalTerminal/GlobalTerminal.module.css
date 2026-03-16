@@ -41,24 +41,8 @@
   @apply flex items-center gap-2;
 }
 
-.maximizeButton {
-  @apply px-2 py-0.5 text-xs text-gray-300 bg-gray-700/50 rounded hover:bg-gray-700 transition-colors cursor-pointer;
-}
-
-.popOutButton {
-  @apply px-2 py-0.5 text-xs text-blue-400 bg-blue-900/30 rounded hover:bg-blue-900/50 transition-colors cursor-pointer;
-}
-
-.killButton {
-  @apply px-2 py-0.5 text-xs text-red-400 bg-red-900/30 rounded hover:bg-red-900/50 transition-colors cursor-pointer;
-}
-
 .closeButton {
   @apply p-1 text-gray-400 hover:text-gray-200 transition-colors cursor-pointer;
-}
-
-.promoteButton {
-  @apply px-2 py-0.5 text-xs text-green-400 bg-green-900/30 rounded hover:bg-green-900/50 transition-colors cursor-pointer;
 }
 
 .promoteForm {
@@ -75,13 +59,6 @@
   max-width: 280px;
 }
 
-.promoteSubmit {
-  @apply px-3 py-1 text-sm text-white bg-green-700 rounded hover:bg-green-600 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed;
-}
-
-.promoteCancel {
-  @apply px-2 py-1 text-sm text-gray-400 hover:text-gray-200 transition-colors cursor-pointer;
-}
 
 .content {
   @apply flex-1 overflow-hidden min-h-0;
@@ -95,6 +72,3 @@
   @apply flex items-center justify-center h-full;
 }
 
-.startButton {
-  @apply px-4 py-2 text-base font-medium text-blue-400 bg-blue-900/30 rounded-md hover:bg-blue-900/50 transition-colors cursor-pointer;
-}

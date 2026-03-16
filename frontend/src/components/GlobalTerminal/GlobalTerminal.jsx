@@ -4,6 +4,7 @@ import { useResizeHandle } from '../../hooks/useResizeHandle.js';
 import { promoteSession } from '../../lib/api.js';
 import shared from '../../styles/shared.module.css';
 import { Terminal } from '../Terminal/Terminal.jsx';
+import { Button } from '../ui/Button/Button.jsx';
 import { RepoCombobox } from '../ui/RepoCombobox/RepoCombobox.jsx';
 import styles from './GlobalTerminal.module.css';
 
@@ -162,18 +163,18 @@ export function GlobalTerminal({ open, onToggle, onSessionChange }) {
           <div className={styles.handleActions}>
             {session && (
               <>
-                <button className={styles.promoteButton} onClick={() => setShowPromote((s) => !s)}>
+                <Button variant="success" size="xs" dark onClick={() => setShowPromote((s) => !s)}>
                   Promote
-                </button>
-                <button className={styles.maximizeButton} onClick={() => setMaximized((m) => !m)}>
+                </Button>
+                <Button size="xs" dark onClick={() => setMaximized((m) => !m)}>
                   {maximized ? 'Restore' : 'Maximize'}
-                </button>
-                <button className={styles.popOutButton} onClick={popOutSession}>
+                </Button>
+                <Button variant="primary" size="xs" dark onClick={popOutSession}>
                   Pop out
-                </button>
-                <button className={styles.killButton} onClick={killSession}>
+                </Button>
+                <Button variant="danger" size="xs" dark onClick={killSession}>
                   Kill
-                </button>
+                </Button>
               </>
             )}
             <button
@@ -210,16 +211,12 @@ export function GlobalTerminal({ open, onToggle, onSessionChange }) {
               onKeyDown={(e) => e.key === 'Enter' && handlePromote()}
               disabled={promoting}
             />
-            <button
-              className={styles.promoteSubmit}
-              onClick={handlePromote}
-              disabled={promoting || !promoteRepo || !promoteBranch}
-            >
+            <Button variant="success" size="xs" dark filled onClick={handlePromote} disabled={promoting || !promoteRepo || !promoteBranch}>
               {promoting ? 'Promoting...' : 'Go'}
-            </button>
-            <button className={styles.promoteCancel} onClick={() => setShowPromote(false)} disabled={promoting}>
+            </Button>
+            <Button variant="ghost" size="xs" dark onClick={() => setShowPromote(false)} disabled={promoting}>
               Cancel
-            </button>
+            </Button>
           </div>
         )}
         <div className={styles.content}>
@@ -227,9 +224,9 @@ export function GlobalTerminal({ open, onToggle, onSessionChange }) {
           {session && <Terminal wsUrl={`/ws/sessions/${session.id}`} focus={open} onExit={handleSessionExit} />}
           {!session && !loading && (
             <div className={styles.placeholder}>
-              <button className={styles.startButton} onClick={startSession}>
+              <Button variant="primary" size="lg" dark onClick={startSession}>
                 Start Global Session
-              </button>
+              </Button>
             </div>
           )}
         </div>

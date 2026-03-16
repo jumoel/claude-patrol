@@ -31,6 +31,12 @@ const FILLED_CLASSES = {
   primary: styles.filledPrimary,
 };
 
+const DARK_FILLED_CLASSES = {
+  danger: styles.darkFilledDanger,
+  success: styles.darkFilledSuccess,
+  primary: styles.darkFilledPrimary,
+};
+
 /**
  * Reusable button component.
  * @param {{
@@ -56,7 +62,9 @@ export function Button({
 }) {
   const sizeClass = SIZE_CLASSES[size] || SIZE_CLASSES.sm;
   let variantClass;
-  if (dark) {
+  if (dark && filled && DARK_FILLED_CLASSES[variant]) {
+    variantClass = DARK_FILLED_CLASSES[variant];
+  } else if (dark) {
     variantClass = DARK_VARIANT_CLASSES[variant] || DARK_VARIANT_CLASSES.default;
   } else if (filled && FILLED_CLASSES[variant]) {
     variantClass = FILLED_CLASSES[variant];
