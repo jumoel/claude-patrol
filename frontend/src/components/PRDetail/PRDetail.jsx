@@ -277,7 +277,11 @@ export function PRDetail({ prId, onBack }) {
           </Button>
           <div className={styles.headerLinks}>
             {isMergeReady && (
-              <a
+              <Button
+                as="a"
+                variant="success"
+                size="sm"
+                filled
                 href={pr.url}
                 target="_blank"
                 rel="noopener noreferrer"
@@ -291,21 +295,22 @@ export function PRDetail({ prId, onBack }) {
                   />
                 </svg>
                 Merge on GitHub
-              </a>
+              </Button>
             )}
-            <button
-              className={pr.draft ? styles.markReadyButton : styles.markDraftButton}
+            <Button
+              variant={pr.draft ? 'success' : 'default'}
+              size="sm"
               onClick={handleToggleDraft}
               disabled={togglingDraft}
               type="button"
             >
               {togglingDraft ? '...' : pr.draft ? 'Mark ready' : 'Mark draft'}
-            </button>
-            <a href={`${pr.url}/files`} target="_blank" rel="noopener noreferrer" className={styles.diffLink}>
+            </Button>
+            <Button as="a" size="sm" href={`${pr.url}/files`} target="_blank" rel="noopener noreferrer">
               View diff
-            </a>
+            </Button>
             {workspace && (
-              <button className={styles.terminalLink} onClick={handleOpenTerminal} type="button">
+              <Button size="sm" onClick={handleOpenTerminal} type="button">
                 <svg
                   width="14"
                   height="14"
@@ -321,7 +326,7 @@ export function PRDetail({ prId, onBack }) {
                   <line x1="9" y1="11" x2="12" y2="11" />
                 </svg>
                 Terminal
-              </button>
+              </Button>
             )}
             <a
               href={pr.url}
@@ -461,12 +466,12 @@ export function PRDetail({ prId, onBack }) {
             </h3>
             {failedChecks.length > 0 && (
               <div className={styles.checksActions}>
-                <button className={styles.retriggerButton} onClick={handleRetriggerFailed} disabled={retriggering}>
+                <Button variant="warning" size="sm" onClick={handleRetriggerFailed} disabled={retriggering}>
                   {retriggering ? 'Retriggering...' : 'Retrigger failed'}
-                </button>
-                <button className={styles.investigateButton} onClick={handleInvestigateFailures}>
+                </Button>
+                <Button variant="primary" size="sm" onClick={handleInvestigateFailures}>
                   Investigate failures
-                </button>
+                </Button>
               </div>
             )}
           </div>
@@ -585,9 +590,9 @@ function CheckRow({ check, prId }) {
         </div>
         <div className={styles.checkActions}>
           {isFailed && prId && (
-            <button className={styles.viewLogButton} onClick={handleViewLog}>
+            <Button size="xs" onClick={handleViewLog}>
               {showLog ? 'Hide log' : 'View log'}
-            </button>
+            </Button>
           )}
           <span className={`${styles.checkBadge} ${styles[`checkBadge-${colorGroup}`]}`}>
             {CHECK_STATUS_LABELS[status] || status.toLowerCase()}
