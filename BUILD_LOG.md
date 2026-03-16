@@ -1,5 +1,9 @@
 # Build Log
 
+## 2026-03-16 - Fix tmux status bar clearing idle state
+
+Tmux status-bar redraws (clock updates every 15-60s) produce a burst of small chunks with printable content (~20-50 bytes). The old burst detection counted events (threshold: 3) which the status bar easily hit, causing a false idle->working->idle cycle every minute. Replaced event-count burst detection with printable byte accumulation (threshold: 200 bytes within 2s window). Status bar redraws stay well under this, but real Claude output easily exceeds it.
+
 ## 2026-03-16 - "Working" status in PR table
 
 New "Working" badge (violet, with CSS spinner) in the PR table's Local column. Shows when Claude is actively producing output, distinct from "Session" (exists but quiet) and "Idle" (30s+ no output). Backend emits `session-active` with `workspaceId` on first printable output (not just recovery from idle). Frontend tracks `workingWorkspaces` Set alongside `idleWorkspaces`. Sort order: Working (4) > Idle (3) > Session (2) > Workspace (1) > none (0). Session exit events carry `exited: true` flag to properly clear working state.

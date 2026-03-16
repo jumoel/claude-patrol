@@ -14,19 +14,19 @@ const BUFFER_MAX = 50_000;
 const IDLE_THRESHOLD_MS = 30_000;
 
 /**
- * Strip ANSI escape sequences and check if any printable content remains.
- * Escape-only output (cursor movement, mode changes, status-line redraws)
- * shouldn't count as real activity for idle detection.
+ * Strip ANSI escape sequences and count printable bytes remaining.
+ * Returns 0 for escape-only output (cursor movement, mode changes,
+ * status-line redraws) that shouldn't count as real activity.
  */
 const ANSI_RE = /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b\[[0-9;?]*[A-Za-z@`~]|\x1b[()][AB012]|\x1b[=>NOMDEHcZ78]/g;
-function hasPrintableContent(data) {
+function printableByteCount(data) {
   const stripped = data.replace(ANSI_RE, '');
-  // Check if anything visible remains after stripping escapes and control chars
+  let count = 0;
   for (let i = 0; i < stripped.length; i++) {
     const c = stripped.charCodeAt(i);
-    if (c >= 0x20 && c !== 0x7f) return true;
+    if (c >= 0x20 && c !== 0x7f) count++;
   }
-  return false;
+  return count;
 }
 
 
@@ -127,13 +127,14 @@ function attachPtyToTmux(sessionId, meta = {}) {
   let idleTimer = null;
   let notifiedIdle = false;
   let notifiedActive = false;
-  // Once idle, require a burst of printable outputs to clear it.
-  // This prevents tmux status-bar clock updates (one event every ~15s)
-  // from repeatedly clearing and re-triggering idle notifications.
-  let burstCount = 0;
+  // Once idle, require substantial printable output to clear it.
+  // Tmux status-bar redraws produce ~20-50 printable bytes per update
+  // (clock, hostname, etc.) which shouldn't clear idle state.
+  // Real Claude output produces 200+ bytes easily.
+  let burstBytes = 0;
   let burstTimer = null;
-  const BURST_THRESHOLD = 3;   // printable output events needed to clear idle
-  const BURST_WINDOW = 2000;   // within this many ms
+  const BURST_BYTE_THRESHOLD = 200;  // printable bytes needed to clear idle
+  const BURST_WINDOW = 2000;         // within this many ms
 
   const entry = {
     proc,
@@ -152,19 +153,21 @@ function attachPtyToTmux(sessionId, meta = {}) {
     // characters. Tmux sends escape sequences for cursor positioning,
     // status-line redraws, and mode changes that aren't real program
     // output - these shouldn't reset the idle timer.
-    if (!hasPrintableContent(data)) return;
+    const bytes = printableByteCount(data);
+    if (bytes === 0) return;
 
     if (notifiedIdle) {
-      // Require a burst of rapid output to clear idle state.
-      // A single tmux status-bar update won't meet the threshold.
-      burstCount++;
+      // Accumulate printable bytes - require substantial output to clear idle.
+      // Tmux status-bar redraws (~20-50 bytes) won't reach the threshold,
+      // but real Claude output (tool calls, explanations) will.
+      burstBytes += bytes;
       if (burstTimer) clearTimeout(burstTimer);
-      burstTimer = setTimeout(() => { burstCount = 0; }, BURST_WINDOW);
+      burstTimer = setTimeout(() => { burstBytes = 0; }, BURST_WINDOW);
 
-      if (burstCount >= BURST_THRESHOLD) {
+      if (burstBytes >= BURST_BYTE_THRESHOLD) {
         notifiedIdle = false;
         notifiedActive = true;
-        burstCount = 0;
+        burstBytes = 0;
         emitSessionActive(sessionId, workspaceId);
         // Restart idle timer now that we're active again
         if (idleTimer) clearTimeout(idleTimer);
