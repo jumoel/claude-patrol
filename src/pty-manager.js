@@ -161,6 +161,12 @@ function attachPtyToTmux(sessionId, meta = {}) {
 
     // Ignore escape-only output (cursor moves, status-line redraws).
     const bytes = printableByteCount(data);
+    // DEBUG: log output stats for activity detection tuning
+    if (bytes > 0) {
+      const now = Date.now();
+      const gap = lastMomentAt ? now - lastMomentAt : 0;
+      console.log(`[activity] session=${sessionId.slice(0,8)} state=${state} bytes=${bytes} gap=${gap}ms moments=${momentCount} raw=${data.length}`);
+    }
     if (bytes === 0) return;
 
     if (state === 'working') {
