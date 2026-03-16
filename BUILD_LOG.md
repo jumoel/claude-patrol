@@ -1,16 +1,14 @@
 # Build Log
 
-## 2026-03-16 - Fix tmux status bar clearing idle state
+## 2026-03-16 - Simplify idle/working detection
 
-Tmux status-bar redraws (clock updates every 15-60s) produce a burst of small chunks with printable content (~20-50 bytes). The old burst detection counted events (threshold: 3) which the status bar easily hit, causing a false idle->working->idle cycle every minute. Replaced event-count burst detection with printable byte accumulation (threshold: 200 bytes within 2s window). Status bar redraws stay well under this, but real Claude output easily exceeds it.
+Rewrote the session activity tracking from scratch. Was: two boolean flags (`notifiedIdle`/`notifiedActive`), two SSE event types (`session-idle`/`session-active` with `exited` flag), three frontend Sets (`idleSessions`/`idleWorkspaces`/`workingWorkspaces`), plus dead code (`dismissIdle`, `idleSessions`). Now: single `state` enum (`'working'|'idle'`), single `session-state` SSE event, single `Map<workspaceId, state>` on the frontend.
 
-## 2026-03-16 - "Working" status in PR table
-
-New "Working" badge (violet, with CSS spinner) in the PR table's Local column. Shows when Claude is actively producing output, distinct from "Session" (exists but quiet) and "Idle" (30s+ no output). Backend emits `session-active` with `workspaceId` on first printable output (not just recovery from idle). Frontend tracks `workingWorkspaces` Set alongside `idleWorkspaces`. Sort order: Working (4) > Idle (3) > Session (2) > Workspace (1) > none (0). Session exit events carry `exited: true` flag to properly clear working state.
+Key behaviors preserved: 30s idle threshold, 200-byte burst detection to filter tmux status bar redraws, optimistic "Working" on reattach with idle timer correction, state cleared on SSE reconnect, idle badge suppressed when user is viewing the workspace.
 
 ## 2026-03-16 - Fix idle detection false positives
 
-Three fixes: (1) Guard idle badge with `has_session` so it only renders when there's a running session - prevents phantom badges from dead sessions. (2) Clear client-side idle state on SSE reconnect to prevent stale badges from missed `session-active` events during connection drops. (3) Increase idle threshold from 5s to 30s - Claude regularly pauses 10-30s while thinking or running tools, causing false idle notifications. Also made the PRTable cell derive display from the accessor's cached sort value (`getValue()`) instead of recomputing idle state independently, fixing sort/display mismatches.
+Guard idle badge with `has_session` so it only renders when there's a running session. Clear client-side idle state on SSE reconnect. Increase idle threshold from 5s to 30s. PRTable cell derives display from accessor's cached sort value.
 
 ## 2026-03-13 - Global terminal in cmd-k command palette
 

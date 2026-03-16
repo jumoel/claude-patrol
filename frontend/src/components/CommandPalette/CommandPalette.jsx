@@ -33,7 +33,7 @@ function fuzzyMatchWorkspace(query, ws) {
   return { match: true, score };
 }
 
-export function CommandPalette({ prs, scratchWorkspaces, idleWorkspaces, hasGlobalSession, onNavigate, onNavigateWorkspace, onOpenGlobalTerminal, onCloseGlobalTerminal }) {
+export function CommandPalette({ prs, scratchWorkspaces, workspaceStates, hasGlobalSession, onNavigate, onNavigateWorkspace, onOpenGlobalTerminal, onCloseGlobalTerminal }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -104,9 +104,9 @@ export function CommandPalette({ prs, scratchWorkspaces, idleWorkspaces, hasGlob
 
     // Boost idle items to top, then sort by score
     const isIdle = (entry) => {
-      if (!idleWorkspaces?.size) return false;
-      if (entry.type === 'workspace') return idleWorkspaces.has(entry.item.id);
-      return entry.item.workspace_id && idleWorkspaces.has(entry.item.workspace_id);
+      if (!workspaceStates?.size) return false;
+      const wsId = entry.type === 'workspace' ? entry.item.id : entry.item.workspace_id;
+      return wsId && workspaceStates.get(wsId) === 'idle';
     };
 
     return all.sort((a, b) => {
@@ -115,7 +115,7 @@ export function CommandPalette({ prs, scratchWorkspaces, idleWorkspaces, hasGlob
       if (aIdle !== bIdle) return bIdle - aIdle;
       return b.score - a.score;
     });
-  }, [prs, scratchWorkspaces, idleWorkspaces, hasGlobalSession, query]);
+  }, [prs, scratchWorkspaces, workspaceStates, hasGlobalSession, query]);
 
   // Reset selection when results change
   useEffect(() => {
@@ -188,11 +188,11 @@ export function CommandPalette({ prs, scratchWorkspaces, idleWorkspaces, hasGlob
                 onMouseEnter={() => setSelectedIndex(i)}
               >
                 {entry.type === 'pr' ? (
-                  <PRResult pr={entry.item} idle={entry.item.workspace_id && idleWorkspaces?.has(entry.item.workspace_id)} />
+                  <PRResult pr={entry.item} idle={entry.item.workspace_id && workspaceStates?.get(entry.item.workspace_id) === 'idle'} />
                 ) : entry.type === 'global' ? (
                   <GlobalResult />
                 ) : (
-                  <WorkspaceResult ws={entry.item} idle={idleWorkspaces?.has(entry.item.id)} />
+                  <WorkspaceResult ws={entry.item} idle={workspaceStates?.get(entry.item.id) === 'idle'} />
                 )}
               </div>
             ))

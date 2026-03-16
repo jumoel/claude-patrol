@@ -1,38 +1,31 @@
 import { useEffect, useCallback, useSyncExternalStore } from 'react';
 
 /**
- * Tracks which sessions/workspaces are idle or actively working via SSE events.
- * Fires browser notifications when the tab is hidden.
+ * Tracks session activity state (working/idle) per workspace via SSE.
+ * Fires browser notifications when a session goes idle and the tab is hidden.
  *
  * @returns {{
- *   idleSessions: Set<string>,
- *   idleWorkspaces: Set<string>,
- *   workingWorkspaces: Set<string>,
- *   dismissIdle: (sessionId: string) => void,
+ *   workspaceStates: Map<string, 'working' | 'idle'>,
  *   dismissWorkspace: (workspaceId: string) => void,
+ *   setActiveWorkspace: (workspaceId: string | null) => void,
  * }}
  */
 
-// Module-level state shared across all hook instances
-let idleSessions = new Set();
-let idleWorkspaces = new Set();
-let workingWorkspaces = new Set();
-/** @type {Map<string, string | null>} sessionId -> workspaceId */
+// Module-level state shared across all hook instances.
+// Single map: workspaceId → 'working' | 'idle'. Absent = no known state.
+/** @type {Map<string, 'working' | 'idle'>} */
+let workspaceStates = new Map();
+/** @type {Map<string, string | null>} sessionId → workspaceId */
 const sessionWorkspaceMap = new Map();
 
 const listeners = new Set();
 function notify() { for (const cb of listeners) cb(); }
 function subscribe(cb) { listeners.add(cb); return () => listeners.delete(cb); }
 
-// Snapshot objects for useSyncExternalStore (must be referentially stable when unchanged)
-let sessionsSnapshot = idleSessions;
-let idleWsSnapshot = idleWorkspaces;
-let workingWsSnapshot = workingWorkspaces;
-function getSessionsSnapshot() { return sessionsSnapshot; }
-function getIdleWsSnapshot() { return idleWsSnapshot; }
-function getWorkingWsSnapshot() { return workingWsSnapshot; }
+let statesSnapshot = workspaceStates;
+function getStatesSnapshot() { return statesSnapshot; }
 
-/** Workspace ID the user is currently viewing (set by the hook consumer). */
+/** Workspace ID the user is currently viewing. */
 let activeWorkspaceId = null;
 
 /** @type {EventSource | null} */
@@ -43,99 +36,49 @@ function startSSE() {
   if (source) return;
   source = new EventSource('/api/events');
 
-  // Clear stale state on reconnect - events from before the disconnect
-  // may no longer be valid (sessions could have exited while down).
+  // Clear stale state on reconnect.
   source.addEventListener('open', () => {
-    if (idleSessions.size > 0 || idleWorkspaces.size > 0 || workingWorkspaces.size > 0) {
-      idleSessions = new Set();
-      idleWorkspaces = new Set();
-      workingWorkspaces = new Set();
+    if (workspaceStates.size > 0) {
+      workspaceStates = new Map();
       sessionWorkspaceMap.clear();
-      sessionsSnapshot = idleSessions;
-      idleWsSnapshot = idleWorkspaces;
-      workingWsSnapshot = workingWorkspaces;
+      statesSnapshot = workspaceStates;
       notify();
     }
   });
 
-  source.addEventListener('session-idle', (event) => {
-    const { sessionId, workspaceId } = JSON.parse(event.data);
+  source.addEventListener('session-state', (event) => {
+    const { sessionId, workspaceId, state } = JSON.parse(event.data);
+
+    if (state === 'exited') {
+      sessionWorkspaceMap.delete(sessionId);
+      if (workspaceId && workspaceStates.has(workspaceId)) {
+        workspaceStates = new Map(workspaceStates);
+        workspaceStates.delete(workspaceId);
+        statesSnapshot = workspaceStates;
+        notify();
+      }
+      return;
+    }
+
     sessionWorkspaceMap.set(sessionId, workspaceId);
+    if (!workspaceId) return;
 
-    // If the user is currently viewing this workspace and the tab is visible, skip
-    if (workspaceId && workspaceId === activeWorkspaceId && !document.hidden) return;
+    // Skip idle notification if the user is currently viewing this workspace
+    if (state === 'idle' && workspaceId === activeWorkspaceId && !document.hidden) return;
 
-    let changed = false;
-    if (!idleSessions.has(sessionId)) {
-      idleSessions = new Set(idleSessions);
-      idleSessions.add(sessionId);
-      sessionsSnapshot = idleSessions;
-      changed = true;
+    if (workspaceStates.get(workspaceId) !== state) {
+      workspaceStates = new Map(workspaceStates);
+      workspaceStates.set(workspaceId, state);
+      statesSnapshot = workspaceStates;
+      notify();
     }
-    if (workspaceId && !idleWorkspaces.has(workspaceId)) {
-      idleWorkspaces = new Set(idleWorkspaces);
-      idleWorkspaces.add(workspaceId);
-      idleWsSnapshot = idleWorkspaces;
-      changed = true;
-    }
-    // Remove from working when going idle
-    if (workspaceId && workingWorkspaces.has(workspaceId)) {
-      workingWorkspaces = new Set(workingWorkspaces);
-      workingWorkspaces.delete(workspaceId);
-      workingWsSnapshot = workingWorkspaces;
-      changed = true;
-    }
-    if (changed) notify();
 
-    if (Notification.permission === 'granted' && document.hidden) {
+    if (state === 'idle' && Notification.permission === 'granted' && document.hidden) {
       new Notification('Claude is waiting', {
         body: 'A terminal session needs your attention.',
-        tag: `patrol-idle-${sessionId}`,
+        tag: `patrol-idle-${workspaceId}`,
       });
     }
-  });
-
-  source.addEventListener('session-active', (event) => {
-    const { sessionId, workspaceId: eventWsId, exited } = JSON.parse(event.data);
-    const workspaceId = eventWsId || sessionWorkspaceMap.get(sessionId) || null;
-
-    if (exited) {
-      sessionWorkspaceMap.delete(sessionId);
-    } else {
-      sessionWorkspaceMap.set(sessionId, workspaceId);
-    }
-
-    let changed = false;
-    if (idleSessions.has(sessionId)) {
-      idleSessions = new Set(idleSessions);
-      idleSessions.delete(sessionId);
-      sessionsSnapshot = idleSessions;
-      changed = true;
-    }
-    if (workspaceId && idleWorkspaces.has(workspaceId)) {
-      idleWorkspaces = new Set(idleWorkspaces);
-      idleWorkspaces.delete(workspaceId);
-      idleWsSnapshot = idleWorkspaces;
-      changed = true;
-    }
-    if (exited) {
-      // Session ended - remove from working
-      if (workspaceId && workingWorkspaces.has(workspaceId)) {
-        workingWorkspaces = new Set(workingWorkspaces);
-        workingWorkspaces.delete(workspaceId);
-        workingWsSnapshot = workingWorkspaces;
-        changed = true;
-      }
-    } else {
-      // Session actively producing output - mark as working
-      if (workspaceId && !workingWorkspaces.has(workspaceId)) {
-        workingWorkspaces = new Set(workingWorkspaces);
-        workingWorkspaces.add(workspaceId);
-        workingWsSnapshot = workingWorkspaces;
-        changed = true;
-      }
-    }
-    if (changed) notify();
   });
 }
 
@@ -156,60 +99,22 @@ export function useIdleNotification() {
     };
   }, []);
 
-  const sessions = useSyncExternalStore(subscribe, getSessionsSnapshot);
-  const idleWs = useSyncExternalStore(subscribe, getIdleWsSnapshot);
-  const workingWs = useSyncExternalStore(subscribe, getWorkingWsSnapshot);
-
-  const dismissIdle = useCallback((sessionId) => {
-    const workspaceId = sessionWorkspaceMap.get(sessionId);
-    let changed = false;
-    if (idleSessions.has(sessionId)) {
-      idleSessions = new Set(idleSessions);
-      idleSessions.delete(sessionId);
-      sessionsSnapshot = idleSessions;
-      changed = true;
-    }
-    if (workspaceId && idleWorkspaces.has(workspaceId)) {
-      idleWorkspaces = new Set(idleWorkspaces);
-      idleWorkspaces.delete(workspaceId);
-      idleWsSnapshot = idleWorkspaces;
-      changed = true;
-    }
-    if (changed) notify();
-  }, []);
+  const states = useSyncExternalStore(subscribe, getStatesSnapshot);
 
   const dismissWorkspace = useCallback((workspaceId) => {
-    let changed = false;
-    if (idleWorkspaces.has(workspaceId)) {
-      idleWorkspaces = new Set(idleWorkspaces);
-      idleWorkspaces.delete(workspaceId);
-      idleWsSnapshot = idleWorkspaces;
-      changed = true;
+    if (workspaceStates.has(workspaceId)) {
+      workspaceStates = new Map(workspaceStates);
+      workspaceStates.delete(workspaceId);
+      statesSnapshot = workspaceStates;
+      notify();
     }
-    // Also dismiss any sessions belonging to this workspace
-    for (const [sid, wsId] of sessionWorkspaceMap) {
-      if (wsId === workspaceId && idleSessions.has(sid)) {
-        idleSessions = new Set(idleSessions);
-        idleSessions.delete(sid);
-        sessionsSnapshot = idleSessions;
-        changed = true;
-      }
-    }
-    if (changed) notify();
   }, []);
 
   const setActiveWorkspace = useCallback((wsId) => {
     activeWorkspaceId = wsId;
-    // Auto-dismiss if the workspace was idle
-    if (wsId) dismissWorkspace(wsId);
+    // Auto-dismiss idle badge when the user views the workspace
+    if (wsId && workspaceStates.get(wsId) === 'idle') dismissWorkspace(wsId);
   }, [dismissWorkspace]);
 
-  return {
-    idleSessions: sessions,
-    idleWorkspaces: idleWs,
-    workingWorkspaces: workingWs,
-    dismissIdle,
-    dismissWorkspace,
-    setActiveWorkspace,
-  };
+  return { workspaceStates: states, dismissWorkspace, setActiveWorkspace };
 }

@@ -53,22 +53,17 @@ export async function createServer() {
     const localHandler = () => {
       raw.write(`event: local-change\ndata: {}\n\n`);
     };
-    const idleHandler = (data) => {
-      raw.write(`event: session-idle\ndata: ${JSON.stringify(data)}\n\n`);
-    };
-    const activeHandler = (data) => {
-      raw.write(`event: session-active\ndata: ${JSON.stringify(data)}\n\n`);
+    const stateHandler = (data) => {
+      raw.write(`event: session-state\ndata: ${JSON.stringify(data)}\n\n`);
     };
 
     pollerEvents.on('sync', syncHandler);
     appEvents.on('local-change', localHandler);
-    appEvents.on('session-idle', idleHandler);
-    appEvents.on('session-active', activeHandler);
+    appEvents.on('session-state', stateHandler);
     request.raw.on('close', () => {
       pollerEvents.removeListener('sync', syncHandler);
       appEvents.removeListener('local-change', localHandler);
-      appEvents.removeListener('session-idle', idleHandler);
-      appEvents.removeListener('session-active', activeHandler);
+      appEvents.removeListener('session-state', stateHandler);
       sseConnections.delete(raw);
     });
   });

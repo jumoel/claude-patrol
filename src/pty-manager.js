@@ -8,7 +8,7 @@ import { getDb } from './db.js';
 import { mcpConfigPath as getMcpConfigPath } from './paths.js';
 import { expandPath, toClaudeProjectKey } from './utils.js';
 import { archiveTranscript } from './transcripts.js';
-import { emitSessionIdle, emitSessionActive } from './app-events.js';
+import { emitSessionState } from './app-events.js';
 
 const BUFFER_MAX = 50_000;
 const IDLE_THRESHOLD_MS = 30_000;
@@ -124,24 +124,28 @@ function attachPtyToTmux(sessionId, meta = {}) {
   const sessionRow = db.prepare('SELECT workspace_id FROM sessions WHERE id = ?').get(sessionId);
   const workspaceId = sessionRow?.workspace_id || null;
 
-  let notifiedIdle = false;
-  let notifiedActive = false;
-  // Start idle timer immediately - if no printable output arrives within
-  // the threshold, the session is idle. This handles both new sessions
-  // and reattached sessions that may already be waiting for input.
+  // Activity state machine: 'working' | 'idle'
+  // Transitions: working → idle (after IDLE_THRESHOLD_MS of silence)
+  //              idle → working (after BURST_BYTE_THRESHOLD printable bytes)
+  let state = 'idle';
+
+  // Idle timer: fires when no substantial output for IDLE_THRESHOLD_MS.
+  // Started immediately so new/reattached sessions that produce no output
+  // settle into 'idle' naturally.
   let idleTimer = setTimeout(() => {
-    notifiedIdle = true;
-    notifiedActive = false;
-    emitSessionIdle(sessionId, workspaceId);
+    if (state !== 'idle') {
+      state = 'idle';
+      emitSessionState(sessionId, workspaceId, 'idle');
+    }
   }, IDLE_THRESHOLD_MS);
-  // Once idle, require substantial printable output to clear it.
-  // Tmux status-bar redraws produce ~20-50 printable bytes per update
-  // (clock, hostname, etc.) which shouldn't clear idle state.
-  // Real Claude output produces 200+ bytes easily.
+
+  // Burst accumulator: tmux status-bar redraws produce ~20-50 printable
+  // bytes per update (clock, hostname). Real Claude output exceeds 200
+  // bytes easily. Only substantial output clears idle state.
   let burstBytes = 0;
   let burstTimer = null;
-  const BURST_BYTE_THRESHOLD = 200;  // printable bytes needed to clear idle
-  const BURST_WINDOW = 2000;         // within this many ms
+  const BURST_BYTE_THRESHOLD = 200;
+  const BURST_WINDOW = 2000;
 
   const entry = {
     proc,
@@ -156,45 +160,33 @@ function attachPtyToTmux(sessionId, meta = {}) {
       if (ws.readyState === 1) ws.send(msg);
     }
 
-    // Only treat output as meaningful activity if it contains printable
-    // characters. Tmux sends escape sequences for cursor positioning,
-    // status-line redraws, and mode changes that aren't real program
-    // output - these shouldn't reset the idle timer.
+    // Ignore escape-only output (cursor moves, status-line redraws).
     const bytes = printableByteCount(data);
     if (bytes === 0) return;
 
-    if (notifiedIdle) {
-      // Accumulate printable bytes - require substantial output to clear idle.
-      // Tmux status-bar redraws (~20-50 bytes) won't reach the threshold,
-      // but real Claude output (tool calls, explanations) will.
+    if (state === 'idle') {
+      // Accumulate printable bytes before clearing idle. Tmux status-bar
+      // redraws (~20-50 bytes) won't reach the threshold.
       burstBytes += bytes;
       if (burstTimer) clearTimeout(burstTimer);
       burstTimer = setTimeout(() => { burstBytes = 0; }, BURST_WINDOW);
 
       if (burstBytes >= BURST_BYTE_THRESHOLD) {
-        notifiedIdle = false;
-        notifiedActive = true;
+        state = 'working';
         burstBytes = 0;
-        emitSessionActive(sessionId, workspaceId);
-        // Restart idle timer now that we're active again
+        emitSessionState(sessionId, workspaceId, 'working');
         if (idleTimer) clearTimeout(idleTimer);
         idleTimer = setTimeout(() => {
-          notifiedIdle = true;
-          emitSessionIdle(sessionId, workspaceId);
+          state = 'idle';
+          emitSessionState(sessionId, workspaceId, 'idle');
         }, IDLE_THRESHOLD_MS);
       }
     } else {
-      // Notify clients on first meaningful output so they can show "Working"
-      if (!notifiedActive) {
-        notifiedActive = true;
-        emitSessionActive(sessionId, workspaceId);
-      }
-      // Normal active state - reset idle timer on each output
+      // Already working - reset the idle timer on each output.
       if (idleTimer) clearTimeout(idleTimer);
       idleTimer = setTimeout(() => {
-        notifiedIdle = true;
-        notifiedActive = false;
-        emitSessionIdle(sessionId, workspaceId);
+        state = 'idle';
+        emitSessionState(sessionId, workspaceId, 'idle');
       }, IDLE_THRESHOLD_MS);
     }
   });
@@ -202,7 +194,7 @@ function attachPtyToTmux(sessionId, meta = {}) {
   proc.onExit(({ exitCode }) => {
     if (idleTimer) clearTimeout(idleTimer);
     if (burstTimer) clearTimeout(burstTimer);
-    if (notifiedIdle || notifiedActive) emitSessionActive(sessionId, workspaceId, { exited: true });
+    emitSessionState(sessionId, workspaceId, 'exited');
     const exitMsg = JSON.stringify({ type: 'exit', code: exitCode });
     for (const ws of entry.websockets) {
       if (ws.readyState === 1) { ws.send(exitMsg); ws.close(1000); }
@@ -275,10 +267,10 @@ export function reattachOrphanedSessions() {
         claudeProjectDir: session.claude_project_dir,
         startedAt: session.started_at,
       });
-      // Emit active immediately so the frontend shows "Working" for
-      // sessions that survived a server restart, rather than waiting
-      // for the first printable output.
-      emitSessionActive(session.id, session.workspace_id);
+      // Optimistically show "Working" for reattached sessions. The idle
+      // timer (started in attachPtyToTmux) will correct to "Idle" within
+      // 30s if there's no output.
+      emitSessionState(session.id, session.workspace_id, 'working');
       reattached++;
       console.log(`[pty-manager] Reattached to session ${session.id}`);
     } catch (err) {
@@ -489,10 +481,10 @@ export function killSession(sessionId) {
       entry.proc.kill();
     }
   }
-  // Always clear idle/active state - for attached sessions proc.onExit handles it,
+  // Always clear state - for attached sessions proc.onExit handles it,
   // but for detached sessions (not in the sessions map) we must do it here.
   const wsRow = getDb().prepare('SELECT workspace_id FROM sessions WHERE id = ?').get(sessionId);
-  emitSessionActive(sessionId, wsRow?.workspace_id || null, { exited: true });
+  emitSessionState(sessionId, wsRow?.workspace_id || null, 'exited');
   // For detached sessions (not in the sessions map), the proc.onExit
   // handler won't fire, so update the DB directly.
   if (!sessions.has(sessionId)) {
