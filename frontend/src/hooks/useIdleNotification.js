@@ -110,17 +110,6 @@ function startSSE() {
 
     if (changed) notify();
 
-    // Only fire browser notification if the user isn't already looking at this workspace
-    // and hasn't dismissed this idle already
-    const viewingThis = workspaceId === activeWorkspaceId && !document.hidden;
-    if (state === 'idle' && !viewingThis && !dismissedIdle.has(workspaceId)) {
-      if (Notification.permission === 'granted' && document.hidden) {
-        new Notification('Claude is waiting', {
-          body: 'A terminal session needs your attention.',
-          tag: `patrol-idle-${workspaceId}`,
-        });
-      }
-    }
   });
 }
 

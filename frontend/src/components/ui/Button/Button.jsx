@@ -44,6 +44,7 @@ const DARK_FILLED_CLASSES = {
  *   variant?: 'default' | 'primary' | 'danger' | 'success' | 'warning' | 'ghost',
  *   dark?: boolean,
  *   filled?: boolean,
+ *   fullWidth?: boolean,
  *   as?: 'button' | 'a',
  *   className?: string,
  *   children: React.ReactNode,
@@ -55,6 +56,7 @@ export function Button({
   variant = 'default',
   dark = false,
   filled = false,
+  fullWidth = false,
   as: Tag = 'button',
   className,
   children,
@@ -72,7 +74,7 @@ export function Button({
     variantClass = VARIANT_CLASSES[variant] || VARIANT_CLASSES.default;
   }
 
-  const classes = [styles.base, sizeClass, variantClass, className].filter(Boolean).join(' ');
+  const classes = [styles.base, sizeClass, variantClass, fullWidth && styles.fullWidth, className].filter(Boolean).join(' ');
 
   return (
     <Tag className={classes} {...rest}>

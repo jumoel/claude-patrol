@@ -1,4 +1,4 @@
-import { useCallback, useState, useSyncExternalStore } from 'react';
+import { useCallback, useState } from 'react';
 import logoSvg from '../../assets/logo.svg';
 import { triggerRestart, triggerUpdate } from '../../lib/api.js';
 import { Button } from '../ui/Button/Button.jsx';
@@ -8,23 +8,6 @@ import styles from './AppShell.module.css';
 /**
  * Top-level layout shell. Provides page structure, header, and content area.
  */
-const hasNotificationApi = typeof window !== 'undefined' && 'Notification' in window;
-
-/** Reactive wrapper around Notification.permission (no native change event). */
-let permissionSnapshot = hasNotificationApi ? Notification.permission : 'denied';
-const permissionListeners = new Set();
-function subscribePermission(cb) {
-  permissionListeners.add(cb);
-  return () => permissionListeners.delete(cb);
-}
-function getPermission() {
-  return permissionSnapshot;
-}
-function refreshPermission() {
-  if (!hasNotificationApi) return;
-  permissionSnapshot = Notification.permission;
-  for (const cb of permissionListeners) cb();
-}
 
 export function AppShell({
   title,
@@ -47,13 +30,6 @@ export function AppShell({
   const [pullResult, setPullResult] = useState(null);
   const [restarting, setRestarting] = useState(false);
   const [restartPhase, setRestartPhase] = useState(null);
-  const notifPermission = useSyncExternalStore(subscribePermission, getPermission);
-
-  const handleRequestNotifications = useCallback(async () => {
-    if (!hasNotificationApi) return;
-    await Notification.requestPermission();
-    refreshPermission();
-  }, []);
   const showBanner = (updateAvailable || pullResult || restartNeeded) && !dismissed;
 
   const handlePull = async () => {
@@ -132,7 +108,26 @@ export function AppShell({
               )}
             </span>
             <button className={styles.syncButton} onClick={onSync} disabled={syncing}>
-              {syncing ? <span className={styles.spinner} /> : 'Sync now'}
+              {syncing ? (
+                <span className={styles.spinner} />
+              ) : (
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <polyline points="23 4 23 10 17 10" />
+                  <polyline points="1 20 1 14 7 14" />
+                  <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10" />
+                  <path d="M20.49 15a9 9 0 0 1-14.85 3.36L1 14" />
+                </svg>
+              )}
+              {syncing ? 'Syncing...' : 'Sync now'}
             </button>
             <button
               className={`${styles.terminalButton} ${terminalOpen ? styles.terminalButtonActive : ''}`}
@@ -154,33 +149,6 @@ export function AppShell({
               </svg>
               Global Claude
             </button>
-            {hasNotificationApi && (
-              <button
-                className={`${styles.notifyButton} ${notifPermission === 'granted' ? styles.notifyButtonActive : ''}`}
-                onClick={handleRequestNotifications}
-                title={
-                  notifPermission === 'granted'
-                    ? 'Notifications enabled'
-                    : notifPermission === 'denied'
-                      ? 'Notifications blocked - enable in browser settings'
-                      : 'Enable notifications'
-                }
-              >
-                <svg
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
-                  <path d="M13.73 21a2 2 0 0 1-3.46 0" />
-                </svg>
-              </button>
-            )}
             {onSetup && (
               <button className={styles.settingsButton} onClick={onSetup}>
                 <svg
