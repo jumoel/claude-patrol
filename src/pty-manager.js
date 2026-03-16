@@ -11,7 +11,7 @@ import { archiveTranscript } from './transcripts.js';
 import { emitSessionState } from './app-events.js';
 
 const BUFFER_MAX = 50_000;
-const IDLE_THRESHOLD_MS = 10_000;
+const IDLE_THRESHOLD_MS = 5000;
 
 /**
  * Strip ANSI escape sequences and count printable bytes remaining.
@@ -134,10 +134,12 @@ function attachPtyToTmux(sessionId, meta = {}) {
   let idleTimer = null;
 
   // Burst accumulator: filters tmux status-bar redraws (~20-50 printable
-  // bytes) from real Claude output (100+ bytes in a 2s window).
+  // bytes in a single burst) from real activity. Claude's thinking spinner
+  // produces ~13 chars/frame at 4+ fps = 50+ chars/second, so a 40-byte
+  // threshold catches it within ~1s while filtering single status-bar updates.
   let burstBytes = 0;
   let burstTimer = null;
-  const BURST_BYTE_THRESHOLD = 100;
+  const BURST_BYTE_THRESHOLD = 40;
   const BURST_WINDOW = 2000;
 
   const entry = {
