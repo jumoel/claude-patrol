@@ -4,6 +4,10 @@
   @apply overflow-hidden border border-gray-700 rounded-md h-full;
 }
 
+.borderless {
+  @apply border-0 rounded-none;
+}
+
 .terminal {
   @apply w-full h-full;
   background: #1a1b26;

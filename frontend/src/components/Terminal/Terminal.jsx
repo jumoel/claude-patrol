@@ -13,7 +13,7 @@ const RECONNECT_DELAYS = [500, 1000, 2000, 4000];
  * Auto-reconnects on disconnect (for server restarts in watch mode).
  * @param {{ wsUrl: string, wsRef?: import('react').MutableRefObject<WebSocket | null> }} props
  */
-export function Terminal({ wsUrl, wsRef: externalWsRef, focus, onExit, onToggleMaximize }) {
+export function Terminal({ wsUrl, wsRef: externalWsRef, focus, onExit, onToggleMaximize, borderless }) {
   const containerRef = useRef(null);
   const termRef = useRef(null);
   const wsRef = useRef(null);
@@ -198,7 +198,7 @@ export function Terminal({ wsUrl, wsRef: externalWsRef, focus, onExit, onToggleM
   };
 
   return (
-    <div className={styles.wrapper} onClick={handleClick}>
+    <div className={`${styles.wrapper}${borderless ? ` ${styles.borderless}` : ''}`} onClick={handleClick}>
       <div ref={containerRef} className={styles.terminal} />
     </div>
   );

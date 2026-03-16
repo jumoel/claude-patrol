@@ -5,7 +5,8 @@
 }
 
 .maximized {
-  @apply fixed inset-0 z-40 bg-gray-900 flex flex-col;
+  @apply fixed inset-0 z-40 bg-gray-900 flex flex-col overflow-hidden;
+  height: 100dvh;
 }
 
 /* Drawer-specific resize handle (dark theme, thinner) */

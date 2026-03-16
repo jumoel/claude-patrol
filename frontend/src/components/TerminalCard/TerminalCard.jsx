@@ -1,4 +1,5 @@
 import { useCallback, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useEscapeKey } from '../../hooks/useEscapeKey.js';
 import { useResizeHandle } from '../../hooks/useResizeHandle.js';
 import shared from '../../styles/shared.module.css';
@@ -97,9 +98,9 @@ export function TerminalCard({ session, title, onKill, onExit, onPopOut, onReatt
     );
   }
 
-  // Maximized overlay
+  // Maximized overlay - portaled to body so ancestor transforms can't break fixed positioning
   if (maximized) {
-    return (
+    return createPortal(
       <div className={shared.terminalOverlay}>
         <div className={shared.overlayHeader}>
           <span className={shared.overlayTitle}>{title}</span>
@@ -138,10 +139,12 @@ export function TerminalCard({ session, title, onKill, onExit, onPopOut, onReatt
             wsRef={wsRef}
             onExit={handleExit}
             onToggleMaximize={toggleMaximize}
+            borderless
           />
         </div>
         <QuickActions onSend={handleSendCommand} />
-      </div>
+      </div>,
+      document.body,
     );
   }
 
