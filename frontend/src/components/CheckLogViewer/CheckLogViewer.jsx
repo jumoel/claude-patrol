@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { Stack } from '../ui/Stack/Stack.jsx';
 import styles from './CheckLogViewer.module.css';
 
 export function CheckLogViewer({ log, truncated, loading, error }) {
@@ -37,7 +38,7 @@ export function CheckLogViewer({ log, truncated, loading, error }) {
   return (
     <div className={styles.container}>
       {truncated && <p className={styles.truncated}>Log output was truncated (exceeds 20,000 characters)</p>}
-      <div className={styles.searchBar}>
+      <Stack gap={2}>
         <input
           className={styles.searchInput}
           type="text"
@@ -50,7 +51,7 @@ export function CheckLogViewer({ log, truncated, loading, error }) {
             {lineCount} / {totalLines} lines
           </span>
         )}
-      </div>
+      </Stack>
       <pre className={styles.log}>{filteredLog}</pre>
     </div>
   );

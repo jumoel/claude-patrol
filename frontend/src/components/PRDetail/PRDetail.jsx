@@ -31,7 +31,9 @@ import { StatusBadge } from '../StatusBadge/StatusBadge.jsx';
 import { TerminalCard } from '../TerminalCard/TerminalCard.jsx';
 import { TranscriptViewer } from '../TranscriptViewer/TranscriptViewer.jsx';
 import { Badge } from '../ui/Badge/Badge.jsx';
+import { Box } from '../ui/Box/Box.jsx';
 import { Button } from '../ui/Button/Button.jsx';
+import { Stack } from '../ui/Stack/Stack.jsx';
 import { WorkspaceControls } from '../WorkspaceControls/WorkspaceControls.jsx';
 import styles from './PRDetail.module.css';
 
@@ -263,10 +265,10 @@ export function PRDetail({ prId, onBack }) {
   const isMergeReady = checkMergeReady(pr);
 
   return (
-    <div className={shared.detail}>
+    <Box pb={16}><Stack direction="col" gap={4}>
       {/* Header */}
-      <div className={shared.headerCard}>
-        <div className={shared.headerTop}>
+      <Box p={5} border rounded="lg" bg="white"><Stack direction="col" gap={3}>
+        <Stack justify="between">
           <Button size="md" onClick={onBack}>
             <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
               <path
@@ -276,7 +278,7 @@ export function PRDetail({ prId, onBack }) {
             </svg>
             Back
           </Button>
-          <div className={styles.headerLinks}>
+          <Stack gap={2}>
             {isMergeReady && (
               <Button
                 as="a"
@@ -340,12 +342,12 @@ export function PRDetail({ prId, onBack }) {
                 <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z" />
               </svg>
             </a>
-          </div>
-        </div>
+          </Stack>
+        </Stack>
 
         <h2 className={styles.title}>{pr.title}</h2>
 
-        <div className={shared.identityRow}>
+        <Stack gap={2} wrap className={shared.identityRow}>
           <span className={shared.repoTag}>
             {pr.org}/{pr.repo} #{pr.number}
           </span>
@@ -370,29 +372,29 @@ export function PRDetail({ prId, onBack }) {
           </button>
           <span className={shared.separator}>·</span>
           <span className={shared.updatedText}>Updated {getRelativeTime(pr.updated_at)}</span>
-        </div>
+        </Stack>
 
-        <div className={styles.statusRow}>
-          <div className={styles.statusItem}>
+        <Stack gap={4}>
+          <Stack gap={2}>
             <span className={styles.statusLabel}>CI</span>
             <StatusBadge status={pr.ci_status} type="ci" />
-          </div>
-          <div className={styles.statusItem}>
+          </Stack>
+          <Stack gap={2}>
             <span className={styles.statusLabel}>Review</span>
             <StatusBadge status={pr.review_status} type="review" />
-          </div>
-          <div className={styles.statusItem}>
+          </Stack>
+          <Stack gap={2}>
             <span className={styles.statusLabel}>Merge</span>
             <StatusBadge status={pr.mergeable} type="merge" />
-          </div>
-          <div className={styles.statusItem}>
+          </Stack>
+          <Stack gap={2}>
             <span className={styles.statusLabel}>PR</span>
             <StatusBadge status={pr.draft ? 'draft' : 'open'} type="status" />
-          </div>
-        </div>
+          </Stack>
+        </Stack>
 
         {pr.labels.length > 0 && (
-          <div className={styles.labels}>
+          <Stack gap={2} wrap className="pt-1">
             {pr.labels.map((l) => (
               <span
                 key={l.name}
@@ -402,15 +404,15 @@ export function PRDetail({ prId, onBack }) {
                 {l.name}
               </span>
             ))}
-          </div>
+          </Stack>
         )}
 
         {pr.body_html && <PRDescription bodyHtml={pr.body_html} />}
-      </div>
+      </Stack></Box>
 
       {/* Actions row */}
-      <div className={styles.actionsRow}>
-        <div className={shared.section}>
+      <Box p={5} border rounded="lg" bg="white">
+        <Stack direction="col" gap={3}>
           <h3 className={shared.sectionTitle}>Workspace</h3>
           <WorkspaceControls
             prId={prId}
@@ -430,8 +432,8 @@ export function PRDetail({ prId, onBack }) {
               {openingClaude ? openingStep : 'Open in Claude'}
             </Button>
           )}
-        </div>
-      </div>
+        </Stack>
+      </Box>
 
       {session && (
         <TerminalCard
@@ -450,11 +452,11 @@ export function PRDetail({ prId, onBack }) {
 
       {/* Checks */}
       {pr.checks.length > 0 && (
-        <div className={shared.card}>
-          <div className={styles.checksHeader}>
-            <h3 className={`${shared.sectionTitle} ${styles.sectionTitleFlex}`}>
+        <Box p={5} border rounded="lg" bg="white"><Stack direction="col" gap={3}>
+          <Stack justify="between" wrap gap={3}>
+            <Stack gap={3} as="h3" className={shared.sectionTitle}>
               Checks
-              <span className={styles.checksSummary}>
+              <Stack gap={2} as="span">
                 {passedChecks.length > 0 && <span className={styles.summaryPass}>{passedChecks.length} passed</span>}
                 {failedChecks.length > 0 && <span className={styles.summaryFail}>{failedChecks.length} failed</span>}
                 {runningChecks.length > 0 && (
@@ -463,19 +465,19 @@ export function PRDetail({ prId, onBack }) {
                 {scheduledChecks.length > 0 && (
                   <span className={styles.summaryScheduled}>{scheduledChecks.length} queued</span>
                 )}
-              </span>
-            </h3>
+              </Stack>
+            </Stack>
             {failedChecks.length > 0 && (
-              <div className={styles.checksActions}>
+              <Stack gap={2}>
                 <Button variant="warning" size="sm" onClick={handleRetriggerFailed} disabled={retriggering}>
                   {retriggering ? 'Retriggering...' : 'Retrigger failed'}
                 </Button>
                 <Button variant="primary" size="sm" onClick={handleInvestigateFailures}>
                   Investigate failures
                 </Button>
-              </div>
+              </Stack>
             )}
-          </div>
+          </Stack>
 
           {/* Failed checks first */}
           {failedChecks.length > 0 && (
@@ -506,12 +508,12 @@ export function PRDetail({ prId, onBack }) {
 
           {/* Passed checks - collapsed by default if there are many */}
           {passedChecks.length > 0 && <PassedChecksGroup checks={passedChecks} />}
-        </div>
+        </Stack></Box>
       )}
 
       {/* Reviews */}
       {pr.reviews.length > 0 && (
-        <div className={shared.card}>
+        <Box p={5} border rounded="lg" bg="white"><Stack direction="col" gap={3}>
           <h3 className={shared.sectionTitle}>Reviews</h3>
           <div className={styles.reviewsList}>
             {pr.reviews.map((r, i) => (
@@ -525,17 +527,17 @@ export function PRDetail({ prId, onBack }) {
               </div>
             ))}
           </div>
-        </div>
+        </Stack></Box>
       )}
 
       {/* Review Comments & Conversation */}
       {(commentsLoading || comments) && (
-        <div className={shared.card}>
+        <Box p={5} border rounded="lg" bg="white"><Stack direction="col" gap={3}>
           <h3 className={shared.sectionTitle}>Comments</h3>
           <CommentsList reviews={comments?.reviews} conversation={comments?.conversation} loading={commentsLoading} />
-        </div>
+        </Stack></Box>
       )}
-    </div>
+    </Stack></Box>
   );
 }
 
@@ -579,7 +581,7 @@ function CheckRow({ check, prId }) {
   return (
     <div>
       <div className={styles.checkRow}>
-        <div className={styles.checkInfo}>
+        <Stack gap={2} className={styles.checkInfo}>
           <span className={`${styles.checkDot} ${dotClass}`} />
           {check.url ? (
             <a href={check.url} target="_blank" rel="noopener noreferrer" className={styles.checkName}>
@@ -588,8 +590,8 @@ function CheckRow({ check, prId }) {
           ) : (
             <span className={styles.checkNamePlain}>{check.name}</span>
           )}
-        </div>
-        <div className={styles.checkActions}>
+        </Stack>
+        <Stack gap={2}>
           {isFailed && prId && (
             <Button size="xs" onClick={handleViewLog}>
               {showLog ? 'Hide log' : 'View log'}
@@ -598,7 +600,7 @@ function CheckRow({ check, prId }) {
           <Badge color={colorGroup} border={false}>
             {CHECK_STATUS_LABELS[status] || status.toLowerCase()}
           </Badge>
-        </div>
+        </Stack>
       </div>
       {showLog &&
         jobLogs?.map((job, i) => (
@@ -685,7 +687,7 @@ function SessionHistory({ workspaceId }) {
   };
 
   return (
-    <div className={shared.card}>
+    <Box p={5} border rounded="lg" bg="white"><Stack direction="col" gap={3}>
       <button className={styles.toggleButton} onClick={() => setExpanded(!expanded)} style={{ padding: '0' }}>
         {expanded ? 'Hide' : 'Show'} past sessions
       </button>
@@ -698,14 +700,14 @@ function SessionHistory({ workspaceId }) {
           {history.map((sess) => (
             <div key={sess.id}>
               <button className={styles.checkRow} onClick={() => handleViewTranscript(sess.id)}>
-                <div className={styles.checkInfo}>
+                <Stack gap={2} className={styles.checkInfo}>
                   <span style={{ fontSize: '14px', color: '#6b7280' }}>
                     {new Date(sess.started_at).toLocaleString()}
                   </span>
                   <span style={{ fontSize: '13px', color: '#9ca3af' }}>
                     {formatDuration(sess.started_at, sess.ended_at)}
                   </span>
-                </div>
+                </Stack>
                 <span className={`${styles.chevron} ${transcripts[sess.id] ? styles.chevronOpen : ''}`}>&#x25B8;</span>
               </button>
               {(transcripts[sess.id] || transcriptLoading[sess.id] || transcriptErrors[sess.id]) && (
@@ -719,6 +721,6 @@ function SessionHistory({ workspaceId }) {
           ))}
         </div>
       )}
-    </div>
+    </Stack></Box>
   );
 }

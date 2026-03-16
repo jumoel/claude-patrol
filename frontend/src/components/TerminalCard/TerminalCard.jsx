@@ -5,7 +5,9 @@ import { useResizeHandle } from '../../hooks/useResizeHandle.js';
 import shared from '../../styles/shared.module.css';
 import { QuickActions } from '../QuickActions/QuickActions.jsx';
 import { Terminal } from '../Terminal/Terminal.jsx';
+import { Box } from '../ui/Box/Box.jsx';
 import { Button } from '../ui/Button/Button.jsx';
+import { Stack } from '../ui/Stack/Stack.jsx';
 
 /**
  * Shared terminal UI with maximize, close, resize, and detach/reattach support.
@@ -77,20 +79,20 @@ export function TerminalCard({ session, title, onKill, onExit, onPopOut, onReatt
   // Detached - session alive in external terminal, can reattach
   if (session.status === 'detached') {
     return (
-      <div className={shared.card}>
-        <div className={shared.terminalHeader}>
+      <Box p={5} border rounded="lg" bg="white">
+        <Stack justify="between">
           <h3 className={shared.sectionTitle}>Terminal</h3>
-          <div className={shared.terminalActions}>
+          <Stack gap={2}>
             <Button variant="primary" size="sm" onClick={handleReattach} disabled={reattaching}>
               {reattaching ? 'Reattaching...' : 'Reattach'}
             </Button>
             <Button variant="danger" size="sm" onClick={onKill}>
               Kill session
             </Button>
-          </div>
-        </div>
+          </Stack>
+        </Stack>
         <p style={{ color: '#9ca3af', fontSize: '14px', margin: 0 }}>Session running in external terminal</p>
-      </div>
+      </Box>
     );
   }
 
@@ -98,9 +100,9 @@ export function TerminalCard({ session, title, onKill, onExit, onPopOut, onReatt
   if (maximized) {
     return createPortal(
       <div className={shared.terminalOverlay}>
-        <div className={shared.overlayHeader}>
+        <Stack justify="between" className={shared.overlayHeader}>
           <span className={shared.overlayTitle}>{title}</span>
-          <div className={shared.terminalActions}>
+          <Stack gap={2}>
             {onPopOut && (
               <Button variant="default" size="sm" dark onClick={onPopOut}>
                 Pop out
@@ -131,8 +133,8 @@ export function TerminalCard({ session, title, onKill, onExit, onPopOut, onReatt
             >
               Kill session
             </Button>
-          </div>
-        </div>
+          </Stack>
+        </Stack>
         <div className={shared.overlayContent}>
           <Terminal
             wsUrl={`/ws/sessions/${session.id}`}
@@ -151,10 +153,10 @@ export function TerminalCard({ session, title, onKill, onExit, onPopOut, onReatt
   // Collapsed - session running but terminal hidden
   if (!terminalOpen) {
     return (
-      <div className={shared.card}>
-        <div className={shared.terminalHeader}>
+      <Box p={5} border rounded="lg" bg="white">
+        <Stack justify="between">
           <h3 className={shared.sectionTitle}>Terminal</h3>
-          <div className={shared.terminalActions}>
+          <Stack gap={2}>
             <Button
               variant="default"
               size="sm"
@@ -171,18 +173,18 @@ export function TerminalCard({ session, title, onKill, onExit, onPopOut, onReatt
             <Button variant="danger" size="sm" onClick={onKill}>
               Kill session
             </Button>
-          </div>
-        </div>
-      </div>
+          </Stack>
+        </Stack>
+      </Box>
     );
   }
 
   // Inline terminal card
   return (
-    <div className={shared.card}>
-      <div className={shared.terminalHeader}>
+    <Box p={5} border rounded="lg" bg="white">
+      <Stack justify="between">
         <h3 className={shared.sectionTitle}>Terminal</h3>
-        <div className={shared.terminalActions}>
+        <Stack gap={2}>
           {onPopOut && (
             <Button variant="default" size="sm" onClick={onPopOut}>
               Pop out
@@ -197,8 +199,8 @@ export function TerminalCard({ session, title, onKill, onExit, onPopOut, onReatt
           <Button variant="danger" size="sm" onClick={onKill}>
             Kill session
           </Button>
-        </div>
-      </div>
+        </Stack>
+      </Stack>
       <QuickActions onSend={handleSendCommand} />
       <div style={{ height: termHeight }}>
         <Terminal
@@ -212,6 +214,6 @@ export function TerminalCard({ session, title, onKill, onExit, onPopOut, onReatt
         <div className={shared.resizeGrip} />
       </div>
       {dragging && <div className={shared.dragOverlay} />}
-    </div>
+    </Box>
   );
 }

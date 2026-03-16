@@ -16,17 +16,13 @@
   @apply text-base text-gray-400 py-2;
 }
 
-.toolbar {
-  @apply flex items-center gap-3 mb-3;
-}
-
 .searchInput {
   @apply px-2 py-1 text-sm font-mono bg-gray-800 text-gray-200 border border-gray-700 rounded focus:outline-none focus:border-blue-500;
   min-width: 200px;
 }
 
 .toggleLabel {
-  @apply flex items-center gap-1.5 text-sm text-gray-500 cursor-pointer select-none;
+  @apply text-sm text-gray-500 cursor-pointer select-none;
 }
 
 .resultCount {
@@ -59,7 +55,7 @@
 }
 
 .entryHeader {
-  @apply flex items-center gap-2 mb-1.5;
+  @apply mb-1.5;
 }
 
 .roleBadge {
@@ -86,10 +82,6 @@
   @apply text-xs text-gray-600 font-mono;
 }
 
-.entryContent {
-  @apply space-y-1.5;
-}
-
 .textBlock {
   @apply text-sm text-gray-200 whitespace-pre-wrap leading-relaxed;
 }
@@ -111,7 +103,7 @@
 }
 
 .toolToggle {
-  @apply flex items-center gap-1 text-sm text-gray-400 hover:text-gray-200 cursor-pointer py-0.5 bg-transparent border-0;
+  @apply text-sm text-gray-400 hover:text-gray-200 cursor-pointer py-0.5 bg-transparent border-0;
 }
 
 .toolIcon {

@@ -2,6 +2,7 @@ import { useCallback, useState, useSyncExternalStore } from 'react';
 import logoSvg from '../../assets/logo.svg';
 import { triggerRestart, triggerUpdate } from '../../lib/api.js';
 import { Button } from '../ui/Button/Button.jsx';
+import { Stack } from '../ui/Stack/Stack.jsx';
 import styles from './AppShell.module.css';
 
 /**
@@ -120,7 +121,7 @@ export function AppShell({
             <img src={logoSvg} alt="" className={styles.logo} />
             <h1 className={styles.title}>{title}</h1>
           </a>
-          <div className={styles.syncArea}>
+          <Stack gap={3}>
             <span className={styles.syncStatus}>
               {syncTime}
               {nextSync && (
@@ -205,13 +206,13 @@ export function AppShell({
                 Settings
               </button>
             )}
-          </div>
+          </Stack>
         </div>
       </header>
       {showBanner && (
         <div className={`${styles.updateBanner} ${pullResult?.ok || restartNeeded ? styles.updateBannerSuccess : ''}`}>
           <div className={styles.updateBannerInner}>
-            <span className={styles.updateText}>
+            <Stack gap={2} as="span">
               {restarting ? (
                 <>
                   {restartPhase === 'building'
@@ -245,7 +246,7 @@ export function AppShell({
                   {pulling && <span>Pulling...</span>}
                 </>
               )}
-            </span>
+            </Stack>
             {!restarting && (
               <button className={styles.updateDismiss} onClick={() => setDismissed(true)} title="Dismiss">
                 ×

@@ -1,5 +1,9 @@
 # Build Log
 
+## 2026-03-16 - Stack and Box layout components
+
+Created Stack and Box components under `frontend/src/components/ui/`. Stack handles all flex+gap layout (horizontal/vertical, alignment, justification, wrapping). Box handles padding, borders, border-radius, and backgrounds - absorbing the recurring card/panel pattern. Migrated 32 files across the frontend, replacing ~42 pure-layout CSS classes with Stack elements, ~10 card/container classes with Box, and slimming ~20 mixed classes by extracting their flex+gap into Stack wrappers. Consolidated fractional gap values (gap-0.5, gap-1.5, gap-2.5) to whole numbers. Net result: ~170 lines of CSS deleted, layout intent expressed directly in JSX.
+
 ## 2026-03-16 - Button and Badge component library
 
 Created reusable Button and Badge components under `frontend/src/components/ui/`. Migrated 30+ scattered button class definitions across 9 CSS modules to the shared Button component (supports size, variant, dark mode, filled mode). Migrated 15+ badge class definitions to the shared Badge component (supports 10 colors, optional border, pulse animation). Refactored StatusBadge to use Badge internally and deleted its CSS module. Net result: ~175 lines of CSS removed, ~50 lines of component code added.

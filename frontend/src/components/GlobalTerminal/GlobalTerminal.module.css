@@ -30,15 +30,11 @@
 }
 
 .handle {
-  @apply flex items-center justify-between px-4 py-2 bg-gray-800 border-t border-gray-700 shrink-0;
+  @apply px-4 py-2 bg-gray-800 border-t border-gray-700 shrink-0;
 }
 
 .handleText {
   @apply text-base text-gray-300 font-medium;
-}
-
-.handleActions {
-  @apply flex items-center gap-2;
 }
 
 .closeButton {
@@ -46,7 +42,7 @@
 }
 
 .promoteForm {
-  @apply flex items-center gap-2 px-4 py-2 bg-gray-800/80 border-b border-gray-700 shrink-0;
+  @apply px-4 py-2 bg-gray-800/80 border-b border-gray-700 shrink-0;
 }
 
 .promoteSelect {

@@ -1,28 +1,11 @@
 @reference "tailwindcss";
 
-.container {
-  @apply space-y-5;
-}
-
-.section {
-  @apply space-y-3;
-}
-
 .sectionTitle {
   @apply text-sm font-semibold text-gray-400 uppercase tracking-wider;
 }
 
 .loading {
   @apply text-base text-gray-400 py-4;
-}
-
-/* Review cards */
-.reviewCard {
-  @apply border border-gray-100 rounded-lg p-3 space-y-2;
-}
-
-.reviewHeader {
-  @apply flex items-center gap-2 flex-wrap;
 }
 
 .author {
@@ -107,10 +90,6 @@
   @apply bg-gray-50 rounded p-2 space-y-1;
 }
 
-.inlineHeader {
-  @apply flex items-center gap-2 flex-wrap;
-}
-
 .filePath {
   @apply text-sm font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-600;
 }
@@ -124,6 +103,3 @@
   @apply border-l-2 border-gray-200 pl-3 py-1 space-y-1;
 }
 
-.conversationHeader {
-  @apply flex items-center gap-2;
-}

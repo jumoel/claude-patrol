@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
 import { createScratchWorkspace, fetchScratchWorkspaces } from '../../lib/api.js';
 import { getRelativeTime } from '../../lib/time.js';
+import { Box } from '../ui/Box/Box.jsx';
 import { Button } from '../ui/Button/Button.jsx';
 import { RepoCombobox } from '../ui/RepoCombobox/RepoCombobox.jsx';
+import { Stack } from '../ui/Stack/Stack.jsx';
 import styles from './ScratchWorkspaces.module.css';
 
 export function ScratchWorkspaces() {
@@ -35,21 +37,21 @@ export function ScratchWorkspaces() {
 
   return (
     <div className={styles.container}>
-      <div className={styles.header}>
+      <Stack justify="between" className={styles.header}>
         <h3 className={styles.title}>
           Scratch Workspaces {scratchWorkspaces.length > 0 && `(${scratchWorkspaces.length})`}
         </h3>
         <Button variant="primary" size="sm" onClick={() => setShowNewWork(!showNewWork)}>
           + New Work
         </Button>
-      </div>
+      </Stack>
       {showNewWork && (
-        <div className={styles.form}>
-          <div className={styles.fieldGroup}>
+        <Box p={4} border rounded="lg" bg="white" className={styles.form}><Stack gap={2} wrap align="end">
+          <Stack direction="col">
             <label className={styles.label}>Repo</label>
             <RepoCombobox value={newWorkRepo} onChange={setNewWorkRepo} disabled={newWorkSubmitting} />
-          </div>
-          <div className={styles.fieldGroupFlex}>
+          </Stack>
+          <Stack direction="col" className={styles.fieldGroupFlex}>
             <label className={styles.label}>Branch</label>
             <input
               className={styles.input}
@@ -59,7 +61,7 @@ export function ScratchWorkspaces() {
               placeholder="feat/my-feature"
               onKeyDown={(e) => e.key === 'Enter' && handleNewWork()}
             />
-          </div>
+          </Stack>
           <Button
             variant="primary"
             size="sm"
@@ -80,24 +82,25 @@ export function ScratchWorkspaces() {
           >
             Cancel
           </Button>
-        </div>
+        </Stack></Box>
       )}
       {scratchWorkspaces.length > 0 ? (
         <div className={styles.list}>
           {scratchWorkspaces.map((ws) => (
-            <div
+            <Stack
+              justify="between"
               key={ws.id}
               className={styles.row}
               onClick={() => {
                 window.location.hash = `/workspace/${ws.id}`;
               }}
             >
-              <div className={styles.rowLeft}>
+              <Stack gap={3}>
                 <span className={styles.bookmark}>{ws.bookmark}</span>
                 {ws.repo && <span className={styles.repoTag}>{ws.repo}</span>}
-              </div>
+              </Stack>
               <span className={styles.timeLabel}>{getRelativeTime(ws.created_at)}</span>
-            </div>
+            </Stack>
           ))}
         </div>
       ) : (

@@ -3,6 +3,7 @@ import { useClickOutside } from '../../hooks/useClickOutside.js';
 import { useEscapeKey } from '../../hooks/useEscapeKey.js';
 import { StatusBadge } from '../StatusBadge/StatusBadge.jsx';
 import { Badge } from '../ui/Badge/Badge.jsx';
+import { Stack } from '../ui/Stack/Stack.jsx';
 import styles from './CommandPalette.module.css';
 
 function fuzzyMatchPR(query, pr) {
@@ -230,46 +231,46 @@ export function CommandPalette({
 
 function PRResult({ pr, idle }) {
   return (
-    <div className={styles.resultInfo}>
+    <Stack direction="col" gap={1} className={styles.resultInfo}>
       <div className={styles.resultTitle}>{pr.title}</div>
-      <div className={styles.resultMeta}>
+      <Stack gap={2} className={styles.resultMeta}>
         <span className={styles.resultRepo}>
           {pr.org}/{pr.repo}
         </span>
         <span className={styles.resultNumber}>#{pr.number}</span>
         <span className={styles.resultBranch}>{pr.branch}</span>
-      </div>
-      <div className={styles.resultBadges}>
+      </Stack>
+      <Stack gap={1} className={styles.resultBadges}>
         <StatusBadge status={pr.ci_status} type="ci" />
         <StatusBadge status={pr.review_status} type="review" />
         {pr.mergeable === 'CONFLICTING' && <StatusBadge status={pr.mergeable} type="merge" />}
         {pr.draft && <Badge color="yellow">Draft</Badge>}
         {idle && <Badge color="amber" pulse>Needs attention</Badge>}
-      </div>
-    </div>
+      </Stack>
+    </Stack>
   );
 }
 
 function GlobalResult() {
   return (
-    <div className={styles.resultInfo}>
+    <Stack direction="col" gap={1} className={styles.resultInfo}>
       <div className={styles.resultTitle}>Global Terminal</div>
-      <div className={styles.resultBadges}>
+      <Stack gap={1} className={styles.resultBadges}>
         <Badge color="green">active session</Badge>
-      </div>
-    </div>
+      </Stack>
+    </Stack>
   );
 }
 
 function WorkspaceResult({ ws, idle }) {
   return (
-    <div className={styles.resultInfo}>
+    <Stack direction="col" gap={1} className={styles.resultInfo}>
       <div className={styles.resultTitle}>{ws.bookmark}</div>
-      <div className={styles.resultMeta}>{ws.repo && <span className={styles.resultRepo}>{ws.repo}</span>}</div>
-      <div className={styles.resultBadges}>
+      <Stack gap={2} className={styles.resultMeta}>{ws.repo && <span className={styles.resultRepo}>{ws.repo}</span>}</Stack>
+      <Stack gap={1} className={styles.resultBadges}>
         <Badge color="purple">scratch workspace</Badge>
         {idle && <Badge color="amber" pulse>Needs attention</Badge>}
-      </div>
-    </div>
+      </Stack>
+    </Stack>
   );
 }

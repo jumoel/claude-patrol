@@ -1,27 +1,5 @@
 @reference "tailwindcss";
 
-/* ---- Layout ---- */
-
-.detail {
-  @apply space-y-4 pb-16;
-}
-
-.card {
-  @apply bg-white border border-gray-200 rounded-lg p-5 space-y-3;
-}
-
-.headerCard {
-  @apply bg-white border border-gray-200 rounded-lg p-5 space-y-3;
-}
-
-.headerTop {
-  @apply flex items-center justify-between;
-}
-
-.section {
-  @apply space-y-3;
-}
-
 /* ---- Typography ---- */
 
 .sectionTitle {
@@ -29,7 +7,7 @@
 }
 
 .identityRow {
-  @apply flex flex-wrap items-center gap-2 text-base text-gray-500;
+  @apply text-base text-gray-500;
 }
 
 .repoTag {
@@ -58,21 +36,13 @@
 
 /* ---- Terminal ---- */
 
-.terminalHeader {
-  @apply flex items-center justify-between;
-}
-
-.terminalActions {
-  @apply flex items-center gap-2;
-}
-
 .terminalOverlay {
   @apply fixed inset-0 z-40 bg-gray-900 flex flex-col overflow-hidden;
   height: 100dvh;
 }
 
 .overlayHeader {
-  @apply flex items-center justify-between px-4 py-2 bg-gray-800 border-b border-gray-700 shrink-0;
+  @apply px-4 py-2 bg-gray-800 border-b border-gray-700 shrink-0;
 }
 
 .overlayTitle {

@@ -6,6 +6,7 @@ import shared from '../../styles/shared.module.css';
 import { Terminal } from '../Terminal/Terminal.jsx';
 import { Button } from '../ui/Button/Button.jsx';
 import { RepoCombobox } from '../ui/RepoCombobox/RepoCombobox.jsx';
+import { Stack } from '../ui/Stack/Stack.jsx';
 import styles from './GlobalTerminal.module.css';
 
 const MIN_HEIGHT = 150;
@@ -158,9 +159,9 @@ export function GlobalTerminal({ open, onToggle, onSessionChange }) {
             <div className={styles.resizeGrip} />
           </div>
         )}
-        <div className={styles.handle}>
+        <Stack justify="between" className={styles.handle}>
           <span className={styles.handleText}>Global Terminal</span>
-          <div className={styles.handleActions}>
+          <Stack gap={2}>
             {session && (
               <>
                 <Button variant="success" size="xs" dark onClick={() => setShowPromote((s) => !s)}>
@@ -197,10 +198,10 @@ export function GlobalTerminal({ open, onToggle, onSessionChange }) {
                 <line x1="11" y1="3" x2="3" y2="11" />
               </svg>
             </button>
-          </div>
-        </div>
+          </Stack>
+        </Stack>
         {showPromote && (
-          <div className={styles.promoteForm}>
+          <Stack gap={2} className={styles.promoteForm}>
             <RepoCombobox value={promoteRepo} onChange={setPromoteRepo} disabled={promoting} variant="dark" />
             <input
               className={styles.promoteInput}
@@ -217,7 +218,7 @@ export function GlobalTerminal({ open, onToggle, onSessionChange }) {
             <Button variant="ghost" size="xs" dark onClick={() => setShowPromote(false)} disabled={promoting}>
               Cancel
             </Button>
-          </div>
+          </Stack>
         )}
         <div className={styles.content}>
           {loading && <p className={styles.loading}>Starting session...</p>}

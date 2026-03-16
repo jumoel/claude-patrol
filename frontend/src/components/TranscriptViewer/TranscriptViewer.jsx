@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { Stack } from '../ui/Stack/Stack.jsx';
 import styles from './TranscriptViewer.module.css';
 
 /**
@@ -68,7 +69,7 @@ export function TranscriptViewer({ entries, loading, error }) {
 
   return (
     <div className={styles.container}>
-      <div className={styles.toolbar}>
+      <Stack gap={3}>
         <input
           className={styles.searchInput}
           type="text"
@@ -76,16 +77,16 @@ export function TranscriptViewer({ entries, loading, error }) {
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search transcript..."
         />
-        <label className={styles.toggleLabel}>
+        <Stack gap={2} as="label" className={styles.toggleLabel}>
           <input type="checkbox" checked={showThinking} onChange={(e) => setShowThinking(e.target.checked)} />
           Show thinking
-        </label>
+        </Stack>
         {search && (
           <span className={styles.resultCount}>
             {filtered.length} / {entries.length} messages
           </span>
         )}
-      </div>
+      </Stack>
 
       <div className={styles.conversation}>
         {filtered.map((entry, i) => {
@@ -112,14 +113,14 @@ export function TranscriptViewer({ entries, loading, error }) {
 
           return (
             <div key={i} className={`${styles.entry} ${entryClass}`}>
-              <div className={styles.entryHeader}>
+              <Stack gap={2} className={styles.entryHeader}>
                 <span className={`${styles.roleBadge} ${badgeClass}`}>{badgeLabel}</span>
                 {entry.timestamp && (
                   <span className={styles.timestamp}>{new Date(entry.timestamp).toLocaleTimeString()}</span>
                 )}
                 {entry.model && <span className={styles.model}>{entry.model}</span>}
-              </div>
-              <div className={styles.entryContent}>
+              </Stack>
+              <Stack direction="col" gap={2}>
                 {entry.content.map((block, j) => {
                   const toolKey = `${i}-${j}`;
                   if (block.type === 'text') {
@@ -141,10 +142,10 @@ export function TranscriptViewer({ entries, loading, error }) {
                     const expanded = expandedTools.has(toolKey);
                     return (
                       <div key={j} className={styles.toolBlock}>
-                        <button className={styles.toolToggle} onClick={() => toggleTool(toolKey)}>
+                        <Stack gap={1} as="button" className={styles.toolToggle} onClick={() => toggleTool(toolKey)}>
                           <span className={styles.toolIcon}>{expanded ? '\u25BE' : '\u25B8'}</span>
                           Used <strong>{block.name}</strong>
-                        </button>
+                        </Stack>
                         {expanded && <pre className={styles.toolDetail}>{block.input_summary}</pre>}
                       </div>
                     );
@@ -153,17 +154,17 @@ export function TranscriptViewer({ entries, loading, error }) {
                     const expanded = expandedTools.has(toolKey);
                     return (
                       <div key={j} className={styles.toolBlock}>
-                        <button className={styles.toolToggle} onClick={() => toggleTool(toolKey)}>
+                        <Stack gap={1} as="button" className={styles.toolToggle} onClick={() => toggleTool(toolKey)}>
                           <span className={styles.toolIcon}>{expanded ? '\u25BE' : '\u25B8'}</span>
                           Result{block.name ? ` from ${block.name}` : ''}
-                        </button>
+                        </Stack>
                         {expanded && <pre className={styles.toolDetail}>{block.output_summary}</pre>}
                       </div>
                     );
                   }
                   return null;
                 })}
-              </div>
+              </Stack>
             </div>
           );
         })}

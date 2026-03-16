@@ -1,5 +1,7 @@
 import { getRelativeTime } from '../../lib/time.js';
 import { Badge } from '../ui/Badge/Badge.jsx';
+import { Box } from '../ui/Box/Box.jsx';
+import { Stack } from '../ui/Stack/Stack.jsx';
 import styles from './CommentsList.module.css';
 
 const STATE_LABELS = {
@@ -24,10 +26,10 @@ function ReviewStateBadge({ state }) {
 function InlineComment({ comment }) {
   return (
     <div className={styles.inlineComment}>
-      <div className={styles.inlineHeader}>
+      <Stack gap={2} wrap>
         <code className={styles.filePath}>{comment.path}</code>
         {comment.diff_position != null && <span className={styles.diffPos}>diff:{comment.diff_position}</span>}
-      </div>
+      </Stack>
       <div className={styles.commentBody} dangerouslySetInnerHTML={{ __html: comment.body_html }} />
     </div>
   );
@@ -35,12 +37,12 @@ function InlineComment({ comment }) {
 
 function ReviewCard({ review }) {
   return (
-    <div className={styles.reviewCard}>
-      <div className={styles.reviewHeader}>
+    <Box p={3} border borderColor="gray-100" rounded="lg"><Stack direction="col" gap={2}>
+      <Stack gap={2} wrap>
         <span className={styles.author}>{review.author}</span>
         <ReviewStateBadge state={review.state} />
         {review.submitted_at && <span className={styles.timestamp}>{getRelativeTime(review.submitted_at)}</span>}
-      </div>
+      </Stack>
       {review.body_html && (
         <div className={styles.commentBody} dangerouslySetInnerHTML={{ __html: review.body_html }} />
       )}
@@ -51,17 +53,17 @@ function ReviewCard({ review }) {
           ))}
         </div>
       )}
-    </div>
+    </Stack></Box>
   );
 }
 
 function ConversationComment({ comment }) {
   return (
     <div className={styles.conversationItem}>
-      <div className={styles.conversationHeader}>
+      <Stack gap={2}>
         <span className={styles.author}>{comment.author}</span>
         <span className={styles.timestamp}>{getRelativeTime(comment.created_at)}</span>
-      </div>
+      </Stack>
       <div className={styles.commentBody} dangerouslySetInnerHTML={{ __html: comment.body_html }} />
     </div>
   );
@@ -80,23 +82,23 @@ export function CommentsList({ reviews, conversation, loading }) {
   }
 
   return (
-    <div className={styles.container}>
+    <Stack direction="col" gap={5}>
       {hasReviews && (
-        <div className={styles.section}>
+        <Stack direction="col" gap={3}>
           <h4 className={styles.sectionTitle}>Review Comments</h4>
           {reviews.map((r) => (
             <ReviewCard key={r.id} review={r} />
           ))}
-        </div>
+        </Stack>
       )}
       {hasConversation && (
-        <div className={styles.section}>
+        <Stack direction="col" gap={3}>
           <h4 className={styles.sectionTitle}>Conversation</h4>
           {conversation.map((c, i) => (
             <ConversationComment key={i} comment={c} />
           ))}
-        </div>
+        </Stack>
       )}
-    </div>
+    </Stack>
   );
 }

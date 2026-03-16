@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { fetchConfig, fetchSetupAccounts, fetchSetupRepos, saveConfig } from '../../lib/api.js';
+import { Box } from '../ui/Box/Box.jsx';
 import { Button } from '../ui/Button/Button.jsx';
+import { Stack } from '../ui/Stack/Stack.jsx';
 import styles from './SetupMode.module.css';
 
 const INTERVAL_PRESETS = [
@@ -172,22 +174,22 @@ export function SetupMode({ onConfigured, isFirstRun }) {
 
   if (loading) {
     return (
-      <div className={styles.container}>
+      <Stack direction="col" gap={4}>
         <p className={styles.loadingText}>Discovering GitHub accounts...</p>
-      </div>
+      </Stack>
     );
   }
 
   if (error && accounts.length === 0) {
     return (
-      <div className={styles.container}>
-        <div className={styles.errorCard}>
+      <Stack direction="col" gap={4}>
+        <Box p={6} border borderColor="red-200" rounded="lg" bg="white" className={styles.errorCard}>
           <p className={styles.errorText}>{error}</p>
           <Button variant="primary" size="sm" filled onClick={() => window.location.reload()}>
             Retry
           </Button>
-        </div>
-      </div>
+        </Box>
+      </Stack>
     );
   }
 
@@ -195,8 +197,8 @@ export function SetupMode({ onConfigured, isFirstRun }) {
   const stepKeys = ['accounts', 'repos', 'settings'];
 
   return (
-    <div className={styles.container}>
-      <div className={styles.header}>
+    <Stack direction="col" gap={4}>
+      <Stack gap={4} align="baseline" wrap>
         <div>
           <h2 className={styles.title}>{isFirstRun ? 'Set up monitoring' : 'Configure monitoring'}</h2>
           <p className={styles.subtitle}>
@@ -215,19 +217,20 @@ export function SetupMode({ onConfigured, isFirstRun }) {
             Back to dashboard
           </Button>
         )}
-      </div>
+      </Stack>
 
-      <div className={styles.steps}>
+      <Stack gap={2}>
         {stepKeys.map((key, i) => (
-          <div
+          <Stack
+            gap={2}
             key={key}
             className={`${styles.step} ${step === key ? styles.stepActive : ''} ${stepKeys.indexOf(step) > i ? styles.stepDone : ''}`}
           >
             <span className={styles.stepNumber}>{i + 1}</span>
             <span className={styles.stepLabel}>{stepLabels[key]}</span>
-          </div>
+          </Stack>
         ))}
-      </div>
+      </Stack>
 
       {error && <p className={styles.inlineError}>{error}</p>}
 
@@ -235,7 +238,7 @@ export function SetupMode({ onConfigured, isFirstRun }) {
         <>
           <div className={styles.list}>
             {accounts.map((acc) => (
-              <label key={acc.login} className={styles.accountRow}>
+              <Stack gap={3} as="label" key={acc.login} className={styles.accountRow}>
                 <input
                   type="checkbox"
                   className={styles.checkbox}
@@ -245,14 +248,14 @@ export function SetupMode({ onConfigured, isFirstRun }) {
                 <img src={acc.avatar_url} alt="" className={styles.avatar} />
                 <span className={styles.accountName}>{acc.login}</span>
                 <span className={styles.badge}>{acc.type === 'user' ? 'personal' : 'org'}</span>
-              </label>
+              </Stack>
             ))}
           </div>
-          <div className={styles.actions}>
+          <Stack gap={3} justify="end">
             <Button variant="primary" size="sm" filled disabled={selectedCount === 0} onClick={() => setStep('repos')}>
               Next
             </Button>
-          </div>
+          </Stack>
         </>
       )}
 
@@ -293,7 +296,7 @@ export function SetupMode({ onConfigured, isFirstRun }) {
                         {isLoadingRepos && <p className={styles.loadingText}>Loading repos...</p>}
                         {!isLoadingRepos && repos.length === 0 && <p className={styles.emptyText}>No repos found</p>}
                         {repos.map((repo) => (
-                          <label key={repo.nameWithOwner} className={styles.repoRow}>
+                          <Stack gap={3} as="label" key={repo.nameWithOwner} className={styles.repoRow}>
                             <input
                               type="checkbox"
                               className={styles.checkbox}
@@ -302,7 +305,7 @@ export function SetupMode({ onConfigured, isFirstRun }) {
                             />
                             <span className={styles.repoName}>{repo.name}</span>
                             {repo.description && <span className={styles.repoDesc}>{repo.description}</span>}
-                          </label>
+                          </Stack>
                         ))}
                       </div>
                     )}
@@ -310,23 +313,23 @@ export function SetupMode({ onConfigured, isFirstRun }) {
                 );
               })}
           </div>
-          <div className={styles.actions}>
+          <Stack gap={3} justify="end">
             <Button size="sm" onClick={() => setStep('accounts')}>
               Back
             </Button>
             <Button variant="primary" size="sm" filled onClick={() => setStep('settings')}>
               Next
             </Button>
-          </div>
+          </Stack>
         </>
       )}
 
       {step === 'settings' && (
         <>
-          <div className={styles.settingsCard}>
+          <Box p={5} border rounded="lg" bg="white">
             <label className={styles.settingsLabel}>Poll interval</label>
             <p className={styles.settingsHint}>How often claude-patrol checks GitHub for updates.</p>
-            <div className={styles.presets}>
+            <Stack gap={2} wrap className={styles.presets}>
               {INTERVAL_PRESETS.map((p) => (
                 <button
                   key={p.value}
@@ -336,8 +339,8 @@ export function SetupMode({ onConfigured, isFirstRun }) {
                   {p.label}
                 </button>
               ))}
-            </div>
-            <div className={styles.customInterval}>
+            </Stack>
+            <Stack gap={2}>
               <span className={styles.customLabel}>or custom:</span>
               <input
                 type="number"
@@ -348,20 +351,20 @@ export function SetupMode({ onConfigured, isFirstRun }) {
                 className={styles.numberInput}
               />
               <span className={styles.intervalUnit}>seconds</span>
-            </div>
-          </div>
-          <div className={styles.actions}>
+            </Stack>
+          </Box>
+          <Stack gap={3} justify="end">
             <Button size="sm" onClick={() => setStep('repos')}>
               Back
             </Button>
             <Button variant="primary" size="sm" filled onClick={handleSave}>
               Save and start monitoring
             </Button>
-          </div>
+          </Stack>
         </>
       )}
 
       {step === 'saving' && <p className={styles.loadingText}>Saving configuration...</p>}
-    </div>
+    </Stack>
   );
 }

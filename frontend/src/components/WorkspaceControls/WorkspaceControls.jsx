@@ -2,6 +2,7 @@ import { useCallback, useState } from 'react';
 import { destroyWorkspace } from '../../lib/api.js';
 import { Badge } from '../ui/Badge/Badge.jsx';
 import { Button } from '../ui/Button/Button.jsx';
+import { Stack } from '../ui/Stack/Stack.jsx';
 import styles from './WorkspaceControls.module.css';
 
 /**
@@ -46,17 +47,17 @@ export function WorkspaceControls({ workspace, onUpdate, getOrCreateWorkspace, c
 
   if (!workspace) {
     return (
-      <div className={styles.controls}>
+      <Stack gap={3} wrap>
         <Button variant="primary" size="lg" filled onClick={handleCreate} disabled={busy}>
           {busy ? 'Creating workspace...' : 'Create Workspace'}
         </Button>
         {error && <p className={styles.error}>{error}</p>}
-      </div>
+      </Stack>
     );
   }
 
   return (
-    <div className={styles.controls}>
+    <Stack gap={3} wrap>
       <Badge color="green">Workspace active</Badge>
       <span className={styles.path}>{workspace.path}</span>
       {!confirmDestroy ? (
@@ -64,7 +65,7 @@ export function WorkspaceControls({ workspace, onUpdate, getOrCreateWorkspace, c
           Destroy
         </Button>
       ) : (
-        <div className={styles.confirmRow}>
+        <Stack gap={2}>
           <span className={styles.confirmText}>Are you sure?</span>
           <Button variant="danger" size="md" filled onClick={handleDestroy} disabled={loading}>
             {loading ? 'Destroying...' : 'Yes, destroy'}
@@ -72,9 +73,9 @@ export function WorkspaceControls({ workspace, onUpdate, getOrCreateWorkspace, c
           <Button size="md" onClick={() => setConfirmDestroy(false)}>
             Cancel
           </Button>
-        </div>
+        </Stack>
       )}
       {error && <p className={styles.error}>{error}</p>}
-    </div>
+    </Stack>
   );
 }

@@ -1,4 +1,5 @@
 import { Button } from '../ui/Button/Button.jsx';
+import { Stack } from '../ui/Stack/Stack.jsx';
 import styles from './QuickActions.module.css';
 
 const BUILT_IN_ACTIONS = [
@@ -42,13 +43,13 @@ export function QuickActions({ wsRef, onSend }) {
   };
 
   return (
-    <div className={styles.actions}>
+    <Stack gap={2} wrap className={styles.actions}>
       <span className={styles.label}>Quick actions:</span>
       {BUILT_IN_ACTIONS.map((action) => (
         <Button key={action.label} size="md" onClick={() => handleAction(action)}>
           {action.label}
         </Button>
       ))}
-    </div>
+    </Stack>
   );
 }

@@ -1,15 +1,7 @@
 @reference "tailwindcss";
 
-.controls {
-  @apply flex flex-wrap items-center gap-3;
-}
-
 .path {
   @apply text-sm text-gray-500 font-mono;
-}
-
-.confirmRow {
-  @apply flex items-center gap-2;
 }
 
 .confirmText {

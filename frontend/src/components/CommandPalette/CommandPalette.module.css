@@ -49,7 +49,7 @@
 }
 
 .resultInfo {
-  @apply min-w-0 space-y-0.5;
+  @apply min-w-0;
 }
 
 .resultTitle {
@@ -57,7 +57,7 @@
 }
 
 .resultMeta {
-  @apply flex items-center gap-1.5 text-xs text-gray-500;
+  @apply text-xs text-gray-500;
 }
 
 .resultRepo {
@@ -73,6 +73,6 @@
 }
 
 .resultBadges {
-  @apply flex items-center gap-1 mt-1;
+  @apply mt-1;
 }
 

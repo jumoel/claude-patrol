@@ -1,6 +1,8 @@
 import { useCallback, useRef, useState } from 'react';
 import { useClickOutside } from '../../hooks/useClickOutside.js';
+import { Box } from '../ui/Box/Box.jsx';
 import { Button } from '../ui/Button/Button.jsx';
+import { Stack } from '../ui/Stack/Stack.jsx';
 import styles from './FilterBar.module.css';
 
 const CI_OPTIONS = [
@@ -117,8 +119,9 @@ export function FilterBar({ prs, filters, onFilterChange, onCopyMarkdown, copied
   };
 
   return (
-    <div className={styles.bar}>
-      <div className={styles.quickFilters}>
+    <Box px={4} py={3} border rounded="lg" bg="white" className={styles.bar}>
+      <Stack direction="col" gap={3}>
+      <Stack gap={3} wrap>
         <button
           className={`${styles.quickFilter} ${styles.quickFilterGreen} ${isMergeReadyActive ? styles.quickFilterActive : ''}`}
           onClick={() => toggleQuickFilter(MERGE_READY_FILTERS, isMergeReadyActive)}
@@ -154,8 +157,8 @@ export function FilterBar({ prs, filters, onFilterChange, onCopyMarkdown, copied
             {copied ? 'Copied!' : 'Copy as Markdown'}
           </Button>
         )}
-      </div>
-      <div className={styles.dropdowns}>
+      </Stack>
+      <Stack gap={3} wrap>
         <MultiSelect
           label="All orgs"
           options={orgOptions}
@@ -192,7 +195,8 @@ export function FilterBar({ prs, filters, onFilterChange, onCopyMarkdown, copied
           selected={filters.draft || []}
           onChange={(v) => update('draft', v)}
         />
-      </div>
-    </div>
+      </Stack>
+      </Stack>
+    </Box>
   );
 }

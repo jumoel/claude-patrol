@@ -15,7 +15,9 @@ import shared from '../../styles/shared.module.css';
 import { TerminalCard } from '../TerminalCard/TerminalCard.jsx';
 import { TranscriptViewer } from '../TranscriptViewer/TranscriptViewer.jsx';
 import { Badge } from '../ui/Badge/Badge.jsx';
+import { Box } from '../ui/Box/Box.jsx';
 import { Button } from '../ui/Button/Button.jsx';
+import { Stack } from '../ui/Stack/Stack.jsx';
 import styles from './WorkspaceDetail.module.css';
 
 /**
@@ -113,29 +115,29 @@ export function WorkspaceDetail({ workspaceId, onBack }) {
   const adopted = workspace.pr_id && !workspace.repo;
 
   return (
-    <div className={shared.detail}>
+    <Box pb={16}><Stack direction="col" gap={4}>
       {/* Header */}
-      <div className={shared.headerCard}>
-        <div className={shared.headerTop}>
+      <Box p={5} border rounded="lg" bg="white"><Stack direction="col" gap={3}>
+        <Stack justify="between">
           <Button size="md" onClick={onBack}>
             &larr; Back
           </Button>
-          <div className={styles.headerActions}>
+          <Stack gap={2}>
             {workspace.status === 'active' && (
               <Button variant="danger" size="sm" onClick={handleDestroy} disabled={destroying}>
                 {destroying ? 'Destroying...' : 'Destroy'}
               </Button>
             )}
-          </div>
-        </div>
+          </Stack>
+        </Stack>
         <div className={styles.title}>{workspace.bookmark}</div>
-        <div className={shared.identityRow}>
+        <Stack gap={2} wrap className={shared.identityRow}>
           {workspace.repo && <span className={shared.repoTag}>{workspace.repo}</span>}
           <span className={shared.branchTag}>{workspace.bookmark}</span>
           <span className={shared.separator}>-</span>
           <span className={shared.updatedText}>Created {getRelativeTime(workspace.created_at)}</span>
           {workspace.status === 'destroyed' && <Badge color="red">Destroyed</Badge>}
-        </div>
+        </Stack>
         {adopted && (
           <div className={styles.adoptedNotice}>
             Adopted by PR -{' '}
@@ -144,7 +146,7 @@ export function WorkspaceDetail({ workspaceId, onBack }) {
             </a>
           </div>
         )}
-      </div>
+      </Stack></Box>
 
       {/* Terminal */}
       {workspace.status === 'active' &&
@@ -157,21 +159,19 @@ export function WorkspaceDetail({ workspaceId, onBack }) {
             onReattach={handleReattach}
           />
         ) : (
-          <div className={shared.card}>
-            <div className={shared.section}>
-              <div className={shared.terminalHeader}>
-                <h3 className={shared.sectionTitle}>Terminal</h3>
-              </div>
-              <Button variant="primary" size="lg" onClick={handleStartSession} disabled={openingSession}>
-                {openingSession ? 'Starting session...' : 'Start Terminal Session'}
-              </Button>
-            </div>
-          </div>
+          <Box p={5} border rounded="lg" bg="white"><Stack direction="col" gap={3}>
+            <Stack justify="between">
+              <h3 className={shared.sectionTitle}>Terminal</h3>
+            </Stack>
+            <Button variant="primary" size="lg" onClick={handleStartSession} disabled={openingSession}>
+              {openingSession ? 'Starting session...' : 'Start Terminal Session'}
+            </Button>
+          </Stack></Box>
         ))}
 
       {/* Past Sessions */}
       <SessionHistory workspaceId={workspaceId} />
-    </div>
+    </Stack></Box>
   );
 }
 
@@ -221,7 +221,7 @@ function SessionHistory({ workspaceId }) {
   };
 
   return (
-    <div className={shared.card}>
+    <Box p={5} border rounded="lg" bg="white">
       <button
         onClick={() => setExpanded(!expanded)}
         style={{
@@ -244,14 +244,14 @@ function SessionHistory({ workspaceId }) {
           {history.map((sess) => (
             <div key={sess.id}>
               <button className={styles.sessionRow} onClick={() => handleViewTranscript(sess.id)}>
-                <div className={styles.sessionInfo}>
+                <Stack gap={3}>
                   <span style={{ fontSize: '14px', color: '#6b7280' }}>
                     {new Date(sess.started_at).toLocaleString()}
                   </span>
                   <span style={{ fontSize: '13px', color: '#9ca3af' }}>
                     {formatDuration(sess.started_at, sess.ended_at)}
                   </span>
-                </div>
+                </Stack>
                 <span className={`${styles.chevron} ${transcripts[sess.id] ? styles.chevronOpen : ''}`}>&#x25B8;</span>
               </button>
               {(transcripts[sess.id] || transcriptLoading[sess.id] || transcriptErrors[sess.id]) && (
@@ -265,6 +265,6 @@ function SessionHistory({ workspaceId }) {
           ))}
         </div>
       )}
-    </div>
+    </Box>
   );
 }

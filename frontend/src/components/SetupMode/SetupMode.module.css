@@ -1,13 +1,5 @@
 @reference "tailwindcss";
 
-.container {
-  @apply flex flex-col gap-4;
-}
-
-.header {
-  @apply flex items-baseline gap-4 flex-wrap;
-}
-
 .title {
   @apply text-lg font-semibold text-gray-900;
 }
@@ -22,7 +14,7 @@
 }
 
 .accountRow {
-  @apply flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-gray-50 transition-colors;
+  @apply px-4 py-3 cursor-pointer hover:bg-gray-50 transition-colors;
 }
 
 .accountRow + .accountRow {
@@ -49,17 +41,12 @@
   @apply text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 font-medium;
 }
 
-.actions {
-  @apply flex gap-3 justify-end;
-}
-
-
 .loadingText {
   @apply text-sm text-gray-500 py-8 text-center;
 }
 
 .errorCard {
-  @apply bg-white border border-red-200 rounded-lg p-6 text-center;
+  @apply text-center;
 }
 
 .errorText {
@@ -99,18 +86,6 @@
   @apply bg-blue-50 text-blue-700;
 }
 
-.intervalRow {
-  @apply flex items-center gap-3;
-}
-
-.intervalLabel {
-  @apply text-sm font-medium text-gray-700;
-}
-
-.intervalInput {
-  @apply flex items-center gap-2;
-}
-
 .numberInput {
   @apply w-20 px-2 py-1.5 text-sm border border-gray-300 rounded-md bg-white text-right;
 }
@@ -124,7 +99,7 @@
 }
 
 .repoRow {
-  @apply flex items-center gap-2.5 px-4 py-1.5 cursor-pointer hover:bg-gray-50 rounded transition-colors;
+  @apply px-4 py-1.5 cursor-pointer hover:bg-gray-50 rounded transition-colors;
 }
 
 .repoName {
@@ -136,13 +111,8 @@
   max-width: 24rem;
 }
 
-/* Step indicator */
-.steps {
-  @apply flex gap-2 items-center;
-}
-
 .step {
-  @apply flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium text-gray-400 bg-gray-50 border border-gray-200 transition-colors;
+  @apply px-3 py-1.5 rounded-full text-xs font-medium text-gray-400 bg-gray-50 border border-gray-200 transition-colors;
 }
 
 .stepActive {
@@ -169,11 +139,6 @@
   @apply leading-none;
 }
 
-/* Settings step */
-.settingsCard {
-  @apply bg-white border border-gray-200 rounded-lg p-5;
-}
-
 .settingsLabel {
   @apply text-sm font-medium text-gray-900;
 }
@@ -183,7 +148,7 @@
 }
 
 .presets {
-  @apply flex flex-wrap gap-2 mb-3;
+  @apply mb-3;
 }
 
 .presetBtn {
@@ -192,10 +157,6 @@
 
 .presetBtnActive {
   @apply bg-blue-50 text-blue-700 border-blue-200;
-}
-
-.customInterval {
-  @apply flex items-center gap-2;
 }
 
 .customLabel {

@@ -2,10 +2,6 @@
 
 /* Only styles unique to PRDetail - shared styles are in shared.module.css */
 
-.headerLinks {
-  @apply flex items-center gap-2;
-}
-
 .mergeButton {
   @apply no-underline;
 }
@@ -18,47 +14,20 @@
   @apply text-lg font-bold text-gray-900 leading-snug;
 }
 
-.statusRow {
-  @apply flex items-center gap-4 pt-1;
-}
-
-.statusItem {
-  @apply flex items-center gap-1.5;
-}
-
 .statusLabel {
   @apply text-sm font-medium text-gray-400 uppercase;
-}
-
-.labels {
-  @apply flex flex-wrap gap-2 pt-1;
 }
 
 .label {
   @apply px-2.5 py-0.5 text-sm font-medium border rounded-full;
 }
 
-.actionsRow {
-  @apply bg-white border border-gray-200 rounded-lg p-5;
-}
-
 .openButtonSpaced {
   @apply mt-2;
 }
 
-.sectionTitleFlex {
-  @apply flex items-center gap-3;
-}
-
 
 /* Checks */
-.checksHeader {
-  @apply flex items-center justify-between flex-wrap gap-3;
-}
-
-.checksSummary {
-  @apply flex items-center gap-2 text-sm font-normal normal-case tracking-normal;
-}
 
 .summaryPass {
   @apply text-green-600;
@@ -76,13 +45,9 @@
   @apply text-gray-500;
 }
 
-.checksActions {
-  @apply flex items-center gap-2;
-}
-
 
 .checkGroup {
-  @apply space-y-0.5;
+  @apply space-y-1;
 }
 
 .checkRow {
@@ -93,7 +58,7 @@
 }
 
 .checkInfo {
-  @apply flex items-center gap-2 min-w-0 flex-1;
+  @apply min-w-0 flex-1;
 }
 
 .checkDot {
@@ -106,10 +71,6 @@
 
 .checkNamePlain {
   @apply text-gray-700 truncate;
-}
-
-.checkActions {
-  @apply flex items-center gap-2;
 }
 
 
@@ -183,7 +144,7 @@
 }
 
 .descriptionToggle {
-  @apply flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 cursor-pointer transition-colors;
+  @apply flex items-center gap-2 text-sm text-gray-500 hover:text-gray-700 cursor-pointer transition-colors;
   background: none;
   border: none;
   padding: 0;

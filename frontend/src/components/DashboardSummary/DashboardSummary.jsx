@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useClickOutside } from '../../hooks/useClickOutside.js';
 import { fetchSessions, fetchWorkspaces } from '../../lib/api.js';
+import { Box } from '../ui/Box/Box.jsx';
+import { Stack } from '../ui/Stack/Stack.jsx';
 import styles from './DashboardSummary.module.css';
 
 /**
@@ -47,7 +49,7 @@ export function DashboardSummary({ prCount }) {
   const wsById = Object.fromEntries(workspaces.map((ws) => [ws.id, ws]));
 
   return (
-    <div className={styles.bar}>
+    <Box px={4} py={2} border rounded="lg" bg="white" className={styles.bar}><Stack gap={3}>
       <span className={styles.stat}>{prCount} open PRs</span>
       <span className={styles.divider} />
       <StatDropdown
@@ -81,6 +83,6 @@ export function DashboardSummary({ prCount }) {
           );
         }}
       />
-    </div>
+    </Stack></Box>
   );
 }

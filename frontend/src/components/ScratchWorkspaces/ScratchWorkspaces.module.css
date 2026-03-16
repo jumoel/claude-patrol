@@ -5,7 +5,7 @@
 }
 
 .header {
-  @apply flex items-center justify-between mb-3 px-4;
+  @apply mb-3 px-4;
 }
 
 .title {
@@ -14,15 +14,11 @@
 
 
 .form {
-  @apply bg-white border border-gray-200 rounded-lg p-4 mb-3 flex gap-2 items-end flex-wrap;
-}
-
-.fieldGroup {
-  @apply flex flex-col;
+  @apply mb-3;
 }
 
 .fieldGroupFlex {
-  @apply flex flex-col flex-1 min-w-[200px];
+  @apply flex-1 min-w-[200px];
 }
 
 .label {
@@ -43,11 +39,7 @@
 }
 
 .row {
-  @apply flex items-center justify-between py-3 px-4 border-b border-gray-100 cursor-pointer hover:bg-gray-50 transition-colors;
-}
-
-.rowLeft {
-  @apply flex items-center gap-3;
+  @apply py-3 px-4 border-b border-gray-100 cursor-pointer hover:bg-gray-50 transition-colors;
 }
 
 .bookmark {
