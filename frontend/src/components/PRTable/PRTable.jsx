@@ -52,12 +52,12 @@ export function PRTable({ prs, onRowClick, sorting, onSortingChange, idleWorkspa
       id: 'local',
       header: 'Local',
       accessorFn: (row) => {
-        const idle = row.workspace_id && idleWorkspaces?.has(row.workspace_id);
+        const idle = row.has_session && row.workspace_id && idleWorkspaces?.has(row.workspace_id);
         return idle ? 3 : row.has_session ? 2 : row.has_workspace ? 1 : 0;
       },
       cell: ({ row }) => {
         const pr = row.original;
-        const idle = pr.workspace_id && idleWorkspaces?.has(pr.workspace_id);
+        const idle = pr.has_session && pr.workspace_id && idleWorkspaces?.has(pr.workspace_id);
         if (idle) return <span className={styles.idleBadge} title="Session needs attention">Idle</span>;
         if (pr.has_session) return <span className={styles.sessionBadge} title="Running session">Session</span>;
         if (pr.has_workspace) return <span className={styles.workspaceBadge} title="Active workspace">Workspace</span>;

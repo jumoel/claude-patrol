@@ -39,6 +39,20 @@ function startSSE() {
   if (source) return;
   source = new EventSource('/api/events');
 
+  // Clear stale idle state on reconnect - any session-idle events from before
+  // the disconnect may no longer be valid (sessions could have exited while
+  // the SSE connection was down).
+  source.addEventListener('open', () => {
+    if (idleSessions.size > 0 || idleWorkspaces.size > 0) {
+      idleSessions = new Set();
+      idleWorkspaces = new Set();
+      sessionWorkspaceMap.clear();
+      sessionsSnapshot = idleSessions;
+      workspacesSnapshot = idleWorkspaces;
+      notify();
+    }
+  });
+
   source.addEventListener('session-idle', (event) => {
     const { sessionId, workspaceId } = JSON.parse(event.data);
     sessionWorkspaceMap.set(sessionId, workspaceId);
