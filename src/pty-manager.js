@@ -146,14 +146,13 @@ function attachPtyToTmux(sessionId, meta = {}) {
   const MOMENT_WINDOW = 2000;   // reset if no output for this long
   const LARGE_OUTPUT = 150;     // instant transition for big chunks
 
-  // Suppress activity detection after resize - the resulting tmux redraw
-  // produces multiple onData events that look like real activity.
-  let resizeSuppressUntil = 0;
-
   const entry = {
     proc,
     buffer: new RingBuffer(BUFFER_MAX),
     websockets: new Set(),
+    // Suppress activity detection after resize - the resulting tmux redraw
+    // produces multiple onData events that look like real activity.
+    resizeSuppressUntil: 0,
   };
 
   proc.onData((data) => {
@@ -168,7 +167,7 @@ function attachPtyToTmux(sessionId, meta = {}) {
     // DEBUG: log all output for activity detection tuning
     const now = Date.now();
     const gap = lastMomentAt ? now - lastMomentAt : 0;
-    const suppressed = now < resizeSuppressUntil;
+    const suppressed = now < entry.resizeSuppressUntil;
     if (bytes > 0 || data.length > 200) {
       console.log(`[activity] sid=${sessionId.slice(0,8)} state=${state} printable=${bytes} raw=${data.length} gap=${gap}ms moments=${momentCount} suppressed=${suppressed}`);
     }
@@ -472,7 +471,7 @@ export function attachSession(sessionId, ws) {
       entry.proc.resize(msg.cols, msg.rows);
       // Suppress activity detection for 500ms - the resize triggers a full
       // tmux redraw that produces multiple onData events with printable content.
-      resizeSuppressUntil = Date.now() + 500;
+      entry.resizeSuppressUntil = Date.now() + 500;
     }
   });
 
