@@ -456,7 +456,12 @@ export function attachSession(sessionId, ws) {
         entry.proc.write(msg.data);
       }
     } else if (msg.type === 'resize') {
-      entry.proc.resize(msg.cols, msg.rows);
+      try {
+        entry.proc.resize(msg.cols, msg.rows);
+      } catch {
+        // PTY fd already closed (EBADF) - session exited but WS still open
+        return;
+      }
       // Suppress activity detection for 500ms - the resize triggers a full
       // tmux redraw that produces multiple onData events with printable content.
       entry.resizeSuppressUntil = Date.now() + 500;
