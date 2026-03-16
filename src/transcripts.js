@@ -1,4 +1,4 @@
-import { copyFileSync, readdirSync, statSync } from 'node:fs';
+import { copyFileSync, existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { getDb } from './db.js';
 import { transcriptsDir } from './paths.js';
@@ -67,6 +67,95 @@ export function archiveTranscript(sessionId, claudeProjectDir, startedAt, endedA
     return dest;
   } catch (err) {
     console.warn(`[transcripts] Failed to archive transcript for session ${sessionId}: ${err.message}`);
+    return null;
+  }
+}
+
+const SYSTEM_PATTERNS = [
+  '<task-notification>',
+  '<system-reminder>',
+  '<command-name>',
+  '<automated-',
+  'IMPORTANT: After completing',
+  'Read the output file to retrieve the result:',
+];
+
+/**
+ * Extract text content from a Claude message content array/string.
+ * @param {Array | string | undefined} content
+ * @returns {string}
+ */
+function extractText(content) {
+  if (!content) return '';
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  return content
+    .filter((b) => b.type === 'text')
+    .map((b) => b.text)
+    .join('\n');
+}
+
+/**
+ * Generate a compact summary of a transcript JSONL file.
+ * Includes only human messages and assistant text responses - no tool
+ * use, tool results, thinking blocks, or system-injected messages.
+ * Returns the path to the summary file (cached alongside the JSONL).
+ *
+ * @param {string} jsonlPath - path to the full JSONL transcript
+ * @returns {string | null} path to the summary file, or null on failure
+ */
+export function getOrCreateTranscriptSummary(jsonlPath) {
+  const summaryPath = jsonlPath.replace(/\.jsonl$/, '.summary.md');
+
+  if (existsSync(summaryPath)) {
+    // Regenerate if the JSONL is newer than the summary
+    try {
+      const jsonlMtime = statSync(jsonlPath).mtimeMs;
+      const summaryMtime = statSync(summaryPath).mtimeMs;
+      if (summaryMtime >= jsonlMtime) return summaryPath;
+    } catch {}
+  }
+
+  try {
+    const raw = readFileSync(jsonlPath, 'utf8');
+    const entries = raw
+      .trim()
+      .split('\n')
+      .map((line) => {
+        try {
+          return JSON.parse(line);
+        } catch {
+          return null;
+        }
+      })
+      .filter(Boolean)
+      .filter((e) => e.type === 'user' || e.type === 'assistant');
+
+    const lines = [];
+    let prevWasAssistant = true;
+
+    for (const e of entries) {
+      const role = e.message?.role || e.type;
+      const text = extractText(e.message?.content).trim();
+      if (!text) continue;
+
+      if (role === 'user') {
+        const looksLikeSystem = SYSTEM_PATTERNS.some((p) => text.includes(p));
+        const isHuman = prevWasAssistant && !looksLikeSystem;
+        if (isHuman) {
+          lines.push(`## User\n\n${text}\n`);
+        }
+      } else if (role === 'assistant') {
+        lines.push(`## Assistant\n\n${text}\n`);
+      }
+
+      prevWasAssistant = role === 'assistant';
+    }
+
+    writeFileSync(summaryPath, lines.join('\n---\n\n'));
+    return summaryPath;
+  } catch (err) {
+    console.warn(`[transcripts] Failed to create summary for ${jsonlPath}: ${err.message}`);
     return null;
   }
 }

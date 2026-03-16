@@ -11,7 +11,7 @@ import {
   popOutSession,
   reattachSession,
 } from '../pty-manager.js';
-import { findSessionJsonl } from '../transcripts.js';
+import { findSessionJsonl, getOrCreateTranscriptSummary } from '../transcripts.js';
 import { execFile, expandPath, toClaudeProjectKey } from '../utils.js';
 import { createScratchWorkspace } from '../workspace.js';
 
@@ -130,6 +130,10 @@ export function registerSessionRoutes(app) {
     }
 
     if (request.query.path_only) {
+      if (request.query.summary) {
+        const summaryPath = getOrCreateTranscriptSummary(jsonlPath);
+        return { path: summaryPath || jsonlPath };
+      }
       return { path: jsonlPath };
     }
 

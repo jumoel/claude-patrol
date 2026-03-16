@@ -319,13 +319,13 @@ server.tool(
 
 server.tool(
   'get_session_transcript',
-  'Get the file path to a previous Claude session transcript (JSONL). Use the Read tool to read the file. Each line is a JSON object with type, timestamp, and message fields. Use get_session_history first to find session IDs.',
+  'Get the file path to a summary of a previous Claude session. The summary contains only human messages and assistant text responses (no tool use details or thinking). Use the Read tool to read it. Use get_session_history first to find session IDs.',
   {
     session_id: z.string().describe('Session ID from get_session_history'),
   },
   async ({ session_id }) => {
-    const data = await api(`/api/sessions/${encodeURIComponent(session_id)}/transcript?path_only=true`);
-    return { content: [{ type: 'text', text: `Transcript file: ${data.path}\n\nUse the Read tool to read this JSONL file. Each line is a JSON object with "type" (user/assistant), "timestamp", and "message" fields.` }] };
+    const data = await api(`/api/sessions/${encodeURIComponent(session_id)}/transcript?path_only=true&summary=true`);
+    return { content: [{ type: 'text', text: `Session summary: ${data.path}\n\nUse the Read tool to read this file.` }] };
   },
 );
 
