@@ -112,17 +112,21 @@ export function CommandPalette({
 
     const all = [...prItems, ...wsItems, ...globalItems];
 
-    // Boost idle items to top, then sort by score
-    const isIdle = (entry) => {
-      if (!workspaceStates?.size) return false;
+    // Boost items with active sessions to top (idle first, then working), then sort by score
+    const sessionPriority = (entry) => {
+      if (!workspaceStates?.size) return 0;
       const wsId = entry.type === 'workspace' ? entry.item.id : entry.item.workspace_id;
-      return wsId && workspaceStates.get(wsId) === 'idle';
+      if (!wsId) return 0;
+      const state = workspaceStates.get(wsId);
+      if (state === 'idle') return 2;
+      if (state === 'working') return 1;
+      return 0;
     };
 
     return all.sort((a, b) => {
-      const aIdle = isIdle(a) ? 1 : 0;
-      const bIdle = isIdle(b) ? 1 : 0;
-      if (aIdle !== bIdle) return bIdle - aIdle;
+      const aPri = sessionPriority(a);
+      const bPri = sessionPriority(b);
+      if (aPri !== bPri) return bPri - aPri;
       return b.score - a.score;
     });
   }, [prs, scratchWorkspaces, workspaceStates, hasGlobalSession, query]);
@@ -213,12 +217,12 @@ export function CommandPalette({
                 {entry.type === 'pr' ? (
                   <PRResult
                     pr={entry.item}
-                    idle={entry.item.workspace_id && workspaceStates?.get(entry.item.workspace_id) === 'idle'}
+                    sessionState={entry.item.workspace_id ? workspaceStates?.get(entry.item.workspace_id) : undefined}
                   />
                 ) : entry.type === 'global' ? (
                   <GlobalResult />
                 ) : (
-                  <WorkspaceResult ws={entry.item} idle={workspaceStates?.get(entry.item.id) === 'idle'} />
+                  <WorkspaceResult ws={entry.item} sessionState={workspaceStates?.get(entry.item.id)} />
                 )}
               </div>
             ))
@@ -229,7 +233,13 @@ export function CommandPalette({
   );
 }
 
-function PRResult({ pr, idle }) {
+function SessionStateBadge({ state }) {
+  if (state === 'working') return <Badge color="green">Working</Badge>;
+  if (state === 'idle') return <Badge color="amber" pulse>Waiting</Badge>;
+  return null;
+}
+
+function PRResult({ pr, sessionState }) {
   return (
     <Stack direction="col" gap={1} className={styles.resultInfo}>
       <div className={styles.resultTitle}>{pr.title}</div>
@@ -245,7 +255,7 @@ function PRResult({ pr, idle }) {
         <StatusBadge status={pr.review_status} type="review" />
         {pr.mergeable === 'CONFLICTING' && <StatusBadge status={pr.mergeable} type="merge" />}
         {pr.draft && <Badge color="yellow">Draft</Badge>}
-        {idle && <Badge color="amber" pulse>Needs attention</Badge>}
+        <SessionStateBadge state={sessionState} />
       </Stack>
     </Stack>
   );
@@ -262,14 +272,14 @@ function GlobalResult() {
   );
 }
 
-function WorkspaceResult({ ws, idle }) {
+function WorkspaceResult({ ws, sessionState }) {
   return (
     <Stack direction="col" gap={1} className={styles.resultInfo}>
       <div className={styles.resultTitle}>{ws.bookmark}</div>
       <Stack gap={2} className={styles.resultMeta}>{ws.repo && <span className={styles.resultRepo}>{ws.repo}</span>}</Stack>
       <Stack gap={1} className={styles.resultBadges}>
         <Badge color="purple">scratch workspace</Badge>
-        {idle && <Badge color="amber" pulse>Needs attention</Badge>}
+        <SessionStateBadge state={sessionState} />
       </Stack>
     </Stack>
   );

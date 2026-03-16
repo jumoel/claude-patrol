@@ -105,7 +105,7 @@ export default function App() {
   const openGlobalTerminal = useCallback(() => setTerminalOpen(true), []);
   const closeGlobalTerminal = useCallback(() => setTerminalOpen(false), []);
   const { prs: allPRs, syncedAt, loading, error, syncing, countdown, triggerSync } = usePRs(NO_FILTERS);
-  const { workspaceStates, dismissedIdle, setActiveWorkspace } = useIdleNotification();
+  const { workspaceStates, dismissedIdle, setActiveWorkspace, localChangeCount } = useIdleNotification();
   const [scratchWorkspaces, setScratchWorkspaces] = useState([]);
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const [commitsBehind, setCommitsBehind] = useState(0);
@@ -130,12 +130,12 @@ export default function App() {
       });
   }, [needsSetup]);
 
-  // Fetch scratch workspaces (refresh when PRs sync)
+  // Fetch scratch workspaces (refresh on local changes like workspace creation/deletion)
   useEffect(() => {
     fetchScratchWorkspaces()
       .then(setScratchWorkspaces)
       .catch(() => {});
-  }, []);
+  }, [localChangeCount]);
 
   // Sync filters + sorting to URL hash
   const handleFilterChange = useCallback(
