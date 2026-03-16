@@ -287,11 +287,31 @@ server.tool(
 
 server.tool(
   'get_session_history',
-  'List previous Claude sessions for a workspace. Returns session IDs, timestamps, and status. Use get_session_transcript to read what happened in a specific session.',
+  'List previous Claude sessions for a PR or workspace. Returns session IDs, timestamps, and status. Use get_session_transcript to read what happened in a specific session.',
   {
-    workspace_id: z.string().describe('Workspace ID to list sessions for'),
+    pr_id: z.string().optional().describe('PR database ID (e.g. "org/repo#42"). Finds all workspaces for this PR and returns their sessions.'),
+    workspace_id: z.string().optional().describe('Workspace ID to list sessions for directly'),
   },
-  async ({ workspace_id }) => {
+  async ({ pr_id, workspace_id }) => {
+    if (!pr_id && !workspace_id) {
+      return { content: [{ type: 'text', text: 'Either pr_id or workspace_id is required.' }] };
+    }
+
+    if (pr_id && !workspace_id) {
+      // Look up all workspaces for this PR, then gather sessions from each
+      const workspaces = await api(`/api/workspaces?pr_id=${encodeURIComponent(pr_id)}`);
+      const allSessions = [];
+      for (const ws of workspaces) {
+        const sessions = await api(`/api/sessions/history?workspace_id=${encodeURIComponent(ws.id)}`);
+        for (const s of sessions) {
+          s.workspace_name = ws.name;
+        }
+        allSessions.push(...sessions);
+      }
+      allSessions.sort((a, b) => (b.started_at || '').localeCompare(a.started_at || ''));
+      return { content: [{ type: 'text', text: JSON.stringify(allSessions, null, 2) }] };
+    }
+
     const data = await api(`/api/sessions/history?workspace_id=${encodeURIComponent(workspace_id)}`);
     return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] };
   },
