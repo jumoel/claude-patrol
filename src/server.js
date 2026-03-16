@@ -6,6 +6,7 @@ import { resolve } from 'node:path';
 import { existsSync } from 'node:fs';
 import { pollerEvents } from './poller.js';
 import { appEvents } from './app-events.js';
+import { getSessionStates } from './pty-manager.js';
 import { registerPRRoutes } from './routes/prs.js';
 import { registerSyncRoutes } from './routes/sync.js';
 import { registerConfigRoutes } from './routes/config.js';
@@ -60,6 +61,12 @@ export async function createServer() {
     pollerEvents.on('sync', syncHandler);
     appEvents.on('local-change', localHandler);
     appEvents.on('session-state', stateHandler);
+
+    // Send current session states so the client doesn't miss events
+    // that fired before it connected.
+    for (const s of getSessionStates()) {
+      raw.write(`event: session-state\ndata: ${JSON.stringify(s)}\n\n`);
+    }
     request.raw.on('close', () => {
       pollerEvents.removeListener('sync', syncHandler);
       appEvents.removeListener('local-change', localHandler);

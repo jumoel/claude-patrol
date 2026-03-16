@@ -1,7 +1,7 @@
 import pty from 'node-pty';
 import { randomUUID } from 'node:crypto';
 import { execFileSync, execFile } from 'node:child_process';
-import { readFileSync, writeFileSync, appendFileSync, unlinkSync, chmodSync } from 'node:fs';
+import { readFileSync, writeFileSync, unlinkSync, chmodSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { getDb } from './db.js';
@@ -132,6 +132,7 @@ function attachPtyToTmux(sessionId, meta = {}) {
   // Untracked sessions show "Session" badge in the UI.
   let state = null;
   let idleTimer = null;
+  function setState(s) { state = s; entry.activityState = s; }
 
   // Activity detection: count distinct "moments" of printable output.
   // A moment = an onData with printable bytes, separated from the previous
@@ -150,9 +151,9 @@ function attachPtyToTmux(sessionId, meta = {}) {
     proc,
     buffer: new RingBuffer(BUFFER_MAX),
     websockets: new Set(),
-    // Suppress activity detection after resize - the resulting tmux redraw
-    // produces multiple onData events that look like real activity.
     resizeSuppressUntil: 0,
+    activityState: state,    // exposed for getSessionStates()
+    workspaceId,             // exposed for getSessionStates()
   };
 
   proc.onData((data) => {
@@ -164,11 +165,6 @@ function attachPtyToTmux(sessionId, meta = {}) {
 
     // Ignore escape-only output (cursor moves, status-line redraws).
     const bytes = printableByteCount(data);
-    // DEBUG: write to file (survives restart) - remove after diagnosis
-    const _now = Date.now();
-    const _gap = lastMomentAt ? _now - lastMomentAt : 0;
-    const _line = `${new Date().toISOString()} sid=${sessionId.slice(0,8)} state=${state} printable=${bytes} raw=${data.length} gap=${_gap}ms moments=${momentCount}\n`;
-    try { appendFileSync('/tmp/patrol-activity.log', _line); } catch {}
     if (bytes === 0) return;
 
     // Ignore output from resize-triggered redraws.
@@ -178,7 +174,7 @@ function attachPtyToTmux(sessionId, meta = {}) {
       // Already working - any printable output resets the idle countdown.
       if (idleTimer) clearTimeout(idleTimer);
       idleTimer = setTimeout(() => {
-        state = 'idle';
+        setState('idle');
         emitSessionState(sessionId, workspaceId, 'idle');
       }, IDLE_THRESHOLD_MS);
     } else {
@@ -192,12 +188,12 @@ function attachPtyToTmux(sessionId, meta = {}) {
       }
 
       if (momentCount >= MOMENT_THRESHOLD || bytes >= LARGE_OUTPUT) {
-        state = 'working';
+        setState('working');
         momentCount = 0;
         emitSessionState(sessionId, workspaceId, 'working');
         if (idleTimer) clearTimeout(idleTimer);
         idleTimer = setTimeout(() => {
-          state = 'idle';
+          setState('idle');
           emitSessionState(sessionId, workspaceId, 'idle');
         }, IDLE_THRESHOLD_MS);
       }
@@ -515,6 +511,25 @@ export function killSession(sessionId) {
 /** @returns {number} number of live in-memory sessions */
 export function activeSessionCount() {
   return sessions.size;
+}
+
+/**
+ * Get the current activity state for all tracked sessions.
+ * Used to seed new SSE clients with the current state.
+ * @returns {Array<{ sessionId: string, workspaceId: string | null, state: 'working' | 'idle' }>}
+ */
+export function getSessionStates() {
+  const results = [];
+  for (const [sessionId, entry] of sessions) {
+    if (entry.activityState) {
+      results.push({
+        sessionId,
+        workspaceId: entry.workspaceId ?? null,
+        state: entry.activityState,
+      });
+    }
+  }
+  return results;
 }
 
 export function killAllSessions() {
