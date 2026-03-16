@@ -165,7 +165,7 @@ export function TerminalCard({ session, title, onKill, onExit, onPopOut, onReatt
                 setMaximized(true);
               }}
             >
-              Maximize <kbd style={{ fontSize: '11px', opacity: 0.5 }}>Cmd+Enter</kbd>
+              Maximize <kbd style={{ fontSize: '11px', opacity: 0.5, lineHeight: 1 }}>Cmd+Enter</kbd>
             </Button>
             <Button variant="primary" size="sm" onClick={() => setTerminalOpen(true)}>
               Open terminal
@@ -191,7 +191,7 @@ export function TerminalCard({ session, title, onKill, onExit, onPopOut, onReatt
             </Button>
           )}
           <Button variant="default" size="sm" onClick={() => setMaximized(true)}>
-            Maximize <kbd style={{ fontSize: '11px', opacity: 0.5 }}>Cmd+Enter</kbd>
+            Maximize <kbd style={{ fontSize: '11px', opacity: 0.5, lineHeight: 1 }}>Cmd+Enter</kbd>
           </Button>
           <Button variant="default" size="sm" onClick={() => setTerminalOpen(false)}>
             Close
