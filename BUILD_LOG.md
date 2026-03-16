@@ -1,5 +1,9 @@
 # Build Log
 
+## 2026-03-16 - Fix idle detection false positives
+
+Three fixes: (1) Guard idle badge with `has_session` so it only renders when there's a running session - prevents phantom badges from dead sessions. (2) Clear client-side idle state on SSE reconnect to prevent stale badges from missed `session-active` events during connection drops. (3) Increase idle threshold from 5s to 30s - Claude regularly pauses 10-30s while thinking or running tools, causing false idle notifications. Also made the PRTable cell derive display from the accessor's cached sort value (`getValue()`) instead of recomputing idle state independently, fixing sort/display mismatches.
+
 ## 2026-03-13 - Global terminal in cmd-k command palette
 
 When the global terminal has an active session, it appears as a "Global Terminal" entry in cmd-k with a green "active session" pill. Selecting it opens/focuses the global terminal drawer. GlobalTerminal reports session state up via `onSessionChange` callback.

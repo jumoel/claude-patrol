@@ -11,7 +11,7 @@ import { archiveTranscript } from './transcripts.js';
 import { emitSessionIdle, emitSessionActive } from './app-events.js';
 
 const BUFFER_MAX = 50_000;
-const IDLE_THRESHOLD_MS = 5000;
+const IDLE_THRESHOLD_MS = 30_000;
 
 /**
  * Strip ANSI escape sequences and check if any printable content remains.
