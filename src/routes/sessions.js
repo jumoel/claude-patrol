@@ -132,7 +132,7 @@ export function registerSessionRoutes(app) {
     if (request.query.path_only) {
       if (request.query.summary) {
         const summaryPath = getOrCreateTranscriptSummary(jsonlPath);
-        return { path: summaryPath || jsonlPath };
+        return { summary_path: summaryPath || jsonlPath, transcript_path: jsonlPath };
       }
       return { path: jsonlPath };
     }

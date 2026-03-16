@@ -1,5 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { readFileSync } from 'node:fs';
 import { z } from 'zod';
 
 const BASE_URL = `http://127.0.0.1:${process.env.PATROL_PORT || 4000}`;
@@ -319,13 +320,20 @@ server.tool(
 
 server.tool(
   'get_session_transcript',
-  'Get the file path to a summary of a previous Claude session. The summary contains only human messages and assistant text responses (no tool use details or thinking). Use the Read tool to read it. Use get_session_history first to find session IDs.',
+  'Get a summary of a previous Claude session. Returns human messages and assistant text responses (no tool use, tool results, or thinking blocks). Also returns the full transcript path if you need raw details. Use get_session_history first to find session IDs.',
   {
     session_id: z.string().describe('Session ID from get_session_history'),
   },
   async ({ session_id }) => {
     const data = await api(`/api/sessions/${encodeURIComponent(session_id)}/transcript?path_only=true&summary=true`);
-    return { content: [{ type: 'text', text: `Session summary: ${data.path}\n\nUse the Read tool to read this file.` }] };
+    let summary;
+    try {
+      summary = readFileSync(data.summary_path, 'utf8');
+    } catch {
+      summary = '(Could not read summary file)';
+    }
+    const footer = `\n\n---\nFull transcript (JSONL): ${data.transcript_path}`;
+    return { content: [{ type: 'text', text: summary + footer }] };
   },
 );
 

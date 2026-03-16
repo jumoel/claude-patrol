@@ -98,6 +98,13 @@ export function WorkspaceDetail({ workspaceId, onBack }) {
     }
   }, [workspace, onBack]);
 
+  // Auto-redirect to PR detail when a scratch workspace gets adopted
+  useEffect(() => {
+    if (workspace?.pr_id && !workspace.repo) {
+      window.location.hash = `/pr/${encodeURIComponent(workspace.pr_id)}`;
+    }
+  }, [workspace?.pr_id, workspace?.repo]);
+
   if (loading) return <div className={shared.loading}>Loading workspace...</div>;
   if (!workspace) return <div className={shared.error}>Workspace not found</div>;
 
