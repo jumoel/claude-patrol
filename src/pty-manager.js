@@ -165,10 +165,17 @@ function attachPtyToTmux(sessionId, meta = {}) {
 
     // Ignore escape-only output (cursor moves, status-line redraws).
     const bytes = printableByteCount(data);
+    // DEBUG: log all output for activity detection tuning
+    const now = Date.now();
+    const gap = lastMomentAt ? now - lastMomentAt : 0;
+    const suppressed = now < resizeSuppressUntil;
+    if (bytes > 0 || data.length > 200) {
+      console.log(`[activity] sid=${sessionId.slice(0,8)} state=${state} printable=${bytes} raw=${data.length} gap=${gap}ms moments=${momentCount} suppressed=${suppressed}`);
+    }
     if (bytes === 0) return;
 
     // Ignore output from resize-triggered redraws.
-    if (Date.now() < resizeSuppressUntil) return;
+    if (suppressed) return;
 
     if (state === 'working') {
       // Already working - any printable output resets the idle countdown.
