@@ -11,7 +11,7 @@ import { archiveTranscript } from './transcripts.js';
 import { emitSessionState } from './app-events.js';
 
 const BUFFER_MAX = 50_000;
-const IDLE_THRESHOLD_MS = 30_000;
+const IDLE_THRESHOLD_MS = 10_000;
 
 /**
  * Strip ANSI escape sequences and count printable bytes remaining.
@@ -124,27 +124,20 @@ function attachPtyToTmux(sessionId, meta = {}) {
   const sessionRow = db.prepare('SELECT workspace_id FROM sessions WHERE id = ?').get(sessionId);
   const workspaceId = sessionRow?.workspace_id || null;
 
-  // Activity state machine: 'working' | 'idle'
-  // Transitions: working → idle (after IDLE_THRESHOLD_MS of silence)
-  //              idle → working (after BURST_BYTE_THRESHOLD printable bytes)
-  let state = 'idle';
+  // Activity state: null (untracked) | 'working' | 'idle'
+  //   null → working:  first substantial output (>= BURST_BYTE_THRESHOLD)
+  //   working → idle:  IDLE_THRESHOLD_MS of no substantial output
+  //   idle → working:  substantial output resumes
+  // "Idle" only applies to sessions that WERE working and went silent.
+  // Untracked sessions show "Session" badge in the UI.
+  let state = null;
+  let idleTimer = null;
 
-  // Idle timer: fires when no substantial output for IDLE_THRESHOLD_MS.
-  // Started immediately so new/reattached sessions that produce no output
-  // settle into 'idle' naturally.
-  let idleTimer = setTimeout(() => {
-    if (state !== 'idle') {
-      state = 'idle';
-      emitSessionState(sessionId, workspaceId, 'idle');
-    }
-  }, IDLE_THRESHOLD_MS);
-
-  // Burst accumulator: tmux status-bar redraws produce ~20-50 printable
-  // bytes per update (clock, hostname). Real Claude output exceeds 200
-  // bytes easily. Only substantial output clears idle state.
+  // Burst accumulator: filters tmux status-bar redraws (~20-50 printable
+  // bytes) from real Claude output (100+ bytes in a 2s window).
   let burstBytes = 0;
   let burstTimer = null;
-  const BURST_BYTE_THRESHOLD = 200;
+  const BURST_BYTE_THRESHOLD = 100;
   const BURST_WINDOW = 2000;
 
   const entry = {
@@ -164,9 +157,16 @@ function attachPtyToTmux(sessionId, meta = {}) {
     const bytes = printableByteCount(data);
     if (bytes === 0) return;
 
-    if (state === 'idle') {
-      // Accumulate printable bytes before clearing idle. Tmux status-bar
-      // redraws (~20-50 bytes) won't reach the threshold.
+    if (state === 'working') {
+      // Already working - just reset the idle countdown.
+      if (idleTimer) clearTimeout(idleTimer);
+      idleTimer = setTimeout(() => {
+        state = 'idle';
+        emitSessionState(sessionId, workspaceId, 'idle');
+      }, IDLE_THRESHOLD_MS);
+    } else {
+      // State is null (untracked) or 'idle' - accumulate printable bytes.
+      // Require a burst of substantial output to transition to 'working'.
       burstBytes += bytes;
       if (burstTimer) clearTimeout(burstTimer);
       burstTimer = setTimeout(() => { burstBytes = 0; }, BURST_WINDOW);
@@ -181,13 +181,6 @@ function attachPtyToTmux(sessionId, meta = {}) {
           emitSessionState(sessionId, workspaceId, 'idle');
         }, IDLE_THRESHOLD_MS);
       }
-    } else {
-      // Already working - reset the idle timer on each output.
-      if (idleTimer) clearTimeout(idleTimer);
-      idleTimer = setTimeout(() => {
-        state = 'idle';
-        emitSessionState(sessionId, workspaceId, 'idle');
-      }, IDLE_THRESHOLD_MS);
     }
   });
 
@@ -267,10 +260,6 @@ export function reattachOrphanedSessions() {
         claudeProjectDir: session.claude_project_dir,
         startedAt: session.started_at,
       });
-      // Optimistically show "Working" for reattached sessions. The idle
-      // timer (started in attachPtyToTmux) will correct to "Idle" within
-      // 30s if there's no output.
-      emitSessionState(session.id, session.workspace_id, 'working');
       reattached++;
       console.log(`[pty-manager] Reattached to session ${session.id}`);
     } catch (err) {
