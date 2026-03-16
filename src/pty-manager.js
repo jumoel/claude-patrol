@@ -137,7 +137,7 @@ function attachPtyToTmux(sessionId, meta = {}) {
     proc,
     buffer: new RingBuffer(BUFFER_MAX),
     websockets: new Set(),
-    resizeSuppressUntil: 0,
+    resizeSuppressUntil: Date.now() + 500,
     activityState: state, // exposed for getSessionStates()
     workspaceId, // exposed for getSessionStates()
   };
