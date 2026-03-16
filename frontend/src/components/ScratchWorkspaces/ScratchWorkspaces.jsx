@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useState } from 'react';
 import { createScratchWorkspace, fetchScratchWorkspaces } from '../../lib/api.js';
 import { getRelativeTime } from '../../lib/time.js';
+import { Badge } from '../ui/Badge/Badge.jsx';
 import { Box } from '../ui/Box/Box.jsx';
 import { Button } from '../ui/Button/Button.jsx';
 import { RepoCombobox } from '../ui/RepoCombobox/RepoCombobox.jsx';
 import { Stack } from '../ui/Stack/Stack.jsx';
 import styles from './ScratchWorkspaces.module.css';
 
-export function ScratchWorkspaces() {
+export function ScratchWorkspaces({ workspaceStates, dismissedIdle, localChangeCount }) {
   const [scratchWorkspaces, setScratchWorkspaces] = useState([]);
   const [showNewWork, setShowNewWork] = useState(false);
   const [newWorkRepo, setNewWorkRepo] = useState('');
@@ -18,7 +19,7 @@ export function ScratchWorkspaces() {
     fetchScratchWorkspaces()
       .then((ws) => setScratchWorkspaces(ws))
       .catch(() => {});
-  }, []);
+  }, [localChangeCount]);
 
   const handleNewWork = useCallback(async () => {
     if (!newWorkRepo || !newWorkBranch) return;
@@ -85,27 +86,74 @@ export function ScratchWorkspaces() {
         </Stack></Box>
       )}
       {scratchWorkspaces.length > 0 ? (
-        <div className={styles.list}>
-          {scratchWorkspaces.map((ws) => (
-            <Stack
-              justify="between"
-              key={ws.id}
-              className={styles.row}
-              onClick={() => {
-                window.location.hash = `/workspace/${ws.id}`;
-              }}
-            >
-              <Stack gap={3}>
-                <span className={styles.bookmark}>{ws.bookmark}</span>
-                {ws.repo && <span className={styles.repoTag}>{ws.repo}</span>}
-              </Stack>
-              <span className={styles.timeLabel}>{getRelativeTime(ws.created_at)}</span>
-            </Stack>
-          ))}
-        </div>
+        <table className={styles.table}>
+          <colgroup>
+            <col className={styles.colName} />
+            <col className={styles.colRepo} />
+            <col className={styles.colSession} />
+            <col className={styles.colCreated} />
+          </colgroup>
+          <thead>
+            <tr>
+              <th className={styles.th}>Name</th>
+              <th className={styles.th}>Repo</th>
+              <th className={`${styles.th} ${styles.thCenter}`}>Session</th>
+              <th className={`${styles.th} ${styles.thRight}`}>Created</th>
+            </tr>
+          </thead>
+          <tbody>
+            {scratchWorkspaces.map((ws) => {
+              const wsState = workspaceStates?.get(ws.id);
+              const isDismissed = dismissedIdle?.has(ws.id);
+              return (
+                <tr
+                  key={ws.id}
+                  className={styles.row}
+                  onClick={() => { window.location.hash = `/workspace/${ws.id}`; }}
+                >
+                  <td className={styles.cell}>
+                    <span className={styles.bookmark}>{ws.bookmark}</span>
+                  </td>
+                  <td className={styles.cell}>
+                    {ws.repo && <span className={styles.repoTag}>{ws.repo}</span>}
+                  </td>
+                  <td className={`${styles.cell} ${styles.cellCenter}`}>
+                    <SessionBadge state={wsState} dismissed={isDismissed} />
+                  </td>
+                  <td className={`${styles.cell} ${styles.cellRight}`}>
+                    <span className={styles.timeLabel}>{getRelativeTime(ws.created_at)}</span>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       ) : (
         !showNewWork && <p className={styles.emptyText}>No scratch workspaces. Click "New Work" to start.</p>
       )}
     </div>
   );
+}
+
+function SessionBadge({ state, dismissed }) {
+  if (state === 'working')
+    return (
+      <Badge color="violet" title="Claude is actively working">
+        <span className={styles.spinner} />
+        Working
+      </Badge>
+    );
+  if (state === 'idle' && !dismissed)
+    return (
+      <Badge color="amber" pulse title="Session waiting for input - needs attention">
+        Waiting
+      </Badge>
+    );
+  if (state === 'idle' && dismissed)
+    return (
+      <Badge color="gray" title="Session idle (already seen)">
+        Idle
+      </Badge>
+    );
+  return null;
 }

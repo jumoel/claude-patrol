@@ -282,7 +282,7 @@ export default function App() {
             workspaceStates={workspaceStates}
             dismissedIdle={dismissedIdle}
           />
-          <ScratchWorkspaces prs={allPRs} syncedAt={syncedAt} />
+          <ScratchWorkspaces workspaceStates={workspaceStates} dismissedIdle={dismissedIdle} localChangeCount={localChangeCount} />
         </>
       )}
       <GlobalTerminal open={terminalOpen} onToggle={toggleTerminal} onSessionChange={setHasGlobalSession} />
