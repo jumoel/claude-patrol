@@ -290,6 +290,7 @@ export default function App() {
         prs={allPRs}
         scratchWorkspaces={scratchWorkspaces}
         workspaceStates={workspaceStates}
+        dismissedIdle={dismissedIdle}
         hasGlobalSession={hasGlobalSession}
         onNavigate={navigateToPR}
         onNavigateWorkspace={navigateToWorkspace}

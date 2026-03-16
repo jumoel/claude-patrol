@@ -39,6 +39,7 @@ export function CommandPalette({
   prs,
   scratchWorkspaces,
   workspaceStates,
+  dismissedIdle,
   hasGlobalSession,
   onNavigate,
   onNavigateWorkspace,
@@ -218,11 +219,16 @@ export function CommandPalette({
                   <PRResult
                     pr={entry.item}
                     sessionState={entry.item.workspace_id ? workspaceStates?.get(entry.item.workspace_id) : undefined}
+                    dismissed={entry.item.workspace_id ? dismissedIdle?.has(entry.item.workspace_id) : false}
                   />
                 ) : entry.type === 'global' ? (
                   <GlobalResult />
                 ) : (
-                  <WorkspaceResult ws={entry.item} sessionState={workspaceStates?.get(entry.item.id)} />
+                  <WorkspaceResult
+                    ws={entry.item}
+                    sessionState={workspaceStates?.get(entry.item.id)}
+                    dismissed={dismissedIdle?.has(entry.item.id)}
+                  />
                 )}
               </div>
             ))
@@ -233,13 +239,30 @@ export function CommandPalette({
   );
 }
 
-function SessionStateBadge({ state }) {
-  if (state === 'working') return <Badge color="green">Working</Badge>;
-  if (state === 'idle') return <Badge color="amber" pulse>Waiting</Badge>;
+function SessionStateBadge({ state, dismissed }) {
+  if (state === 'working')
+    return (
+      <Badge color="violet" title="Claude is actively working">
+        <span className={styles.spinner} />
+        Working
+      </Badge>
+    );
+  if (state === 'idle' && !dismissed)
+    return (
+      <Badge color="amber" pulse title="Session waiting for input - needs attention">
+        Waiting
+      </Badge>
+    );
+  if (state === 'idle' && dismissed)
+    return (
+      <Badge color="gray" title="Session idle (already seen)">
+        Idle
+      </Badge>
+    );
   return null;
 }
 
-function PRResult({ pr, sessionState }) {
+function PRResult({ pr, sessionState, dismissed }) {
   return (
     <Stack direction="col" gap={1} className={styles.resultInfo}>
       <div className={styles.resultTitle}>{pr.title}</div>
@@ -255,7 +278,7 @@ function PRResult({ pr, sessionState }) {
         <StatusBadge status={pr.review_status} type="review" />
         {pr.mergeable === 'CONFLICTING' && <StatusBadge status={pr.mergeable} type="merge" />}
         {pr.draft && <Badge color="yellow">Draft</Badge>}
-        <SessionStateBadge state={sessionState} />
+        <SessionStateBadge state={sessionState} dismissed={dismissed} />
       </Stack>
     </Stack>
   );
@@ -272,14 +295,14 @@ function GlobalResult() {
   );
 }
 
-function WorkspaceResult({ ws, sessionState }) {
+function WorkspaceResult({ ws, sessionState, dismissed }) {
   return (
     <Stack direction="col" gap={1} className={styles.resultInfo}>
       <div className={styles.resultTitle}>{ws.bookmark}</div>
       <Stack gap={2} className={styles.resultMeta}>{ws.repo && <span className={styles.resultRepo}>{ws.repo}</span>}</Stack>
       <Stack gap={1} className={styles.resultBadges}>
         <Badge color="purple">scratch workspace</Badge>
-        <SessionStateBadge state={sessionState} />
+        <SessionStateBadge state={sessionState} dismissed={dismissed} />
       </Stack>
     </Stack>
   );
