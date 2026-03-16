@@ -1,7 +1,7 @@
 import pty from 'node-pty';
 import { randomUUID } from 'node:crypto';
 import { execFileSync, execFile } from 'node:child_process';
-import { readFileSync, writeFileSync, unlinkSync, chmodSync } from 'node:fs';
+import { readFileSync, writeFileSync, appendFileSync, unlinkSync, chmodSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { getDb } from './db.js';
@@ -168,7 +168,7 @@ function attachPtyToTmux(sessionId, meta = {}) {
     const _now = Date.now();
     const _gap = lastMomentAt ? _now - lastMomentAt : 0;
     const _line = `${new Date().toISOString()} sid=${sessionId.slice(0,8)} state=${state} printable=${bytes} raw=${data.length} gap=${_gap}ms moments=${momentCount}\n`;
-    try { require('node:fs').appendFileSync('/tmp/patrol-activity.log', _line); } catch {}
+    try { appendFileSync('/tmp/patrol-activity.log', _line); } catch {}
     if (bytes === 0) return;
 
     // Ignore output from resize-triggered redraws.
