@@ -13,22 +13,6 @@ import { expandPath, toClaudeProjectKey } from './utils.js';
 const BUFFER_MAX = 50_000;
 const IDLE_THRESHOLD_MS = 5000;
 
-/**
- * Strip ANSI escape sequences and count printable bytes remaining.
- * Returns 0 for escape-only output (cursor movement, mode changes,
- * status-line redraws) that shouldn't count as real activity.
- */
-const ANSI_RE = /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b\[[0-9;?]*[A-Za-z@`~]|\x1b[()][AB012]|\x1b[=>NOMDEHcZ78]/g;
-function printableByteCount(data) {
-  const stripped = data.replace(ANSI_RE, '');
-  let count = 0;
-  for (let i = 0; i < stripped.length; i++) {
-    const c = stripped.charCodeAt(i);
-    if (c >= 0x20 && c !== 0x7f) count++;
-  }
-  return count;
-}
-
 const PATROL_SYSTEM_PROMPT = readFileSync(resolve(import.meta.dirname, 'patrol-system-prompt.md'), 'utf8');
 
 /** @type {string | null} */
@@ -146,7 +130,7 @@ function attachPtyToTmux(sessionId, meta = {}) {
   let momentTimer = null;
   const MOMENT_GAP = 50; // ms between events to count as distinct
   const MOMENT_THRESHOLD = 2; // moments needed to transition to working
-  const MOMENT_WINDOW = 2000; // reset if no output for this long
+  const MOMENT_WINDOW = 10_000; // reset if no output for this long
   const LARGE_OUTPUT = 150; // instant transition for big chunks
 
   const entry = {
@@ -165,22 +149,20 @@ function attachPtyToTmux(sessionId, meta = {}) {
       if (ws.readyState === 1) ws.send(msg);
     }
 
-    // Ignore escape-only output (cursor moves, status-line redraws).
-    const bytes = printableByteCount(data);
-    if (bytes === 0) return;
-
-    // Ignore output from resize-triggered redraws.
+    // Ignore resize-triggered redraws (full screen repaint from terminal open).
     if (Date.now() < entry.resizeSuppressUntil) return;
 
     if (state === 'working') {
-      // Already working - any printable output resets the idle countdown.
+      // Already working - any output resets the idle countdown.
       if (idleTimer) clearTimeout(idleTimer);
       idleTimer = setTimeout(() => {
         setState('idle');
         emitSessionState(sessionId, workspaceId, 'idle');
       }, IDLE_THRESHOLD_MS);
     } else {
-      // State is null or 'idle'. Count distinct output moments.
+      // State is null or 'idle'. Count distinct output moments using raw
+      // data length (not ANSI-stripped). The moment debounce (MOMENT_GAP)
+      // handles tmux status-bar batching; no need to strip escapes.
       const now = Date.now();
       if (now - lastMomentAt >= MOMENT_GAP) {
         lastMomentAt = now;
@@ -191,7 +173,7 @@ function attachPtyToTmux(sessionId, meta = {}) {
         }, MOMENT_WINDOW);
       }
 
-      if (momentCount >= MOMENT_THRESHOLD || bytes >= LARGE_OUTPUT) {
+      if (momentCount >= MOMENT_THRESHOLD || data.length >= LARGE_OUTPUT) {
         setState('working');
         momentCount = 0;
         emitSessionState(sessionId, workspaceId, 'working');
