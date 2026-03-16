@@ -1,4 +1,4 @@
-import { readdirSync, statSync, copyFileSync } from 'node:fs';
+import { copyFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { getDb } from './db.js';
 import { transcriptsDir } from './paths.js';
@@ -14,7 +14,7 @@ import { transcriptsDir } from './paths.js';
 export function findSessionJsonl(claudeProjectDir, startedAt, endedAt) {
   let files;
   try {
-    files = readdirSync(claudeProjectDir).filter(f => f.endsWith('.jsonl'));
+    files = readdirSync(claudeProjectDir).filter((f) => f.endsWith('.jsonl'));
   } catch {
     return null;
   }
@@ -37,9 +37,7 @@ export function findSessionJsonl(claudeProjectDir, startedAt, endedAt) {
         best = fullPath;
         bestMtime = mtime;
       }
-    } catch {
-      continue;
-    }
+    } catch {}
   }
 
   return best;

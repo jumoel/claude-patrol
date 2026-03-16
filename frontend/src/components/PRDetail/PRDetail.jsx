@@ -1,15 +1,36 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { fetchPR, fetchWorkspaces, fetchSessions, fetchPRComments, fetchCheckLogs, fetchSessionHistory, fetchSessionTranscript, createWorkspace as apiCreateWorkspace, createSession as apiCreateSession, killSession as apiKillSession, reattachSession as apiReattachSession, setPRDraft } from '../../lib/api.js';
-import { WorkspaceControls } from '../WorkspaceControls/WorkspaceControls.jsx';
-import { TerminalCard } from '../TerminalCard/TerminalCard.jsx';
-import { CommentsList } from '../CommentsList/CommentsList.jsx';
-import { CheckLogViewer } from '../CheckLogViewer/CheckLogViewer.jsx';
-import { TranscriptViewer } from '../TranscriptViewer/TranscriptViewer.jsx';
-import { StatusBadge } from '../StatusBadge/StatusBadge.jsx';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSyncEvents } from '../../hooks/useSyncEvents.js';
+import {
+  createSession as apiCreateSession,
+  createWorkspace as apiCreateWorkspace,
+  killSession as apiKillSession,
+  reattachSession as apiReattachSession,
+  fetchCheckLogs,
+  fetchPR,
+  fetchPRComments,
+  fetchSessionHistory,
+  fetchSessions,
+  fetchSessionTranscript,
+  fetchWorkspaces,
+  setPRDraft,
+} from '../../lib/api.js';
+import {
+  isMergeReady as checkMergeReady,
+  checkToStatus,
+  isFailedCheck,
+  isPassedCheck,
+  isRunningCheck,
+  isScheduledCheck,
+  statusColorGroup,
+} from '../../lib/checks.js';
 import { getRelativeTime } from '../../lib/time.js';
-import { isFailedCheck, isPassedCheck, isRunningCheck, isScheduledCheck, checkToStatus, statusColorGroup, isMergeReady as checkMergeReady } from '../../lib/checks.js';
 import shared from '../../styles/shared.module.css';
+import { CheckLogViewer } from '../CheckLogViewer/CheckLogViewer.jsx';
+import { CommentsList } from '../CommentsList/CommentsList.jsx';
+import { StatusBadge } from '../StatusBadge/StatusBadge.jsx';
+import { TerminalCard } from '../TerminalCard/TerminalCard.jsx';
+import { TranscriptViewer } from '../TranscriptViewer/TranscriptViewer.jsx';
+import { WorkspaceControls } from '../WorkspaceControls/WorkspaceControls.jsx';
 import styles from './PRDetail.module.css';
 
 const DOT_STYLES = {
@@ -58,10 +79,7 @@ export function PRDetail({ prId, onBack }) {
 
   const loadData = useCallback(async () => {
     try {
-      const [prData, workspaces] = await Promise.all([
-        fetchPR(prId),
-        fetchWorkspaces(prId),
-      ]);
+      const [prData, workspaces] = await Promise.all([fetchPR(prId), fetchWorkspaces(prId)]);
       setPR(prData);
       const active = workspaces[0] || null;
       setWorkspace(active);
@@ -80,11 +98,13 @@ export function PRDetail({ prId, onBack }) {
     setCommentsLoading(true);
     fetchPRComments(prId)
       .then(setComments)
-      .catch(err => console.error('Failed to load comments:', err))
+      .catch((err) => console.error('Failed to load comments:', err))
       .finally(() => setCommentsLoading(false));
   }, [prId]);
 
-  useEffect(() => { loadData(); }, [loadData]);
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
   useSyncEvents(loadData);
 
   /**
@@ -95,14 +115,16 @@ export function PRDetail({ prId, onBack }) {
   const getOrCreateWorkspace = useCallback(async () => {
     if (workspace) return workspace;
     if (workspacePromiseRef.current) return workspacePromiseRef.current;
-    const promise = apiCreateWorkspace(prId).then(ws => {
-      setWorkspace(ws);
-      workspacePromiseRef.current = null;
-      return ws;
-    }).catch(err => {
-      workspacePromiseRef.current = null;
-      throw err;
-    });
+    const promise = apiCreateWorkspace(prId)
+      .then((ws) => {
+        setWorkspace(ws);
+        workspacePromiseRef.current = null;
+        return ws;
+      })
+      .catch((err) => {
+        workspacePromiseRef.current = null;
+        throw err;
+      });
     workspacePromiseRef.current = promise;
     return promise;
   }, [prId, workspace]);
@@ -198,7 +220,7 @@ export function PRDetail({ prId, onBack }) {
     setTogglingDraft(true);
     try {
       const { draft } = await setPRDraft(prId, !pr.draft);
-      setPR(prev => ({ ...prev, draft }));
+      setPR((prev) => ({ ...prev, draft }));
     } catch (err) {
       console.error('Failed to toggle draft:', err);
       alert(`Failed to toggle draft: ${err.message}`);
@@ -209,9 +231,7 @@ export function PRDetail({ prId, onBack }) {
 
   const handleInvestigateFailures = useCallback(async () => {
     if (!pr) return;
-    const failedCheckNames = pr.checks
-      .filter(isFailedCheck)
-      .map(c => c.name);
+    const failedCheckNames = pr.checks.filter(isFailedCheck).map((c) => c.name);
 
     const result = await ensureWorkspaceAndSession();
     if (!result) return;
@@ -246,13 +266,29 @@ export function PRDetail({ prId, onBack }) {
       <div className={shared.headerCard}>
         <div className={shared.headerTop}>
           <button className={shared.backButton} onClick={onBack}>
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path fillRule="evenodd" d="M7.78 12.53a.75.75 0 01-1.06 0L2.47 8.28a.75.75 0 010-1.06l4.25-4.25a.75.75 0 011.06 1.06L4.81 7h7.44a.75.75 0 010 1.5H4.81l2.97 2.97a.75.75 0 010 1.06z"/></svg>
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+              <path
+                fillRule="evenodd"
+                d="M7.78 12.53a.75.75 0 01-1.06 0L2.47 8.28a.75.75 0 010-1.06l4.25-4.25a.75.75 0 011.06 1.06L4.81 7h7.44a.75.75 0 010 1.5H4.81l2.97 2.97a.75.75 0 010 1.06z"
+              />
+            </svg>
             Back
           </button>
           <div className={styles.headerLinks}>
             {isMergeReady && (
-              <a href={pr.url} target="_blank" rel="noopener noreferrer" className={styles.mergeButton} onClick={(e) => e.stopPropagation()}>
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path fillRule="evenodd" d="M5 3.254V3.25v.005a.75.75 0 110-.005v.004zm.45 1.9a2.25 2.25 0 10-1.95.218v5.256a2.25 2.25 0 101.5 0V7.123A5.735 5.735 0 009.25 9h1.378a2.251 2.251 0 100-1.5H9.25a4.25 4.25 0 01-3.8-2.346zM12.75 9a.75.75 0 100-1.5.75.75 0 000 1.5zm-8.5 4.5a.75.75 0 100-1.5.75.75 0 000 1.5z"/></svg>
+              <a
+                href={pr.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={styles.mergeButton}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                  <path
+                    fillRule="evenodd"
+                    d="M5 3.254V3.25v.005a.75.75 0 110-.005v.004zm.45 1.9a2.25 2.25 0 10-1.95.218v5.256a2.25 2.25 0 101.5 0V7.123A5.735 5.735 0 009.25 9h1.378a2.251 2.251 0 100-1.5H9.25a4.25 4.25 0 01-3.8-2.346zM12.75 9a.75.75 0 100-1.5.75.75 0 000 1.5zm-8.5 4.5a.75.75 0 100-1.5.75.75 0 000 1.5z"
+                  />
+                </svg>
                 Merge on GitHub
               </a>
             )}
@@ -269,7 +305,16 @@ export function PRDetail({ prId, onBack }) {
             </a>
             {workspace && (
               <button className={styles.terminalLink} onClick={handleOpenTerminal} type="button">
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 16 16"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
                   <rect x="1" y="2" width="14" height="12" rx="2" />
                   <polyline points="5,6 7.5,8.5 5,11" />
                   <line x1="9" y1="11" x2="12" y2="11" />
@@ -277,9 +322,15 @@ export function PRDetail({ prId, onBack }) {
                 Terminal
               </button>
             )}
-            <a href={pr.url} target="_blank" rel="noopener noreferrer" className={styles.ghButton} title="View on GitHub">
+            <a
+              href={pr.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={styles.ghButton}
+              title="View on GitHub"
+            >
               <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+                <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z" />
               </svg>
             </a>
           </div>
@@ -288,7 +339,9 @@ export function PRDetail({ prId, onBack }) {
         <h2 className={styles.title}>{pr.title}</h2>
 
         <div className={shared.identityRow}>
-          <span className={shared.repoTag}>{pr.org}/{pr.repo} #{pr.number}</span>
+          <span className={shared.repoTag}>
+            {pr.org}/{pr.repo} #{pr.number}
+          </span>
           <span className={shared.separator}>·</span>
           <button
             className={shared.branchTag}
@@ -299,7 +352,12 @@ export function PRDetail({ prId, onBack }) {
               setTimeout(() => setCopiedBranch(false), 1500);
             }}
           >
-            <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path fillRule="evenodd" d="M11.75 2.5a.75.75 0 100 1.5.75.75 0 000-1.5zm-2.25.75a2.25 2.25 0 113 2.122V6A2.5 2.5 0 0110 8.5H6a1 1 0 00-1 1v1.128a2.251 2.251 0 11-1.5 0V5.372a2.25 2.25 0 111.5 0v1.836A2.492 2.492 0 016 7h4a1 1 0 001-1v-.628A2.25 2.25 0 019.5 3.25zM4.25 12a.75.75 0 100 1.5.75.75 0 000-1.5zM3.5 3.25a.75.75 0 111.5 0 .75.75 0 01-1.5 0z"/></svg>
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+              <path
+                fillRule="evenodd"
+                d="M11.75 2.5a.75.75 0 100 1.5.75.75 0 000-1.5zm-2.25.75a2.25 2.25 0 113 2.122V6A2.5 2.5 0 0110 8.5H6a1 1 0 00-1 1v1.128a2.251 2.251 0 11-1.5 0V5.372a2.25 2.25 0 111.5 0v1.836A2.492 2.492 0 016 7h4a1 1 0 001-1v-.628A2.25 2.25 0 019.5 3.25zM4.25 12a.75.75 0 100 1.5.75.75 0 000-1.5zM3.5 3.25a.75.75 0 111.5 0 .75.75 0 01-1.5 0z"
+              />
+            </svg>
             {pr.branch}
             {copiedBranch && <span className={styles.copiedToast}>Copied!</span>}
           </button>
@@ -328,8 +386,12 @@ export function PRDetail({ prId, onBack }) {
 
         {pr.labels.length > 0 && (
           <div className={styles.labels}>
-            {pr.labels.map(l => (
-              <span key={l.name} className={styles.label} style={{ backgroundColor: `#${l.color}20`, borderColor: `#${l.color}`, color: `#${l.color}` }}>
+            {pr.labels.map((l) => (
+              <span
+                key={l.name}
+                className={styles.label}
+                style={{ backgroundColor: `#${l.color}20`, borderColor: `#${l.color}`, color: `#${l.color}` }}
+              >
                 {l.name}
               </span>
             ))}
@@ -343,9 +405,19 @@ export function PRDetail({ prId, onBack }) {
       <div className={styles.actionsRow}>
         <div className={shared.section}>
           <h3 className={shared.sectionTitle}>Workspace</h3>
-          <WorkspaceControls prId={prId} workspace={workspace} onUpdate={loadData} getOrCreateWorkspace={getOrCreateWorkspace} claudeWaiting={openingClaude && !workspace} />
+          <WorkspaceControls
+            prId={prId}
+            workspace={workspace}
+            onUpdate={loadData}
+            getOrCreateWorkspace={getOrCreateWorkspace}
+            claudeWaiting={openingClaude && !workspace}
+          />
           {!session && (
-            <button className={`${shared.openButton} ${styles.openButtonSpaced}`} onClick={handleOpenInClaude} disabled={openingClaude}>
+            <button
+              className={`${shared.openButton} ${styles.openButtonSpaced}`}
+              onClick={handleOpenInClaude}
+              disabled={openingClaude}
+            >
               {openingClaude ? openingStep : 'Open in Claude'}
             </button>
           )}
@@ -365,9 +437,7 @@ export function PRDetail({ prId, onBack }) {
       )}
 
       {/* Past Sessions */}
-      {workspace && (
-        <SessionHistory workspaceId={workspace.id} />
-      )}
+      {workspace && <SessionHistory workspaceId={workspace.id} />}
 
       {/* Checks */}
       {pr.checks.length > 0 && (
@@ -378,8 +448,12 @@ export function PRDetail({ prId, onBack }) {
               <span className={styles.checksSummary}>
                 {passedChecks.length > 0 && <span className={styles.summaryPass}>{passedChecks.length} passed</span>}
                 {failedChecks.length > 0 && <span className={styles.summaryFail}>{failedChecks.length} failed</span>}
-                {runningChecks.length > 0 && <span className={styles.summaryRunning}>{runningChecks.length} running</span>}
-                {scheduledChecks.length > 0 && <span className={styles.summaryScheduled}>{scheduledChecks.length} queued</span>}
+                {runningChecks.length > 0 && (
+                  <span className={styles.summaryRunning}>{runningChecks.length} running</span>
+                )}
+                {scheduledChecks.length > 0 && (
+                  <span className={styles.summaryScheduled}>{scheduledChecks.length} queued</span>
+                )}
               </span>
             </h3>
             {failedChecks.length > 0 && (
@@ -422,9 +496,7 @@ export function PRDetail({ prId, onBack }) {
           )}
 
           {/* Passed checks - collapsed by default if there are many */}
-          {passedChecks.length > 0 && (
-            <PassedChecksGroup checks={passedChecks} />
-          )}
+          {passedChecks.length > 0 && <PassedChecksGroup checks={passedChecks} />}
         </div>
       )}
 
@@ -436,7 +508,9 @@ export function PRDetail({ prId, onBack }) {
             {pr.reviews.map((r, i) => (
               <div key={i} className={styles.reviewRow}>
                 <span className={styles.reviewerName}>{r.reviewer}</span>
-                <span className={`${styles.reviewState} ${r.state === 'APPROVED' ? styles.reviewApproved : r.state === 'CHANGES_REQUESTED' ? styles.reviewChanges : styles.reviewComment}`}>
+                <span
+                  className={`${styles.reviewState} ${r.state === 'APPROVED' ? styles.reviewApproved : r.state === 'CHANGES_REQUESTED' ? styles.reviewChanges : styles.reviewComment}`}
+                >
                   {r.state.toLowerCase().replace('_', ' ')}
                 </span>
               </div>
@@ -449,11 +523,7 @@ export function PRDetail({ prId, onBack }) {
       {(commentsLoading || comments) && (
         <div className={shared.card}>
           <h3 className={shared.sectionTitle}>Comments</h3>
-          <CommentsList
-            reviews={comments?.reviews}
-            conversation={comments?.conversation}
-            loading={commentsLoading}
-          />
+          <CommentsList reviews={comments?.reviews} conversation={comments?.conversation} loading={commentsLoading} />
         </div>
       )}
     </div>
@@ -471,7 +541,7 @@ function CheckRow({ check, prId }) {
   const [showLog, setShowLog] = useState(false);
 
   const handleViewLog = useCallback(async () => {
-    setShowLog(prev => !prev);
+    setShowLog((prev) => !prev);
   }, []);
 
   // Fetch log data when first shown
@@ -479,18 +549,21 @@ function CheckRow({ check, prId }) {
     if (!showLog || jobLogs || logLoading || logError) return;
 
     const match = check.url?.match(/\/actions\/runs\/(\d+)/);
-    if (!match) { setLogError('No run ID found in check URL'); return; }
+    if (!match) {
+      setLogError('No run ID found in check URL');
+      return;
+    }
 
     setLogLoading(true);
     fetchCheckLogs(prId, match[1])
-      .then(data => {
-        const validLogs = data.logs?.filter(l => !l.error) ?? [];
-        const errors = data.logs?.filter(l => l.error).map(l => l.error) ?? [];
+      .then((data) => {
+        const validLogs = data.logs?.filter((l) => !l.error) ?? [];
+        const errors = data.logs?.filter((l) => l.error).map((l) => l.error) ?? [];
         if (validLogs.length > 0) setJobLogs(validLogs);
         else if (errors.length > 0) setLogError(errors.join('; '));
         else setLogError('No log data returned');
       })
-      .catch(err => setLogError(err.message))
+      .catch((err) => setLogError(err.message))
       .finally(() => setLogLoading(false));
   }, [showLog, jobLogs, logLoading, logError, check.url, prId]);
 
@@ -518,25 +591,14 @@ function CheckRow({ check, prId }) {
           </span>
         </div>
       </div>
-      {showLog && jobLogs?.map((job, i) => (
-        <div key={i}>
-          {jobLogs.length > 1 && <div className={styles.jobLogLabel}>{job.job || `Job ${i + 1}`}</div>}
-          <CheckLogViewer
-            log={job.log}
-            truncated={job.truncated}
-            loading={false}
-            error={null}
-          />
-        </div>
-      ))}
-      {showLog && !jobLogs && (
-        <CheckLogViewer
-          log={null}
-          truncated={false}
-          loading={logLoading}
-          error={logError}
-        />
-      )}
+      {showLog &&
+        jobLogs?.map((job, i) => (
+          <div key={i}>
+            {jobLogs.length > 1 && <div className={styles.jobLogLabel}>{job.job || `Job ${i + 1}`}</div>}
+            <CheckLogViewer log={job.log} truncated={job.truncated} loading={false} error={null} />
+          </div>
+        ))}
+      {showLog && !jobLogs && <CheckLogViewer log={null} truncated={false} loading={logLoading} error={logError} />}
     </div>
   );
 }
@@ -549,9 +611,7 @@ function PassedChecksGroup({ checks }) {
       <button className={styles.toggleButton} onClick={() => setExpanded(!expanded)}>
         {expanded ? 'Hide' : 'Show'} {checks.length} passed checks
       </button>
-      {expanded && checks.map((c, i) => (
-        <CheckRow key={`pass-${i}`} check={c} />
-      ))}
+      {expanded && checks.map((c, i) => <CheckRow key={`pass-${i}`} check={c} />)}
     </div>
   );
 }
@@ -565,9 +625,7 @@ function PRDescription({ bodyHtml }) {
         <span className={styles.descriptionLabel}>Description</span>
         <span className={`${styles.chevron} ${expanded ? styles.chevronOpen : ''}`}>&#x25B8;</span>
       </button>
-      {expanded && (
-        <div className={styles.descriptionBody} dangerouslySetInnerHTML={{ __html: bodyHtml }} />
-      )}
+      {expanded && <div className={styles.descriptionBody} dangerouslySetInnerHTML={{ __html: bodyHtml }} />}
     </div>
   );
 }
@@ -585,21 +643,28 @@ function SessionHistory({ workspaceId }) {
     setLoading(true);
     fetchSessionHistory(workspaceId)
       .then(setHistory)
-      .catch(err => console.error('Failed to load session history:', err))
+      .catch((err) => console.error('Failed to load session history:', err))
       .finally(() => setLoading(false));
   }, [expanded, history, workspaceId]);
 
-  const handleViewTranscript = useCallback((sessionId) => {
-    if (transcripts[sessionId]) {
-      setTranscripts(prev => { const next = { ...prev }; delete next[sessionId]; return next; });
-      return;
-    }
-    setTranscriptLoading(prev => ({ ...prev, [sessionId]: true }));
-    fetchSessionTranscript(sessionId)
-      .then(entries => setTranscripts(prev => ({ ...prev, [sessionId]: entries })))
-      .catch(err => setTranscriptErrors(prev => ({ ...prev, [sessionId]: err.message })))
-      .finally(() => setTranscriptLoading(prev => ({ ...prev, [sessionId]: false })));
-  }, [transcripts]);
+  const handleViewTranscript = useCallback(
+    (sessionId) => {
+      if (transcripts[sessionId]) {
+        setTranscripts((prev) => {
+          const next = { ...prev };
+          delete next[sessionId];
+          return next;
+        });
+        return;
+      }
+      setTranscriptLoading((prev) => ({ ...prev, [sessionId]: true }));
+      fetchSessionTranscript(sessionId)
+        .then((entries) => setTranscripts((prev) => ({ ...prev, [sessionId]: entries })))
+        .catch((err) => setTranscriptErrors((prev) => ({ ...prev, [sessionId]: err.message })))
+        .finally(() => setTranscriptLoading((prev) => ({ ...prev, [sessionId]: false })));
+    },
+    [transcripts],
+  );
 
   const formatDuration = (start, end) => {
     if (!start || !end) return '';
@@ -621,7 +686,7 @@ function SessionHistory({ workspaceId }) {
       )}
       {expanded && history && history.length > 0 && (
         <div className={styles.reviewsList}>
-          {history.map(sess => (
+          {history.map((sess) => (
             <div key={sess.id}>
               <button className={styles.checkRow} onClick={() => handleViewTranscript(sess.id)}>
                 <div className={styles.checkInfo}>

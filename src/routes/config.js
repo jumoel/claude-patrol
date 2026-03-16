@@ -1,6 +1,6 @@
 import { writeFileSync } from 'node:fs';
-import { getCurrentConfig, isConfigured, getConfigPath } from '../config.js';
-import { getUpdateStatus, pullUpdate, restartServer, getRestartStatus } from '../update-check.js';
+import { getConfigPath, getCurrentConfig, isConfigured } from '../config.js';
+import { getRestartStatus, getUpdateStatus, pullUpdate, restartServer } from '../update-check.js';
 
 /**
  * Register config endpoint (exposes non-sensitive config to frontend).
@@ -39,14 +39,14 @@ export function registerConfigRoutes(app) {
 
     try {
       // Write to disk - fs.watchFile will pick up the change and live-reload
-      writeFileSync(getConfigPath(), JSON.stringify(newConfig, null, 2) + '\n');
+      writeFileSync(getConfigPath(), `${JSON.stringify(newConfig, null, 2)}\n`);
       return { ok: true };
     } catch (err) {
       return reply.code(500).send({ error: `Failed to write config: ${err.message}` });
     }
   });
 
-  app.post('/api/update', async (request, reply) => {
+  app.post('/api/update', async (_request, reply) => {
     const result = await pullUpdate();
     if (!result.ok) {
       return reply.code(500).send({ error: result.error });
@@ -58,7 +58,7 @@ export function registerConfigRoutes(app) {
     return getRestartStatus() || { phase: null };
   });
 
-  app.post('/api/restart', (request, reply) => {
+  app.post('/api/restart', (_request, reply) => {
     const status = getUpdateStatus();
     if (!status.restart_needed) {
       return reply.code(400).send({ error: 'No restart needed - already running latest version' });

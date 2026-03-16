@@ -56,7 +56,7 @@ function truncate(s, max) {
   if (visible.length <= max) return s;
   // Naive truncation - works for simple cases. For strings with ANSI codes
   // in the middle this won't be pixel-perfect, but it's good enough for logs.
-  return s.slice(0, max - 1) + '\u2026';
+  return `${s.slice(0, max - 1)}\u2026`;
 }
 
 /**
@@ -96,8 +96,8 @@ function render() {
     const entry = visibleLogs[i];
     if (entry) {
       const timestamp = `${DIM}${ts(entry.ts)}${RESET} `;
-      const levelPrefix = entry.level === 'error' ? `${RED}ERR${RESET} ` :
-                          entry.level === 'warn' ? `${YELLOW}WRN${RESET} ` : '';
+      const levelPrefix =
+        entry.level === 'error' ? `${RED}ERR${RESET} ` : entry.level === 'warn' ? `${YELLOW}WRN${RESET} ` : '';
       const line = `${timestamp}${levelPrefix}${entry.msg}`;
       const fitted = fitToWidth(line, innerWidth);
       process.stdout.write(`${DIM}${BOX.v}${RESET}${fitted}${DIM}${BOX.v}${RESET}\n`);
@@ -169,7 +169,11 @@ export function initTui({ header = '', footer = '' } = {}) {
       if (origError) console.error = origError;
       process.stdout.write('\x1b[?25h'); // show cursor
       if (process.stdin.isTTY && process.stdin.isRaw) {
-        try { process.stdin.setRawMode(false); } catch { /* ignore */ }
+        try {
+          process.stdin.setRawMode(false);
+        } catch {
+          /* ignore */
+        }
       }
     }
   });
@@ -211,5 +215,5 @@ export function destroyTui() {
  * @param {any[]} args
  */
 function formatArgs(args) {
-  return args.map(a => typeof a === 'string' ? a : JSON.stringify(a)).join(' ');
+  return args.map((a) => (typeof a === 'string' ? a : JSON.stringify(a))).join(' ');
 }

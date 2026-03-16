@@ -7,10 +7,14 @@ import { execFile } from '../utils.js';
  * @returns {Promise<object[]>}
  */
 async function ghApi(endpoint) {
-  const { stdout } = await execFile('gh', ['api', '--paginate', '--slurp', '-H', 'Accept: application/vnd.github.v3.html+json', endpoint], {
-    maxBuffer: 10 * 1024 * 1024,
-    timeout: 30_000,
-  });
+  const { stdout } = await execFile(
+    'gh',
+    ['api', '--paginate', '--slurp', '-H', 'Accept: application/vnd.github.v3.html+json', endpoint],
+    {
+      maxBuffer: 10 * 1024 * 1024,
+      timeout: 30_000,
+    },
+  );
   // --slurp wraps pages in an outer array: [[page1items], [page2items]]
   const pages = JSON.parse(stdout);
   return pages.flat();
@@ -53,7 +57,7 @@ export function registerCommentRoutes(app) {
     }
 
     // Build structured reviews
-    const structuredReviews = reviews.map(r => ({
+    const structuredReviews = reviews.map((r) => ({
       id: r.id,
       author: r.user?.login ?? 'unknown',
       state: r.state,
@@ -63,7 +67,7 @@ export function registerCommentRoutes(app) {
     }));
 
     // Build conversation
-    const conversation = conversationComments.map(c => ({
+    const conversation = conversationComments.map((c) => ({
       author: c.user?.login ?? 'unknown',
       body_html: c.body_html || c.body,
       created_at: c.created_at,

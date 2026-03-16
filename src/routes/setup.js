@@ -1,5 +1,5 @@
-import { execFile } from '../utils.js';
 import { getCurrentConfig } from '../config.js';
+import { execFile } from '../utils.js';
 
 /**
  * Register setup routes for GitHub account/repo discovery.
@@ -7,7 +7,7 @@ import { getCurrentConfig } from '../config.js';
  */
 export function registerSetupRoutes(app) {
   // List all repos from configured orgs + explicit repos (for workspace creation)
-  app.get('/api/repos', async (request, reply) => {
+  app.get('/api/repos', async (_request, reply) => {
     const cfg = getCurrentConfig();
     const orgs = cfg?.poll?.orgs || [];
     const explicitRepos = cfg?.poll?.repos || [];
@@ -18,16 +18,21 @@ export function registerSetupRoutes(app) {
         orgs.map(async (org) => {
           try {
             const { stdout } = await execFile('gh', [
-              'repo', 'list', org,
-              '--limit', '200',
-              '--json', 'nameWithOwner,isArchived,isFork',
-              '--jq', '[.[] | select(.isArchived == false) | .nameWithOwner]',
+              'repo',
+              'list',
+              org,
+              '--limit',
+              '200',
+              '--json',
+              'nameWithOwner,isArchived,isFork',
+              '--jq',
+              '[.[] | select(.isArchived == false) | .nameWithOwner]',
             ]);
             return JSON.parse(stdout.trim() || '[]');
           } catch {
             return [];
           }
-        })
+        }),
       );
 
       const allRepos = new Set(explicitRepos);
@@ -41,7 +46,7 @@ export function registerSetupRoutes(app) {
     }
   });
   // List the authenticated user's personal account and orgs
-  app.get('/api/setup/accounts', async (request, reply) => {
+  app.get('/api/setup/accounts', async (_request, reply) => {
     try {
       const [userResult, orgsResult] = await Promise.all([
         execFile('gh', ['api', '/user', '--jq', '{login: .login, avatar_url: .avatar_url}']),
@@ -54,7 +59,7 @@ export function registerSetupRoutes(app) {
       return {
         accounts: [
           { login: user.login, type: 'user', avatar_url: user.avatar_url },
-          ...orgs.map(o => ({ login: o.login, type: 'org', avatar_url: o.avatar_url })),
+          ...orgs.map((o) => ({ login: o.login, type: 'org', avatar_url: o.avatar_url })),
         ],
       };
     } catch (err) {
@@ -74,10 +79,15 @@ export function registerSetupRoutes(app) {
 
     try {
       const { stdout } = await execFile('gh', [
-        'repo', 'list', account,
-        '--limit', '200',
-        '--json', 'name,nameWithOwner,isArchived,isFork,description',
-        '--jq', '[.[] | select(.isArchived == false)]',
+        'repo',
+        'list',
+        account,
+        '--limit',
+        '200',
+        '--json',
+        'name,nameWithOwner,isArchived,isFork,description',
+        '--jq',
+        '[.[] | select(.isArchived == false)]',
       ]);
 
       const repos = JSON.parse(stdout.trim() || '[]');

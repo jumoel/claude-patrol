@@ -47,10 +47,10 @@ function forEachLine(stream, onLine) {
  * isn't connected (e.g. during startup or after a crash).
  */
 function sendToServer(line, level = 'log') {
-  if (server && server.connected) {
+  if (server?.connected) {
     server.send({ type: 'log', msg: line, level });
   } else {
-    process.stdout.write(line + '\n');
+    process.stdout.write(`${line}\n`);
   }
 }
 
@@ -127,7 +127,7 @@ startServer(false);
 let debounceTimer = null;
 const DEBOUNCE_MS = 300;
 
-watch(SRC, { recursive: true }, (eventType, filename) => {
+watch(SRC, { recursive: true }, (_eventType, filename) => {
   if (!filename) return;
   // Only watch .js files, skip watch.js itself
   if (!filename.endsWith('.js') || filename === 'watch.js') return;

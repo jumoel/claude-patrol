@@ -1,8 +1,8 @@
-import { useEffect, useRef } from 'react';
-import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { UnicodeGraphemesAddon } from '@xterm/addon-unicode-graphemes';
 import { WebglAddon } from '@xterm/addon-webgl';
+import { Terminal as XTerm } from '@xterm/xterm';
+import { useEffect, useRef } from 'react';
 import '@xterm/xterm/css/xterm.css';
 import styles from './Terminal.module.css';
 
@@ -187,7 +187,7 @@ export function Terminal({ wsUrl, wsRef: externalWsRef, focus, onExit, onToggleM
       wsRef.current?.close();
       term?.dispose();
     };
-  }, [wsUrl]);
+  }, [wsUrl, externalWsRef, onExit, onToggleMaximize]);
 
   useEffect(() => {
     if (focus && termRef.current) termRef.current.focus();

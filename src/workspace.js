@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto';
-import { symlinkSync, mkdirSync, existsSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, rmSync, symlinkSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { getDb } from './db.js';
-import { execFile, expandPath, toClaudeProjectKey } from './utils.js';
 import { archiveTranscript } from './transcripts.js';
+import { execFile, expandPath, toClaudeProjectKey } from './utils.js';
 
 /**
  * Ensure a git repo has jj initialized. If .jj/ doesn't exist, runs
@@ -54,9 +54,9 @@ export async function createWorkspace(prId, config) {
 
   // Insert first to claim the slot (unique constraint on pr_id+active prevents races)
   try {
-    db.prepare('INSERT INTO workspaces (id, pr_id, name, path, bookmark, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
-      id, prId, name, workspacePath, pr.branch, 'active', now
-    );
+    db.prepare(
+      'INSERT INTO workspaces (id, pr_id, name, path, bookmark, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    ).run(id, prId, name, workspacePath, pr.branch, 'active', now);
   } catch (err) {
     if (err.message.includes('UNIQUE')) {
       throw new Error(`Active workspace already exists for ${prId}`);
@@ -106,9 +106,9 @@ export async function createScratchWorkspace(repo, branch, config, { startRevisi
 
   // Insert with pr_id = NULL, repo set
   try {
-    db.prepare('INSERT INTO workspaces (id, pr_id, name, path, bookmark, repo, status, created_at) VALUES (?, NULL, ?, ?, ?, ?, ?, ?)').run(
-      id, name, workspacePath, branch, repo, 'active', now
-    );
+    db.prepare(
+      'INSERT INTO workspaces (id, pr_id, name, path, bookmark, repo, status, created_at) VALUES (?, NULL, ?, ?, ?, ?, ?, ?)',
+    ).run(id, name, workspacePath, branch, repo, 'active', now);
   } catch (err) {
     if (err.message.includes('UNIQUE')) {
       throw new Error(`Active scratch workspace already exists for ${branch}`);
@@ -154,7 +154,11 @@ async function rollbackWorkspace({ id, name, workspacePath, mainRepoPath }) {
 
   await execFile('jj', ['workspace', 'forget', name, '-R', mainRepoPath]).catch(() => {});
 
-  try { rmSync(workspacePath, { recursive: true, force: true }); } catch { /* best effort */ }
+  try {
+    rmSync(workspacePath, { recursive: true, force: true });
+  } catch {
+    /* best effort */
+  }
 
   try {
     const claudeProjects = expandPath('~/.claude/projects');
@@ -163,7 +167,9 @@ async function rollbackWorkspace({ id, name, workspacePath, mainRepoPath }) {
     if (existsSync(wsProjectDir)) {
       rmSync(wsProjectDir, { recursive: true, force: true });
     }
-  } catch { /* best effort */ }
+  } catch {
+    /* best effort */
+  }
 }
 
 /**
@@ -176,7 +182,7 @@ async function rollbackWorkspace({ id, name, workspacePath, mainRepoPath }) {
  * @param {string} repoKey - "org/repo" for config lookup
  */
 async function runPostCreateSetup(workspacePath, mainRepoPath, name, config, repoKey) {
-  const repoConfig = (config.repos || {})[repoKey] || {};
+  const repoConfig = config.repos?.[repoKey] || {};
 
   if (config.symlink_memory) {
     symlinkMemory(workspacePath, mainRepoPath);
@@ -269,9 +275,7 @@ export async function destroyWorkspace(workspaceId, config) {
   let mainRepoPath;
   if (workspace.pr_id) {
     const pr = db.prepare('SELECT org, repo FROM prs WHERE id = ?').get(workspace.pr_id);
-    mainRepoPath = pr
-      ? resolve(expandPath(config.work_dir), pr.org, pr.repo)
-      : expandPath(config.work_dir);
+    mainRepoPath = pr ? resolve(expandPath(config.work_dir), pr.org, pr.repo) : expandPath(config.work_dir);
   } else if (workspace.repo) {
     const [org, repoName] = workspace.repo.split('/');
     mainRepoPath = resolve(expandPath(config.work_dir), org, repoName);
@@ -280,20 +284,32 @@ export async function destroyWorkspace(workspaceId, config) {
   }
 
   // Mark as destroyed early to prevent concurrent destroy attempts
-  db.prepare("UPDATE workspaces SET status = 'destroyed', destroyed_at = ? WHERE id = ?").run(new Date().toISOString(), workspaceId);
+  db.prepare("UPDATE workspaces SET status = 'destroyed', destroyed_at = ? WHERE id = ?").run(
+    new Date().toISOString(),
+    workspaceId,
+  );
 
   // Step 1: Kill active sessions for this workspace
-  const sessions = db.prepare("SELECT * FROM sessions WHERE workspace_id = ? AND status IN ('active', 'detached')").all(workspaceId);
+  const sessions = db
+    .prepare("SELECT * FROM sessions WHERE workspace_id = ? AND status IN ('active', 'detached')")
+    .all(workspaceId);
   for (const session of sessions) {
     if (session.pid) {
       try {
         process.kill(session.pid, 'SIGTERM');
         await waitForExit(session.pid, 5000);
       } catch {
-        try { process.kill(session.pid, 'SIGKILL'); } catch { /* already dead */ }
+        try {
+          process.kill(session.pid, 'SIGKILL');
+        } catch {
+          /* already dead */
+        }
       }
     }
-    db.prepare("UPDATE sessions SET status = 'killed', ended_at = ? WHERE id = ?").run(new Date().toISOString(), session.id);
+    db.prepare("UPDATE sessions SET status = 'killed', ended_at = ? WHERE id = ?").run(
+      new Date().toISOString(),
+      session.id,
+    );
   }
 
   // Step 2: Docker compose down if applicable

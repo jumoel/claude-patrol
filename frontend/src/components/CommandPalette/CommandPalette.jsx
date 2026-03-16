@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { useEscapeKey } from '../../hooks/useEscapeKey.js';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useClickOutside } from '../../hooks/useClickOutside.js';
+import { useEscapeKey } from '../../hooks/useEscapeKey.js';
 import { StatusBadge } from '../StatusBadge/StatusBadge.jsx';
 import styles from './CommandPalette.module.css';
 
@@ -33,7 +33,16 @@ function fuzzyMatchWorkspace(query, ws) {
   return { match: true, score };
 }
 
-export function CommandPalette({ prs, scratchWorkspaces, workspaceStates, hasGlobalSession, onNavigate, onNavigateWorkspace, onOpenGlobalTerminal, onCloseGlobalTerminal }) {
+export function CommandPalette({
+  prs,
+  scratchWorkspaces,
+  workspaceStates,
+  hasGlobalSession,
+  onNavigate,
+  onNavigateWorkspace,
+  onOpenGlobalTerminal,
+  onCloseGlobalTerminal,
+}) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -52,7 +61,7 @@ export function CommandPalette({ prs, scratchWorkspaces, workspaceStates, hasGlo
     const handler = (e) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
         e.preventDefault();
-        setOpen(prev => {
+        setOpen((prev) => {
           if (prev) {
             setQuery('');
             setSelectedIndex(0);
@@ -77,19 +86,18 @@ export function CommandPalette({ prs, scratchWorkspaces, workspaceStates, hasGlo
   useClickOutside(dialogRef, open ? close : () => {});
 
   const filtered = useMemo(() => {
-    const prItems = (query ? prs
-      .map(pr => ({ ...fuzzyMatchPR(query, pr), type: 'pr', item: pr }))
-      .filter(r => r.match)
-      : prs.map(pr => ({ match: true, score: 0, type: 'pr', item: pr }))
-    );
+    const prItems = query
+      ? prs.map((pr) => ({ ...fuzzyMatchPR(query, pr), type: 'pr', item: pr })).filter((r) => r.match)
+      : prs.map((pr) => ({ match: true, score: 0, type: 'pr', item: pr }));
 
-    const wsItems = (scratchWorkspaces || []).length > 0
-      ? (query ? (scratchWorkspaces || [])
-          .map(ws => ({ ...fuzzyMatchWorkspace(query, ws), type: 'workspace', item: ws }))
-          .filter(r => r.match)
-        : (scratchWorkspaces || []).map(ws => ({ match: true, score: 0, type: 'workspace', item: ws }))
-      )
-      : [];
+    const wsItems =
+      (scratchWorkspaces || []).length > 0
+        ? query
+          ? (scratchWorkspaces || [])
+              .map((ws) => ({ ...fuzzyMatchWorkspace(query, ws), type: 'workspace', item: ws }))
+              .filter((r) => r.match)
+          : (scratchWorkspaces || []).map((ws) => ({ match: true, score: 0, type: 'workspace', item: ws }))
+        : [];
 
     // Global terminal entry (only if session is active)
     const globalItems = [];
@@ -120,7 +128,7 @@ export function CommandPalette({ prs, scratchWorkspaces, workspaceStates, hasGlo
   // Reset selection when results change
   useEffect(() => {
     setSelectedIndex(0);
-  }, [filtered.length, query]);
+  }, []);
 
   // Scroll selected item into view
   useEffect(() => {
@@ -129,27 +137,30 @@ export function CommandPalette({ prs, scratchWorkspaces, workspaceStates, hasGlo
     if (selected) selected.scrollIntoView({ block: 'nearest' });
   }, [selectedIndex]);
 
-  const handleSelect = useCallback((entry) => {
-    if (entry.type === 'global') {
-      onOpenGlobalTerminal();
-    } else {
-      onCloseGlobalTerminal?.();
-      if (entry.type === 'pr') {
-        onNavigate(entry.item.id);
+  const handleSelect = useCallback(
+    (entry) => {
+      if (entry.type === 'global') {
+        onOpenGlobalTerminal();
       } else {
-        onNavigateWorkspace(entry.item.id);
+        onCloseGlobalTerminal?.();
+        if (entry.type === 'pr') {
+          onNavigate(entry.item.id);
+        } else {
+          onNavigateWorkspace(entry.item.id);
+        }
       }
-    }
-    close();
-  }, [onNavigate, onNavigateWorkspace, onOpenGlobalTerminal, onCloseGlobalTerminal, close]);
+      close();
+    },
+    [onNavigate, onNavigateWorkspace, onOpenGlobalTerminal, onCloseGlobalTerminal, close],
+  );
 
   const handleKeyDown = (e) => {
     if (e.key === 'ArrowDown') {
       e.preventDefault();
-      setSelectedIndex(i => Math.min(i + 1, filtered.length - 1));
+      setSelectedIndex((i) => Math.min(i + 1, filtered.length - 1));
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
-      setSelectedIndex(i => Math.max(i - 1, 0));
+      setSelectedIndex((i) => Math.max(i - 1, 0));
     } else if (e.key === 'Enter' && filtered[selectedIndex]) {
       e.preventDefault();
       handleSelect(filtered[selectedIndex]);
@@ -162,7 +173,17 @@ export function CommandPalette({ prs, scratchWorkspaces, workspaceStates, hasGlo
     <div className={styles.overlay} onKeyDown={handleKeyDown}>
       <div className={styles.dialog} ref={dialogRef}>
         <div className={styles.inputWrapper}>
-          <svg className={styles.searchIcon} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <svg
+            className={styles.searchIcon}
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
             <circle cx="11" cy="11" r="8" />
             <line x1="21" y1="21" x2="16.65" y2="16.65" />
           </svg>
@@ -172,7 +193,7 @@ export function CommandPalette({ prs, scratchWorkspaces, workspaceStates, hasGlo
             type="text"
             placeholder="Search PRs and workspaces..."
             value={query}
-            onChange={e => setQuery(e.target.value)}
+            onChange={(e) => setQuery(e.target.value)}
           />
           <span className={styles.hint}>esc</span>
         </div>
@@ -188,7 +209,10 @@ export function CommandPalette({ prs, scratchWorkspaces, workspaceStates, hasGlo
                 onMouseEnter={() => setSelectedIndex(i)}
               >
                 {entry.type === 'pr' ? (
-                  <PRResult pr={entry.item} idle={entry.item.workspace_id && workspaceStates?.get(entry.item.workspace_id) === 'idle'} />
+                  <PRResult
+                    pr={entry.item}
+                    idle={entry.item.workspace_id && workspaceStates?.get(entry.item.workspace_id) === 'idle'}
+                  />
                 ) : entry.type === 'global' ? (
                   <GlobalResult />
                 ) : (
@@ -208,7 +232,9 @@ function PRResult({ pr, idle }) {
     <div className={styles.resultInfo}>
       <div className={styles.resultTitle}>{pr.title}</div>
       <div className={styles.resultMeta}>
-        <span className={styles.resultRepo}>{pr.org}/{pr.repo}</span>
+        <span className={styles.resultRepo}>
+          {pr.org}/{pr.repo}
+        </span>
         <span className={styles.resultNumber}>#{pr.number}</span>
         <span className={styles.resultBranch}>{pr.branch}</span>
       </div>
@@ -238,9 +264,7 @@ function WorkspaceResult({ ws, idle }) {
   return (
     <div className={styles.resultInfo}>
       <div className={styles.resultTitle}>{ws.bookmark}</div>
-      <div className={styles.resultMeta}>
-        {ws.repo && <span className={styles.resultRepo}>{ws.repo}</span>}
-      </div>
+      <div className={styles.resultMeta}>{ws.repo && <span className={styles.resultRepo}>{ws.repo}</span>}</div>
       <div className={styles.resultBadges}>
         <span className={styles.workspaceTag}>scratch workspace</span>
         {idle && <span className={styles.idlePill}>Needs attention</span>}

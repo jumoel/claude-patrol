@@ -1,8 +1,8 @@
-import { readFileSync, writeFileSync, watchFile, unwatchFile, existsSync } from 'node:fs';
-import { resolve, isAbsolute } from 'node:path';
 import { EventEmitter } from 'node:events';
+import { existsSync, readFileSync, unwatchFile, watchFile, writeFileSync } from 'node:fs';
+import { isAbsolute, resolve } from 'node:path';
+import { configPath, dataDir, defaultDbPath } from './paths.js';
 import { expandPath } from './utils.js';
-import { configPath, defaultDbPath, dataDir } from './paths.js';
 
 const CONFIG_PATH = configPath();
 
@@ -74,7 +74,7 @@ export function ensureConfig() {
       repos: [],
     },
   };
-  writeFileSync(CONFIG_PATH, JSON.stringify(template, null, 2) + '\n');
+  writeFileSync(CONFIG_PATH, `${JSON.stringify(template, null, 2)}\n`);
   return false;
 }
 

@@ -43,9 +43,9 @@ function summarizePR(pr) {
     mergeable: pr.mergeable,
     checks_summary: {
       total: pr.checks?.length ?? 0,
-      failed: pr.checks?.filter(c => ['FAILURE', 'ERROR', 'TIMED_OUT'].includes(c.conclusion)).length ?? 0,
+      failed: pr.checks?.filter((c) => ['FAILURE', 'ERROR', 'TIMED_OUT'].includes(c.conclusion)).length ?? 0,
     },
-    labels: (pr.labels || []).map(l => l.name),
+    labels: (pr.labels || []).map((l) => l.name),
     updated_at: pr.updated_at,
   };
 }
@@ -160,8 +160,14 @@ server.tool(
   'Destroy active workspaces whose PRs match the given conditions. For example: ci="pass" and mergeable="MERGEABLE" destroys workspaces for PRs that are passing CI and have no conflicts.',
   {
     ci: z.enum(['pass', 'fail', 'pending']).optional().describe('Only destroy workspaces where PR CI status matches'),
-    review: z.enum(['approved', 'changes_requested', 'pending']).optional().describe('Only destroy workspaces where PR review status matches'),
-    mergeable: z.enum(['MERGEABLE', 'CONFLICTING', 'UNKNOWN']).optional().describe('Only destroy workspaces where PR merge status matches'),
+    review: z
+      .enum(['approved', 'changes_requested', 'pending'])
+      .optional()
+      .describe('Only destroy workspaces where PR review status matches'),
+    mergeable: z
+      .enum(['MERGEABLE', 'CONFLICTING', 'UNKNOWN'])
+      .optional()
+      .describe('Only destroy workspaces where PR merge status matches'),
     repo: z.string().optional().describe('Only destroy workspaces for this repo'),
   },
   async ({ ci, review, mergeable, repo }) => {
@@ -178,44 +184,53 @@ server.tool(
   },
 );
 
-server.tool(
-  'trigger_sync',
-  'Trigger an immediate sync of PR data from GitHub.',
-  {},
-  async () => {
-    const data = await api('/api/sync/trigger', { method: 'POST' });
-    return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] };
-  },
-);
+server.tool('trigger_sync', 'Trigger an immediate sync of PR data from GitHub.', {}, async () => {
+  const data = await api('/api/sync/trigger', { method: 'POST' });
+  return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] };
+});
 
 server.tool(
   'retrigger_checks',
   'Re-run failed CI checks for a PR. Optionally filter to specific checks by name pattern. Use require_all_final=true to only retrigger when no checks are still running or queued.',
   {
     pr_id: z.string().describe('PR database ID (e.g. "org/repo#42")'),
-    check_name: z.string().optional().describe('Only retrigger checks whose name contains this substring (case-insensitive). E.g. "smith-bench" to only retrigger smith-bench failures.'),
-    require_all_final: z.boolean().optional().describe('If true, refuse to retrigger unless all checks are in a final state (no running/queued checks). Prevents retriggering while CI is still in progress.'),
+    check_name: z
+      .string()
+      .optional()
+      .describe(
+        'Only retrigger checks whose name contains this substring (case-insensitive). E.g. "smith-bench" to only retrigger smith-bench failures.',
+      ),
+    require_all_final: z
+      .boolean()
+      .optional()
+      .describe(
+        'If true, refuse to retrigger unless all checks are in a final state (no running/queued checks). Prevents retriggering while CI is still in progress.',
+      ),
   },
   async ({ pr_id, check_name, require_all_final }) => {
     // When require_all_final is set, check that no checks are still in progress
     if (require_all_final) {
       const pr = await api(`/api/prs/${encodeURIComponent(pr_id)}`);
       const nonFinalStatuses = new Set(['IN_PROGRESS', 'QUEUED', 'WAITING', 'PENDING', 'REQUESTED']);
-      const stillRunning = (pr.checks || []).filter(c =>
-        c.status && nonFinalStatuses.has(c.status) && !c.conclusion
-      );
+      const stillRunning = (pr.checks || []).filter((c) => c.status && nonFinalStatuses.has(c.status) && !c.conclusion);
       if (stillRunning.length > 0) {
-        const names = stillRunning.map(c => c.name).join(', ');
+        const names = stillRunning.map((c) => c.name).join(', ');
         return {
-          content: [{
-            type: 'text',
-            text: JSON.stringify({
-              ok: false,
-              error: 'checks_still_running',
-              message: `${stillRunning.length} check(s) are not yet in a final state: ${names}`,
-              still_running: stillRunning.map(c => ({ name: c.name, status: c.status })),
-            }, null, 2),
-          }],
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify(
+                {
+                  ok: false,
+                  error: 'checks_still_running',
+                  message: `${stillRunning.length} check(s) are not yet in a final state: ${names}`,
+                  still_running: stillRunning.map((c) => ({ name: c.name, status: c.status })),
+                },
+                null,
+                2,
+              ),
+            },
+          ],
         };
       }
     }
@@ -291,54 +306,58 @@ server.tool(
     while (Date.now() < deadline) {
       const pr = await api(`/api/prs/${encodeURIComponent(pr_id)}`);
       const checks = pr.checks || [];
-      const stillRunning = checks.filter(c =>
-        c.status && NON_FINAL_STATUSES.has(c.status) && !c.conclusion
-      );
+      const stillRunning = checks.filter((c) => c.status && NON_FINAL_STATUSES.has(c.status) && !c.conclusion);
 
       if (stillRunning.length === 0) {
-        const failed = checks.filter(c =>
-          ['FAILURE', 'ERROR', 'TIMED_OUT'].includes(c.conclusion)
-        );
-        const passed = checks.filter(c =>
-          ['SUCCESS', 'NEUTRAL', 'SKIPPED'].includes(c.conclusion)
-        );
+        const failed = checks.filter((c) => ['FAILURE', 'ERROR', 'TIMED_OUT'].includes(c.conclusion));
+        const passed = checks.filter((c) => ['SUCCESS', 'NEUTRAL', 'SKIPPED'].includes(c.conclusion));
         return {
-          content: [{
-            type: 'text',
-            text: JSON.stringify({
-              ok: true,
-              all_final: true,
-              ci_status: pr.ci_status,
-              total: checks.length,
-              passed: passed.length,
-              failed: failed.length,
-              failed_checks: failed.map(c => c.name),
-            }, null, 2),
-          }],
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify(
+                {
+                  ok: true,
+                  all_final: true,
+                  ci_status: pr.ci_status,
+                  total: checks.length,
+                  passed: passed.length,
+                  failed: failed.length,
+                  failed_checks: failed.map((c) => c.name),
+                },
+                null,
+                2,
+              ),
+            },
+          ],
         };
       }
 
       // Wait before next poll, but trigger a sync first
-      await new Promise(r => setTimeout(r, interval));
+      await new Promise((r) => setTimeout(r, interval));
       await api('/api/sync/trigger', { method: 'POST' }).catch(() => {});
     }
 
     // Timed out
     const pr = await api(`/api/prs/${encodeURIComponent(pr_id)}`);
     const checks = pr.checks || [];
-    const stillRunning = checks.filter(c =>
-      c.status && NON_FINAL_STATUSES.has(c.status) && !c.conclusion
-    );
+    const stillRunning = checks.filter((c) => c.status && NON_FINAL_STATUSES.has(c.status) && !c.conclusion);
     return {
-      content: [{
-        type: 'text',
-        text: JSON.stringify({
-          ok: false,
-          error: 'timeout',
-          message: `Timed out after ${timeout_minutes || 30} minutes. ${stillRunning.length} check(s) still running.`,
-          still_running: stillRunning.map(c => ({ name: c.name, status: c.status })),
-        }, null, 2),
-      }],
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify(
+            {
+              ok: false,
+              error: 'timeout',
+              message: `Timed out after ${timeout_minutes || 30} minutes. ${stillRunning.length} check(s) still running.`,
+              still_running: stillRunning.map((c) => ({ name: c.name, status: c.status })),
+            },
+            null,
+            2,
+          ),
+        },
+      ],
     };
   },
 );

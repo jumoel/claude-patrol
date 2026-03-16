@@ -1,7 +1,7 @@
+import { emitLocalChange } from '../app-events.js';
 import { getDb } from '../db.js';
 import { formatPR } from '../pr-status.js';
 import { execFile } from '../utils.js';
-import { emitLocalChange } from '../app-events.js';
 
 /**
  * Register PR-related routes.
@@ -32,24 +32,27 @@ export function registerPRRoutes(app) {
       params.push(mergeable.toUpperCase());
     }
 
-    const rows = db.prepare(sql + ' ORDER BY updated_at DESC').all(...params);
+    const rows = db.prepare(`${sql} ORDER BY updated_at DESC`).all(...params);
 
     // Format all rows (parse JSON once per row), then post-filter
     let prs = rows.map(formatPR);
 
     if (ci) {
-      prs = prs.filter(pr => pr.ci_status === ci);
+      prs = prs.filter((pr) => pr.ci_status === ci);
     }
     if (review) {
-      prs = prs.filter(pr => pr.review_status === review);
+      prs = prs.filter((pr) => pr.review_status === review);
     }
 
     // Enrich with workspace/session indicators
     const activeWorkspaceRows = db.prepare("SELECT id, pr_id FROM workspaces WHERE status = 'active'").all();
-    const activeWorkspaces = new Set(activeWorkspaceRows.map(r => r.pr_id));
-    const prWorkspaceMap = Object.fromEntries(activeWorkspaceRows.filter(r => r.pr_id).map(r => [r.pr_id, r.id]));
+    const activeWorkspaces = new Set(activeWorkspaceRows.map((r) => r.pr_id));
+    const prWorkspaceMap = Object.fromEntries(activeWorkspaceRows.filter((r) => r.pr_id).map((r) => [r.pr_id, r.id]));
     const activeSessions = new Set(
-      db.prepare("SELECT w.pr_id FROM sessions s JOIN workspaces w ON s.workspace_id = w.id WHERE s.status = 'active'").all().map(r => r.pr_id)
+      db
+        .prepare("SELECT w.pr_id FROM sessions s JOIN workspaces w ON s.workspace_id = w.id WHERE s.status = 'active'")
+        .all()
+        .map((r) => r.pr_id),
     );
     for (const pr of prs) {
       pr.has_workspace = activeWorkspaces.has(pr.id);

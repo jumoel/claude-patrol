@@ -7,11 +7,9 @@ import { isFailedConclusion, isPassedConclusion } from './utils.js';
  */
 export function deriveCIStatus(checks) {
   if (checks.length === 0) return 'pending';
-  const hasFailure = checks.some(c => isFailedConclusion(c.conclusion));
+  const hasFailure = checks.some((c) => isFailedConclusion(c.conclusion));
   if (hasFailure) return 'fail';
-  const allDone = checks.every(c =>
-    c.status === 'COMPLETED' && isPassedConclusion(c.conclusion)
-  );
+  const allDone = checks.every((c) => c.status === 'COMPLETED' && isPassedConclusion(c.conclusion));
   if (allDone) return 'pass';
   return 'pending';
 }

@@ -1,17 +1,17 @@
-import { usePRs } from './hooks/usePRs.js';
-import { useIdleNotification } from './hooks/useIdleNotification.js';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AppShell } from './components/AppShell/AppShell.jsx';
-import { PRTable } from './components/PRTable/PRTable.jsx';
+import { CommandPalette } from './components/CommandPalette/CommandPalette.jsx';
+import { DashboardSummary } from './components/DashboardSummary/DashboardSummary.jsx';
 import { FilterBar } from './components/FilterBar/FilterBar.jsx';
 import { GlobalTerminal } from './components/GlobalTerminal/GlobalTerminal.jsx';
-import { DashboardSummary } from './components/DashboardSummary/DashboardSummary.jsx';
 import { PRDetail } from './components/PRDetail/PRDetail.jsx';
-import { WorkspaceDetail } from './components/WorkspaceDetail/WorkspaceDetail.jsx';
+import { PRTable } from './components/PRTable/PRTable.jsx';
 import { ScratchWorkspaces } from './components/ScratchWorkspaces/ScratchWorkspaces.jsx';
-import { CommandPalette } from './components/CommandPalette/CommandPalette.jsx';
 import { SetupMode } from './components/SetupMode/SetupMode.jsx';
-import { fetchScratchWorkspaces, fetchConfig } from './lib/api.js';
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { WorkspaceDetail } from './components/WorkspaceDetail/WorkspaceDetail.jsx';
+import { useIdleNotification } from './hooks/useIdleNotification.js';
+import { usePRs } from './hooks/usePRs.js';
+import { fetchConfig, fetchScratchWorkspaces } from './lib/api.js';
 
 function formatCountdown(seconds) {
   const m = Math.floor(seconds / 60);
@@ -25,7 +25,7 @@ function formatCountdown(seconds) {
  * Empty array = no filter (show all).
  */
 function applyFilters(prs, filters) {
-  return prs.filter(pr => {
+  return prs.filter((pr) => {
     // "Needs work" is a meta-filter: show only PRs that need attention
     // (failing CI, conflicts, or drafts)
     if (filters.needsWork) {
@@ -84,9 +84,9 @@ function writeHashParams(filters, sorting) {
     params.set('dir', sorting[0].desc ? 'desc' : 'asc');
   }
   const qs = params.toString();
-  const newHash = qs ? `${path || '#/'}?${qs}` : (path || '');
+  const newHash = qs ? `${path || '#/'}?${qs}` : path || '';
   // Use replaceState to avoid polluting history with every filter/sort change
-  history.replaceState(null, '', qs ? newHash : (path || window.location.pathname));
+  history.replaceState(null, '', qs ? newHash : path || window.location.pathname);
 }
 
 export default function App() {
@@ -101,7 +101,7 @@ export default function App() {
   const [hasGlobalSession, setHasGlobalSession] = useState(false);
   const [copied, setCopied] = useState(false);
   const copiedTimeout = useRef(null);
-  const toggleTerminal = useCallback(() => setTerminalOpen(prev => !prev), []);
+  const toggleTerminal = useCallback(() => setTerminalOpen((prev) => !prev), []);
   const openGlobalTerminal = useCallback(() => setTerminalOpen(true), []);
   const closeGlobalTerminal = useCallback(() => setTerminalOpen(false), []);
   const { prs: allPRs, syncedAt, loading, error, syncing, countdown, triggerSync } = usePRs(NO_FILTERS);
@@ -116,8 +116,8 @@ export default function App() {
   // Check if setup is needed + update status (re-check on each sync)
   useEffect(() => {
     fetchConfig()
-      .then(cfg => {
-        setNeedsSetup(prev => prev === null ? cfg.needs_setup : prev);
+      .then((cfg) => {
+        setNeedsSetup((prev) => (prev === null ? cfg.needs_setup : prev));
         if (cfg.needs_setup && needsSetup === null) setShowSetup(true);
         setUpdateAvailable(cfg.update_available || false);
         setCommitsBehind(cfg.commits_behind || 0);
@@ -125,36 +125,42 @@ export default function App() {
         if (cfg.startup_sha) setStartupSha(cfg.startup_sha);
         if (cfg.current_sha) setCurrentSha(cfg.current_sha);
       })
-      .catch(() => { if (needsSetup === null) setNeedsSetup(false); });
-  }, [syncedAt]);
+      .catch(() => {
+        if (needsSetup === null) setNeedsSetup(false);
+      });
+  }, [needsSetup]);
 
   // Fetch scratch workspaces (refresh when PRs sync)
   useEffect(() => {
     fetchScratchWorkspaces()
       .then(setScratchWorkspaces)
       .catch(() => {});
-  }, [syncedAt]);
+  }, []);
 
   // Sync filters + sorting to URL hash
-  const handleFilterChange = useCallback((newFilters) => {
-    setFilters(newFilters);
-    writeHashParams(newFilters, sorting);
-  }, [sorting]);
+  const handleFilterChange = useCallback(
+    (newFilters) => {
+      setFilters(newFilters);
+      writeHashParams(newFilters, sorting);
+    },
+    [sorting],
+  );
 
-  const handleSortingChange = useCallback((updater) => {
-    setSorting(prev => {
-      const next = typeof updater === 'function' ? updater(prev) : updater;
-      writeHashParams(filters, next);
-      return next;
-    });
-  }, [filters]);
+  const handleSortingChange = useCallback(
+    (updater) => {
+      setSorting((prev) => {
+        const next = typeof updater === 'function' ? updater(prev) : updater;
+        writeHashParams(filters, next);
+        return next;
+      });
+    },
+    [filters],
+  );
 
   const filteredPRs = useMemo(() => applyFilters(allPRs, filters), [allPRs, filters]);
 
   const copyFilteredAsMarkdown = useCallback(() => {
-    const md = filteredPRs
-      .map(pr => `- [#${pr.number}](${pr.url}) - ${pr.title}`)
-      .join('\n');
+    const md = filteredPRs.map((pr) => `- [#${pr.number}](${pr.url}) - ${pr.title}`).join('\n');
     navigator.clipboard.writeText(md).then(() => {
       setCopied(true);
       clearTimeout(copiedTimeout.current);
@@ -199,21 +205,19 @@ export default function App() {
     if (selectedWorkspace) {
       setActiveWorkspace(selectedWorkspace);
     } else if (selectedPR) {
-      const pr = allPRs.find(p => p.id === selectedPR);
+      const pr = allPRs.find((p) => p.id === selectedPR);
       setActiveWorkspace(pr?.workspace_id || null);
     } else {
       setActiveWorkspace(null);
     }
   }, [selectedWorkspace, selectedPR, allPRs, setActiveWorkspace]);
 
-  const syncTime = syncedAt
-    ? `Last synced: ${new Date(syncedAt).toLocaleTimeString()}`
-    : 'Not synced';
+  const syncTime = syncedAt ? `Last synced: ${new Date(syncedAt).toLocaleTimeString()}` : 'Not synced';
   const nextSync = countdown > 0 ? formatCountdown(countdown) : '';
 
   const navigateToPR = (prId) => {
     // Dismiss idle indicator for this PR's workspace
-    const pr = allPRs.find(p => p.id === prId);
+    const pr = allPRs.find((p) => p.id === prId);
     if (pr?.workspace_id) dismissWorkspace(pr.workspace_id);
     window.location.hash = `/pr/${encodeURIComponent(prId)}`;
   };
@@ -239,7 +243,23 @@ export default function App() {
   const forceUpdate = new URLSearchParams(window.location.search).get('update') === '1';
 
   return (
-    <AppShell title="Claude Patrol" syncTime={syncTime} nextSync={nextSync} syncing={syncing} onSync={triggerSync} terminalOpen={terminalOpen} onToggleTerminal={toggleTerminal} onSetup={() => { window.location.hash = '/setup'; }} updateAvailable={updateAvailable || forceUpdate} commitsBehind={commitsBehind || (forceUpdate ? 3 : 0)} restartNeeded={restartNeeded} startupSha={startupSha} currentSha={currentSha}>
+    <AppShell
+      title="Claude Patrol"
+      syncTime={syncTime}
+      nextSync={nextSync}
+      syncing={syncing}
+      onSync={triggerSync}
+      terminalOpen={terminalOpen}
+      onToggleTerminal={toggleTerminal}
+      onSetup={() => {
+        window.location.hash = '/setup';
+      }}
+      updateAvailable={updateAvailable || forceUpdate}
+      commitsBehind={commitsBehind || (forceUpdate ? 3 : 0)}
+      restartNeeded={restartNeeded}
+      startupSha={startupSha}
+      currentSha={currentSha}
+    >
       {showSetup ? (
         <SetupMode onConfigured={handleConfigured} isFirstRun={needsSetup === true} />
       ) : selectedPR ? (
@@ -249,15 +269,36 @@ export default function App() {
       ) : (
         <>
           <DashboardSummary prCount={filteredPRs.length} syncedAt={syncedAt} />
-          <FilterBar prs={allPRs} filters={filters} onFilterChange={handleFilterChange} onCopyMarkdown={copyFilteredAsMarkdown} copied={copied} />
+          <FilterBar
+            prs={allPRs}
+            filters={filters}
+            onFilterChange={handleFilterChange}
+            onCopyMarkdown={copyFilteredAsMarkdown}
+            copied={copied}
+          />
           {error && <p>{error}</p>}
           {loading && allPRs.length === 0 && <p>Loading...</p>}
-          <PRTable prs={filteredPRs} onRowClick={navigateToPR} sorting={sorting} onSortingChange={handleSortingChange} workspaceStates={workspaceStates} />
+          <PRTable
+            prs={filteredPRs}
+            onRowClick={navigateToPR}
+            sorting={sorting}
+            onSortingChange={handleSortingChange}
+            workspaceStates={workspaceStates}
+          />
           <ScratchWorkspaces prs={allPRs} syncedAt={syncedAt} />
         </>
       )}
       <GlobalTerminal open={terminalOpen} onToggle={toggleTerminal} onSessionChange={setHasGlobalSession} />
-      <CommandPalette prs={allPRs} scratchWorkspaces={scratchWorkspaces} workspaceStates={workspaceStates} hasGlobalSession={hasGlobalSession} onNavigate={navigateToPR} onNavigateWorkspace={navigateToWorkspace} onOpenGlobalTerminal={openGlobalTerminal} onCloseGlobalTerminal={closeGlobalTerminal} />
+      <CommandPalette
+        prs={allPRs}
+        scratchWorkspaces={scratchWorkspaces}
+        workspaceStates={workspaceStates}
+        hasGlobalSession={hasGlobalSession}
+        onNavigate={navigateToPR}
+        onNavigateWorkspace={navigateToWorkspace}
+        onOpenGlobalTerminal={openGlobalTerminal}
+        onCloseGlobalTerminal={closeGlobalTerminal}
+      />
     </AppShell>
   );
 }

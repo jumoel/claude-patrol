@@ -1,47 +1,50 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
-import { fetchWorkspaces, fetchSessions } from '../../lib/api.js';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useClickOutside } from '../../hooks/useClickOutside.js';
+import { fetchSessions, fetchWorkspaces } from '../../lib/api.js';
 import styles from './DashboardSummary.module.css';
 
 /**
  * Summary stats bar above the PR table.
  * @param {{ prCount: number, syncedAt: string | null }} props
  */
-function StatDropdown({ label, items, renderItem, emptyClass }) {
+function StatDropdown({ label, items, renderItem }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
 
-  useClickOutside(ref, useCallback(() => setOpen(false), []));
+  useClickOutside(
+    ref,
+    useCallback(() => setOpen(false), []),
+  );
 
   return (
     <span className={styles.dropdownWrapper} ref={ref}>
       <button
         className={`${styles.stat} ${styles.clickable} ${items.length === 0 ? styles.disabled : ''}`}
-        onClick={() => items.length > 0 && setOpen(prev => !prev)}
+        onClick={() => items.length > 0 && setOpen((prev) => !prev)}
         type="button"
       >
         {label}
       </button>
-      {open && items.length > 0 && (
-        <div className={styles.dropdown}>
-          {items.map(renderItem)}
-        </div>
-      )}
+      {open && items.length > 0 && <div className={styles.dropdown}>{items.map(renderItem)}</div>}
     </span>
   );
 }
 
-export function DashboardSummary({ prCount, syncedAt }) {
+export function DashboardSummary({ prCount }) {
   const [workspaces, setWorkspaces] = useState([]);
   const [sessions, setSessions] = useState([]);
 
   useEffect(() => {
-    fetchWorkspaces().then(setWorkspaces).catch(() => {});
-    fetchSessions().then(setSessions).catch(() => {});
-  }, [syncedAt]);
+    fetchWorkspaces()
+      .then(setWorkspaces)
+      .catch(() => {});
+    fetchSessions()
+      .then(setSessions)
+      .catch(() => {});
+  }, []);
 
   // Build a workspace_id -> workspace lookup for session labels
-  const wsById = Object.fromEntries(workspaces.map(ws => [ws.id, ws]));
+  const wsById = Object.fromEntries(workspaces.map((ws) => [ws.id, ws]));
 
   return (
     <div className={styles.bar}>
@@ -51,15 +54,9 @@ export function DashboardSummary({ prCount, syncedAt }) {
         label={`${workspaces.length} active workspaces`}
         items={workspaces}
         renderItem={(ws) => {
-          const href = ws.pr_id
-            ? `#/pr/${encodeURIComponent(ws.pr_id)}`
-            : `#/workspace/${ws.id}`;
+          const href = ws.pr_id ? `#/pr/${encodeURIComponent(ws.pr_id)}` : `#/workspace/${ws.id}`;
           return (
-            <a
-              key={ws.id}
-              className={styles.dropdownItem}
-              href={href}
-            >
+            <a key={ws.id} className={styles.dropdownItem} href={href}>
               <span className={styles.itemName}>{ws.name}</span>
               <span className={styles.itemDetail}>{ws.path}</span>
             </a>
@@ -74,9 +71,7 @@ export function DashboardSummary({ prCount, syncedAt }) {
           const ws = sess.workspace_id ? wsById[sess.workspace_id] : null;
           const label = ws ? ws.name : 'Global session';
           const detail = `PID ${sess.pid} - started ${new Date(sess.started_at).toLocaleTimeString()}`;
-          const href = ws
-            ? (ws.pr_id ? `#/pr/${encodeURIComponent(ws.pr_id)}` : `#/workspace/${ws.id}`)
-            : null;
+          const href = ws ? (ws.pr_id ? `#/pr/${encodeURIComponent(ws.pr_id)}` : `#/workspace/${ws.id}`) : null;
           const Tag = href ? 'a' : 'span';
           return (
             <Tag key={sess.id} className={styles.dropdownItem} {...(href ? { href } : {})}>

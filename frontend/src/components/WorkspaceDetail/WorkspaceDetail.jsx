@@ -1,10 +1,19 @@
-import { useState, useEffect, useCallback } from 'react';
-import { fetchWorkspace, fetchSessions, fetchSessionHistory, fetchSessionTranscript, createSession as apiCreateSession, killSession as apiKillSession, destroyWorkspace as apiDestroyWorkspace, reattachSession as apiReattachSession } from '../../lib/api.js';
-import { TerminalCard } from '../TerminalCard/TerminalCard.jsx';
-import { TranscriptViewer } from '../TranscriptViewer/TranscriptViewer.jsx';
+import { useCallback, useEffect, useState } from 'react';
 import { useSyncEvents } from '../../hooks/useSyncEvents.js';
+import {
+  createSession as apiCreateSession,
+  destroyWorkspace as apiDestroyWorkspace,
+  killSession as apiKillSession,
+  reattachSession as apiReattachSession,
+  fetchSessionHistory,
+  fetchSessions,
+  fetchSessionTranscript,
+  fetchWorkspace,
+} from '../../lib/api.js';
 import { getRelativeTime } from '../../lib/time.js';
 import shared from '../../styles/shared.module.css';
+import { TerminalCard } from '../TerminalCard/TerminalCard.jsx';
+import { TranscriptViewer } from '../TranscriptViewer/TranscriptViewer.jsx';
 import styles from './WorkspaceDetail.module.css';
 
 /**
@@ -35,7 +44,9 @@ export function WorkspaceDetail({ workspaceId, onBack }) {
     }
   }, [workspaceId]);
 
-  useEffect(() => { loadData(); }, [loadData]);
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
   useSyncEvents(loadData);
 
   const handleStartSession = useCallback(async () => {
@@ -102,38 +113,33 @@ export function WorkspaceDetail({ workspaceId, onBack }) {
           </button>
           <div className={styles.headerActions}>
             {workspace.status === 'active' && (
-              <button
-                className={shared.destroyButton}
-                onClick={handleDestroy}
-                disabled={destroying}
-              >
+              <button className={shared.destroyButton} onClick={handleDestroy} disabled={destroying}>
                 {destroying ? 'Destroying...' : 'Destroy'}
               </button>
             )}
           </div>
         </div>
-        <div className={styles.title}>
-          {workspace.bookmark}
-        </div>
+        <div className={styles.title}>{workspace.bookmark}</div>
         <div className={shared.identityRow}>
           {workspace.repo && <span className={shared.repoTag}>{workspace.repo}</span>}
           <span className={shared.branchTag}>{workspace.bookmark}</span>
           <span className={shared.separator}>-</span>
           <span className={shared.updatedText}>Created {getRelativeTime(workspace.created_at)}</span>
-          {workspace.status === 'destroyed' && (
-            <span className={styles.destroyedBadge}>Destroyed</span>
-          )}
+          {workspace.status === 'destroyed' && <span className={styles.destroyedBadge}>Destroyed</span>}
         </div>
         {adopted && (
           <div className={styles.adoptedNotice}>
-            Adopted by PR - <a href={`#/pr/${encodeURIComponent(workspace.pr_id)}`} className={styles.prLink}>View PR</a>
+            Adopted by PR -{' '}
+            <a href={`#/pr/${encodeURIComponent(workspace.pr_id)}`} className={styles.prLink}>
+              View PR
+            </a>
           </div>
         )}
       </div>
 
       {/* Terminal */}
-      {workspace.status === 'active' && (
-        session ? (
+      {workspace.status === 'active' &&
+        (session ? (
           <TerminalCard
             session={session}
             title={`Terminal - ${workspace.bookmark}`}
@@ -147,17 +153,12 @@ export function WorkspaceDetail({ workspaceId, onBack }) {
               <div className={shared.terminalHeader}>
                 <h3 className={shared.sectionTitle}>Terminal</h3>
               </div>
-              <button
-                className={shared.openButton}
-                onClick={handleStartSession}
-                disabled={openingSession}
-              >
+              <button className={shared.openButton} onClick={handleStartSession} disabled={openingSession}>
                 {openingSession ? 'Starting session...' : 'Start Terminal Session'}
               </button>
             </div>
           </div>
-        )
-      )}
+        ))}
 
       {/* Past Sessions */}
       <SessionHistory workspaceId={workspaceId} />
@@ -178,21 +179,28 @@ function SessionHistory({ workspaceId }) {
     setLoading(true);
     fetchSessionHistory(workspaceId)
       .then(setHistory)
-      .catch(err => console.error('Failed to load session history:', err))
+      .catch((err) => console.error('Failed to load session history:', err))
       .finally(() => setLoading(false));
   }, [expanded, history, workspaceId]);
 
-  const handleViewTranscript = useCallback((sessionId) => {
-    if (transcripts[sessionId]) {
-      setTranscripts(prev => { const next = { ...prev }; delete next[sessionId]; return next; });
-      return;
-    }
-    setTranscriptLoading(prev => ({ ...prev, [sessionId]: true }));
-    fetchSessionTranscript(sessionId)
-      .then(entries => setTranscripts(prev => ({ ...prev, [sessionId]: entries })))
-      .catch(err => setTranscriptErrors(prev => ({ ...prev, [sessionId]: err.message })))
-      .finally(() => setTranscriptLoading(prev => ({ ...prev, [sessionId]: false })));
-  }, [transcripts]);
+  const handleViewTranscript = useCallback(
+    (sessionId) => {
+      if (transcripts[sessionId]) {
+        setTranscripts((prev) => {
+          const next = { ...prev };
+          delete next[sessionId];
+          return next;
+        });
+        return;
+      }
+      setTranscriptLoading((prev) => ({ ...prev, [sessionId]: true }));
+      fetchSessionTranscript(sessionId)
+        .then((entries) => setTranscripts((prev) => ({ ...prev, [sessionId]: entries })))
+        .catch((err) => setTranscriptErrors((prev) => ({ ...prev, [sessionId]: err.message })))
+        .finally(() => setTranscriptLoading((prev) => ({ ...prev, [sessionId]: false })));
+    },
+    [transcripts],
+  );
 
   const formatDuration = (start, end) => {
     if (!start || !end) return '';
@@ -208,8 +216,12 @@ function SessionHistory({ workspaceId }) {
       <button
         onClick={() => setExpanded(!expanded)}
         style={{
-          background: 'none', border: 'none', cursor: 'pointer',
-          color: '#6b7280', fontSize: '14px', padding: 0,
+          background: 'none',
+          border: 'none',
+          cursor: 'pointer',
+          color: '#6b7280',
+          fontSize: '14px',
+          padding: 0,
         }}
       >
         {expanded ? 'Hide' : 'Show'} past sessions
@@ -220,7 +232,7 @@ function SessionHistory({ workspaceId }) {
       )}
       {expanded && history && history.length > 0 && (
         <div style={{ marginTop: '8px' }}>
-          {history.map(sess => (
+          {history.map((sess) => (
             <div key={sess.id}>
               <button className={styles.sessionRow} onClick={() => handleViewTranscript(sess.id)}>
                 <div className={styles.sessionInfo}>

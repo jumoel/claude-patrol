@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { useClickOutside } from '../../hooks/useClickOutside.js';
 import styles from './FilterBar.module.css';
 
@@ -29,33 +29,35 @@ function MultiSelect({ label, options, selected, onChange }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
 
-  useClickOutside(ref, useCallback(() => setOpen(false), []));
+  useClickOutside(
+    ref,
+    useCallback(() => setOpen(false), []),
+  );
 
   const toggle = (value) => {
-    const next = selected.includes(value)
-      ? selected.filter(v => v !== value)
-      : [...selected, value];
+    const next = selected.includes(value) ? selected.filter((v) => v !== value) : [...selected, value];
     onChange(next);
   };
 
-  const displayLabel = selected.length === 0
-    ? label
-    : selected.length === 1
-      ? options.find(o => o.value === selected[0])?.label || selected[0]
-      : `${selected.length} selected`;
+  const displayLabel =
+    selected.length === 0
+      ? label
+      : selected.length === 1
+        ? options.find((o) => o.value === selected[0])?.label || selected[0]
+        : `${selected.length} selected`;
 
   return (
     <div className={styles.multiSelect} ref={ref}>
       <button
         className={`${styles.trigger} ${selected.length > 0 ? styles.triggerActive : ''}`}
-        onClick={() => setOpen(prev => !prev)}
+        onClick={() => setOpen((prev) => !prev)}
         type="button"
       >
         {displayLabel}
       </button>
       {open && (
         <div className={styles.dropdown}>
-          {options.map(opt => (
+          {options.map((opt) => (
             <label key={opt.value} className={styles.option}>
               <input
                 type="checkbox"
@@ -77,27 +79,33 @@ function MultiSelect({ label, options, selected, onChange }) {
  * @param {{ prs: object[], filters: Record<string, string[]>, onFilterChange: (filters: Record<string, string[]>) => void }} props
  */
 export function FilterBar({ prs, filters, onFilterChange, onCopyMarkdown, copied }) {
-  const orgs = [...new Set(prs.map(p => p.org))].sort();
-  const repos = [...new Set(prs.map(p => p.repo))].sort();
+  const orgs = [...new Set(prs.map((p) => p.org))].sort();
+  const repos = [...new Set(prs.map((p) => p.repo))].sort();
 
-  const orgOptions = orgs.map(o => ({ value: o, label: o }));
-  const repoOptions = repos.map(r => ({ value: r, label: r }));
+  const orgOptions = orgs.map((o) => ({ value: o, label: o }));
+  const repoOptions = repos.map((r) => ({ value: r, label: r }));
 
   const update = (key, value) => {
     onFilterChange({ ...filters, [key]: value });
   };
 
-  const REVIEW_READY_FILTERS = { ci: ['pass'], review: ['changes_requested', 'pending'], mergeable: ['MERGEABLE'], draft: ['false'] };
+  const REVIEW_READY_FILTERS = {
+    ci: ['pass'],
+    review: ['changes_requested', 'pending'],
+    mergeable: ['MERGEABLE'],
+    draft: ['false'],
+  };
   const MERGE_READY_FILTERS = { ...REVIEW_READY_FILTERS, review: ['approved'] };
 
-  const filtersMatch = (target) => Object.entries(target).every(
-    ([key, values]) => filters[key]?.length === values.length && values.every(v => filters[key].includes(v))
-  );
+  const filtersMatch = (target) =>
+    Object.entries(target).every(
+      ([key, values]) => filters[key]?.length === values.length && values.every((v) => filters[key].includes(v)),
+    );
 
   const isReviewReadyActive = filtersMatch(REVIEW_READY_FILTERS);
   const isMergeReadyActive = filtersMatch(MERGE_READY_FILTERS);
   const isNeedsWorkActive = !!filters.needsWork;
-  const hasAnyFilter = Object.values(filters).some(v => v === true || (Array.isArray(v) && v.length > 0));
+  const hasAnyFilter = Object.values(filters).some((v) => v === true || (Array.isArray(v) && v.length > 0));
 
   const toggleQuickFilter = (target, isActive) => {
     if (isActive) {
@@ -131,7 +139,12 @@ export function FilterBar({ prs, filters, onFilterChange, onCopyMarkdown, copied
         >
           Review Ready
         </button>
-        <button className={styles.clearButton} onClick={() => onFilterChange({})} type="button" disabled={!hasAnyFilter}>
+        <button
+          className={styles.clearButton}
+          onClick={() => onFilterChange({})}
+          type="button"
+          disabled={!hasAnyFilter}
+        >
           Clear
         </button>
         {onCopyMarkdown && (
@@ -141,12 +154,42 @@ export function FilterBar({ prs, filters, onFilterChange, onCopyMarkdown, copied
         )}
       </div>
       <div className={styles.dropdowns}>
-        <MultiSelect label="All orgs" options={orgOptions} selected={filters.org || []} onChange={(v) => update('org', v)} />
-        <MultiSelect label="All repos" options={repoOptions} selected={filters.repo || []} onChange={(v) => update('repo', v)} />
-        <MultiSelect label="All CI" options={CI_OPTIONS} selected={filters.ci || []} onChange={(v) => update('ci', v)} />
-        <MultiSelect label="All reviews" options={REVIEW_OPTIONS} selected={filters.review || []} onChange={(v) => update('review', v)} />
-        <MultiSelect label="All merge" options={MERGE_OPTIONS} selected={filters.mergeable || []} onChange={(v) => update('mergeable', v)} />
-        <MultiSelect label="All PRs" options={DRAFT_OPTIONS} selected={filters.draft || []} onChange={(v) => update('draft', v)} />
+        <MultiSelect
+          label="All orgs"
+          options={orgOptions}
+          selected={filters.org || []}
+          onChange={(v) => update('org', v)}
+        />
+        <MultiSelect
+          label="All repos"
+          options={repoOptions}
+          selected={filters.repo || []}
+          onChange={(v) => update('repo', v)}
+        />
+        <MultiSelect
+          label="All CI"
+          options={CI_OPTIONS}
+          selected={filters.ci || []}
+          onChange={(v) => update('ci', v)}
+        />
+        <MultiSelect
+          label="All reviews"
+          options={REVIEW_OPTIONS}
+          selected={filters.review || []}
+          onChange={(v) => update('review', v)}
+        />
+        <MultiSelect
+          label="All merge"
+          options={MERGE_OPTIONS}
+          selected={filters.mergeable || []}
+          onChange={(v) => update('mergeable', v)}
+        />
+        <MultiSelect
+          label="All PRs"
+          options={DRAFT_OPTIONS}
+          selected={filters.draft || []}
+          onChange={(v) => update('draft', v)}
+        />
       </div>
     </div>
   );

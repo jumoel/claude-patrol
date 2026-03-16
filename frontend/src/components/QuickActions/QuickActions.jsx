@@ -13,7 +13,8 @@ const BUILT_IN_ACTIONS = [
   },
   {
     label: 'Update PR description',
-    command: 'Read the diff for the PR on this branch, then update the PR description using `gh pr edit` with `--body`. Follow any PR description conventions configured for this project.\r',
+    command:
+      'Read the diff for the PR on this branch, then update the PR description using `gh pr edit` with `--body`. Follow any PR description conventions configured for this project.\r',
   },
 ];
 
@@ -23,7 +24,10 @@ const BUILT_IN_ACTIONS = [
  */
 export function QuickActions({ wsRef, onSend }) {
   const sendCommand = (text) => {
-    if (onSend) { onSend(text); return; }
+    if (onSend) {
+      onSend(text);
+      return;
+    }
     const ws = wsRef?.current;
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
     ws.send(JSON.stringify({ type: 'input', data: text }));
@@ -39,7 +43,7 @@ export function QuickActions({ wsRef, onSend }) {
   return (
     <div className={styles.actions}>
       <span className={styles.label}>Quick actions:</span>
-      {BUILT_IN_ACTIONS.map(action => (
+      {BUILT_IN_ACTIONS.map((action) => (
         <button key={action.label} className={styles.actionButton} onClick={() => handleAction(action)}>
           {action.label}
         </button>

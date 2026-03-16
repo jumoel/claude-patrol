@@ -1,5 +1,5 @@
-import { triggerPoll } from '../poller.js';
 import { getCurrentConfig } from '../config.js';
+import { triggerPoll } from '../poller.js';
 
 /**
  * Register sync-related routes.

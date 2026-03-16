@@ -1,16 +1,15 @@
 import { execFile as execFileCb } from 'node:child_process';
-import { getDb } from '../db.js';
-import { createWorkspace, createScratchWorkspace, destroyWorkspace } from '../workspace.js';
-import { formatPR } from '../pr-status.js';
-import { getCurrentConfig } from '../config.js';
 import { emitLocalChange } from '../app-events.js';
+import { getCurrentConfig } from '../config.js';
+import { getDb } from '../db.js';
+import { formatPR } from '../pr-status.js';
+import { createScratchWorkspace, createWorkspace, destroyWorkspace } from '../workspace.js';
 
 /**
  * Register workspace routes.
  * @param {import('fastify').FastifyInstance} app
  */
 export function registerWorkspaceRoutes(app) {
-
   app.post('/api/workspaces', async (request, reply) => {
     const { pr_id, repo, branch } = request.body || {};
     if (!pr_id && (!repo || !branch)) {
@@ -94,17 +93,19 @@ export function registerWorkspaceRoutes(app) {
     return { ok: true };
   });
 
-  app.post('/api/workspaces/cleanup', async (request, reply) => {
+  app.post('/api/workspaces/cleanup', async (request, _reply) => {
     const { ci, review, mergeable, repo } = request.body || {};
     const db = getDb();
 
     // Get all active workspaces joined with their PRs
-    const rows = db.prepare(`
+    const rows = db
+      .prepare(`
       SELECT w.id AS workspace_id, p.id, p.number, p.title, p.repo, p.org, p.author, p.url, p.branch, p.draft, p.mergeable, p.checks, p.reviews, p.labels, p.created_at, p.updated_at, p.synced_at
       FROM workspaces w
       JOIN prs p ON w.pr_id = p.id
       WHERE w.status = 'active'
-    `).all();
+    `)
+      .all();
 
     const matched = [];
     for (const row of rows) {
@@ -130,8 +131,7 @@ export function registerWorkspaceRoutes(app) {
       }
     }
 
-    if (results.some(r => r.status === 'destroyed')) emitLocalChange();
-    return { ok: true, destroyed: results.filter(r => r.status === 'destroyed').length, workspaces: results };
+    if (results.some((r) => r.status === 'destroyed')) emitLocalChange();
+    return { ok: true, destroyed: results.filter((r) => r.status === 'destroyed').length, workspaces: results };
   });
-
 }

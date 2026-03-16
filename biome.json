@@ -1,5 +1,5 @@
 {
-  "$schema": "https://biomejs.dev/schemas/2.0.0/schema.json",
+  "$schema": "https://biomejs.dev/schemas/2.4.7/schema.json",
   "vcs": {
     "enabled": true,
     "clientKind": "git",
@@ -16,44 +16,44 @@
         "recommended": false
       },
       "correctness": {
-        "noUnusedVariables": "warn",
-        "noUnusedImports": "warn",
-        "noUnusedFunctionParameters": "warn",
-        "useExhaustiveDependencies": "warn"
+        "noUnusedFunctionParameters": "error",
+        "useExhaustiveDependencies": "error"
       },
       "suspicious": {
         "noConsole": "off",
-        "noDebugger": "warn",
-        "noArrayIndexKey": "off",
-        "noControlCharactersInRegex": "off"
+        "noControlCharactersInRegex": "off",
+        "noArrayIndexKey": "off"
       },
       "style": {
-        "useConst": "warn",
-        "useTemplate": "off",
-        "noUnusedTemplateLiteral": "off",
-        "useDefaultParameterLast": "off",
         "noParameterAssign": "off",
-        "useNodejsImportProtocol": "warn"
-      },
-      "complexity": {
-        "noForEach": "off",
-        "noStaticOnlyClass": "off",
-        "noUselessContinue": "warn",
-        "useFlatMap": "warn",
-        "useOptionalChain": "warn"
+        "useTemplate": "off"
       },
       "security": {
-        "noDangerouslySetInnerHtml": "warn"
+        "noDangerouslySetInnerHtml": "off"
       }
     }
   },
   "assist": {
-    "enabled": false
+    "enabled": true,
+    "actions": {
+      "source": {
+        "organizeImports": "on"
+      }
+    }
   },
   "formatter": {
-    "enabled": false
+    "enabled": true,
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 120
   },
   "javascript": {
-    "globals": ["React"]
+    "globals": ["React"],
+    "formatter": {
+      "quoteStyle": "single",
+      "semicolons": "always",
+      "trailingCommas": "all",
+      "arrowParentheses": "always"
+    }
   }
 }

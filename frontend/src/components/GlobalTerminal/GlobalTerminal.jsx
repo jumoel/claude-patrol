@@ -1,10 +1,10 @@
-import { useState, useCallback, useEffect } from 'react';
-import { Terminal } from '../Terminal/Terminal.jsx';
+import { useCallback, useEffect, useState } from 'react';
 import { useEscapeKey } from '../../hooks/useEscapeKey.js';
 import { useResizeHandle } from '../../hooks/useResizeHandle.js';
 import { promoteSession } from '../../lib/api.js';
-import { RepoCombobox } from '../ui/RepoCombobox/RepoCombobox.jsx';
 import shared from '../../styles/shared.module.css';
+import { Terminal } from '../Terminal/Terminal.jsx';
+import { RepoCombobox } from '../ui/RepoCombobox/RepoCombobox.jsx';
 import styles from './GlobalTerminal.module.css';
 
 const MIN_HEIGHT = 150;
@@ -19,12 +19,18 @@ function loadHeight() {
       const h = Number(saved);
       if (h >= MIN_HEIGHT && h <= window.innerHeight * MAX_HEIGHT_RATIO) return h;
     }
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
   return DEFAULT_HEIGHT;
 }
 
 function persistHeight(h) {
-  try { localStorage.setItem(STORAGE_KEY, String(Math.round(h))); } catch { /* ignore */ }
+  try {
+    localStorage.setItem(STORAGE_KEY, String(Math.round(h)));
+  } catch {
+    /* ignore */
+  }
 }
 
 /**
@@ -49,7 +55,10 @@ export function GlobalTerminal({ open, onToggle, onSessionChange }) {
     onPersist: persistHeight,
   });
 
-  useEscapeKey(maximized, useCallback(() => setMaximized(false), []));
+  useEscapeKey(
+    maximized,
+    useCallback(() => setMaximized(false), []),
+  );
 
   // Notify parent when session changes
   useEffect(() => {
@@ -102,7 +111,6 @@ export function GlobalTerminal({ open, onToggle, onSessionChange }) {
     }
   }, [session]);
 
-
   const handlePromote = useCallback(async () => {
     if (!session || !promoteRepo || !promoteBranch) return;
     setPromoting(true);
@@ -124,7 +132,7 @@ export function GlobalTerminal({ open, onToggle, onSessionChange }) {
 
   // Double-click toggles between min and default
   const handleDoubleClick = useCallback(() => {
-    setHeight(prev => {
+    setHeight((prev) => {
       const next = prev <= MIN_HEIGHT + 20 ? DEFAULT_HEIGHT : MIN_HEIGHT;
       persistHeight(next);
       return next;
@@ -154,10 +162,10 @@ export function GlobalTerminal({ open, onToggle, onSessionChange }) {
           <div className={styles.handleActions}>
             {session && (
               <>
-                <button className={styles.promoteButton} onClick={() => setShowPromote(s => !s)}>
+                <button className={styles.promoteButton} onClick={() => setShowPromote((s) => !s)}>
                   Promote
                 </button>
-                <button className={styles.maximizeButton} onClick={() => setMaximized(m => !m)}>
+                <button className={styles.maximizeButton} onClick={() => setMaximized((m) => !m)}>
                   {maximized ? 'Restore' : 'Maximize'}
                 </button>
                 <button className={styles.popOutButton} onClick={popOutSession}>
@@ -168,8 +176,22 @@ export function GlobalTerminal({ open, onToggle, onSessionChange }) {
                 </button>
               </>
             )}
-            <button className={styles.closeButton} onClick={() => { setMaximized(false); onToggle(); }}>
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+            <button
+              className={styles.closeButton}
+              onClick={() => {
+                setMaximized(false);
+                onToggle();
+              }}
+            >
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 14 14"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+              >
                 <line x1="3" y1="3" x2="11" y2="11" />
                 <line x1="11" y1="3" x2="3" y2="11" />
               </svg>
@@ -184,8 +206,8 @@ export function GlobalTerminal({ open, onToggle, onSessionChange }) {
               type="text"
               placeholder="branch-name"
               value={promoteBranch}
-              onChange={e => setPromoteBranch(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && handlePromote()}
+              onChange={(e) => setPromoteBranch(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handlePromote()}
               disabled={promoting}
             />
             <button
@@ -195,11 +217,7 @@ export function GlobalTerminal({ open, onToggle, onSessionChange }) {
             >
               {promoting ? 'Promoting...' : 'Go'}
             </button>
-            <button
-              className={styles.promoteCancel}
-              onClick={() => setShowPromote(false)}
-              disabled={promoting}
-            >
+            <button className={styles.promoteCancel} onClick={() => setShowPromote(false)} disabled={promoting}>
               Cancel
             </button>
           </div>

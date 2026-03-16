@@ -1,6 +1,6 @@
-import { join } from 'node:path';
-import { homedir } from 'node:os';
 import { mkdirSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 
 const APP = 'claude-patrol';
 

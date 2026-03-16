@@ -1,5 +1,5 @@
-import { useState, useCallback, useEffect } from 'react';
-import { fetchSetupAccounts, fetchSetupRepos, saveConfig, fetchConfig } from '../../lib/api.js';
+import { useCallback, useEffect, useState } from 'react';
+import { fetchConfig, fetchSetupAccounts, fetchSetupRepos, saveConfig } from '../../lib/api.js';
 import styles from './SetupMode.module.css';
 
 const INTERVAL_PRESETS = [
@@ -28,7 +28,7 @@ export function SetupMode({ onConfigured, isFirstRun }) {
   const [repoLoading, setRepoLoading] = useState({});
   const [selectedRepos, setSelectedRepos] = useState({});
   const [interval, setInterval_] = useState(30);
-  const [existingConfig, setExistingConfig] = useState(null);
+  const [_existingConfig, setExistingConfig] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -36,10 +36,7 @@ export function SetupMode({ onConfigured, isFirstRun }) {
       try {
         setLoading(true);
         setError(null);
-        const [accountsData, configData] = await Promise.all([
-          fetchSetupAccounts(),
-          fetchConfig(),
-        ]);
+        const [accountsData, configData] = await Promise.all([fetchSetupAccounts(), fetchConfig()]);
         if (cancelled) return;
         setAccounts(accountsData.accounts);
         setExistingConfig(configData.poll);
@@ -67,9 +64,11 @@ export function SetupMode({ onConfigured, isFirstRun }) {
         }
         setSelectedRepos(repoMap);
 
-        const pickAccounts = Object.entries(modes).filter(([, m]) => m === 'pick').map(([k]) => k);
+        const pickAccounts = Object.entries(modes)
+          .filter(([, m]) => m === 'pick')
+          .map(([k]) => k);
         if (pickAccounts.length > 0) {
-          setRepoLoading(prev => {
+          setRepoLoading((prev) => {
             const next = { ...prev };
             for (const a of pickAccounts) next[a] = true;
             return next;
@@ -77,12 +76,12 @@ export function SetupMode({ onConfigured, isFirstRun }) {
         }
         for (const account of pickAccounts) {
           fetchSetupRepos(account)
-            .then(data => {
-              if (!cancelled) setRepoLists(prev => ({ ...prev, [account]: data.repos }));
+            .then((data) => {
+              if (!cancelled) setRepoLists((prev) => ({ ...prev, [account]: data.repos }));
             })
             .catch(() => {})
             .finally(() => {
-              if (!cancelled) setRepoLoading(prev => ({ ...prev, [account]: false }));
+              if (!cancelled) setRepoLoading((prev) => ({ ...prev, [account]: false }));
             });
         }
       } catch (err) {
@@ -91,11 +90,13 @@ export function SetupMode({ onConfigured, isFirstRun }) {
         if (!cancelled) setLoading(false);
       }
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const toggleAccount = useCallback((login) => {
-    setAccountModes(prev => {
+    setAccountModes((prev) => {
       const next = { ...prev };
       if (next[login]) {
         delete next[login];
@@ -106,23 +107,26 @@ export function SetupMode({ onConfigured, isFirstRun }) {
     });
   }, []);
 
-  const setMode = useCallback((login, mode) => {
-    setAccountModes(prev => ({ ...prev, [login]: mode }));
-    if (mode === 'pick' && !repoLists[login]) {
-      setRepoLoading(prev => ({ ...prev, [login]: true }));
-      fetchSetupRepos(login)
-        .then(data => {
-          setRepoLists(prev => ({ ...prev, [login]: data.repos }));
-        })
-        .catch(() => {})
-        .finally(() => {
-          setRepoLoading(prev => ({ ...prev, [login]: false }));
-        });
-    }
-  }, [repoLists]);
+  const setMode = useCallback(
+    (login, mode) => {
+      setAccountModes((prev) => ({ ...prev, [login]: mode }));
+      if (mode === 'pick' && !repoLists[login]) {
+        setRepoLoading((prev) => ({ ...prev, [login]: true }));
+        fetchSetupRepos(login)
+          .then((data) => {
+            setRepoLists((prev) => ({ ...prev, [login]: data.repos }));
+          })
+          .catch(() => {})
+          .finally(() => {
+            setRepoLoading((prev) => ({ ...prev, [login]: false }));
+          });
+      }
+    },
+    [repoLists],
+  );
 
   const toggleRepo = useCallback((account, repoName) => {
-    setSelectedRepos(prev => {
+    setSelectedRepos((prev) => {
       const set = new Set(prev[account] || []);
       if (set.has(repoName)) {
         set.delete(repoName);
@@ -133,7 +137,7 @@ export function SetupMode({ onConfigured, isFirstRun }) {
     });
   }, []);
 
-  const selectedCount = Object.keys(accountModes).filter(k => accountModes[k]).length;
+  const selectedCount = Object.keys(accountModes).filter((k) => accountModes[k]).length;
 
   const handleSave = useCallback(async () => {
     setStep('saving');
@@ -178,7 +182,9 @@ export function SetupMode({ onConfigured, isFirstRun }) {
       <div className={styles.container}>
         <div className={styles.errorCard}>
           <p className={styles.errorText}>{error}</p>
-          <button className={styles.retryBtn} onClick={() => window.location.reload()}>Retry</button>
+          <button className={styles.retryBtn} onClick={() => window.location.reload()}>
+            Retry
+          </button>
         </div>
       </div>
     );
@@ -191,9 +197,7 @@ export function SetupMode({ onConfigured, isFirstRun }) {
     <div className={styles.container}>
       <div className={styles.header}>
         <div>
-          <h2 className={styles.title}>
-            {isFirstRun ? 'Set up monitoring' : 'Configure monitoring'}
-          </h2>
+          <h2 className={styles.title}>{isFirstRun ? 'Set up monitoring' : 'Configure monitoring'}</h2>
           <p className={styles.subtitle}>
             {step === 'accounts' && 'Select which GitHub accounts to monitor for open PRs.'}
             {step === 'repos' && 'Choose all repos or pick specific ones per account.'}
@@ -201,7 +205,12 @@ export function SetupMode({ onConfigured, isFirstRun }) {
           </p>
         </div>
         {!isFirstRun && step === 'accounts' && (
-          <button className={styles.backBtn} onClick={() => { window.location.hash = ''; }}>
+          <button
+            className={styles.backBtn}
+            onClick={() => {
+              window.location.hash = '';
+            }}
+          >
             Back to dashboard
           </button>
         )}
@@ -209,7 +218,10 @@ export function SetupMode({ onConfigured, isFirstRun }) {
 
       <div className={styles.steps}>
         {stepKeys.map((key, i) => (
-          <div key={key} className={`${styles.step} ${step === key ? styles.stepActive : ''} ${stepKeys.indexOf(step) > i ? styles.stepDone : ''}`}>
+          <div
+            key={key}
+            className={`${styles.step} ${step === key ? styles.stepActive : ''} ${stepKeys.indexOf(step) > i ? styles.stepDone : ''}`}
+          >
             <span className={styles.stepNumber}>{i + 1}</span>
             <span className={styles.stepLabel}>{stepLabels[key]}</span>
           </div>
@@ -221,7 +233,7 @@ export function SetupMode({ onConfigured, isFirstRun }) {
       {step === 'accounts' && (
         <>
           <div className={styles.list}>
-            {accounts.map(acc => (
+            {accounts.map((acc) => (
               <label key={acc.login} className={styles.accountRow}>
                 <input
                   type="checkbox"
@@ -236,11 +248,7 @@ export function SetupMode({ onConfigured, isFirstRun }) {
             ))}
           </div>
           <div className={styles.actions}>
-            <button
-              className={styles.primaryBtn}
-              disabled={selectedCount === 0}
-              onClick={() => setStep('repos')}
-            >
+            <button className={styles.primaryBtn} disabled={selectedCount === 0} onClick={() => setStep('repos')}>
               Next
             </button>
           </div>
@@ -251,8 +259,8 @@ export function SetupMode({ onConfigured, isFirstRun }) {
         <>
           <div className={styles.list}>
             {accounts
-              .filter(acc => accountModes[acc.login])
-              .map(acc => {
+              .filter((acc) => accountModes[acc.login])
+              .map((acc) => {
                 const { login } = acc;
                 const mode = accountModes[login];
                 const repos = repoLists[login] || [];
@@ -283,7 +291,7 @@ export function SetupMode({ onConfigured, isFirstRun }) {
                       <div className={styles.repoList}>
                         {isLoadingRepos && <p className={styles.loadingText}>Loading repos...</p>}
                         {!isLoadingRepos && repos.length === 0 && <p className={styles.emptyText}>No repos found</p>}
-                        {repos.map(repo => (
+                        {repos.map((repo) => (
                           <label key={repo.nameWithOwner} className={styles.repoRow}>
                             <input
                               type="checkbox"
@@ -292,9 +300,7 @@ export function SetupMode({ onConfigured, isFirstRun }) {
                               onChange={() => toggleRepo(login, repo.nameWithOwner)}
                             />
                             <span className={styles.repoName}>{repo.name}</span>
-                            {repo.description && (
-                              <span className={styles.repoDesc}>{repo.description}</span>
-                            )}
+                            {repo.description && <span className={styles.repoDesc}>{repo.description}</span>}
                           </label>
                         ))}
                       </div>
@@ -320,7 +326,7 @@ export function SetupMode({ onConfigured, isFirstRun }) {
             <label className={styles.settingsLabel}>Poll interval</label>
             <p className={styles.settingsHint}>How often claude-patrol checks GitHub for updates.</p>
             <div className={styles.presets}>
-              {INTERVAL_PRESETS.map(p => (
+              {INTERVAL_PRESETS.map((p) => (
                 <button
                   key={p.value}
                   className={`${styles.presetBtn} ${interval === p.value ? styles.presetBtnActive : ''}`}
@@ -337,7 +343,7 @@ export function SetupMode({ onConfigured, isFirstRun }) {
                 min="5"
                 max="3600"
                 value={interval}
-                onChange={e => setInterval_(Math.max(5, Number(e.target.value) || 30))}
+                onChange={(e) => setInterval_(Math.max(5, Number(e.target.value) || 30))}
                 className={styles.numberInput}
               />
               <span className={styles.intervalUnit}>seconds</span>
@@ -354,9 +360,7 @@ export function SetupMode({ onConfigured, isFirstRun }) {
         </>
       )}
 
-      {step === 'saving' && (
-        <p className={styles.loadingText}>Saving configuration...</p>
-      )}
+      {step === 'saving' && <p className={styles.loadingText}>Saving configuration...</p>}
     </div>
   );
 }

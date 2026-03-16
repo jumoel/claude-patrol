@@ -1,10 +1,10 @@
-import { EventEmitter } from 'node:events';
 import { spawn } from 'node:child_process';
+import { EventEmitter } from 'node:events';
 import { unlinkSync } from 'node:fs';
-import { getDb } from './db.js';
-import { destroyWorkspace } from './workspace.js';
-import { makePrId } from './utils.js';
 import { emitLocalChange } from './app-events.js';
+import { getDb } from './db.js';
+import { makePrId } from './utils.js';
+import { destroyWorkspace } from './workspace.js';
 
 export const pollerEvents = new EventEmitter();
 
@@ -125,7 +125,9 @@ async function ghGraphql(query, variables) {
         lastError = new Error(`gh graphql failed (exit ${code}): ${stderr || stdout}`);
         if (attempt < MAX_RETRIES) {
           const delay = RETRY_BASE_MS * 2 ** (attempt - 1);
-          console.warn(`[poller] gh graphql failed (attempt ${attempt}/${MAX_RETRIES}), retrying in ${delay}ms: ${(stderr || stdout).slice(0, 120)}`);
+          console.warn(
+            `[poller] gh graphql failed (attempt ${attempt}/${MAX_RETRIES}), retrying in ${delay}ms: ${(stderr || stdout).slice(0, 120)}`,
+          );
           await sleep(delay);
           continue;
         }
@@ -144,9 +146,10 @@ async function ghGraphql(query, variables) {
       if (err.message.startsWith('gh graphql returned non-JSON')) throw err;
       if (attempt < MAX_RETRIES) {
         const delay = RETRY_BASE_MS * 2 ** (attempt - 1);
-        console.warn(`[poller] gh graphql failed (attempt ${attempt}/${MAX_RETRIES}), retrying in ${delay}ms: ${err.message.slice(0, 120)}`);
+        console.warn(
+          `[poller] gh graphql failed (attempt ${attempt}/${MAX_RETRIES}), retrying in ${delay}ms: ${err.message.slice(0, 120)}`,
+        );
         await sleep(delay);
-        continue;
       }
     }
   }
@@ -223,7 +226,7 @@ async function fetchPRs(qualifier) {
 function extractChecks(pr) {
   const commitNode = pr.commits?.nodes?.[0]?.commit;
   const contexts = commitNode?.statusCheckRollup?.contexts?.nodes ?? [];
-  return contexts.map(ctx => {
+  return contexts.map((ctx) => {
     if ('name' in ctx) {
       const workflow = ctx.checkSuite?.workflowRun?.workflow?.name;
       const fullName = workflow ? `${workflow} / ${ctx.name}` : ctx.name;
@@ -239,7 +242,7 @@ function extractChecks(pr) {
  * @returns {Array<{reviewer: string, state: string, submitted_at: string}>}
  */
 function extractReviews(pr) {
-  return (pr.reviews?.nodes ?? []).map(r => ({
+  return (pr.reviews?.nodes ?? []).map((r) => ({
     reviewer: r.author?.login ?? 'unknown',
     state: r.state,
     submitted_at: r.submittedAt,
@@ -252,7 +255,7 @@ function extractReviews(pr) {
  * @returns {Array<{name: string, color: string}>}
  */
 function extractLabels(pr) {
-  return (pr.labels?.nodes ?? []).map(l => ({ name: l.name, color: l.color }));
+  return (pr.labels?.nodes ?? []).map((l) => ({ name: l.name, color: l.color }));
 }
 
 /** @type {import('node:sqlite').StatementSync | null} */
@@ -281,15 +284,25 @@ function getStatements() {
     deleteStaleByOrgStmt = db.prepare('DELETE FROM prs WHERE org = ? AND id NOT IN (SELECT value FROM json_each(?))');
   }
   if (!deleteStaleByRepoStmt) {
-    deleteStaleByRepoStmt = db.prepare('DELETE FROM prs WHERE org = ? AND repo = ? AND id NOT IN (SELECT value FROM json_each(?))');
+    deleteStaleByRepoStmt = db.prepare(
+      'DELETE FROM prs WHERE org = ? AND repo = ? AND id NOT IN (SELECT value FROM json_each(?))',
+    );
   }
   if (!findStaleByOrgStmt) {
     findStaleByOrgStmt = db.prepare('SELECT id FROM prs WHERE org = ? AND id NOT IN (SELECT value FROM json_each(?))');
   }
   if (!findStaleByRepoStmt) {
-    findStaleByRepoStmt = db.prepare('SELECT id FROM prs WHERE org = ? AND repo = ? AND id NOT IN (SELECT value FROM json_each(?))');
+    findStaleByRepoStmt = db.prepare(
+      'SELECT id FROM prs WHERE org = ? AND repo = ? AND id NOT IN (SELECT value FROM json_each(?))',
+    );
   }
-  return { upsert: upsertStmt, deleteStaleByOrg: deleteStaleByOrgStmt, deleteStaleByRepo: deleteStaleByRepoStmt, findStaleByOrg: findStaleByOrgStmt, findStaleByRepo: findStaleByRepoStmt };
+  return {
+    upsert: upsertStmt,
+    deleteStaleByOrg: deleteStaleByOrgStmt,
+    deleteStaleByRepo: deleteStaleByRepoStmt,
+    findStaleByOrg: findStaleByOrgStmt,
+    findStaleByRepo: findStaleByRepoStmt,
+  };
 }
 
 /**
@@ -308,10 +321,16 @@ async function cleanupStalePR(prId, config) {
     }
   }
   // Clean up archived transcript files before deleting session rows
-  const sessionsToDelete = db.prepare('SELECT transcript_path FROM sessions WHERE workspace_id IN (SELECT id FROM workspaces WHERE pr_id = ?)').all(prId);
+  const sessionsToDelete = db
+    .prepare('SELECT transcript_path FROM sessions WHERE workspace_id IN (SELECT id FROM workspaces WHERE pr_id = ?)')
+    .all(prId);
   for (const sess of sessionsToDelete) {
     if (sess.transcript_path) {
-      try { unlinkSync(sess.transcript_path); } catch { /* best effort */ }
+      try {
+        unlinkSync(sess.transcript_path);
+      } catch {
+        /* best effort */
+      }
     }
   }
 
@@ -376,9 +395,7 @@ async function cleanupStale(scope, org, repo, seenIds, config) {
   const { findStaleByOrg, findStaleByRepo, deleteStaleByOrg, deleteStaleByRepo } = getStatements();
   const seenJson = JSON.stringify(seenIds);
 
-  const staleRows = scope === 'org'
-    ? findStaleByOrg.all(org, seenJson)
-    : findStaleByRepo.all(org, repo, seenJson);
+  const staleRows = scope === 'org' ? findStaleByOrg.all(org, seenJson) : findStaleByRepo.all(org, repo, seenJson);
 
   // Destroy workspaces for stale PRs (async operations)
   for (const row of staleRows) {
@@ -405,14 +422,16 @@ async function pollOnce(config) {
   let totalCount = 0;
 
   // Org-level fetches
-  const orgResults = await Promise.allSettled(orgs.map(async (org) => {
-    const prs = await fetchPRs(`org:${org}`);
-    upsertPRs(prs);
-    const seenIds = prs.map(pr => makePrId(pr.repository.owner.login, pr.repository.name, pr.number));
-    await cleanupStale('org', org, null, seenIds, config);
-    console.log(`[poller] Synced ${prs.length} PRs for org:${org}`);
-    return prs.length;
-  }));
+  const orgResults = await Promise.allSettled(
+    orgs.map(async (org) => {
+      const prs = await fetchPRs(`org:${org}`);
+      upsertPRs(prs);
+      const seenIds = prs.map((pr) => makePrId(pr.repository.owner.login, pr.repository.name, pr.number));
+      await cleanupStale('org', org, null, seenIds, config);
+      console.log(`[poller] Synced ${prs.length} PRs for org:${org}`);
+      return prs.length;
+    }),
+  );
 
   for (const result of orgResults) {
     if (result.status === 'fulfilled') {
@@ -423,20 +442,22 @@ async function pollOnce(config) {
   }
 
   // Repo-level fetches
-  const repoResults = await Promise.allSettled(repos.map(async (ownerRepo) => {
-    const [owner, repo] = ownerRepo.split('/');
-    // Skip if this repo's org is already covered by org-level polling
-    if (orgSet.has(owner)) {
-      console.log(`[poller] Skipping repo:${ownerRepo} (org:${owner} already polled)`);
-      return 0;
-    }
-    const prs = await fetchPRs(`repo:${ownerRepo}`);
-    upsertPRs(prs);
-    const seenIds = prs.map(pr => makePrId(pr.repository.owner.login, pr.repository.name, pr.number));
-    await cleanupStale('repo', owner, repo, seenIds, config);
-    console.log(`[poller] Synced ${prs.length} PRs for repo:${ownerRepo}`);
-    return prs.length;
-  }));
+  const repoResults = await Promise.allSettled(
+    repos.map(async (ownerRepo) => {
+      const [owner, repo] = ownerRepo.split('/');
+      // Skip if this repo's org is already covered by org-level polling
+      if (orgSet.has(owner)) {
+        console.log(`[poller] Skipping repo:${ownerRepo} (org:${owner} already polled)`);
+        return 0;
+      }
+      const prs = await fetchPRs(`repo:${ownerRepo}`);
+      upsertPRs(prs);
+      const seenIds = prs.map((pr) => makePrId(pr.repository.owner.login, pr.repository.name, pr.number));
+      await cleanupStale('repo', owner, repo, seenIds, config);
+      console.log(`[poller] Synced ${prs.length} PRs for repo:${ownerRepo}`);
+      return prs.length;
+    }),
+  );
 
   for (const result of repoResults) {
     if (result.status === 'fulfilled') {
@@ -483,8 +504,7 @@ function adoptScratchWorkspaces() {
     if (!ws.repo) continue;
     const [org, repo] = ws.repo.split('/');
     // Exact match first, then suffix match (handles user/ prefixes on branches)
-    const pr = findPrByBranchStmt.get(org, repo, ws.bookmark)
-            || findPrByBranchSuffixStmt.get(org, repo, ws.bookmark);
+    const pr = findPrByBranchStmt.get(org, repo, ws.bookmark) || findPrByBranchSuffixStmt.get(org, repo, ws.bookmark);
     if (pr) {
       adoptWorkspaceStmt.run(pr.id, ws.id);
       adopted++;
@@ -535,10 +555,9 @@ let lastTargetsKey = null;
  */
 export function startPoller(config) {
   stopPoller();
-  const targetsKey = [
-    ...config.poll.orgs.map(o => `org:${o}`),
-    ...config.poll.repos.map(r => `repo:${r}`),
-  ].sort().join(',');
+  const targetsKey = [...config.poll.orgs.map((o) => `org:${o}`), ...config.poll.repos.map((r) => `repo:${r}`)]
+    .sort()
+    .join(',');
   const targets = targetsKey.replace(/,/g, ', ');
   console.log(`[poller] Starting - polling ${targets} every ${config.poll.interval_seconds}s`);
 
@@ -546,11 +565,11 @@ export function startPoller(config) {
   const targetsChanged = targetsKey !== lastTargetsKey;
   lastTargetsKey = targetsKey;
   if (targetsChanged) {
-    cleanupRemovedTargets(config).catch(err => console.error(`[poller] Cleanup failed: ${err.message}`));
-    pollOnce(config).catch(err => console.error(`[poller] Poll failed: ${err.message}`));
+    cleanupRemovedTargets(config).catch((err) => console.error(`[poller] Cleanup failed: ${err.message}`));
+    pollOnce(config).catch((err) => console.error(`[poller] Poll failed: ${err.message}`));
   }
   intervalHandle = setInterval(
-    () => pollOnce(config).catch(err => console.error(`[poller] Poll failed: ${err.message}`)),
+    () => pollOnce(config).catch((err) => console.error(`[poller] Poll failed: ${err.message}`)),
     config.poll.interval_seconds * 1000,
   );
 }

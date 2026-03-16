@@ -1,10 +1,10 @@
-import { useState, useEffect, useCallback } from 'react';
-import { fetchScratchWorkspaces, createScratchWorkspace } from '../../lib/api.js';
+import { useCallback, useEffect, useState } from 'react';
+import { createScratchWorkspace, fetchScratchWorkspaces } from '../../lib/api.js';
 import { getRelativeTime } from '../../lib/time.js';
 import { RepoCombobox } from '../ui/RepoCombobox/RepoCombobox.jsx';
 import styles from './ScratchWorkspaces.module.css';
 
-export function ScratchWorkspaces({ prs, syncedAt }) {
+export function ScratchWorkspaces() {
   const [scratchWorkspaces, setScratchWorkspaces] = useState([]);
   const [showNewWork, setShowNewWork] = useState(false);
   const [newWorkRepo, setNewWorkRepo] = useState('');
@@ -13,9 +13,9 @@ export function ScratchWorkspaces({ prs, syncedAt }) {
 
   useEffect(() => {
     fetchScratchWorkspaces()
-      .then(ws => setScratchWorkspaces(ws))
+      .then((ws) => setScratchWorkspaces(ws))
       .catch(() => {});
-  }, [syncedAt]);
+  }, []);
 
   const handleNewWork = useCallback(async () => {
     if (!newWorkRepo || !newWorkBranch) return;
@@ -54,9 +54,9 @@ export function ScratchWorkspaces({ prs, syncedAt }) {
               className={styles.input}
               type="text"
               value={newWorkBranch}
-              onChange={e => setNewWorkBranch(e.target.value)}
+              onChange={(e) => setNewWorkBranch(e.target.value)}
               placeholder="feat/my-feature"
-              onKeyDown={e => e.key === 'Enter' && handleNewWork()}
+              onKeyDown={(e) => e.key === 'Enter' && handleNewWork()}
             />
           </div>
           <button
@@ -68,7 +68,10 @@ export function ScratchWorkspaces({ prs, syncedAt }) {
           </button>
           <button
             className={styles.cancelBtn}
-            onClick={() => { setShowNewWork(false); setNewWorkBranch(''); }}
+            onClick={() => {
+              setShowNewWork(false);
+              setNewWorkBranch('');
+            }}
             disabled={newWorkSubmitting}
             type="button"
           >
@@ -78,11 +81,13 @@ export function ScratchWorkspaces({ prs, syncedAt }) {
       )}
       {scratchWorkspaces.length > 0 ? (
         <div className={styles.list}>
-          {scratchWorkspaces.map(ws => (
+          {scratchWorkspaces.map((ws) => (
             <div
               key={ws.id}
               className={styles.row}
-              onClick={() => { window.location.hash = `/workspace/${ws.id}`; }}
+              onClick={() => {
+                window.location.hash = `/workspace/${ws.id}`;
+              }}
             >
               <div className={styles.rowLeft}>
                 <span className={styles.bookmark}>{ws.bookmark}</span>
@@ -92,8 +97,8 @@ export function ScratchWorkspaces({ prs, syncedAt }) {
             </div>
           ))}
         </div>
-      ) : !showNewWork && (
-        <p className={styles.emptyText}>No scratch workspaces. Click "New Work" to start.</p>
+      ) : (
+        !showNewWork && <p className={styles.emptyText}>No scratch workspaces. Click "New Work" to start.</p>
       )}
     </div>
   );

@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useSyncExternalStore } from 'react';
 
 /**
  * Tracks session activity state (working/idle) per workspace via SSE.
@@ -19,11 +19,18 @@ let workspaceStates = new Map();
 const sessionWorkspaceMap = new Map();
 
 const listeners = new Set();
-function notify() { for (const cb of listeners) cb(); }
-function subscribe(cb) { listeners.add(cb); return () => listeners.delete(cb); }
+function notify() {
+  for (const cb of listeners) cb();
+}
+function subscribe(cb) {
+  listeners.add(cb);
+  return () => listeners.delete(cb);
+}
 
 let statesSnapshot = workspaceStates;
-function getStatesSnapshot() { return statesSnapshot; }
+function getStatesSnapshot() {
+  return statesSnapshot;
+}
 
 /** Workspace ID the user is currently viewing. */
 let activeWorkspaceId = null;
@@ -110,11 +117,14 @@ export function useIdleNotification() {
     }
   }, []);
 
-  const setActiveWorkspace = useCallback((wsId) => {
-    activeWorkspaceId = wsId;
-    // Auto-dismiss idle badge when the user views the workspace
-    if (wsId && workspaceStates.get(wsId) === 'idle') dismissWorkspace(wsId);
-  }, [dismissWorkspace]);
+  const setActiveWorkspace = useCallback(
+    (wsId) => {
+      activeWorkspaceId = wsId;
+      // Auto-dismiss idle badge when the user views the workspace
+      if (wsId && workspaceStates.get(wsId) === 'idle') dismissWorkspace(wsId);
+    },
+    [dismissWorkspace],
+  );
 
   return { workspaceStates: states, dismissWorkspace, setActiveWorkspace };
 }

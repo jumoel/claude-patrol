@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, unlinkSync } from 'node:fs';
+import { readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { pidPath } from './paths.js';
 
 /**

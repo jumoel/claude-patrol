@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useCallback, useRef, useState } from 'react';
 
 /**
  * Pointer-based drag resize logic. Returns state and event handlers.
@@ -12,27 +12,36 @@ export function useResizeHandle({ initial, min, max, direction = 'down', onPersi
   const [dragging, setDragging] = useState(false);
   const dragStartRef = useRef(null);
 
-  const onPointerDown = useCallback((e) => {
-    e.preventDefault();
-    dragStartRef.current = { y: e.clientY, height };
-    setDragging(true);
-    e.target.setPointerCapture(e.pointerId);
-  }, [height]);
+  const onPointerDown = useCallback(
+    (e) => {
+      e.preventDefault();
+      dragStartRef.current = { y: e.clientY, height };
+      setDragging(true);
+      e.target.setPointerCapture(e.pointerId);
+    },
+    [height],
+  );
 
-  const onPointerMove = useCallback((e) => {
-    if (!dragStartRef.current) return;
-    const rawDelta = e.clientY - dragStartRef.current.y;
-    const delta = direction === 'up' ? -rawDelta : rawDelta;
-    const newHeight = Math.min(max, Math.max(min, dragStartRef.current.height + delta));
-    setHeight(newHeight);
-  }, [min, max, direction]);
+  const onPointerMove = useCallback(
+    (e) => {
+      if (!dragStartRef.current) return;
+      const rawDelta = e.clientY - dragStartRef.current.y;
+      const delta = direction === 'up' ? -rawDelta : rawDelta;
+      const newHeight = Math.min(max, Math.max(min, dragStartRef.current.height + delta));
+      setHeight(newHeight);
+    },
+    [min, max, direction],
+  );
 
   const onPointerUp = useCallback(() => {
     if (!dragStartRef.current) return;
     dragStartRef.current = null;
     setDragging(false);
     if (onPersist) {
-      setHeight(h => { onPersist(h); return h; });
+      setHeight((h) => {
+        onPersist(h);
+        return h;
+      });
     }
   }, [onPersist]);
 

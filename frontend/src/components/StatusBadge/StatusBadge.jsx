@@ -20,9 +20,5 @@ const LABELS = {
  */
 export function StatusBadge({ status, type = 'ci' }) {
   const variant = `${type}-${status}`;
-  return (
-    <span className={`${styles.badge} ${styles[variant] || styles.neutral}`}>
-      {LABELS[status] || status}
-    </span>
-  );
+  return <span className={`${styles.badge} ${styles[variant] || styles.neutral}`}>{LABELS[status] || status}</span>;
 }

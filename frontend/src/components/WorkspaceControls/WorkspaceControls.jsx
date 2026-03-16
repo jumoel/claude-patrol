@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import { destroyWorkspace } from '../../lib/api.js';
 import styles from './WorkspaceControls.module.css';
 
@@ -6,7 +6,7 @@ import styles from './WorkspaceControls.module.css';
  * Workspace create/destroy controls for a PR.
  * @param {{ prId: string, workspace: object | null, onUpdate: () => void, getOrCreateWorkspace?: () => Promise<object>, claudeWaiting?: boolean }} props
  */
-export function WorkspaceControls({ prId, workspace, onUpdate, getOrCreateWorkspace, claudeWaiting }) {
+export function WorkspaceControls({ workspace, onUpdate, getOrCreateWorkspace, claudeWaiting }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [confirmDestroy, setConfirmDestroy] = useState(false);

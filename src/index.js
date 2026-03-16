@@ -1,16 +1,31 @@
 import { execFile as execFileCb } from 'node:child_process';
-import { loadConfig, ensureConfig, watchConfig, unwatchConfig, configEvents, setCurrentConfig, isConfigured } from './config.js';
-import { configPath } from './paths.js';
-import { initDb } from './db.js';
-import { startPoller, stopPoller, resetStatements } from './poller.js';
-import { createServer } from './server.js';
-import { cleanupOrphanedSessions, cleanupOrphanedTmuxSessions, reattachOrphanedSessions, initMcpConfig, updateMcpConfig, killAllSessions, activeSessionCount } from './pty-manager.js';
 import { emitLocalChange } from './app-events.js';
-import { validateStartup } from './startup.js';
+import {
+  configEvents,
+  ensureConfig,
+  isConfigured,
+  loadConfig,
+  setCurrentConfig,
+  unwatchConfig,
+  watchConfig,
+} from './config.js';
+import { initDb } from './db.js';
 import { startHealthChecks, stopHealthChecks } from './health.js';
+import { isRunning, removePid, writePid } from './pid.js';
+import { resetStatements, startPoller, stopPoller } from './poller.js';
+import {
+  activeSessionCount,
+  cleanupOrphanedSessions,
+  cleanupOrphanedTmuxSessions,
+  initMcpConfig,
+  killAllSessions,
+  reattachOrphanedSessions,
+  updateMcpConfig,
+} from './pty-manager.js';
+import { createServer } from './server.js';
+import { validateStartup } from './startup.js';
+import { destroyTui, initTui, setHeader } from './tui.js';
 import { startUpdateChecks, stopUpdateChecks } from './update-check.js';
-import { writePid, removePid, isRunning } from './pid.js';
-import { initTui, destroyTui, setHeader } from './tui.js';
 
 /**
  * Start the claude-patrol server.
@@ -25,7 +40,9 @@ export async function startServer(options = {}) {
   if (!isReattachEarly && !portOverride) {
     const status = isRunning();
     if (status.running) {
-      console.error(`[claude-patrol] Already running (pid ${status.pid}, port ${status.port}). Use "claude-patrol stop" to stop it.`);
+      console.error(
+        `[claude-patrol] Already running (pid ${status.pid}, port ${status.port}). Use "claude-patrol stop" to stop it.`,
+      );
       process.exit(78); // EX_CONFIG (sysexits.h) - not a crash, just a precondition failure
     }
   }
@@ -95,10 +112,9 @@ export async function startServer(options = {}) {
   // Start TUI if running in an interactive terminal
   const isTTY = process.stdin.isTTY && process.stdout.isTTY;
   if (isTTY) {
-    const pollTargets = [
-      ...config.poll.orgs.map(o => `org:${o}`),
-      ...config.poll.repos.map(r => `repo:${r}`),
-    ].join(', ');
+    const pollTargets = [...config.poll.orgs.map((o) => `org:${o}`), ...config.poll.repos.map((r) => `repo:${r}`)].join(
+      ', ',
+    );
     const headerMsg = pollTargets
       ? `${serverUrl}  |  polling ${pollTargets} every ${config.poll.interval_seconds}s`
       : `${serverUrl}  |  setup mode - open browser to configure`;
@@ -126,7 +142,7 @@ export async function startServer(options = {}) {
     setCurrentConfig(newConfig);
     resetStatements();
     if (isConfigured(newConfig)) {
-      console.log('Config changed, ' + (pollerRunning ? 'restarting' : 'starting') + ' poller');
+      console.log(`Config changed, ${pollerRunning ? 'restarting' : 'starting'} poller`);
       startPoller(newConfig);
       pollerRunning = true;
     } else {
@@ -137,8 +153,8 @@ export async function startServer(options = {}) {
     // Update header with new config
     if (isTTY) {
       const targets = [
-        ...newConfig.poll.orgs.map(o => `org:${o}`),
-        ...newConfig.poll.repos.map(r => `repo:${r}`),
+        ...newConfig.poll.orgs.map((o) => `org:${o}`),
+        ...newConfig.poll.repos.map((r) => `repo:${r}`),
       ].join(', ');
       setHeader(`${serverUrl}  |  polling ${targets} every ${newConfig.poll.interval_seconds}s`);
     }
@@ -179,7 +195,11 @@ export async function startServer(options = {}) {
     }
     removePid();
     server.closeSSE();
-    try { await server.close(); } catch { /* ignore close errors */ }
+    try {
+      await server.close();
+    } catch {
+      /* ignore close errors */
+    }
     console.log('Shutdown complete.');
     process.exit(0);
   }

@@ -1,7 +1,7 @@
 import { execFile as execFileCb } from 'node:child_process';
-import { promisify } from 'node:util';
-import { resolve } from 'node:path';
 import { homedir } from 'node:os';
+import { resolve } from 'node:path';
+import { promisify } from 'node:util';
 
 export const execFile = promisify(execFileCb);
 

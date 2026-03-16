@@ -1,20 +1,20 @@
-import Fastify from 'fastify';
-import fastifyStatic from '@fastify/static';
-import fastifyCors from '@fastify/cors';
-import fastifyWebsocket from '@fastify/websocket';
-import { resolve } from 'node:path';
 import { existsSync } from 'node:fs';
-import { pollerEvents } from './poller.js';
+import { resolve } from 'node:path';
+import fastifyCors from '@fastify/cors';
+import fastifyStatic from '@fastify/static';
+import fastifyWebsocket from '@fastify/websocket';
+import Fastify from 'fastify';
 import { appEvents } from './app-events.js';
+import { pollerEvents } from './poller.js';
 import { getSessionStates } from './pty-manager.js';
-import { registerPRRoutes } from './routes/prs.js';
-import { registerSyncRoutes } from './routes/sync.js';
-import { registerConfigRoutes } from './routes/config.js';
-import { registerWorkspaceRoutes } from './routes/workspaces.js';
-import { registerSessionRoutes } from './routes/sessions.js';
 import { registerCheckRoutes } from './routes/checks.js';
 import { registerCommentRoutes } from './routes/comments.js';
+import { registerConfigRoutes } from './routes/config.js';
+import { registerPRRoutes } from './routes/prs.js';
+import { registerSessionRoutes } from './routes/sessions.js';
 import { registerSetupRoutes } from './routes/setup.js';
+import { registerSyncRoutes } from './routes/sync.js';
+import { registerWorkspaceRoutes } from './routes/workspaces.js';
 
 /**
  * Create and configure the Fastify server.

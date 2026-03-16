@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import styles from './CheckLogViewer.module.css';
 
 export function CheckLogViewer({ log, truncated, loading, error }) {
@@ -9,16 +9,24 @@ export function CheckLogViewer({ log, truncated, loading, error }) {
     const term = search.toLowerCase();
     return log
       .split('\n')
-      .filter(line => line.toLowerCase().includes(term))
+      .filter((line) => line.toLowerCase().includes(term))
       .join('\n');
   }, [log, search]);
 
   if (loading) {
-    return <div className={styles.container}><p className={styles.loading}>Loading logs...</p></div>;
+    return (
+      <div className={styles.container}>
+        <p className={styles.loading}>Loading logs...</p>
+      </div>
+    );
   }
 
   if (error) {
-    return <div className={styles.container}><p className={styles.error}>{error}</p></div>;
+    return (
+      <div className={styles.container}>
+        <p className={styles.error}>{error}</p>
+      </div>
+    );
   }
 
   if (!log) return null;
@@ -28,9 +36,7 @@ export function CheckLogViewer({ log, truncated, loading, error }) {
 
   return (
     <div className={styles.container}>
-      {truncated && (
-        <p className={styles.truncated}>Log output was truncated (exceeds 20,000 characters)</p>
-      )}
+      {truncated && <p className={styles.truncated}>Log output was truncated (exceeds 20,000 characters)</p>}
       <div className={styles.searchBar}>
         <input
           className={styles.searchInput}
@@ -40,7 +46,9 @@ export function CheckLogViewer({ log, truncated, loading, error }) {
           placeholder="Filter log lines..."
         />
         {search && (
-          <span className={styles.searchCount}>{lineCount} / {totalLines} lines</span>
+          <span className={styles.searchCount}>
+            {lineCount} / {totalLines} lines
+          </span>
         )}
       </div>
       <pre className={styles.log}>{filteredLog}</pre>

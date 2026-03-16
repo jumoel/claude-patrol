@@ -1,5 +1,5 @@
-import { getDb } from './db.js';
 import { existsSync } from 'node:fs';
+import { getDb } from './db.js';
 
 /**
  * Run health checks: verify sessions are alive, workspaces exist.

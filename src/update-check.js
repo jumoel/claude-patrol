@@ -7,7 +7,9 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_DIR = dirname(__dirname);
 
 /** Git SHA captured at process startup - never changes. */
-const startupSha = execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: REPO_DIR, timeout: 5_000 }).toString().trim();
+const startupSha = execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: REPO_DIR, timeout: 5_000 })
+  .toString()
+  .trim();
 
 let updateAvailable = false;
 let remoteCommitCount = 0;
@@ -94,15 +96,20 @@ export function getUpdateStatus() {
  */
 export function pullUpdate() {
   return new Promise((resolve) => {
-    execFile('git', ['pull', '--ff-only', 'origin', 'main'], { cwd: REPO_DIR, timeout: 30_000 }, (err, stdout, stderr) => {
-      if (err) {
-        resolve({ ok: false, error: (stderr || err.message).trim() });
-        return;
-      }
-      updateAvailable = false;
-      remoteCommitCount = 0;
-      resolve({ ok: true, output: stdout.trim() });
-    });
+    execFile(
+      'git',
+      ['pull', '--ff-only', 'origin', 'main'],
+      { cwd: REPO_DIR, timeout: 30_000 },
+      (err, stdout, stderr) => {
+        if (err) {
+          resolve({ ok: false, error: (stderr || err.message).trim() });
+          return;
+        }
+        updateAvailable = false;
+        remoteCommitCount = 0;
+        resolve({ ok: true, output: stdout.trim() });
+      },
+    );
   });
 }
 

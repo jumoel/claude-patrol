@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { fetchPRs, fetchConfig, triggerSync as apiTriggerSync } from '../lib/api.js';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { triggerSync as apiTriggerSync, fetchConfig, fetchPRs } from '../lib/api.js';
 
 /**
  * Calculate remaining seconds until next sync based on last sync time and interval.
@@ -23,7 +23,7 @@ export function usePRs(filters) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [syncing, setSyncing] = useState(false);
-  const [pollInterval, setPollInterval] = useState(600);
+  const [_pollInterval, setPollInterval] = useState(600);
   const [countdown, setCountdown] = useState(0);
   const filtersRef = useRef(filters);
   const syncedAtRef = useRef(null);
@@ -47,20 +47,22 @@ export function usePRs(filters) {
 
   // Fetch config for poll interval
   useEffect(() => {
-    fetchConfig().then(cfg => {
-      setPollInterval(cfg.poll.interval_seconds);
-      pollIntervalRef.current = cfg.poll.interval_seconds;
-      // Recalculate countdown with correct interval if we already have syncedAt
-      if (syncedAtRef.current) {
-        setCountdown(calcRemaining(syncedAtRef.current, cfg.poll.interval_seconds));
-      }
-    }).catch(() => {});
+    fetchConfig()
+      .then((cfg) => {
+        setPollInterval(cfg.poll.interval_seconds);
+        pollIntervalRef.current = cfg.poll.interval_seconds;
+        // Recalculate countdown with correct interval if we already have syncedAt
+        if (syncedAtRef.current) {
+          setCountdown(calcRemaining(syncedAtRef.current, cfg.poll.interval_seconds));
+        }
+      })
+      .catch(() => {});
   }, []);
 
   // Countdown timer
   useEffect(() => {
     const id = setInterval(() => {
-      setCountdown(prev => (prev > 0 ? prev - 1 : 0));
+      setCountdown((prev) => (prev > 0 ? prev - 1 : 0));
     }, 1000);
     return () => clearInterval(id);
   }, []);
@@ -68,7 +70,7 @@ export function usePRs(filters) {
   // Initial fetch and re-fetch on filter change
   useEffect(() => {
     loadPRs();
-  }, [filters, loadPRs]);
+  }, [loadPRs]);
 
   // SSE for live updates (sync from GitHub + local workspace/session changes)
   useEffect(() => {
@@ -79,13 +81,15 @@ export function usePRs(filters) {
     });
     source.addEventListener('local-change', () => {
       // Re-fetch config so interval is up-to-date for the next sync
-      fetchConfig().then(cfg => {
-        setPollInterval(cfg.poll.interval_seconds);
-        pollIntervalRef.current = cfg.poll.interval_seconds;
-        // Set countdown to the new interval directly - the poller just
-        // restarted and will sync soon, so treat it as a fresh cycle
-        setCountdown(cfg.poll.interval_seconds);
-      }).catch(() => {});
+      fetchConfig()
+        .then((cfg) => {
+          setPollInterval(cfg.poll.interval_seconds);
+          pollIntervalRef.current = cfg.poll.interval_seconds;
+          // Set countdown to the new interval directly - the poller just
+          // restarted and will sync soon, so treat it as a fresh cycle
+          setCountdown(cfg.poll.interval_seconds);
+        })
+        .catch(() => {});
       loadPRs();
     });
     source.onerror = () => {

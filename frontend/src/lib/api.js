@@ -12,7 +12,7 @@ export async function fetchPRs(filters = {}) {
       params.set(key, value);
     }
   }
-  const url = `${BASE}/api/prs${params.toString() ? '?' + params : ''}`;
+  const url = `${BASE}/api/prs${params.toString() ? `?${params}` : ''}`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Failed to fetch PRs: ${res.status}`);
   return res.json();
@@ -228,9 +228,7 @@ export async function reattachSession(sessionId) {
  * @returns {Promise<object[]>}
  */
 export async function fetchSessionHistory(workspaceId) {
-  const url = workspaceId
-    ? `${BASE}/api/sessions/history?workspace_id=${workspaceId}`
-    : `${BASE}/api/sessions/history`;
+  const url = workspaceId ? `${BASE}/api/sessions/history?workspace_id=${workspaceId}` : `${BASE}/api/sessions/history`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Failed to fetch session history: ${res.status}`);
   return res.json();

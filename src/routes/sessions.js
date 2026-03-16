@@ -1,11 +1,18 @@
-import { readFileSync, existsSync, mkdirSync, copyFileSync, readdirSync, cpSync } from 'node:fs';
-import { resolve, basename } from 'node:path';
-import { getDb } from '../db.js';
-import { createSession, attachSession, killSession, popOutSession, reattachSession, createResumedSession } from '../pty-manager.js';
-import { getCurrentConfig } from '../config.js';
+import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { basename, resolve } from 'node:path';
 import { emitLocalChange } from '../app-events.js';
+import { getCurrentConfig } from '../config.js';
+import { getDb } from '../db.js';
+import {
+  attachSession,
+  createResumedSession,
+  createSession,
+  killSession,
+  popOutSession,
+  reattachSession,
+} from '../pty-manager.js';
 import { findSessionJsonl } from '../transcripts.js';
-import { expandPath, toClaudeProjectKey, execFile } from '../utils.js';
+import { execFile, expandPath, toClaudeProjectKey } from '../utils.js';
 import { createScratchWorkspace } from '../workspace.js';
 
 /**
@@ -46,7 +53,9 @@ export function registerSessionRoutes(app) {
     const db = getDb();
     const { workspace_id } = request.query;
     if (workspace_id) {
-      return db.prepare("SELECT * FROM sessions WHERE workspace_id = ? AND status IN ('active', 'detached')").all(workspace_id);
+      return db
+        .prepare("SELECT * FROM sessions WHERE workspace_id = ? AND status IN ('active', 'detached')")
+        .all(workspace_id);
     }
     return db.prepare("SELECT * FROM sessions WHERE status IN ('active', 'detached')").all();
   });
@@ -82,7 +91,9 @@ export function registerSessionRoutes(app) {
     const db = getDb();
     const { workspace_id } = request.query;
     if (workspace_id) {
-      return db.prepare("SELECT * FROM sessions WHERE workspace_id = ? AND status = 'killed' ORDER BY started_at DESC").all(workspace_id);
+      return db
+        .prepare("SELECT * FROM sessions WHERE workspace_id = ? AND status = 'killed' ORDER BY started_at DESC")
+        .all(workspace_id);
     }
     return db.prepare("SELECT * FROM sessions WHERE status = 'killed' ORDER BY started_at DESC LIMIT 100").all();
   });
@@ -120,10 +131,18 @@ export function registerSessionRoutes(app) {
 
     try {
       const raw = readFileSync(jsonlPath, 'utf8');
-      const parsed = raw.trim().split('\n')
-        .map(line => { try { return JSON.parse(line); } catch { return null; } })
+      const parsed = raw
+        .trim()
+        .split('\n')
+        .map((line) => {
+          try {
+            return JSON.parse(line);
+          } catch {
+            return null;
+          }
+        })
         .filter(Boolean)
-        .filter(e => e.type === 'user' || e.type === 'assistant');
+        .filter((e) => e.type === 'user' || e.type === 'assistant');
 
       // Tag each entry with whether it's a genuine human message.
       // System-injected user messages include: tool results, skill expansions
@@ -138,18 +157,21 @@ export function registerSessionRoutes(app) {
       ];
 
       let prevWasAssistant = true; // treat start of conversation as "after assistant"
-      const entries = parsed.map(e => {
+      const entries = parsed.map((e) => {
         const content = simplifyContent(e.message?.content);
         const role = e.message?.role || e.type;
-        const hasText = content.some(b => b.type === 'text');
+        const hasText = content.some((b) => b.type === 'text');
 
         let isHuman = false;
         if (role === 'user' && hasText) {
           // Human messages directly follow an assistant message.
           // Consecutive user messages are system injections (tool results,
           // skill expansions, task notifications).
-          const textContent = content.filter(b => b.type === 'text').map(b => b.text).join('');
-          const looksLikeSystem = SYSTEM_PATTERNS.some(p => textContent.includes(p));
+          const textContent = content
+            .filter((b) => b.type === 'text')
+            .map((b) => b.text)
+            .join('');
+          const looksLikeSystem = SYSTEM_PATTERNS.some((p) => textContent.includes(p));
           isHuman = prevWasAssistant && !looksLikeSystem;
         }
 
@@ -256,28 +278,24 @@ function simplifyContent(content) {
   if (typeof content === 'string') return [{ type: 'text', text: content }];
   if (!Array.isArray(content)) return [];
 
-  return content.map(block => {
+  return content.map((block) => {
     if (block.type === 'text') {
       return { type: 'text', text: block.text };
     }
     if (block.type === 'tool_use') {
-      const inputStr = typeof block.input === 'string'
-        ? block.input
-        : JSON.stringify(block.input);
+      const inputStr = typeof block.input === 'string' ? block.input : JSON.stringify(block.input);
       return {
         type: 'tool_use',
         name: block.name,
-        input_summary: inputStr.length > 200 ? inputStr.slice(0, 200) + '...' : inputStr,
+        input_summary: inputStr.length > 200 ? `${inputStr.slice(0, 200)}...` : inputStr,
       };
     }
     if (block.type === 'tool_result') {
-      const outputStr = typeof block.content === 'string'
-        ? block.content
-        : JSON.stringify(block.content);
+      const outputStr = typeof block.content === 'string' ? block.content : JSON.stringify(block.content);
       return {
         type: 'tool_result',
         name: block.name || null,
-        output_summary: outputStr.length > 200 ? outputStr.slice(0, 200) + '...' : outputStr,
+        output_summary: outputStr.length > 200 ? `${outputStr.slice(0, 200)}...` : outputStr,
       };
     }
     if (block.type === 'thinking') {

@@ -11,11 +11,12 @@ const STATE_LABELS = {
 
 function ReviewStateBadge({ state }) {
   const label = STATE_LABELS[state] || state.toLowerCase();
-  const className = state === 'APPROVED'
-    ? styles.badgeApproved
-    : state === 'CHANGES_REQUESTED'
-      ? styles.badgeChanges
-      : styles.badgeComment;
+  const className =
+    state === 'APPROVED'
+      ? styles.badgeApproved
+      : state === 'CHANGES_REQUESTED'
+        ? styles.badgeChanges
+        : styles.badgeComment;
   return <span className={`${styles.badge} ${className}`}>{label}</span>;
 }
 
@@ -24,9 +25,7 @@ function InlineComment({ comment }) {
     <div className={styles.inlineComment}>
       <div className={styles.inlineHeader}>
         <code className={styles.filePath}>{comment.path}</code>
-        {comment.diff_position != null && (
-          <span className={styles.diffPos}>diff:{comment.diff_position}</span>
-        )}
+        {comment.diff_position != null && <span className={styles.diffPos}>diff:{comment.diff_position}</span>}
       </div>
       <div className={styles.commentBody} dangerouslySetInnerHTML={{ __html: comment.body_html }} />
     </div>
@@ -39,11 +38,11 @@ function ReviewCard({ review }) {
       <div className={styles.reviewHeader}>
         <span className={styles.author}>{review.author}</span>
         <ReviewStateBadge state={review.state} />
-        {review.submitted_at && (
-          <span className={styles.timestamp}>{getRelativeTime(review.submitted_at)}</span>
-        )}
+        {review.submitted_at && <span className={styles.timestamp}>{getRelativeTime(review.submitted_at)}</span>}
       </div>
-      {review.body_html && <div className={styles.commentBody} dangerouslySetInnerHTML={{ __html: review.body_html }} />}
+      {review.body_html && (
+        <div className={styles.commentBody} dangerouslySetInnerHTML={{ __html: review.body_html }} />
+      )}
       {review.comments.length > 0 && (
         <div className={styles.inlineList}>
           {review.comments.map((c, i) => (
@@ -84,7 +83,7 @@ export function CommentsList({ reviews, conversation, loading }) {
       {hasReviews && (
         <div className={styles.section}>
           <h4 className={styles.sectionTitle}>Review Comments</h4>
-          {reviews.map(r => (
+          {reviews.map((r) => (
             <ReviewCard key={r.id} review={r} />
           ))}
         </div>

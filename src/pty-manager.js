@@ -1,14 +1,14 @@
-import pty from 'node-pty';
+import { execFile, execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { execFileSync, execFile } from 'node:child_process';
-import { readFileSync, writeFileSync, unlinkSync, chmodSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { chmodSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { resolve } from 'node:path';
+import pty from 'node-pty';
+import { emitSessionState } from './app-events.js';
 import { getDb } from './db.js';
 import { mcpConfigPath as getMcpConfigPath } from './paths.js';
-import { expandPath, toClaudeProjectKey } from './utils.js';
 import { archiveTranscript } from './transcripts.js';
-import { emitSessionState } from './app-events.js';
+import { expandPath, toClaudeProjectKey } from './utils.js';
 
 const BUFFER_MAX = 50_000;
 const IDLE_THRESHOLD_MS = 5000;
@@ -28,7 +28,6 @@ function printableByteCount(data) {
   }
   return count;
 }
-
 
 const PATROL_SYSTEM_PROMPT = readFileSync(resolve(import.meta.dirname, 'patrol-system-prompt.md'), 'utf8');
 
@@ -132,7 +131,10 @@ function attachPtyToTmux(sessionId, meta = {}) {
   // Untracked sessions show "Session" badge in the UI.
   let state = null;
   let idleTimer = null;
-  function setState(s) { state = s; entry.activityState = s; }
+  function setState(s) {
+    state = s;
+    entry.activityState = s;
+  }
 
   // Activity detection: count distinct "moments" of printable output.
   // A moment = an onData with printable bytes, separated from the previous
@@ -142,18 +144,18 @@ function attachPtyToTmux(sessionId, meta = {}) {
   let momentCount = 0;
   let lastMomentAt = 0;
   let momentTimer = null;
-  const MOMENT_GAP = 50;        // ms between events to count as distinct
-  const MOMENT_THRESHOLD = 2;   // moments needed to transition to working
-  const MOMENT_WINDOW = 2000;   // reset if no output for this long
-  const LARGE_OUTPUT = 150;     // instant transition for big chunks
+  const MOMENT_GAP = 50; // ms between events to count as distinct
+  const MOMENT_THRESHOLD = 2; // moments needed to transition to working
+  const MOMENT_WINDOW = 2000; // reset if no output for this long
+  const LARGE_OUTPUT = 150; // instant transition for big chunks
 
   const entry = {
     proc,
     buffer: new RingBuffer(BUFFER_MAX),
     websockets: new Set(),
     resizeSuppressUntil: 0,
-    activityState: state,    // exposed for getSessionStates()
-    workspaceId,             // exposed for getSessionStates()
+    activityState: state, // exposed for getSessionStates()
+    workspaceId, // exposed for getSessionStates()
   };
 
   proc.onData((data) => {
@@ -184,7 +186,9 @@ function attachPtyToTmux(sessionId, meta = {}) {
         lastMomentAt = now;
         momentCount++;
         if (momentTimer) clearTimeout(momentTimer);
-        momentTimer = setTimeout(() => { momentCount = 0; }, MOMENT_WINDOW);
+        momentTimer = setTimeout(() => {
+          momentCount = 0;
+        }, MOMENT_WINDOW);
       }
 
       if (momentCount >= MOMENT_THRESHOLD || bytes >= LARGE_OUTPUT) {
@@ -206,7 +210,10 @@ function attachPtyToTmux(sessionId, meta = {}) {
     emitSessionState(sessionId, workspaceId, 'exited');
     const exitMsg = JSON.stringify({ type: 'exit', code: exitCode });
     for (const ws of entry.websockets) {
-      if (ws.readyState === 1) { ws.send(exitMsg); ws.close(1000); }
+      if (ws.readyState === 1) {
+        ws.send(exitMsg);
+        ws.close(1000);
+      }
     }
     sessions.delete(sessionId);
     const endedAt = new Date().toISOString();
@@ -235,14 +242,19 @@ export function cleanupOrphanedSessions() {
  */
 export function cleanupOrphanedTmuxSessions() {
   try {
-    const output = execFileSync('tmux', ['list-sessions', '-F', '#{session_name}'], { encoding: 'utf8', timeout: 5000 });
+    const output = execFileSync('tmux', ['list-sessions', '-F', '#{session_name}'], {
+      encoding: 'utf8',
+      timeout: 5000,
+    });
     for (const line of output.trim().split('\n')) {
       const name = line.trim();
       if (name.startsWith('patrol-')) {
         try {
           execFileSync('tmux', ['kill-session', '-t', name], { timeout: 5000 });
           console.log(`[pty-manager] Killed orphaned tmux session: ${name}`);
-        } catch { /* session may have already died */ }
+        } catch {
+          /* session may have already died */
+        }
       }
     }
   } catch {
@@ -305,7 +317,10 @@ export function createSession(workspaceId, cwd) {
       }
       // tmux session is dead but map entry is stale - clean up
       sessions.delete(existing.id);
-      db.prepare("UPDATE sessions SET status = 'killed', ended_at = ? WHERE id = ?").run(new Date().toISOString(), existing.id);
+      db.prepare("UPDATE sessions SET status = 'killed', ended_at = ? WHERE id = ?").run(
+        new Date().toISOString(),
+        existing.id,
+      );
     }
   }
 
@@ -317,7 +332,10 @@ export function createSession(workspaceId, cwd) {
         return existing;
       }
       sessions.delete(existing.id);
-      db.prepare("UPDATE sessions SET status = 'killed', ended_at = ? WHERE id = ?").run(new Date().toISOString(), existing.id);
+      db.prepare("UPDATE sessions SET status = 'killed', ended_at = ? WHERE id = ?").run(
+        new Date().toISOString(),
+        existing.id,
+      );
     }
   }
 
@@ -339,21 +357,18 @@ export function createSession(workspaceId, cwd) {
   // 1. Create detached tmux session running claude.
   // tmux new-session takes a single shell-command string, so we must
   // shell-escape each arg and join them into one string.
-  const shellCmd = claudeArgs.map(a => "'" + a.replace(/'/g, "'\\''") + "'").join(' ');
-  execFileSync('tmux', [
-    'new-session', '-d', '-s', tmuxName,
-    '-x', '120', '-y', '30',
-    '-c', cwd,
-    shellCmd,
-  ], { timeout: 10_000 });
+  const shellCmd = claudeArgs.map((a) => `'${a.replace(/'/g, "'\\''")}'`).join(' ');
+  execFileSync('tmux', ['new-session', '-d', '-s', tmuxName, '-x', '120', '-y', '30', '-c', cwd, shellCmd], {
+    timeout: 10_000,
+  });
 
   // 2. Attach node-pty to the tmux session (for WebSocket I/O)
   const now = new Date().toISOString();
   const claudeProjectDir = resolve(expandPath('~/.claude/projects'), toClaudeProjectKey(cwd));
 
-  db.prepare('INSERT INTO sessions (id, workspace_id, pid, status, started_at, claude_project_dir) VALUES (?, ?, ?, ?, ?, ?)').run(
-    id, workspaceId, 0, 'active', now, claudeProjectDir
-  );
+  db.prepare(
+    'INSERT INTO sessions (id, workspace_id, pid, status, started_at, claude_project_dir) VALUES (?, ?, ?, ?, ?, ?)',
+  ).run(id, workspaceId, 0, 'active', now, claudeProjectDir);
 
   attachPtyToTmux(id, { claudeProjectDir, startedAt: now });
 
@@ -384,20 +399,17 @@ export function createResumedSession(workspaceId, cwd, claudeSessionId) {
     claudeArgs.push('--allowedTools', 'mcp__patrol__*', 'Bash', 'Read', 'Edit', 'Write', 'Glob', 'Grep', 'Agent');
   }
 
-  const shellCmd = claudeArgs.map(a => "'" + a.replace(/'/g, "'\\''") + "'").join(' ');
-  execFileSync('tmux', [
-    'new-session', '-d', '-s', tmuxName,
-    '-x', '120', '-y', '30',
-    '-c', cwd,
-    shellCmd,
-  ], { timeout: 10_000 });
+  const shellCmd = claudeArgs.map((a) => `'${a.replace(/'/g, "'\\''")}'`).join(' ');
+  execFileSync('tmux', ['new-session', '-d', '-s', tmuxName, '-x', '120', '-y', '30', '-c', cwd, shellCmd], {
+    timeout: 10_000,
+  });
 
   const now = new Date().toISOString();
   const claudeProjectDir = resolve(expandPath('~/.claude/projects'), toClaudeProjectKey(cwd));
 
-  db.prepare('INSERT INTO sessions (id, workspace_id, pid, status, started_at, claude_project_dir) VALUES (?, ?, ?, ?, ?, ?)').run(
-    id, workspaceId, 0, 'active', now, claudeProjectDir
-  );
+  db.prepare(
+    'INSERT INTO sessions (id, workspace_id, pid, status, started_at, claude_project_dir) VALUES (?, ?, ?, ?, ?, ?)',
+  ).run(id, workspaceId, 0, 'active', now, claudeProjectDir);
 
   attachPtyToTmux(id, { claudeProjectDir, startedAt: now });
 
@@ -498,7 +510,8 @@ export function killSession(sessionId) {
   if (!sessions.has(sessionId)) {
     const db = getDb();
     db.prepare("UPDATE sessions SET status = 'killed', ended_at = ? WHERE id = ? AND status != 'killed'").run(
-      new Date().toISOString(), sessionId
+      new Date().toISOString(),
+      sessionId,
     );
   }
 }
@@ -536,7 +549,11 @@ export function killAllSessions() {
   // Close all WebSockets immediately so the HTTP server can shut down cleanly
   for (const entry of sessions.values()) {
     for (const ws of entry.websockets) {
-      try { ws.close(); } catch { /* ignore */ }
+      try {
+        ws.close();
+      } catch {
+        /* ignore */
+      }
     }
     entry.websockets.clear();
   }
@@ -612,7 +629,11 @@ export function popOutSession(sessionId) {
 
   // Clean up the temp script after a short delay
   setTimeout(() => {
-    try { unlinkSync(scriptPath); } catch { /* ignore */ }
+    try {
+      unlinkSync(scriptPath);
+    } catch {
+      /* ignore */
+    }
   }, 5000);
 }
 
@@ -633,7 +654,10 @@ export function reattachSession(sessionId) {
   if (!row) throw new Error('Session not found or not detached');
 
   if (!isTmuxSessionAlive(sessionId)) {
-    db.prepare("UPDATE sessions SET status = 'killed', ended_at = ? WHERE id = ?").run(new Date().toISOString(), sessionId);
+    db.prepare("UPDATE sessions SET status = 'killed', ended_at = ? WHERE id = ?").run(
+      new Date().toISOString(),
+      sessionId,
+    );
     throw new Error('Session tmux process is no longer alive');
   }
 

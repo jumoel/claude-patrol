@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { fetchAllRepos } from '../../../lib/api.js';
 import styles from './RepoCombobox.module.css';
 
@@ -43,14 +43,12 @@ export function RepoCombobox({ value, onChange, disabled = false, variant = 'lig
     return () => document.removeEventListener('mousedown', handler);
   }, [open]);
 
-  const filtered = repos.filter(r =>
-    r.toLowerCase().includes(query.toLowerCase())
-  );
+  const filtered = repos.filter((r) => r.toLowerCase().includes(query.toLowerCase()));
 
   // Keep highlighted index in bounds
   useEffect(() => {
     setHighlighted(0);
-  }, [query]);
+  }, []);
 
   // Scroll highlighted item into view
   useEffect(() => {
@@ -59,41 +57,47 @@ export function RepoCombobox({ value, onChange, disabled = false, variant = 'lig
     if (item) item.scrollIntoView({ block: 'nearest' });
   }, [highlighted]);
 
-  const select = useCallback((repo) => {
-    onChange(repo);
-    setOpen(false);
-    setQuery('');
-  }, [onChange]);
+  const select = useCallback(
+    (repo) => {
+      onChange(repo);
+      setOpen(false);
+      setQuery('');
+    },
+    [onChange],
+  );
 
-  const handleKeyDown = useCallback((e) => {
-    if (!open) {
-      if (e.key === 'ArrowDown' || e.key === 'Enter') {
-        e.preventDefault();
-        setOpen(true);
+  const handleKeyDown = useCallback(
+    (e) => {
+      if (!open) {
+        if (e.key === 'ArrowDown' || e.key === 'Enter') {
+          e.preventDefault();
+          setOpen(true);
+        }
+        return;
       }
-      return;
-    }
 
-    switch (e.key) {
-      case 'ArrowDown':
-        e.preventDefault();
-        setHighlighted(h => Math.min(h + 1, filtered.length - 1));
-        break;
-      case 'ArrowUp':
-        e.preventDefault();
-        setHighlighted(h => Math.max(h - 1, 0));
-        break;
-      case 'Enter':
-        e.preventDefault();
-        if (filtered[highlighted]) select(filtered[highlighted]);
-        break;
-      case 'Escape':
-        e.preventDefault();
-        setOpen(false);
-        setQuery('');
-        break;
-    }
-  }, [open, filtered, highlighted, select]);
+      switch (e.key) {
+        case 'ArrowDown':
+          e.preventDefault();
+          setHighlighted((h) => Math.min(h + 1, filtered.length - 1));
+          break;
+        case 'ArrowUp':
+          e.preventDefault();
+          setHighlighted((h) => Math.max(h - 1, 0));
+          break;
+        case 'Enter':
+          e.preventDefault();
+          if (filtered[highlighted]) select(filtered[highlighted]);
+          break;
+        case 'Escape':
+          e.preventDefault();
+          setOpen(false);
+          setQuery('');
+          break;
+      }
+    },
+    [open, filtered, highlighted, select],
+  );
 
   const isDark = variant === 'dark';
 
@@ -101,10 +105,25 @@ export function RepoCombobox({ value, onChange, disabled = false, variant = 'lig
     <div className={styles.container} ref={containerRef}>
       <div
         className={`${styles.trigger} ${isDark ? styles.triggerDark : styles.triggerLight} ${disabled ? styles.disabled : ''}`}
-        onClick={() => { if (!disabled) { setOpen(true); setTimeout(() => inputRef.current?.focus(), 0); } }}
+        onClick={() => {
+          if (!disabled) {
+            setOpen(true);
+            setTimeout(() => inputRef.current?.focus(), 0);
+          }
+        }}
       >
         {value || <span className={styles.placeholder}>Select repo...</span>}
-        <svg className={styles.chevron} width="10" height="6" viewBox="0 0 10 6" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <svg
+          className={styles.chevron}
+          width="10"
+          height="6"
+          viewBox="0 0 10 6"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
           <path d="M1 1L5 5L9 1" />
         </svg>
       </div>
@@ -115,7 +134,7 @@ export function RepoCombobox({ value, onChange, disabled = false, variant = 'lig
             className={`${styles.searchInput} ${isDark ? styles.searchInputDark : styles.searchInputLight}`}
             type="text"
             value={query}
-            onChange={e => setQuery(e.target.value)}
+            onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="Filter repos..."
             autoFocus
