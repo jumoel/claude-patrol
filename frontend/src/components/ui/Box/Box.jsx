@@ -1,3 +1,9 @@
+const PADDING = /* @__PURE__ */ Object.fromEntries(
+  [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 16].map((n) => [n, String(n)]),
+);
+
+const P_PREFIX = { p: 'p', px: 'px', py: 'py', pt: 'pt', pb: 'pb', pl: 'pl', pr: 'pr' };
+
 const ROUNDED_CLASSES = {
   sm: 'rounded-sm',
   md: 'rounded-md',
@@ -6,6 +12,30 @@ const ROUNDED_CLASSES = {
   full: 'rounded-full',
   none: 'rounded-none',
 };
+
+const BORDER_SIDE_CLASSES = {
+  t: 'border-t',
+  b: 'border-b',
+  l: 'border-l',
+  r: 'border-r',
+};
+
+const BORDER_COLOR_CLASSES = {
+  'gray-100': 'border-gray-100',
+  'gray-200': 'border-gray-200',
+  'gray-700': 'border-gray-700',
+  'red-200': 'border-red-200',
+};
+
+const BG_CLASSES = {
+  white: 'bg-white',
+  'gray-900': 'bg-gray-900',
+};
+
+function pad(prefix, value) {
+  if (value == null || !PADDING[value]) return undefined;
+  return `${prefix}-${PADDING[value]}`;
+}
 
 /**
  * Container component for padding, borders, and backgrounds.
@@ -47,17 +77,17 @@ export function Box({
   ...rest
 }) {
   const classes = [
-    p != null ? `p-${p}` : undefined,
-    px != null ? `px-${px}` : undefined,
-    py != null ? `py-${py}` : undefined,
-    pt != null ? `pt-${pt}` : undefined,
-    pb != null ? `pb-${pb}` : undefined,
-    pl != null ? `pl-${pl}` : undefined,
-    pr != null ? `pr-${pr}` : undefined,
-    border ? (borderSide ? `border-${borderSide}` : 'border') : undefined,
-    border ? `border-${borderColor}` : undefined,
+    pad('p', p),
+    pad('px', px),
+    pad('py', py),
+    pad('pt', pt),
+    pad('pb', pb),
+    pad('pl', pl),
+    pad('pr', pr),
+    border ? (borderSide ? BORDER_SIDE_CLASSES[borderSide] : 'border') : undefined,
+    border ? BORDER_COLOR_CLASSES[borderColor] : undefined,
     rounded ? ROUNDED_CLASSES[rounded] : undefined,
-    bg ? `bg-${bg}` : undefined,
+    bg ? BG_CLASSES[bg] : undefined,
     className,
   ].filter(Boolean).join(' ');
 
