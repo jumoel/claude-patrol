@@ -129,6 +129,10 @@ export function registerSessionRoutes(app) {
       return reply.code(404).send({ error: 'No transcript available' });
     }
 
+    if (request.query.path_only) {
+      return { path: jsonlPath };
+    }
+
     try {
       const raw = readFileSync(jsonlPath, 'utf8');
       const parsed = raw
