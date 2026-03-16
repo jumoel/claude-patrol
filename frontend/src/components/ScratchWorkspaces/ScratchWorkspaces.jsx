@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { createScratchWorkspace, fetchScratchWorkspaces } from '../../lib/api.js';
 import { getRelativeTime } from '../../lib/time.js';
+import { Button } from '../ui/Button/Button.jsx';
 import { RepoCombobox } from '../ui/RepoCombobox/RepoCombobox.jsx';
 import styles from './ScratchWorkspaces.module.css';
 
@@ -38,9 +39,9 @@ export function ScratchWorkspaces() {
         <h3 className={styles.title}>
           Scratch Workspaces {scratchWorkspaces.length > 0 && `(${scratchWorkspaces.length})`}
         </h3>
-        <button className={styles.newWorkBtn} onClick={() => setShowNewWork(!showNewWork)}>
+        <Button variant="primary" size="sm" onClick={() => setShowNewWork(!showNewWork)}>
           + New Work
-        </button>
+        </Button>
       </div>
       {showNewWork && (
         <div className={styles.form}>
@@ -59,15 +60,17 @@ export function ScratchWorkspaces() {
               onKeyDown={(e) => e.key === 'Enter' && handleNewWork()}
             />
           </div>
-          <button
-            className={styles.submitBtn}
+          <Button
+            variant="primary"
+            size="sm"
             onClick={handleNewWork}
             disabled={newWorkSubmitting || !newWorkRepo || !newWorkBranch}
           >
             {newWorkSubmitting ? 'Creating...' : 'Create'}
-          </button>
-          <button
-            className={styles.cancelBtn}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={() => {
               setShowNewWork(false);
               setNewWorkBranch('');
@@ -76,7 +79,7 @@ export function ScratchWorkspaces() {
             type="button"
           >
             Cancel
-          </button>
+          </Button>
         </div>
       )}
       {scratchWorkspaces.length > 0 ? (

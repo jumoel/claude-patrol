@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
 import { useClickOutside } from '../../hooks/useClickOutside.js';
+import { Button } from '../ui/Button/Button.jsx';
 import styles from './FilterBar.module.css';
 
 const CI_OPTIONS = [
@@ -139,18 +140,19 @@ export function FilterBar({ prs, filters, onFilterChange, onCopyMarkdown, copied
         >
           Review Ready
         </button>
-        <button
-          className={styles.clearButton}
+        <Button
+          variant="danger"
+          size="md"
           onClick={() => onFilterChange({})}
           type="button"
           disabled={!hasAnyFilter}
         >
           Clear
-        </button>
+        </Button>
         {onCopyMarkdown && (
-          <button className={styles.copyButton} onClick={onCopyMarkdown} type="button">
+          <Button size="md" onClick={onCopyMarkdown} type="button">
             {copied ? 'Copied!' : 'Copy as Markdown'}
-          </button>
+          </Button>
         )}
       </div>
       <div className={styles.dropdowns}>

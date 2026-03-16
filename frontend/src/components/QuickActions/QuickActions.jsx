@@ -1,3 +1,4 @@
+import { Button } from '../ui/Button/Button.jsx';
 import styles from './QuickActions.module.css';
 
 const BUILT_IN_ACTIONS = [
@@ -44,9 +45,9 @@ export function QuickActions({ wsRef, onSend }) {
     <div className={styles.actions}>
       <span className={styles.label}>Quick actions:</span>
       {BUILT_IN_ACTIONS.map((action) => (
-        <button key={action.label} className={styles.actionButton} onClick={() => handleAction(action)}>
+        <Button key={action.label} size="md" onClick={() => handleAction(action)}>
           {action.label}
-        </button>
+        </Button>
       ))}
     </div>
   );

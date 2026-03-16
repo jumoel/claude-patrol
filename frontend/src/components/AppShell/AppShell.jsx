@@ -1,6 +1,7 @@
 import { useCallback, useState, useSyncExternalStore } from 'react';
 import logoSvg from '../../assets/logo.svg';
 import { triggerRestart, triggerUpdate } from '../../lib/api.js';
+import { Button } from '../ui/Button/Button.jsx';
 import styles from './AppShell.module.css';
 
 /**
@@ -227,9 +228,9 @@ export function AppShell({
               ) : restartNeeded || pullResult?.ok ? (
                 <>
                   New version ready ({startupSha} → {currentSha}). Terminal sessions will be preserved.
-                  <button className={styles.updateRestartBtn} onClick={handleRestart}>
+                  <Button variant="success" size="xs" onClick={handleRestart}>
                     Restart now
-                  </button>
+                  </Button>
                 </>
               ) : pullResult?.ok === false ? (
                 <>Pull failed: {pullResult.error}</>
@@ -237,9 +238,9 @@ export function AppShell({
                 <>
                   Update available - {commitsBehind} new commit{commitsBehind !== 1 ? 's' : ''} on origin/main.
                   {!pulling && (
-                    <button className={styles.updatePullBtn} onClick={handlePull}>
+                    <Button variant="warning" size="xs" onClick={handlePull}>
                       Update now
-                    </button>
+                    </Button>
                   )}
                   {pulling && <span>Pulling...</span>}
                 </>

@@ -73,10 +73,3 @@
   @apply w-px h-6 bg-gray-200;
 }
 
-.clearButton {
-  @apply px-3 py-1.5 text-base font-medium border border-red-300 rounded-md bg-white text-red-600 cursor-pointer select-none transition-colors hover:bg-red-50 disabled:opacity-40 disabled:cursor-default disabled:hover:bg-white;
-}
-
-.copyButton {
-  @apply px-3 py-1.5 text-base font-medium border border-gray-300 rounded-md bg-white text-gray-600 cursor-pointer select-none transition-colors hover:bg-gray-50;
-}

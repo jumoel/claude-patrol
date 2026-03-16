@@ -1,5 +1,6 @@
 import { useCallback, useState } from 'react';
 import { destroyWorkspace } from '../../lib/api.js';
+import { Button } from '../ui/Button/Button.jsx';
 import styles from './WorkspaceControls.module.css';
 
 /**
@@ -45,9 +46,9 @@ export function WorkspaceControls({ workspace, onUpdate, getOrCreateWorkspace, c
   if (!workspace) {
     return (
       <div className={styles.controls}>
-        <button className={styles.createButton} onClick={handleCreate} disabled={busy}>
+        <Button variant="primary" size="lg" filled onClick={handleCreate} disabled={busy}>
           {busy ? 'Creating workspace...' : 'Create Workspace'}
-        </button>
+        </Button>
         {error && <p className={styles.error}>{error}</p>}
       </div>
     );
@@ -58,18 +59,18 @@ export function WorkspaceControls({ workspace, onUpdate, getOrCreateWorkspace, c
       <span className={styles.activeBadge}>Workspace active</span>
       <span className={styles.path}>{workspace.path}</span>
       {!confirmDestroy ? (
-        <button className={styles.destroyButton} onClick={() => setConfirmDestroy(true)} disabled={loading}>
+        <Button variant="danger" size="md" onClick={() => setConfirmDestroy(true)} disabled={loading}>
           Destroy
-        </button>
+        </Button>
       ) : (
         <div className={styles.confirmRow}>
           <span className={styles.confirmText}>Are you sure?</span>
-          <button className={styles.confirmYes} onClick={handleDestroy} disabled={loading}>
+          <Button variant="danger" size="md" filled onClick={handleDestroy} disabled={loading}>
             {loading ? 'Destroying...' : 'Yes, destroy'}
-          </button>
-          <button className={styles.confirmNo} onClick={() => setConfirmDestroy(false)}>
+          </Button>
+          <Button size="md" onClick={() => setConfirmDestroy(false)}>
             Cancel
-          </button>
+          </Button>
         </div>
       )}
       {error && <p className={styles.error}>{error}</p>}

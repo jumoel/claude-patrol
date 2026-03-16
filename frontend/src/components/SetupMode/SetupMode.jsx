@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { fetchConfig, fetchSetupAccounts, fetchSetupRepos, saveConfig } from '../../lib/api.js';
+import { Button } from '../ui/Button/Button.jsx';
 import styles from './SetupMode.module.css';
 
 const INTERVAL_PRESETS = [
@@ -182,9 +183,9 @@ export function SetupMode({ onConfigured, isFirstRun }) {
       <div className={styles.container}>
         <div className={styles.errorCard}>
           <p className={styles.errorText}>{error}</p>
-          <button className={styles.retryBtn} onClick={() => window.location.reload()}>
+          <Button variant="primary" size="sm" filled onClick={() => window.location.reload()}>
             Retry
-          </button>
+          </Button>
         </div>
       </div>
     );
@@ -205,14 +206,14 @@ export function SetupMode({ onConfigured, isFirstRun }) {
           </p>
         </div>
         {!isFirstRun && step === 'accounts' && (
-          <button
-            className={styles.backBtn}
+          <Button
+            size="sm"
             onClick={() => {
               window.location.hash = '';
             }}
           >
             Back to dashboard
-          </button>
+          </Button>
         )}
       </div>
 
@@ -248,9 +249,9 @@ export function SetupMode({ onConfigured, isFirstRun }) {
             ))}
           </div>
           <div className={styles.actions}>
-            <button className={styles.primaryBtn} disabled={selectedCount === 0} onClick={() => setStep('repos')}>
+            <Button variant="primary" size="sm" filled disabled={selectedCount === 0} onClick={() => setStep('repos')}>
               Next
-            </button>
+            </Button>
           </div>
         </>
       )}
@@ -310,12 +311,12 @@ export function SetupMode({ onConfigured, isFirstRun }) {
               })}
           </div>
           <div className={styles.actions}>
-            <button className={styles.secondaryBtn} onClick={() => setStep('accounts')}>
+            <Button size="sm" onClick={() => setStep('accounts')}>
               Back
-            </button>
-            <button className={styles.primaryBtn} onClick={() => setStep('settings')}>
+            </Button>
+            <Button variant="primary" size="sm" filled onClick={() => setStep('settings')}>
               Next
-            </button>
+            </Button>
           </div>
         </>
       )}
@@ -350,12 +351,12 @@ export function SetupMode({ onConfigured, isFirstRun }) {
             </div>
           </div>
           <div className={styles.actions}>
-            <button className={styles.secondaryBtn} onClick={() => setStep('repos')}>
+            <Button size="sm" onClick={() => setStep('repos')}>
               Back
-            </button>
-            <button className={styles.primaryBtn} onClick={handleSave}>
+            </Button>
+            <Button variant="primary" size="sm" filled onClick={handleSave}>
               Save and start monitoring
-            </button>
+            </Button>
           </div>
         </>
       )}
