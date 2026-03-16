@@ -1,5 +1,6 @@
 import { useCallback, useState } from 'react';
 import { destroyWorkspace } from '../../lib/api.js';
+import { Badge } from '../ui/Badge/Badge.jsx';
 import { Button } from '../ui/Button/Button.jsx';
 import styles from './WorkspaceControls.module.css';
 
@@ -56,7 +57,7 @@ export function WorkspaceControls({ workspace, onUpdate, getOrCreateWorkspace, c
 
   return (
     <div className={styles.controls}>
-      <span className={styles.activeBadge}>Workspace active</span>
+      <Badge color="green">Workspace active</Badge>
       <span className={styles.path}>{workspace.path}</span>
       {!confirmDestroy ? (
         <Button variant="danger" size="md" onClick={() => setConfirmDestroy(true)} disabled={loading}>

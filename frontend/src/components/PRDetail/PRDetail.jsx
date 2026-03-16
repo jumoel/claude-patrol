@@ -30,6 +30,7 @@ import { CommentsList } from '../CommentsList/CommentsList.jsx';
 import { StatusBadge } from '../StatusBadge/StatusBadge.jsx';
 import { TerminalCard } from '../TerminalCard/TerminalCard.jsx';
 import { TranscriptViewer } from '../TranscriptViewer/TranscriptViewer.jsx';
+import { Badge } from '../ui/Badge/Badge.jsx';
 import { Button } from '../ui/Button/Button.jsx';
 import { WorkspaceControls } from '../WorkspaceControls/WorkspaceControls.jsx';
 import styles from './PRDetail.module.css';
@@ -594,9 +595,9 @@ function CheckRow({ check, prId }) {
               {showLog ? 'Hide log' : 'View log'}
             </Button>
           )}
-          <span className={`${styles.checkBadge} ${styles[`checkBadge-${colorGroup}`]}`}>
+          <Badge color={colorGroup} border={false}>
             {CHECK_STATUS_LABELS[status] || status.toLowerCase()}
-          </span>
+          </Badge>
         </div>
       </div>
       {showLog &&

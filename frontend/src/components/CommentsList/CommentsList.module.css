@@ -29,21 +29,6 @@
   @apply text-base font-medium text-gray-700;
 }
 
-.badge {
-  @apply text-sm font-medium px-2 py-0.5 rounded-full;
-}
-
-.badgeApproved {
-  @apply bg-green-50 text-green-700 border border-green-200;
-}
-
-.badgeChanges {
-  @apply bg-red-50 text-red-700 border border-red-200;
-}
-
-.badgeComment {
-  @apply bg-gray-50 text-gray-600 border border-gray-200;
-}
 
 .timestamp {
   @apply text-sm text-gray-400;

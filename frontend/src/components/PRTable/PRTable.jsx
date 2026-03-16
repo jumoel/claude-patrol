@@ -3,6 +3,7 @@ import { useMemo } from 'react';
 import { isMergeReady } from '../../lib/checks.js';
 import { getRelativeTime } from '../../lib/time.js';
 import { StatusBadge } from '../StatusBadge/StatusBadge.jsx';
+import { Badge } from '../ui/Badge/Badge.jsx';
 import styles from './PRTable.module.css';
 
 /**
@@ -58,34 +59,34 @@ export function PRTable({ prs, onRowClick, sorting, onSortingChange, workspaceSt
           const v = getValue();
           if (v === 5)
             return (
-              <span className={styles.workingBadge} title="Claude is actively working">
+              <Badge color="violet" title="Claude is actively working">
                 <span className={styles.spinner} />
                 Working
-              </span>
+              </Badge>
             );
           if (v === 4)
             return (
-              <span className={styles.waitingBadge} title="Session waiting for input - needs attention">
+              <Badge color="amber" pulse title="Session waiting for input - needs attention">
                 Waiting
-              </span>
+              </Badge>
             );
           if (v === 3)
             return (
-              <span className={styles.idleBadge} title="Session idle (already seen)">
+              <Badge color="gray" title="Session idle (already seen)">
                 Idle
-              </span>
+              </Badge>
             );
           if (v === 2)
             return (
-              <span className={styles.sessionBadge} title="Running session">
+              <Badge color="green" title="Running session">
                 Session
-              </span>
+              </Badge>
             );
           if (v === 1)
             return (
-              <span className={styles.workspaceBadge} title="Active workspace">
+              <Badge color="blue" title="Active workspace">
                 Workspace
-              </span>
+              </Badge>
             );
           return null;
         },

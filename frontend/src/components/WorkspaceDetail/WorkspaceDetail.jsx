@@ -14,6 +14,7 @@ import { getRelativeTime } from '../../lib/time.js';
 import shared from '../../styles/shared.module.css';
 import { TerminalCard } from '../TerminalCard/TerminalCard.jsx';
 import { TranscriptViewer } from '../TranscriptViewer/TranscriptViewer.jsx';
+import { Badge } from '../ui/Badge/Badge.jsx';
 import { Button } from '../ui/Button/Button.jsx';
 import styles from './WorkspaceDetail.module.css';
 
@@ -133,7 +134,7 @@ export function WorkspaceDetail({ workspaceId, onBack }) {
           <span className={shared.branchTag}>{workspace.bookmark}</span>
           <span className={shared.separator}>-</span>
           <span className={shared.updatedText}>Created {getRelativeTime(workspace.created_at)}</span>
-          {workspace.status === 'destroyed' && <span className={styles.destroyedBadge}>Destroyed</span>}
+          {workspace.status === 'destroyed' && <Badge color="red">Destroyed</Badge>}
         </div>
         {adopted && (
           <div className={styles.adoptedNotice}>

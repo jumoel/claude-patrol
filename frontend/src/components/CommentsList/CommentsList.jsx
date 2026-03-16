@@ -1,4 +1,5 @@
 import { getRelativeTime } from '../../lib/time.js';
+import { Badge } from '../ui/Badge/Badge.jsx';
 import styles from './CommentsList.module.css';
 
 const STATE_LABELS = {
@@ -11,13 +12,13 @@ const STATE_LABELS = {
 
 function ReviewStateBadge({ state }) {
   const label = STATE_LABELS[state] || state.toLowerCase();
-  const className =
+  const color =
     state === 'APPROVED'
-      ? styles.badgeApproved
+      ? 'green'
       : state === 'CHANGES_REQUESTED'
-        ? styles.badgeChanges
-        : styles.badgeComment;
-  return <span className={`${styles.badge} ${className}`}>{label}</span>;
+        ? 'red'
+        : 'gray';
+  return <Badge color={color}>{label}</Badge>;
 }
 
 function InlineComment({ comment }) {

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useClickOutside } from '../../hooks/useClickOutside.js';
 import { useEscapeKey } from '../../hooks/useEscapeKey.js';
 import { StatusBadge } from '../StatusBadge/StatusBadge.jsx';
+import { Badge } from '../ui/Badge/Badge.jsx';
 import styles from './CommandPalette.module.css';
 
 function fuzzyMatchPR(query, pr) {
@@ -242,8 +243,8 @@ function PRResult({ pr, idle }) {
         <StatusBadge status={pr.ci_status} type="ci" />
         <StatusBadge status={pr.review_status} type="review" />
         {pr.mergeable === 'CONFLICTING' && <StatusBadge status={pr.mergeable} type="merge" />}
-        {pr.draft && <span className={styles.draftPill}>Draft</span>}
-        {idle && <span className={styles.idlePill}>Needs attention</span>}
+        {pr.draft && <Badge color="yellow">Draft</Badge>}
+        {idle && <Badge color="amber" pulse>Needs attention</Badge>}
       </div>
     </div>
   );
@@ -254,7 +255,7 @@ function GlobalResult() {
     <div className={styles.resultInfo}>
       <div className={styles.resultTitle}>Global Terminal</div>
       <div className={styles.resultBadges}>
-        <span className={styles.sessionTag}>active session</span>
+        <Badge color="green">active session</Badge>
       </div>
     </div>
   );
@@ -266,8 +267,8 @@ function WorkspaceResult({ ws, idle }) {
       <div className={styles.resultTitle}>{ws.bookmark}</div>
       <div className={styles.resultMeta}>{ws.repo && <span className={styles.resultRepo}>{ws.repo}</span>}</div>
       <div className={styles.resultBadges}>
-        <span className={styles.workspaceTag}>scratch workspace</span>
-        {idle && <span className={styles.idlePill}>Needs attention</span>}
+        <Badge color="purple">scratch workspace</Badge>
+        {idle && <Badge color="amber" pulse>Needs attention</Badge>}
       </div>
     </div>
   );

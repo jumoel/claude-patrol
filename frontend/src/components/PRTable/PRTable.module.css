@@ -59,22 +59,6 @@
   @apply text-gray-400 hover:text-gray-700 flex-shrink-0 transition-colors;
 }
 
-.draftLabel {
-  @apply ml-2 text-xs font-medium px-2 py-0.5 text-gray-500 bg-gray-100 border border-gray-300 rounded-full;
-}
-
-.sessionBadge {
-  @apply inline-block text-xs font-medium px-2 py-0.5 text-green-700 bg-green-100 border border-green-300 rounded-full;
-}
-
-.workspaceBadge {
-  @apply inline-block text-xs font-medium px-2 py-0.5 text-blue-700 bg-blue-100 border border-blue-300 rounded-full;
-}
-
-.workingBadge {
-  @apply inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 text-violet-700 bg-violet-100 border border-violet-300 rounded-full;
-}
-
 .spinner {
   display: inline-block;
   width: 0.625rem;
@@ -90,13 +74,6 @@
   to { transform: rotate(360deg); }
 }
 
-.waitingBadge {
-  @apply inline-block text-xs font-medium px-2 py-0.5 text-amber-700 bg-amber-100 border border-amber-300 rounded-full animate-pulse;
-}
-
-.idleBadge {
-  @apply inline-block text-xs font-medium px-2 py-0.5 text-gray-500 bg-gray-100 border border-gray-300 rounded-full;
-}
 
 .cellCenter {
   @apply text-center px-2;

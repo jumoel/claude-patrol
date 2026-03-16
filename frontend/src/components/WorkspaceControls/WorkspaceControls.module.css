@@ -4,10 +4,6 @@
   @apply flex flex-wrap items-center gap-3;
 }
 
-.activeBadge {
-  @apply px-2 py-1 text-sm font-medium text-green-700 bg-green-100 rounded-full;
-}
-
 .path {
   @apply text-sm text-gray-500 font-mono;
 }
