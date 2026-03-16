@@ -268,6 +268,10 @@ export function reattachOrphanedSessions() {
         claudeProjectDir: session.claude_project_dir,
         startedAt: session.started_at,
       });
+      // Emit active immediately so the frontend shows "Working" for
+      // sessions that survived a server restart, rather than waiting
+      // for the first printable output.
+      emitSessionActive(session.id, session.workspace_id);
       reattached++;
       console.log(`[pty-manager] Reattached to session ${session.id}`);
     } catch (err) {
