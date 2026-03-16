@@ -1,5 +1,9 @@
 # Build Log
 
+## 2026-03-16 - Button and Badge component library
+
+Created reusable Button and Badge components under `frontend/src/components/ui/`. Migrated 30+ scattered button class definitions across 9 CSS modules to the shared Button component (supports size, variant, dark mode, filled mode). Migrated 15+ badge class definitions to the shared Badge component (supports 10 colors, optional border, pulse animation). Refactored StatusBadge to use Badge internally and deleted its CSS module. Net result: ~175 lines of CSS removed, ~50 lines of component code added.
+
 ## 2026-03-16 - Simplify idle/working detection
 
 Rewrote the session activity tracking from scratch. Was: two boolean flags (`notifiedIdle`/`notifiedActive`), two SSE event types (`session-idle`/`session-active` with `exited` flag), three frontend Sets (`idleSessions`/`idleWorkspaces`/`workingWorkspaces`), plus dead code (`dismissIdle`, `idleSessions`). Now: single `state` enum (`'working'|'idle'`), single `session-state` SSE event, single `Map<workspaceId, state>` on the frontend.
