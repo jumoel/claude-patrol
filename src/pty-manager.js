@@ -11,7 +11,7 @@ import { archiveTranscript } from './transcripts.js';
 import { expandPath, toClaudeProjectKey } from './utils.js';
 
 const BUFFER_MAX = 50_000;
-const IDLE_THRESHOLD_MS = 5000;
+const IDLE_THRESHOLD_MS = 15_000;
 
 const PATROL_SYSTEM_PROMPT = readFileSync(resolve(import.meta.dirname, 'patrol-system-prompt.md'), 'utf8');
 
