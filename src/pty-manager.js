@@ -124,9 +124,16 @@ function attachPtyToTmux(sessionId, meta = {}) {
   const sessionRow = db.prepare('SELECT workspace_id FROM sessions WHERE id = ?').get(sessionId);
   const workspaceId = sessionRow?.workspace_id || null;
 
-  let idleTimer = null;
   let notifiedIdle = false;
   let notifiedActive = false;
+  // Start idle timer immediately - if no printable output arrives within
+  // the threshold, the session is idle. This handles both new sessions
+  // and reattached sessions that may already be waiting for input.
+  let idleTimer = setTimeout(() => {
+    notifiedIdle = true;
+    notifiedActive = false;
+    emitSessionIdle(sessionId, workspaceId);
+  }, IDLE_THRESHOLD_MS);
   // Once idle, require substantial printable output to clear it.
   // Tmux status-bar redraws produce ~20-50 printable bytes per update
   // (clock, hostname, etc.) which shouldn't clear idle state.
