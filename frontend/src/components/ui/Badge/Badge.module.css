@@ -1,0 +1,70 @@
+@reference "tailwindcss";
+
+.base {
+  @apply inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium;
+}
+
+.green {
+  @apply bg-green-100 text-green-800 border border-green-300;
+}
+
+.red {
+  @apply bg-red-100 text-red-800 border border-red-300;
+}
+
+.blue {
+  @apply bg-blue-100 text-blue-800 border border-blue-300;
+}
+
+.yellow {
+  @apply bg-yellow-100 text-yellow-800 border border-yellow-300;
+}
+
+.gray {
+  @apply bg-gray-100 text-gray-600 border border-gray-300;
+}
+
+.violet {
+  @apply bg-violet-100 text-violet-700 border border-violet-300;
+}
+
+.amber {
+  @apply bg-amber-100 text-amber-700 border border-amber-300;
+}
+
+.indigo {
+  @apply bg-indigo-100 text-indigo-700 border border-indigo-300;
+}
+
+.orange {
+  @apply bg-orange-100 text-orange-700 border border-orange-300;
+}
+
+.purple {
+  @apply bg-purple-50 text-purple-700 border border-purple-200;
+}
+
+/* Borderless variants (for StatusBadge-style usage) */
+.greenNoBorder {
+  @apply bg-green-100 text-green-800;
+}
+
+.redNoBorder {
+  @apply bg-red-100 text-red-800;
+}
+
+.blueNoBorder {
+  @apply bg-blue-100 text-blue-800;
+}
+
+.yellowNoBorder {
+  @apply bg-yellow-100 text-yellow-800;
+}
+
+.grayNoBorder {
+  @apply bg-gray-100 text-gray-600;
+}
+
+.pulse {
+  @apply animate-pulse;
+}
