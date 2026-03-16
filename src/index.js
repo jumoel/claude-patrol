@@ -47,13 +47,15 @@ export async function startServer(options = {}) {
   setCurrentConfig(config);
   initDb(config.db_path);
 
-  const isReattach = options.reattach || process.argv.includes('--reattach');
-  if (isReattach) {
-    const count = reattachOrphanedSessions();
-    console.log(`[claude-patrol] Reattached ${count} surviving session(s)`);
-  } else {
+  const isClean = options.clean || process.argv.includes('--clean');
+  if (isClean) {
     cleanupOrphanedSessions();
     cleanupOrphanedTmuxSessions();
+    console.log('[claude-patrol] Cleaned up all orphaned sessions');
+  } else {
+    // Default: reattach surviving tmux sessions, kill dead ones.
+    const count = reattachOrphanedSessions();
+    if (count > 0) console.log(`[claude-patrol] Reattached ${count} surviving session(s)`);
   }
 
   let pollerRunning = false;
@@ -171,11 +173,11 @@ export async function startServer(options = {}) {
     stopPoller();
     stopHealthChecks();
     stopUpdateChecks();
-    if (!isReattach) {
+    if (isClean) {
       killAllSessions();
     }
-    // In reattach mode, just close WebSockets without killing tmux sessions
-    // so sessions survive for the next server instance to reattach
+    // Default: leave tmux sessions alive so the next server instance
+    // can reattach. Only --clean kills them.
     removePid();
     server.closeSSE();
     try { await server.close(); } catch { /* ignore close errors */ }
