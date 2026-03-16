@@ -14,6 +14,7 @@ import { getRelativeTime } from '../../lib/time.js';
 import shared from '../../styles/shared.module.css';
 import { TerminalCard } from '../TerminalCard/TerminalCard.jsx';
 import { TranscriptViewer } from '../TranscriptViewer/TranscriptViewer.jsx';
+import { Button } from '../ui/Button/Button.jsx';
 import styles from './WorkspaceDetail.module.css';
 
 /**
@@ -115,14 +116,14 @@ export function WorkspaceDetail({ workspaceId, onBack }) {
       {/* Header */}
       <div className={shared.headerCard}>
         <div className={shared.headerTop}>
-          <button className={shared.backButton} onClick={onBack}>
+          <Button size="md" onClick={onBack}>
             &larr; Back
-          </button>
+          </Button>
           <div className={styles.headerActions}>
             {workspace.status === 'active' && (
-              <button className={shared.destroyButton} onClick={handleDestroy} disabled={destroying}>
+              <Button variant="danger" size="sm" onClick={handleDestroy} disabled={destroying}>
                 {destroying ? 'Destroying...' : 'Destroy'}
-              </button>
+              </Button>
             )}
           </div>
         </div>
@@ -160,9 +161,9 @@ export function WorkspaceDetail({ workspaceId, onBack }) {
               <div className={shared.terminalHeader}>
                 <h3 className={shared.sectionTitle}>Terminal</h3>
               </div>
-              <button className={shared.openButton} onClick={handleStartSession} disabled={openingSession}>
+              <Button variant="primary" size="lg" onClick={handleStartSession} disabled={openingSession}>
                 {openingSession ? 'Starting session...' : 'Start Terminal Session'}
-              </button>
+              </Button>
             </div>
           </div>
         ))}

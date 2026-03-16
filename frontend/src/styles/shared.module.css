@@ -56,32 +56,6 @@
   @apply text-gray-300;
 }
 
-/* ---- Buttons ---- */
-
-.backButton {
-  @apply flex items-center gap-1.5 px-3 py-1.5 text-base text-gray-600 bg-gray-100 rounded-md hover:bg-gray-200 transition-colors cursor-pointer;
-}
-
-.destroyButton {
-  @apply px-3 py-1.5 text-sm font-medium text-red-700 bg-red-50 border border-red-200 rounded-md hover:bg-red-100 disabled:opacity-50 transition-colors cursor-pointer;
-}
-
-.killSessionButton {
-  @apply px-3 py-1.5 text-sm font-medium text-red-700 bg-red-50 border border-red-200 rounded-md hover:bg-red-100 transition-colors cursor-pointer;
-}
-
-.maximizeButton {
-  @apply px-3 py-1.5 text-sm font-medium text-gray-600 bg-gray-100 border border-gray-200 rounded-md hover:bg-gray-200 transition-colors cursor-pointer;
-}
-
-.closeTermButton {
-  @apply px-3 py-1.5 text-sm font-medium text-gray-600 bg-gray-100 border border-gray-200 rounded-md hover:bg-gray-200 transition-colors cursor-pointer;
-}
-
-.openButton {
-  @apply px-4 py-2 text-base font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700 disabled:opacity-50 transition-colors cursor-pointer;
-}
-
 /* ---- Terminal ---- */
 
 .terminalHeader {

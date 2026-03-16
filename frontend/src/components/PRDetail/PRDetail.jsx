@@ -30,6 +30,7 @@ import { CommentsList } from '../CommentsList/CommentsList.jsx';
 import { StatusBadge } from '../StatusBadge/StatusBadge.jsx';
 import { TerminalCard } from '../TerminalCard/TerminalCard.jsx';
 import { TranscriptViewer } from '../TranscriptViewer/TranscriptViewer.jsx';
+import { Button } from '../ui/Button/Button.jsx';
 import { WorkspaceControls } from '../WorkspaceControls/WorkspaceControls.jsx';
 import styles from './PRDetail.module.css';
 
@@ -265,7 +266,7 @@ export function PRDetail({ prId, onBack }) {
       {/* Header */}
       <div className={shared.headerCard}>
         <div className={shared.headerTop}>
-          <button className={shared.backButton} onClick={onBack}>
+          <Button size="md" onClick={onBack}>
             <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
               <path
                 fillRule="evenodd"
@@ -273,7 +274,7 @@ export function PRDetail({ prId, onBack }) {
               />
             </svg>
             Back
-          </button>
+          </Button>
           <div className={styles.headerLinks}>
             {isMergeReady && (
               <a
@@ -413,13 +414,15 @@ export function PRDetail({ prId, onBack }) {
             claudeWaiting={openingClaude && !workspace}
           />
           {!session && (
-            <button
-              className={`${shared.openButton} ${styles.openButtonSpaced}`}
+            <Button
+              variant="primary"
+              size="lg"
+              className={styles.openButtonSpaced}
               onClick={handleOpenInClaude}
               disabled={openingClaude}
             >
               {openingClaude ? openingStep : 'Open in Claude'}
-            </button>
+            </Button>
           )}
         </div>
       </div>

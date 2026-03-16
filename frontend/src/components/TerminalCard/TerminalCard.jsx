@@ -5,6 +5,7 @@ import { useResizeHandle } from '../../hooks/useResizeHandle.js';
 import shared from '../../styles/shared.module.css';
 import { QuickActions } from '../QuickActions/QuickActions.jsx';
 import { Terminal } from '../Terminal/Terminal.jsx';
+import { Button } from '../ui/Button/Button.jsx';
 
 /**
  * Shared terminal UI with maximize, close, resize, and detach/reattach support.
@@ -80,17 +81,12 @@ export function TerminalCard({ session, title, onKill, onExit, onPopOut, onReatt
         <div className={shared.terminalHeader}>
           <h3 className={shared.sectionTitle}>Terminal</h3>
           <div className={shared.terminalActions}>
-            <button
-              className={shared.openButton}
-              onClick={handleReattach}
-              disabled={reattaching}
-              style={{ padding: '6px 12px', fontSize: '14px' }}
-            >
+            <Button variant="primary" size="sm" onClick={handleReattach} disabled={reattaching}>
               {reattaching ? 'Reattaching...' : 'Reattach'}
-            </button>
-            <button className={shared.killSessionButton} onClick={onKill}>
+            </Button>
+            <Button variant="danger" size="sm" onClick={onKill}>
               Kill session
-            </button>
+            </Button>
           </div>
         </div>
         <p style={{ color: '#9ca3af', fontSize: '14px', margin: 0 }}>Session running in external terminal</p>
@@ -106,31 +102,35 @@ export function TerminalCard({ session, title, onKill, onExit, onPopOut, onReatt
           <span className={shared.overlayTitle}>{title}</span>
           <div className={shared.terminalActions}>
             {onPopOut && (
-              <button className={shared.closeTermButton} onClick={onPopOut}>
+              <Button variant="default" size="sm" dark onClick={onPopOut}>
                 Pop out
-              </button>
+              </Button>
             )}
-            <button className={shared.maximizeButton} onClick={() => setMaximized(false)} title="Restore (Cmd+Enter)">
+            <Button variant="default" size="sm" dark onClick={() => setMaximized(false)} title="Restore (Cmd+Enter)">
               Restore
-            </button>
-            <button
-              className={shared.closeTermButton}
+            </Button>
+            <Button
+              variant="default"
+              size="sm"
+              dark
               onClick={() => {
                 setMaximized(false);
                 setTerminalOpen(false);
               }}
             >
               Close
-            </button>
-            <button
-              className={shared.killSessionButton}
+            </Button>
+            <Button
+              variant="danger"
+              size="sm"
+              dark
               onClick={() => {
                 setMaximized(false);
                 onKill();
               }}
             >
               Kill session
-            </button>
+            </Button>
           </div>
         </div>
         <div className={shared.overlayContent}>
@@ -155,25 +155,22 @@ export function TerminalCard({ session, title, onKill, onExit, onPopOut, onReatt
         <div className={shared.terminalHeader}>
           <h3 className={shared.sectionTitle}>Terminal</h3>
           <div className={shared.terminalActions}>
-            <button
-              className={shared.maximizeButton}
+            <Button
+              variant="default"
+              size="sm"
               onClick={() => {
                 setTerminalOpen(true);
                 setMaximized(true);
               }}
             >
               Maximize <kbd style={{ fontSize: '11px', opacity: 0.5 }}>Cmd+Enter</kbd>
-            </button>
-            <button
-              className={shared.openButton}
-              onClick={() => setTerminalOpen(true)}
-              style={{ padding: '6px 12px', fontSize: '14px' }}
-            >
+            </Button>
+            <Button variant="primary" size="sm" onClick={() => setTerminalOpen(true)}>
               Open terminal
-            </button>
-            <button className={shared.killSessionButton} onClick={onKill}>
+            </Button>
+            <Button variant="danger" size="sm" onClick={onKill}>
               Kill session
-            </button>
+            </Button>
           </div>
         </div>
       </div>
@@ -187,19 +184,19 @@ export function TerminalCard({ session, title, onKill, onExit, onPopOut, onReatt
         <h3 className={shared.sectionTitle}>Terminal</h3>
         <div className={shared.terminalActions}>
           {onPopOut && (
-            <button className={shared.closeTermButton} onClick={onPopOut}>
+            <Button variant="default" size="sm" onClick={onPopOut}>
               Pop out
-            </button>
+            </Button>
           )}
-          <button className={shared.maximizeButton} onClick={() => setMaximized(true)}>
+          <Button variant="default" size="sm" onClick={() => setMaximized(true)}>
             Maximize <kbd style={{ fontSize: '11px', opacity: 0.5 }}>Cmd+Enter</kbd>
-          </button>
-          <button className={shared.closeTermButton} onClick={() => setTerminalOpen(false)}>
+          </Button>
+          <Button variant="default" size="sm" onClick={() => setTerminalOpen(false)}>
             Close
-          </button>
-          <button className={shared.killSessionButton} onClick={onKill}>
+          </Button>
+          <Button variant="danger" size="sm" onClick={onKill}>
             Kill session
-          </button>
+          </Button>
         </div>
       </div>
       <QuickActions onSend={handleSendCommand} />
