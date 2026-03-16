@@ -514,6 +514,11 @@ export function killSession(sessionId) {
  * Closes all WebSockets first so server.close() doesn't hang waiting
  * for connections to drain.
  */
+/** @returns {number} number of live in-memory sessions */
+export function activeSessionCount() {
+  return sessions.size;
+}
+
 export function killAllSessions() {
   // Close all WebSockets immediately so the HTTP server can shut down cleanly
   for (const entry of sessions.values()) {

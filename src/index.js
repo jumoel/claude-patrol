@@ -4,7 +4,7 @@ import { configPath } from './paths.js';
 import { initDb } from './db.js';
 import { startPoller, stopPoller, resetStatements } from './poller.js';
 import { createServer } from './server.js';
-import { cleanupOrphanedSessions, cleanupOrphanedTmuxSessions, reattachOrphanedSessions, initMcpConfig, updateMcpConfig, killAllSessions } from './pty-manager.js';
+import { cleanupOrphanedSessions, cleanupOrphanedTmuxSessions, reattachOrphanedSessions, initMcpConfig, updateMcpConfig, killAllSessions, activeSessionCount } from './pty-manager.js';
 import { emitLocalChange } from './app-events.js';
 import { validateStartup } from './startup.js';
 import { startHealthChecks, stopHealthChecks } from './health.js';
@@ -108,7 +108,7 @@ export async function startServer(options = {}) {
     });
   }
 
-  if (isReattach) {
+  if (isReattachEarly) {
     console.log(`[claude-patrol] Restarted successfully on ${serverUrl}`);
   } else {
     console.log(`Server listening on ${serverUrl}`);
@@ -161,29 +161,67 @@ export async function startServer(options = {}) {
   console.log('Running');
 
   // Graceful shutdown
-  let shuttingDown = false;
-  async function shutdown(signal) {
-    if (shuttingDown) {
-      process.exit(1);
-    }
-    shuttingDown = true;
+  let shutdownState = 'running'; // running | prompting | exiting
+
+  async function doExit(killSessions) {
+    shutdownState = 'exiting';
     destroyTui();
-    console.log(`Received ${signal}, shutting down...`);
     unwatchConfig();
     stopPoller();
     stopHealthChecks();
     stopUpdateChecks();
-    if (isClean) {
+    if (killSessions) {
+      console.log('Killing all sessions...');
       killAllSessions();
+    } else {
+      const n = activeSessionCount();
+      if (n > 0) console.log(`Leaving ${n} session(s) running - will reattach on next start.`);
     }
-    // Default: leave tmux sessions alive so the next server instance
-    // can reattach. Only --clean kills them.
     removePid();
     server.closeSSE();
     try { await server.close(); } catch { /* ignore close errors */ }
     console.log('Shutdown complete.');
     process.exit(0);
   }
+
+  function shutdown(signal) {
+    const count = activeSessionCount();
+
+    if (shutdownState === 'exiting') {
+      process.exit(1);
+    }
+
+    if (shutdownState === 'prompting') {
+      // Second signal while prompting - exit preserving sessions
+      doExit(false);
+      return;
+    }
+
+    if (count === 0 || isClean || signal === 'SIGTERM') {
+      // No sessions, --clean mode, or SIGTERM: exit immediately
+      doExit(isClean);
+      return;
+    }
+
+    // Interactive prompt: active sessions exist
+    shutdownState = 'prompting';
+    destroyTui();
+    console.log(`\n${count} active session(s) running.`);
+    console.log('  [k] Kill sessions and exit');
+    console.log('  [Enter/p] Preserve sessions and exit (reattach on next start)');
+    console.log('  [Ctrl-C] Preserve and exit immediately');
+
+    const onKey = (key) => {
+      process.stdin.removeListener('data', onKey);
+      if (key === 'k' || key === 'K') {
+        doExit(true);
+      } else {
+        doExit(false);
+      }
+    };
+    process.stdin.on('data', onKey);
+  }
+
   process.on('SIGINT', () => shutdown('SIGINT'));
   process.on('SIGTERM', () => shutdown('SIGTERM'));
 
