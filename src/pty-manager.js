@@ -133,15 +133,18 @@ function attachPtyToTmux(sessionId, meta = {}) {
   let state = null;
   let idleTimer = null;
 
-  // Activity detection uses a hybrid rule to filter tmux status-bar redraws
-  // (~20-50 bytes arriving in <50ms) from real activity:
-  //   - LARGE output: >= 150 printable bytes (instant detection for tool results)
-  //   - SUSTAINED output: >= 20 bytes spread over >= 500ms (catches spinner)
-  // Status bar updates fail both: ~50 bytes but <50ms duration.
-  let burstBytes = 0;
-  let burstStart = 0;
-  let burstTimer = null;
-  const BURST_WINDOW = 2000;
+  // Activity detection: count distinct "moments" of printable output.
+  // A moment = an onData with printable bytes, separated from the previous
+  // by at least MOMENT_GAP ms (debounces batched tmux status-bar chunks into
+  // one moment). Tmux status bar: 1-3 events in <100ms = 1 moment, never
+  // triggers. Spinner/real output: events every 100-250ms = separate moments.
+  let momentCount = 0;
+  let lastMomentAt = 0;
+  let momentTimer = null;
+  const MOMENT_GAP = 100;       // ms between events to count as distinct
+  const MOMENT_THRESHOLD = 3;   // moments needed to transition to working
+  const MOMENT_WINDOW = 2000;   // reset if no output for this long
+  const LARGE_OUTPUT = 150;     // instant transition for big chunks
 
   const entry = {
     proc,
@@ -161,26 +164,25 @@ function attachPtyToTmux(sessionId, meta = {}) {
     if (bytes === 0) return;
 
     if (state === 'working') {
-      // Already working - just reset the idle countdown.
+      // Already working - any printable output resets the idle countdown.
       if (idleTimer) clearTimeout(idleTimer);
       idleTimer = setTimeout(() => {
         state = 'idle';
         emitSessionState(sessionId, workspaceId, 'idle');
       }, IDLE_THRESHOLD_MS);
     } else {
-      // State is null (untracked) or 'idle' - accumulate and check.
-      if (burstBytes === 0) burstStart = Date.now();
-      burstBytes += bytes;
-      if (burstTimer) clearTimeout(burstTimer);
-      burstTimer = setTimeout(() => { burstBytes = 0; }, BURST_WINDOW);
+      // State is null or 'idle'. Count distinct output moments.
+      const now = Date.now();
+      if (now - lastMomentAt >= MOMENT_GAP) {
+        lastMomentAt = now;
+        momentCount++;
+        if (momentTimer) clearTimeout(momentTimer);
+        momentTimer = setTimeout(() => { momentCount = 0; }, MOMENT_WINDOW);
+      }
 
-      const duration = Date.now() - burstStart;
-      const isLargeOutput = burstBytes >= 150;
-      const isSustained = burstBytes >= 20 && duration >= 500;
-
-      if (isLargeOutput || isSustained) {
+      if (momentCount >= MOMENT_THRESHOLD || bytes >= LARGE_OUTPUT) {
         state = 'working';
-        burstBytes = 0;
+        momentCount = 0;
         emitSessionState(sessionId, workspaceId, 'working');
         if (idleTimer) clearTimeout(idleTimer);
         idleTimer = setTimeout(() => {
@@ -193,7 +195,7 @@ function attachPtyToTmux(sessionId, meta = {}) {
 
   proc.onExit(({ exitCode }) => {
     if (idleTimer) clearTimeout(idleTimer);
-    if (burstTimer) clearTimeout(burstTimer);
+    if (momentTimer) clearTimeout(momentTimer);
     emitSessionState(sessionId, workspaceId, 'exited');
     const exitMsg = JSON.stringify({ type: 'exit', code: exitCode });
     for (const ws of entry.websockets) {
