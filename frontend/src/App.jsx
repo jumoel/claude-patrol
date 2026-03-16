@@ -105,7 +105,7 @@ export default function App() {
   const openGlobalTerminal = useCallback(() => setTerminalOpen(true), []);
   const closeGlobalTerminal = useCallback(() => setTerminalOpen(false), []);
   const { prs: allPRs, syncedAt, loading, error, syncing, countdown, triggerSync } = usePRs(NO_FILTERS);
-  const { workspaceStates, dismissWorkspace, setActiveWorkspace } = useIdleNotification();
+  const { workspaceStates, setActiveWorkspace } = useIdleNotification();
   const [scratchWorkspaces, setScratchWorkspaces] = useState([]);
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const [commitsBehind, setCommitsBehind] = useState(0);
@@ -216,14 +216,10 @@ export default function App() {
   const nextSync = countdown > 0 ? formatCountdown(countdown) : '';
 
   const navigateToPR = (prId) => {
-    // Dismiss idle indicator for this PR's workspace
-    const pr = allPRs.find((p) => p.id === prId);
-    if (pr?.workspace_id) dismissWorkspace(pr.workspace_id);
     window.location.hash = `/pr/${encodeURIComponent(prId)}`;
   };
 
   const navigateToWorkspace = (wsId) => {
-    dismissWorkspace(wsId);
     window.location.hash = `/workspace/${wsId}`;
   };
 

@@ -6,7 +6,6 @@ import { useCallback, useEffect, useSyncExternalStore } from 'react';
  *
  * @returns {{
  *   workspaceStates: Map<string, 'working' | 'idle'>,
- *   dismissWorkspace: (workspaceId: string) => void,
  *   setActiveWorkspace: (workspaceId: string | null) => void,
  * }}
  */
@@ -70,9 +69,6 @@ function startSSE() {
     sessionWorkspaceMap.set(sessionId, workspaceId);
     if (!workspaceId) return;
 
-    // Skip idle notification if the user is currently viewing this workspace
-    if (state === 'idle' && workspaceId === activeWorkspaceId && !document.hidden) return;
-
     if (workspaceStates.get(workspaceId) !== state) {
       workspaceStates = new Map(workspaceStates);
       workspaceStates.set(workspaceId, state);
@@ -80,7 +76,9 @@ function startSSE() {
       notify();
     }
 
-    if (state === 'idle' && Notification.permission === 'granted' && document.hidden) {
+    // Only fire browser notification if the user isn't already looking at this workspace
+    const viewingThis = workspaceId === activeWorkspaceId && !document.hidden;
+    if (state === 'idle' && Notification.permission === 'granted' && document.hidden && !viewingThis) {
       new Notification('Claude is waiting', {
         body: 'A terminal session needs your attention.',
         tag: `patrol-idle-${workspaceId}`,
@@ -108,23 +106,9 @@ export function useIdleNotification() {
 
   const states = useSyncExternalStore(subscribe, getStatesSnapshot);
 
-  const dismissWorkspace = useCallback((workspaceId) => {
-    if (workspaceStates.has(workspaceId)) {
-      workspaceStates = new Map(workspaceStates);
-      workspaceStates.delete(workspaceId);
-      statesSnapshot = workspaceStates;
-      notify();
-    }
+  const setActiveWorkspace = useCallback((wsId) => {
+    activeWorkspaceId = wsId;
   }, []);
 
-  const setActiveWorkspace = useCallback(
-    (wsId) => {
-      activeWorkspaceId = wsId;
-      // Auto-dismiss idle badge when the user views the workspace
-      if (wsId && workspaceStates.get(wsId) === 'idle') dismissWorkspace(wsId);
-    },
-    [dismissWorkspace],
-  );
-
-  return { workspaceStates: states, dismissWorkspace, setActiveWorkspace };
+  return { workspaceStates: states, setActiveWorkspace };
 }
