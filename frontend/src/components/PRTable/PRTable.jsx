@@ -9,7 +9,7 @@ import styles from './PRTable.module.css';
  * PR data table with TanStack Table for sorting.
  * @param {{ prs: object[], onRowClick?: (prId: string) => void }} props
  */
-export function PRTable({ prs, onRowClick, sorting, onSortingChange, workspaceStates }) {
+export function PRTable({ prs, onRowClick, sorting, onSortingChange, workspaceStates, dismissedIdle }) {
   const columns = useMemo(
     () => [
       {
@@ -46,21 +46,33 @@ export function PRTable({ prs, onRowClick, sorting, onSortingChange, workspaceSt
         header: 'Local',
         accessorFn: (row) => {
           const wsState = row.has_session && row.workspace_id && workspaceStates?.get(row.workspace_id);
-          return wsState === 'working' ? 4 : wsState === 'idle' ? 3 : row.has_session ? 2 : row.has_workspace ? 1 : 0;
+          const isDismissed = row.workspace_id && dismissedIdle?.has(row.workspace_id);
+          if (wsState === 'working') return 5;
+          if (wsState === 'idle' && !isDismissed) return 4; // waiting - needs attention
+          if (wsState === 'idle' && isDismissed) return 3; // idle - seen by user
+          if (row.has_session) return 2;
+          if (row.has_workspace) return 1;
+          return 0;
         },
         cell: ({ getValue }) => {
           const v = getValue();
-          if (v === 4)
+          if (v === 5)
             return (
               <span className={styles.workingBadge} title="Claude is actively working">
                 <span className={styles.spinner} />
                 Working
               </span>
             );
+          if (v === 4)
+            return (
+              <span className={styles.waitingBadge} title="Session waiting for input - needs attention">
+                Waiting
+              </span>
+            );
           if (v === 3)
             return (
-              <span className={styles.idleBadge} title="Session waiting for input">
-                Waiting
+              <span className={styles.idleBadge} title="Session idle (already seen)">
+                Idle
               </span>
             );
           if (v === 2)
@@ -114,7 +126,7 @@ export function PRTable({ prs, onRowClick, sorting, onSortingChange, workspaceSt
         meta: { alignRight: true },
       },
     ],
-    [workspaceStates],
+    [workspaceStates, dismissedIdle],
   );
 
   const table = useReactTable({

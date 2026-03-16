@@ -90,8 +90,12 @@
   to { transform: rotate(360deg); }
 }
 
-.idleBadge {
+.waitingBadge {
   @apply inline-block text-xs font-medium px-2 py-0.5 text-amber-700 bg-amber-100 border border-amber-300 rounded-full animate-pulse;
+}
+
+.idleBadge {
+  @apply inline-block text-xs font-medium px-2 py-0.5 text-gray-500 bg-gray-100 border border-gray-300 rounded-full;
 }
 
 .cellCenter {

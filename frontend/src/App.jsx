@@ -105,7 +105,7 @@ export default function App() {
   const openGlobalTerminal = useCallback(() => setTerminalOpen(true), []);
   const closeGlobalTerminal = useCallback(() => setTerminalOpen(false), []);
   const { prs: allPRs, syncedAt, loading, error, syncing, countdown, triggerSync } = usePRs(NO_FILTERS);
-  const { workspaceStates, setActiveWorkspace } = useIdleNotification();
+  const { workspaceStates, dismissedIdle, setActiveWorkspace } = useIdleNotification();
   const [scratchWorkspaces, setScratchWorkspaces] = useState([]);
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const [commitsBehind, setCommitsBehind] = useState(0);
@@ -280,6 +280,7 @@ export default function App() {
             sorting={sorting}
             onSortingChange={handleSortingChange}
             workspaceStates={workspaceStates}
+            dismissedIdle={dismissedIdle}
           />
           <ScratchWorkspaces prs={allPRs} syncedAt={syncedAt} />
         </>
