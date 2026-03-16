@@ -285,6 +285,30 @@ server.tool(
   },
 );
 
+server.tool(
+  'get_session_history',
+  'List previous Claude sessions for a workspace. Returns session IDs, timestamps, and status. Use get_session_transcript to read what happened in a specific session.',
+  {
+    workspace_id: z.string().describe('Workspace ID to list sessions for'),
+  },
+  async ({ workspace_id }) => {
+    const data = await api(`/api/sessions/history?workspace_id=${encodeURIComponent(workspace_id)}`);
+    return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] };
+  },
+);
+
+server.tool(
+  'get_session_transcript',
+  'Get the conversation transcript from a previous Claude session. Includes user messages, assistant responses, tool uses, and thinking blocks. Use get_session_history first to find session IDs.',
+  {
+    session_id: z.string().describe('Session ID from get_session_history'),
+  },
+  async ({ session_id }) => {
+    const data = await api(`/api/sessions/${encodeURIComponent(session_id)}/transcript`);
+    return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] };
+  },
+);
+
 const NON_FINAL_STATUSES = new Set(['IN_PROGRESS', 'QUEUED', 'WAITING', 'PENDING', 'REQUESTED']);
 
 server.tool(
