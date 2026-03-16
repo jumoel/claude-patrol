@@ -58,7 +58,7 @@ export function PRTable({ prs, onRowClick, sorting, onSortingChange, workspaceSt
       cell: ({ getValue }) => {
         const v = getValue();
         if (v === 4) return <span className={styles.workingBadge} title="Claude is actively working"><span className={styles.spinner} />Working</span>;
-        if (v === 3) return <span className={styles.idleBadge} title="Session needs attention">Idle</span>;
+        if (v === 3) return <span className={styles.idleBadge} title="Session waiting for input">Waiting</span>;
         if (v === 2) return <span className={styles.sessionBadge} title="Running session">Session</span>;
         if (v === 1) return <span className={styles.workspaceBadge} title="Active workspace">Workspace</span>;
         return null;
