@@ -14,7 +14,7 @@ import styles from './PRTable.module.css';
  * PR data table with TanStack Table for sorting.
  * @param {{ prs: object[], onRowClick?: (prId: string) => void }} props
  */
-export function PRTable({ prs, onRowClick, sorting, onSortingChange, idleWorkspaces }) {
+export function PRTable({ prs, onRowClick, sorting, onSortingChange, idleWorkspaces, workingWorkspaces }) {
 
   const columns = useMemo(() => [
     {
@@ -52,11 +52,14 @@ export function PRTable({ prs, onRowClick, sorting, onSortingChange, idleWorkspa
       id: 'local',
       header: 'Local',
       accessorFn: (row) => {
-        const idle = row.has_session && row.workspace_id && idleWorkspaces?.has(row.workspace_id);
-        return idle ? 3 : row.has_session ? 2 : row.has_workspace ? 1 : 0;
+        const wsId = row.workspace_id;
+        const working = row.has_session && wsId && workingWorkspaces?.has(wsId);
+        const idle = row.has_session && wsId && idleWorkspaces?.has(wsId);
+        return working ? 4 : idle ? 3 : row.has_session ? 2 : row.has_workspace ? 1 : 0;
       },
       cell: ({ getValue }) => {
         const v = getValue();
+        if (v === 4) return <span className={styles.workingBadge} title="Claude is actively working"><span className={styles.spinner} />Working</span>;
         if (v === 3) return <span className={styles.idleBadge} title="Session needs attention">Idle</span>;
         if (v === 2) return <span className={styles.sessionBadge} title="Running session">Session</span>;
         if (v === 1) return <span className={styles.workspaceBadge} title="Active workspace">Workspace</span>;
@@ -98,7 +101,7 @@ export function PRTable({ prs, onRowClick, sorting, onSortingChange, idleWorkspa
       cell: ({ getValue }) => getRelativeTime(getValue()),
       meta: { alignRight: true },
     },
-  ], [idleWorkspaces]);
+  ], [idleWorkspaces, workingWorkspaces]);
 
   const table = useReactTable({
     data: prs,

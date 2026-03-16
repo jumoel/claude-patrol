@@ -105,7 +105,7 @@ export default function App() {
   const openGlobalTerminal = useCallback(() => setTerminalOpen(true), []);
   const closeGlobalTerminal = useCallback(() => setTerminalOpen(false), []);
   const { prs: allPRs, syncedAt, loading, error, syncing, countdown, triggerSync } = usePRs(NO_FILTERS);
-  const { idleWorkspaces, dismissWorkspace, setActiveWorkspace } = useIdleNotification();
+  const { idleWorkspaces, workingWorkspaces, dismissWorkspace, setActiveWorkspace } = useIdleNotification();
   const [scratchWorkspaces, setScratchWorkspaces] = useState([]);
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const [commitsBehind, setCommitsBehind] = useState(0);
@@ -252,7 +252,7 @@ export default function App() {
           <FilterBar prs={allPRs} filters={filters} onFilterChange={handleFilterChange} onCopyMarkdown={copyFilteredAsMarkdown} copied={copied} />
           {error && <p>{error}</p>}
           {loading && allPRs.length === 0 && <p>Loading...</p>}
-          <PRTable prs={filteredPRs} onRowClick={navigateToPR} sorting={sorting} onSortingChange={handleSortingChange} idleWorkspaces={idleWorkspaces} />
+          <PRTable prs={filteredPRs} onRowClick={navigateToPR} sorting={sorting} onSortingChange={handleSortingChange} idleWorkspaces={idleWorkspaces} workingWorkspaces={workingWorkspaces} />
           <ScratchWorkspaces prs={allPRs} syncedAt={syncedAt} />
         </>
       )}

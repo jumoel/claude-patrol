@@ -1,5 +1,9 @@
 # Build Log
 
+## 2026-03-16 - "Working" status in PR table
+
+New "Working" badge (violet, with CSS spinner) in the PR table's Local column. Shows when Claude is actively producing output, distinct from "Session" (exists but quiet) and "Idle" (30s+ no output). Backend emits `session-active` with `workspaceId` on first printable output (not just recovery from idle). Frontend tracks `workingWorkspaces` Set alongside `idleWorkspaces`. Sort order: Working (4) > Idle (3) > Session (2) > Workspace (1) > none (0). Session exit events carry `exited: true` flag to properly clear working state.
+
 ## 2026-03-16 - Fix idle detection false positives
 
 Three fixes: (1) Guard idle badge with `has_session` so it only renders when there's a running session - prevents phantom badges from dead sessions. (2) Clear client-side idle state on SSE reconnect to prevent stale badges from missed `session-active` events during connection drops. (3) Increase idle threshold from 5s to 30s - Claude regularly pauses 10-30s while thinking or running tools, causing false idle notifications. Also made the PRTable cell derive display from the accessor's cached sort value (`getValue()`) instead of recomputing idle state independently, fixing sort/display mismatches.

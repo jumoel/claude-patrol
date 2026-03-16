@@ -25,7 +25,13 @@ export function emitSessionIdle(sessionId, workspaceId) {
 /**
  * Notify clients that a session is active again (producing output).
  * @param {string} sessionId
+ * @param {string | null} [workspaceId]
+ * @param {{ exited?: boolean }} [opts]
  */
-export function emitSessionActive(sessionId) {
-  appEvents.emit('session-active', { sessionId });
+export function emitSessionActive(sessionId, workspaceId, opts) {
+  appEvents.emit('session-active', {
+    sessionId,
+    workspaceId: workspaceId ?? null,
+    exited: opts?.exited ?? false,
+  });
 }

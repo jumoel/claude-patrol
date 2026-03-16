@@ -126,6 +126,7 @@ function attachPtyToTmux(sessionId, meta = {}) {
 
   let idleTimer = null;
   let notifiedIdle = false;
+  let notifiedActive = false;
   // Once idle, require a burst of printable outputs to clear it.
   // This prevents tmux status-bar clock updates (one event every ~15s)
   // from repeatedly clearing and re-triggering idle notifications.
@@ -162,8 +163,9 @@ function attachPtyToTmux(sessionId, meta = {}) {
 
       if (burstCount >= BURST_THRESHOLD) {
         notifiedIdle = false;
+        notifiedActive = true;
         burstCount = 0;
-        emitSessionActive(sessionId);
+        emitSessionActive(sessionId, workspaceId);
         // Restart idle timer now that we're active again
         if (idleTimer) clearTimeout(idleTimer);
         idleTimer = setTimeout(() => {
@@ -172,10 +174,16 @@ function attachPtyToTmux(sessionId, meta = {}) {
         }, IDLE_THRESHOLD_MS);
       }
     } else {
+      // Notify clients on first meaningful output so they can show "Working"
+      if (!notifiedActive) {
+        notifiedActive = true;
+        emitSessionActive(sessionId, workspaceId);
+      }
       // Normal active state - reset idle timer on each output
       if (idleTimer) clearTimeout(idleTimer);
       idleTimer = setTimeout(() => {
         notifiedIdle = true;
+        notifiedActive = false;
         emitSessionIdle(sessionId, workspaceId);
       }, IDLE_THRESHOLD_MS);
     }
@@ -184,7 +192,7 @@ function attachPtyToTmux(sessionId, meta = {}) {
   proc.onExit(({ exitCode }) => {
     if (idleTimer) clearTimeout(idleTimer);
     if (burstTimer) clearTimeout(burstTimer);
-    if (notifiedIdle) emitSessionActive(sessionId);
+    if (notifiedIdle || notifiedActive) emitSessionActive(sessionId, workspaceId, { exited: true });
     const exitMsg = JSON.stringify({ type: 'exit', code: exitCode });
     for (const ws of entry.websockets) {
       if (ws.readyState === 1) { ws.send(exitMsg); ws.close(1000); }
@@ -467,9 +475,10 @@ export function killSession(sessionId) {
       entry.proc.kill();
     }
   }
-  // Always clear idle state - for attached sessions proc.onExit handles it,
+  // Always clear idle/active state - for attached sessions proc.onExit handles it,
   // but for detached sessions (not in the sessions map) we must do it here.
-  emitSessionActive(sessionId);
+  const wsRow = getDb().prepare('SELECT workspace_id FROM sessions WHERE id = ?').get(sessionId);
+  emitSessionActive(sessionId, wsRow?.workspace_id || null, { exited: true });
   // For detached sessions (not in the sessions map), the proc.onExit
   // handler won't fire, so update the DB directly.
   if (!sessions.has(sessionId)) {

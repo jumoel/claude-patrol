@@ -1,12 +1,13 @@
 import { useEffect, useCallback, useSyncExternalStore } from 'react';
 
 /**
- * Tracks which sessions/workspaces are idle via SSE events. Fires browser
- * notifications when the tab is hidden. Returns idle state and a dismiss function.
+ * Tracks which sessions/workspaces are idle or actively working via SSE events.
+ * Fires browser notifications when the tab is hidden.
  *
  * @returns {{
  *   idleSessions: Set<string>,
  *   idleWorkspaces: Set<string>,
+ *   workingWorkspaces: Set<string>,
  *   dismissIdle: (sessionId: string) => void,
  *   dismissWorkspace: (workspaceId: string) => void,
  * }}
@@ -15,6 +16,7 @@ import { useEffect, useCallback, useSyncExternalStore } from 'react';
 // Module-level state shared across all hook instances
 let idleSessions = new Set();
 let idleWorkspaces = new Set();
+let workingWorkspaces = new Set();
 /** @type {Map<string, string | null>} sessionId -> workspaceId */
 const sessionWorkspaceMap = new Map();
 
@@ -24,9 +26,11 @@ function subscribe(cb) { listeners.add(cb); return () => listeners.delete(cb); }
 
 // Snapshot objects for useSyncExternalStore (must be referentially stable when unchanged)
 let sessionsSnapshot = idleSessions;
-let workspacesSnapshot = idleWorkspaces;
+let idleWsSnapshot = idleWorkspaces;
+let workingWsSnapshot = workingWorkspaces;
 function getSessionsSnapshot() { return sessionsSnapshot; }
-function getWorkspacesSnapshot() { return workspacesSnapshot; }
+function getIdleWsSnapshot() { return idleWsSnapshot; }
+function getWorkingWsSnapshot() { return workingWsSnapshot; }
 
 /** Workspace ID the user is currently viewing (set by the hook consumer). */
 let activeWorkspaceId = null;
@@ -39,16 +43,17 @@ function startSSE() {
   if (source) return;
   source = new EventSource('/api/events');
 
-  // Clear stale idle state on reconnect - any session-idle events from before
-  // the disconnect may no longer be valid (sessions could have exited while
-  // the SSE connection was down).
+  // Clear stale state on reconnect - events from before the disconnect
+  // may no longer be valid (sessions could have exited while down).
   source.addEventListener('open', () => {
-    if (idleSessions.size > 0 || idleWorkspaces.size > 0) {
+    if (idleSessions.size > 0 || idleWorkspaces.size > 0 || workingWorkspaces.size > 0) {
       idleSessions = new Set();
       idleWorkspaces = new Set();
+      workingWorkspaces = new Set();
       sessionWorkspaceMap.clear();
       sessionsSnapshot = idleSessions;
-      workspacesSnapshot = idleWorkspaces;
+      idleWsSnapshot = idleWorkspaces;
+      workingWsSnapshot = workingWorkspaces;
       notify();
     }
   });
@@ -70,7 +75,14 @@ function startSSE() {
     if (workspaceId && !idleWorkspaces.has(workspaceId)) {
       idleWorkspaces = new Set(idleWorkspaces);
       idleWorkspaces.add(workspaceId);
-      workspacesSnapshot = idleWorkspaces;
+      idleWsSnapshot = idleWorkspaces;
+      changed = true;
+    }
+    // Remove from working when going idle
+    if (workspaceId && workingWorkspaces.has(workspaceId)) {
+      workingWorkspaces = new Set(workingWorkspaces);
+      workingWorkspaces.delete(workspaceId);
+      workingWsSnapshot = workingWorkspaces;
       changed = true;
     }
     if (changed) notify();
@@ -84,9 +96,14 @@ function startSSE() {
   });
 
   source.addEventListener('session-active', (event) => {
-    const { sessionId } = JSON.parse(event.data);
-    const workspaceId = sessionWorkspaceMap.get(sessionId);
-    sessionWorkspaceMap.delete(sessionId);
+    const { sessionId, workspaceId: eventWsId, exited } = JSON.parse(event.data);
+    const workspaceId = eventWsId || sessionWorkspaceMap.get(sessionId) || null;
+
+    if (exited) {
+      sessionWorkspaceMap.delete(sessionId);
+    } else {
+      sessionWorkspaceMap.set(sessionId, workspaceId);
+    }
 
     let changed = false;
     if (idleSessions.has(sessionId)) {
@@ -98,8 +115,25 @@ function startSSE() {
     if (workspaceId && idleWorkspaces.has(workspaceId)) {
       idleWorkspaces = new Set(idleWorkspaces);
       idleWorkspaces.delete(workspaceId);
-      workspacesSnapshot = idleWorkspaces;
+      idleWsSnapshot = idleWorkspaces;
       changed = true;
+    }
+    if (exited) {
+      // Session ended - remove from working
+      if (workspaceId && workingWorkspaces.has(workspaceId)) {
+        workingWorkspaces = new Set(workingWorkspaces);
+        workingWorkspaces.delete(workspaceId);
+        workingWsSnapshot = workingWorkspaces;
+        changed = true;
+      }
+    } else {
+      // Session actively producing output - mark as working
+      if (workspaceId && !workingWorkspaces.has(workspaceId)) {
+        workingWorkspaces = new Set(workingWorkspaces);
+        workingWorkspaces.add(workspaceId);
+        workingWsSnapshot = workingWorkspaces;
+        changed = true;
+      }
     }
     if (changed) notify();
   });
@@ -123,7 +157,8 @@ export function useIdleNotification() {
   }, []);
 
   const sessions = useSyncExternalStore(subscribe, getSessionsSnapshot);
-  const workspaces = useSyncExternalStore(subscribe, getWorkspacesSnapshot);
+  const idleWs = useSyncExternalStore(subscribe, getIdleWsSnapshot);
+  const workingWs = useSyncExternalStore(subscribe, getWorkingWsSnapshot);
 
   const dismissIdle = useCallback((sessionId) => {
     const workspaceId = sessionWorkspaceMap.get(sessionId);
@@ -137,7 +172,7 @@ export function useIdleNotification() {
     if (workspaceId && idleWorkspaces.has(workspaceId)) {
       idleWorkspaces = new Set(idleWorkspaces);
       idleWorkspaces.delete(workspaceId);
-      workspacesSnapshot = idleWorkspaces;
+      idleWsSnapshot = idleWorkspaces;
       changed = true;
     }
     if (changed) notify();
@@ -148,7 +183,7 @@ export function useIdleNotification() {
     if (idleWorkspaces.has(workspaceId)) {
       idleWorkspaces = new Set(idleWorkspaces);
       idleWorkspaces.delete(workspaceId);
-      workspacesSnapshot = idleWorkspaces;
+      idleWsSnapshot = idleWorkspaces;
       changed = true;
     }
     // Also dismiss any sessions belonging to this workspace
@@ -169,5 +204,12 @@ export function useIdleNotification() {
     if (wsId) dismissWorkspace(wsId);
   }, [dismissWorkspace]);
 
-  return { idleSessions: sessions, idleWorkspaces: workspaces, dismissIdle, dismissWorkspace, setActiveWorkspace };
+  return {
+    idleSessions: sessions,
+    idleWorkspaces: idleWs,
+    workingWorkspaces: workingWs,
+    dismissIdle,
+    dismissWorkspace,
+    setActiveWorkspace,
+  };
 }

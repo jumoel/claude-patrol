@@ -9,7 +9,7 @@
 .colTitle { width: 38%; }
 .colRepo { width: 22%; }
 /* Fixed-width pill/badge/date columns */
-.colLocal { width: 80px; }
+.colLocal { width: 95px; }
 .colStatus { width: 70px; }
 .colCI { width: 70px; }
 .colReview { width: 80px; }
@@ -69,6 +69,24 @@
 
 .workspaceBadge {
   @apply inline-block text-xs font-medium px-2 py-0.5 text-blue-700 bg-blue-100 border border-blue-300 rounded-full;
+}
+
+.workingBadge {
+  @apply inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 text-violet-700 bg-violet-100 border border-violet-300 rounded-full;
+}
+
+.spinner {
+  display: inline-block;
+  width: 0.625rem;
+  height: 0.625rem;
+  border: 1.5px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 
 .idleBadge {
