@@ -136,13 +136,13 @@ function attachPtyToTmux(sessionId, meta = {}) {
   // Activity detection: count distinct "moments" of printable output.
   // A moment = an onData with printable bytes, separated from the previous
   // by at least MOMENT_GAP ms (debounces batched tmux status-bar chunks into
-  // one moment). Tmux status bar: 1-3 events in <100ms = 1 moment, never
-  // triggers. Spinner/real output: events every 100-250ms = separate moments.
+  // one moment). Tmux status bar: events arrive within <50ms of each other
+  // = 1 moment. Spinner/TUI: frames every 100-250ms = separate moments.
   let momentCount = 0;
   let lastMomentAt = 0;
   let momentTimer = null;
-  const MOMENT_GAP = 100;       // ms between events to count as distinct
-  const MOMENT_THRESHOLD = 3;   // moments needed to transition to working
+  const MOMENT_GAP = 50;        // ms between events to count as distinct
+  const MOMENT_THRESHOLD = 2;   // moments needed to transition to working
   const MOMENT_WINDOW = 2000;   // reset if no output for this long
   const LARGE_OUTPUT = 150;     // instant transition for big chunks
 
@@ -164,17 +164,10 @@ function attachPtyToTmux(sessionId, meta = {}) {
 
     // Ignore escape-only output (cursor moves, status-line redraws).
     const bytes = printableByteCount(data);
-    // DEBUG: log all output for activity detection tuning
-    const now = Date.now();
-    const gap = lastMomentAt ? now - lastMomentAt : 0;
-    const suppressed = now < entry.resizeSuppressUntil;
-    if (bytes > 0 || data.length > 200) {
-      console.log(`[activity] sid=${sessionId.slice(0,8)} state=${state} printable=${bytes} raw=${data.length} gap=${gap}ms moments=${momentCount} suppressed=${suppressed}`);
-    }
     if (bytes === 0) return;
 
     // Ignore output from resize-triggered redraws.
-    if (suppressed) return;
+    if (Date.now() < entry.resizeSuppressUntil) return;
 
     if (state === 'working') {
       // Already working - any printable output resets the idle countdown.

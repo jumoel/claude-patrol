@@ -1,0 +1,59 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.0.0/schema.json",
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true
+  },
+  "files": {
+    "includes": ["src/**/*.js", "frontend/src/**/*.js", "frontend/src/**/*.jsx"]
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "recommended": true,
+      "a11y": {
+        "recommended": false
+      },
+      "correctness": {
+        "noUnusedVariables": "warn",
+        "noUnusedImports": "warn",
+        "noUnusedFunctionParameters": "warn",
+        "useExhaustiveDependencies": "warn"
+      },
+      "suspicious": {
+        "noConsole": "off",
+        "noDebugger": "warn",
+        "noArrayIndexKey": "off",
+        "noControlCharactersInRegex": "off"
+      },
+      "style": {
+        "useConst": "warn",
+        "useTemplate": "off",
+        "noUnusedTemplateLiteral": "off",
+        "useDefaultParameterLast": "off",
+        "noParameterAssign": "off",
+        "useNodejsImportProtocol": "warn"
+      },
+      "complexity": {
+        "noForEach": "off",
+        "noStaticOnlyClass": "off",
+        "noUselessContinue": "warn",
+        "useFlatMap": "warn",
+        "useOptionalChain": "warn"
+      },
+      "security": {
+        "noDangerouslySetInnerHtml": "warn"
+      }
+    }
+  },
+  "assist": {
+    "enabled": false
+  },
+  "formatter": {
+    "enabled": false
+  },
+  "javascript": {
+    "globals": ["React"]
+  }
+}
