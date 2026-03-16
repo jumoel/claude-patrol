@@ -394,7 +394,7 @@ export function PRDetail({ prId, onBack }) {
         </Stack>
 
         {pr.labels.length > 0 && (
-          <Stack gap={2} wrap className="pt-1">
+          <Stack gap={2} wrap className={styles.labels}>
             {pr.labels.map((l) => (
               <span
                 key={l.name}

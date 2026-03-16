@@ -22,6 +22,10 @@
   @apply px-2.5 py-0.5 text-sm font-medium border rounded-full;
 }
 
+.labels {
+  @apply pt-1;
+}
+
 .openButtonSpaced {
   @apply mt-2;
 }
