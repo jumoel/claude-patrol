@@ -80,6 +80,7 @@
   display: inline-block;
   width: 0.625rem;
   height: 0.625rem;
+  margin-right: 0.25rem;
   border: 1.5px solid currentColor;
   border-top-color: transparent;
   border-radius: 50%;
