@@ -133,13 +133,14 @@ function attachPtyToTmux(sessionId, meta = {}) {
   let state = null;
   let idleTimer = null;
 
-  // Burst accumulator: filters tmux status-bar redraws (~20-50 printable
-  // bytes in a single burst) from real activity. Claude's thinking spinner
-  // produces ~13 chars/frame at 4+ fps = 50+ chars/second, so a 40-byte
-  // threshold catches it within ~1s while filtering single status-bar updates.
+  // Activity detection uses a hybrid rule to filter tmux status-bar redraws
+  // (~20-50 bytes arriving in <50ms) from real activity:
+  //   - LARGE output: >= 150 printable bytes (instant detection for tool results)
+  //   - SUSTAINED output: >= 20 bytes spread over >= 500ms (catches spinner)
+  // Status bar updates fail both: ~50 bytes but <50ms duration.
   let burstBytes = 0;
+  let burstStart = 0;
   let burstTimer = null;
-  const BURST_BYTE_THRESHOLD = 40;
   const BURST_WINDOW = 2000;
 
   const entry = {
@@ -167,13 +168,17 @@ function attachPtyToTmux(sessionId, meta = {}) {
         emitSessionState(sessionId, workspaceId, 'idle');
       }, IDLE_THRESHOLD_MS);
     } else {
-      // State is null (untracked) or 'idle' - accumulate printable bytes.
-      // Require a burst of substantial output to transition to 'working'.
+      // State is null (untracked) or 'idle' - accumulate and check.
+      if (burstBytes === 0) burstStart = Date.now();
       burstBytes += bytes;
       if (burstTimer) clearTimeout(burstTimer);
       burstTimer = setTimeout(() => { burstBytes = 0; }, BURST_WINDOW);
 
-      if (burstBytes >= BURST_BYTE_THRESHOLD) {
+      const duration = Date.now() - burstStart;
+      const isLargeOutput = burstBytes >= 150;
+      const isSustained = burstBytes >= 20 && duration >= 500;
+
+      if (isLargeOutput || isSustained) {
         state = 'working';
         burstBytes = 0;
         emitSessionState(sessionId, workspaceId, 'working');
