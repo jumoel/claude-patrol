@@ -164,6 +164,11 @@ function attachPtyToTmux(sessionId, meta = {}) {
 
     // Ignore escape-only output (cursor moves, status-line redraws).
     const bytes = printableByteCount(data);
+    // DEBUG: write to file (survives restart) - remove after diagnosis
+    const _now = Date.now();
+    const _gap = lastMomentAt ? _now - lastMomentAt : 0;
+    const _line = `${new Date().toISOString()} sid=${sessionId.slice(0,8)} state=${state} printable=${bytes} raw=${data.length} gap=${_gap}ms moments=${momentCount}\n`;
+    try { require('node:fs').appendFileSync('/tmp/patrol-activity.log', _line); } catch {}
     if (bytes === 0) return;
 
     // Ignore output from resize-triggered redraws.
