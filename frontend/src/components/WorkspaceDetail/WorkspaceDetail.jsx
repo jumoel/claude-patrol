@@ -29,7 +29,6 @@ export function WorkspaceDetail({ workspaceId, onBack }) {
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
   const [openingSession, setOpeningSession] = useState(false);
-  const [destroying, setDestroying] = useState(false);
 
   const loadData = useCallback(async () => {
     try {
@@ -90,16 +89,13 @@ export function WorkspaceDetail({ workspaceId, onBack }) {
     }
   }, [session]);
 
-  const handleDestroy = useCallback(async () => {
+  const handleDestroy = useCallback(() => {
     if (!workspace) return;
-    setDestroying(true);
-    try {
-      await apiDestroyWorkspace(workspace.id);
-      onBack();
-    } catch (err) {
+    // Navigate back immediately — destroy runs in the background
+    onBack();
+    apiDestroyWorkspace(workspace.id).catch((err) => {
       console.error('Failed to destroy workspace:', err);
-      setDestroying(false);
-    }
+    });
   }, [workspace, onBack]);
 
   // Auto-redirect to PR detail when a scratch workspace gets adopted
@@ -124,8 +120,8 @@ export function WorkspaceDetail({ workspaceId, onBack }) {
           </Button>
           <Stack gap={2}>
             {workspace.status === 'active' && (
-              <Button variant="danger" size="sm" onClick={handleDestroy} disabled={destroying}>
-                {destroying ? 'Destroying...' : 'Destroy'}
+              <Button variant="danger" size="sm" onClick={handleDestroy}>
+                Destroy
               </Button>
             )}
           </Stack>
