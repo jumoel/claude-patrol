@@ -13,6 +13,23 @@ import { expandPath, toClaudeProjectKey } from './utils.js';
 const BUFFER_MAX = 50_000;
 const IDLE_THRESHOLD_MS = 5000;
 
+/**
+ * Strip ANSI escape sequences and return the count of printable characters.
+ * Used to distinguish real content output from TUI status-bar refreshes.
+ */
+// eslint-disable-next-line no-control-regex
+const ANSI_RE = /\x1b(?:\[[0-9;?]*[A-Za-z]|\][^\x07\x1b]*(?:\x07|\x1b\\)|\(.|>[0-9]*|=[0-9]*|[ #%()*+\-.\/][A-Za-z0-9]?)/g;
+function printableLength(data) {
+  // Strip escape sequences, then count non-control characters
+  const stripped = data.replace(ANSI_RE, '');
+  let count = 0;
+  for (let i = 0; i < stripped.length; i++) {
+    const code = stripped.charCodeAt(i);
+    if (code >= 0x20 && code !== 0x7f) count++;
+  }
+  return count;
+}
+
 const PATROL_SYSTEM_PROMPT = readFileSync(resolve(import.meta.dirname, 'patrol-system-prompt.md'), 'utf8');
 
 /** @type {string | null} */
@@ -129,9 +146,10 @@ function attachPtyToTmux(sessionId, meta = {}) {
   let lastMomentAt = 0;
   let momentTimer = null;
   const MOMENT_GAP = 50; // ms between events to count as distinct
-  const MOMENT_THRESHOLD = 2; // moments needed to transition to working
+  const MOMENT_THRESHOLD = 3; // moments needed to transition to working
   const MOMENT_WINDOW = 10_000; // reset if no output for this long
-  const LARGE_OUTPUT = 150; // instant transition for big chunks
+  const LARGE_OUTPUT = 500; // instant transition for big chunks
+  const MIN_PRINTABLE = 10; // ignore events with fewer printable chars (status bar refreshes)
 
   const entry = {
     proc,
@@ -152,6 +170,11 @@ function attachPtyToTmux(sessionId, meta = {}) {
     // Ignore resize-triggered redraws (full screen repaint from terminal open).
     if (Date.now() < entry.resizeSuppressUntil) return;
 
+    // Ignore events with negligible printable content (TUI status-bar refreshes,
+    // cursor repositioning, etc.). Only compute when not already working, since
+    // once working any output should keep the idle timer alive.
+    if (state !== 'working' && printableLength(data) < MIN_PRINTABLE) return;
+
     if (state === 'working') {
       // Already working - any output resets the idle countdown.
       if (idleTimer) clearTimeout(idleTimer);
@@ -160,9 +183,8 @@ function attachPtyToTmux(sessionId, meta = {}) {
         emitSessionState(sessionId, workspaceId, 'idle');
       }, IDLE_THRESHOLD_MS);
     } else {
-      // State is null or 'idle'. Count distinct output moments using raw
-      // data length (not ANSI-stripped). The moment debounce (MOMENT_GAP)
-      // handles tmux status-bar batching; no need to strip escapes.
+      // State is null or 'idle'. Count distinct output moments.
+      // The moment debounce (MOMENT_GAP) handles tmux batching.
       const now = Date.now();
       if (now - lastMomentAt >= MOMENT_GAP) {
         lastMomentAt = now;

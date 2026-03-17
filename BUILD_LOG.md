@@ -1,5 +1,13 @@
 # Build Log
 
+## 2026-03-17 - Navigate back immediately on workspace destroy
+
+Previously clicking "Destroy" blocked the UI on the workspace detail page until the full teardown completed (killing sessions, docker cleanup, jj forget, directory removal). Now the frontend navigates back to the homepage immediately and the destroy runs in the background. The workspace list shows up right away.
+
+## 2026-03-17 - Filter TUI status-bar output from activity detection
+
+Claude Code's own TUI status bar (PR status, update notifications) produces periodic pty output even when idle at a prompt. This caused false working->idle cycles that reset the "dismissed" state, making sessions flip from "Idle" to "Waiting" repeatedly. Fix: strip ANSI escape sequences and only count data events with >= 10 printable characters as activity moments. Also raised MOMENT_THRESHOLD from 2 to 3 and LARGE_OUTPUT from 150 to 500 to further reduce sensitivity to small updates.
+
 ## 2026-03-17 - Disable tmux status bar to fix false activity detection
 
 Tmux's status bar refreshes every 15 seconds by default, producing terminal output that the activity detector interprets as real work. This caused dismissed "Idle" sessions to cycle through working -> idle, clearing the dismissal and showing "Waiting" again. Fix: set `status off` on every patrol tmux session at creation time (both `createSession` and `createResumedSession`), and also during reattach for sessions created before this fix.
