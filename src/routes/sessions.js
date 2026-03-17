@@ -86,16 +86,16 @@ export function registerSessionRoutes(app) {
     }
   });
 
-  // Session history (killed sessions)
+  // Session history (all sessions - active and killed)
   app.get('/api/sessions/history', (request) => {
     const db = getDb();
     const { workspace_id } = request.query;
     if (workspace_id) {
       return db
-        .prepare("SELECT * FROM sessions WHERE workspace_id = ? AND status = 'killed' ORDER BY started_at DESC")
+        .prepare('SELECT * FROM sessions WHERE workspace_id = ? ORDER BY started_at DESC')
         .all(workspace_id);
     }
-    return db.prepare("SELECT * FROM sessions WHERE status = 'killed' ORDER BY started_at DESC LIMIT 100").all();
+    return db.prepare('SELECT * FROM sessions WHERE status = \'killed\' ORDER BY started_at DESC LIMIT 100').all();
   });
 
   // Session transcript
