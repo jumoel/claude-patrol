@@ -1,5 +1,9 @@
 # Build Log
 
+## 2026-03-17 - Disable tmux status bar to fix false activity detection
+
+Tmux's status bar refreshes every 15 seconds by default, producing terminal output that the activity detector interprets as real work. This caused dismissed "Idle" sessions to cycle through working -> idle, clearing the dismissal and showing "Waiting" again. Fix: set `status off` on every patrol tmux session at creation time (both `createSession` and `createResumedSession`), and also during reattach for sessions created before this fix.
+
 ## 2026-03-16 - Stack and Box layout components
 
 Created Stack and Box components under `frontend/src/components/ui/`. Stack handles all flex+gap layout (horizontal/vertical, alignment, justification, wrapping). Box handles padding, borders, border-radius, and backgrounds - absorbing the recurring card/panel pattern. Migrated 32 files across the frontend, replacing ~42 pure-layout CSS classes with Stack elements, ~10 card/container classes with Box, and slimming ~20 mixed classes by extracting their flex+gap into Stack wrappers. Consolidated fractional gap values (gap-0.5, gap-1.5, gap-2.5) to whole numbers. Net result: ~170 lines of CSS deleted, layout intent expressed directly in JSX.

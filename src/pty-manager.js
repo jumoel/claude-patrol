@@ -266,6 +266,9 @@ export function reattachOrphanedSessions() {
     }
 
     try {
+      // Ensure status bar is off (may have been on from older sessions)
+      const tmuxName = `patrol-${session.id}`;
+      try { execFileSync('tmux', ['set-option', '-t', tmuxName, 'status', 'off'], { timeout: 5_000 }); } catch {}
       attachPtyToTmux(session.id, {
         claudeProjectDir: session.claude_project_dir,
         startedAt: session.started_at,
@@ -343,6 +346,9 @@ export function createSession(workspaceId, cwd) {
   execFileSync('tmux', ['new-session', '-d', '-s', tmuxName, '-x', '120', '-y', '30', '-c', cwd, shellCmd], {
     timeout: 10_000,
   });
+  // Disable tmux chrome (status bar) so its periodic redraws don't
+  // produce terminal output that triggers false activity detection.
+  execFileSync('tmux', ['set-option', '-t', tmuxName, 'status', 'off'], { timeout: 5_000 });
 
   // 2. Attach node-pty to the tmux session (for WebSocket I/O)
   const now = new Date().toISOString();
@@ -385,6 +391,7 @@ export function createResumedSession(workspaceId, cwd, claudeSessionId) {
   execFileSync('tmux', ['new-session', '-d', '-s', tmuxName, '-x', '120', '-y', '30', '-c', cwd, shellCmd], {
     timeout: 10_000,
   });
+  execFileSync('tmux', ['set-option', '-t', tmuxName, 'status', 'off'], { timeout: 5_000 });
 
   const now = new Date().toISOString();
   const claudeProjectDir = resolve(expandPath('~/.claude/projects'), toClaudeProjectKey(cwd));
