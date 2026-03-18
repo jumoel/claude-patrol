@@ -264,7 +264,7 @@ export default function App() {
         <WorkspaceDetail workspaceId={selectedWorkspace} onBack={navigateBack} />
       ) : (
         <>
-          <DashboardSummary prCount={filteredPRs.length} syncedAt={syncedAt} />
+          <DashboardSummary prCount={filteredPRs.length} syncedAt={syncedAt} onOpenGlobalTerminal={openGlobalTerminal} />
           <FilterBar
             prs={allPRs}
             filters={filters}

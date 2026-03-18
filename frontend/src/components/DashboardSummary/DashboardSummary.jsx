@@ -32,7 +32,7 @@ function StatDropdown({ label, items, renderItem }) {
   );
 }
 
-export function DashboardSummary({ prCount }) {
+export function DashboardSummary({ prCount, onOpenGlobalTerminal }) {
   const [workspaces, setWorkspaces] = useState([]);
   const [sessions, setSessions] = useState([]);
 
@@ -74,12 +74,19 @@ export function DashboardSummary({ prCount }) {
           const label = ws ? ws.name : 'Global session';
           const detail = `PID ${sess.pid} - started ${new Date(sess.started_at).toLocaleTimeString()}`;
           const href = ws ? (ws.pr_id ? `#/pr/${encodeURIComponent(ws.pr_id)}` : `#/workspace/${ws.id}`) : null;
-          const Tag = href ? 'a' : 'span';
+          if (!href) {
+            return (
+              <a key={sess.id} className={styles.dropdownItem} href="#" onClick={(e) => { e.preventDefault(); onOpenGlobalTerminal?.(); }}>
+                <span className={styles.itemName}>{label}</span>
+                <span className={styles.itemDetail}>{detail}</span>
+              </a>
+            );
+          }
           return (
-            <Tag key={sess.id} className={styles.dropdownItem} {...(href ? { href } : {})}>
+            <a key={sess.id} className={styles.dropdownItem} href={href}>
               <span className={styles.itemName}>{label}</span>
               <span className={styles.itemDetail}>{detail}</span>
-            </Tag>
+            </a>
           );
         }}
       />
