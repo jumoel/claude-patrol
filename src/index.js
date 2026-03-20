@@ -231,9 +231,21 @@ export async function startServer(options = {}) {
     console.log('  [Enter/p] Preserve sessions and exit (reattach on next start)');
     console.log('  [Ctrl-C] Preserve and exit immediately');
 
+    // Re-enable raw mode so single keypresses are delivered immediately
+    if (isTTY && !process.stdin.isRaw) {
+      process.stdin.setRawMode(true);
+    }
+    process.stdin.resume();
+
     const onKey = (key) => {
       process.stdin.removeListener('data', onKey);
-      if (key === 'k' || key === 'K') {
+      // Treat Ctrl-C as preserve-and-exit
+      if (key === '\x03') {
+        doExit(false);
+        return;
+      }
+      const first = key.trim().toLowerCase();
+      if (first === 'k') {
         doExit(true);
       } else {
         doExit(false);
