@@ -3,6 +3,7 @@ import { emitLocalChange } from '../app-events.js';
 import { getCurrentConfig } from '../config.js';
 import { getDb } from '../db.js';
 import { formatPR } from '../pr-status.js';
+import { generateSummary } from '../summarizer.js';
 import { createScratchWorkspace, createWorkspace, destroyWorkspace } from '../workspace.js';
 
 /**
@@ -133,5 +134,22 @@ export function registerWorkspaceRoutes(app) {
 
     if (results.some((r) => r.status === 'destroyed')) emitLocalChange();
     return { ok: true, destroyed: results.filter((r) => r.status === 'destroyed').length, workspaces: results };
+  });
+
+  app.post('/api/workspaces/:id/summarize', async (request, reply) => {
+    const db = getDb();
+    const workspace = db.prepare("SELECT * FROM workspaces WHERE id = ? AND status = 'active'").get(request.params.id);
+    if (!workspace) {
+      return reply.code(404).send({ error: 'Workspace not found or not active' });
+    }
+    try {
+      const summary = await generateSummary(workspace.id, { force: true });
+      if (!summary) {
+        return reply.code(404).send({ error: 'No transcript content available to summarize' });
+      }
+      return { ok: true, summary };
+    } catch (err) {
+      return reply.code(500).send({ error: `Summary generation failed: ${err.message}` });
+    }
   });
 }

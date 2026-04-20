@@ -29,3 +29,44 @@
 .chevronOpen {
   transform: rotate(90deg);
 }
+
+/* Summary section */
+.summaryHeader {
+  @apply flex items-center justify-between mb-2;
+}
+
+.refreshBtn {
+  @apply text-xs font-medium text-indigo-600 bg-indigo-50 border border-indigo-200 rounded px-2 py-1 cursor-pointer hover:bg-indigo-100 transition-colors;
+}
+
+.refreshBtn:disabled {
+  @apply text-gray-400 bg-gray-50 border-gray-200 cursor-not-allowed;
+}
+
+.summaryContent {
+  @apply text-sm text-gray-700 leading-relaxed;
+}
+
+.summaryHeading {
+  @apply text-sm font-semibold text-gray-800 mt-3 mb-1;
+}
+
+.summaryParagraph {
+  @apply my-1;
+}
+
+.summaryList {
+  @apply list-disc pl-5 my-1 space-y-0.5;
+}
+
+.summaryCode {
+  @apply text-xs bg-gray-100 px-1 py-0.5 rounded font-mono;
+}
+
+.summaryMeta {
+  @apply text-xs text-gray-400 mt-3 pt-2 border-t border-gray-100;
+}
+
+.summaryEmpty {
+  @apply text-sm text-gray-400 italic;
+}

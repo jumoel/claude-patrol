@@ -414,5 +414,43 @@ server.tool(
   },
 );
 
+server.tool(
+  'get_workspace_summary',
+  'Get the auto-generated summary for a workspace. Summaries capture what has been discussed, planned, and implemented based on session transcripts. Returns null if no summary has been generated yet.',
+  {
+    id: z.string().describe('Workspace ID'),
+  },
+  async ({ id }) => {
+    const data = await api(`/api/workspaces/${encodeURIComponent(id)}`);
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify({
+          id: data.id,
+          name: data.name,
+          bookmark: data.bookmark,
+          repo: data.repo,
+          summary: data.summary || null,
+          summary_updated_at: data.summary_updated_at || null,
+        }, null, 2),
+      }],
+    };
+  },
+);
+
+server.tool(
+  'summarize_workspace',
+  'Trigger summary generation (or regeneration) for a workspace. Reads all session transcripts and produces a structured summary via Claude. Returns the generated summary text.',
+  {
+    id: z.string().describe('Workspace ID'),
+  },
+  async ({ id }) => {
+    const data = await api(`/api/workspaces/${encodeURIComponent(id)}/summarize`, {
+      method: 'POST',
+    });
+    return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] };
+  },
+);
+
 const transport = new StdioServerTransport();
 await server.connect(transport);

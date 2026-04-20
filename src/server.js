@@ -57,10 +57,14 @@ export async function createServer() {
     const stateHandler = (data) => {
       raw.write(`event: session-state\ndata: ${JSON.stringify(data)}\n\n`);
     };
+    const summaryHandler = (data) => {
+      raw.write(`event: summary-updated\ndata: ${JSON.stringify(data)}\n\n`);
+    };
 
     pollerEvents.on('sync', syncHandler);
     appEvents.on('local-change', localHandler);
     appEvents.on('session-state', stateHandler);
+    appEvents.on('summary-updated', summaryHandler);
 
     // Send current session states so the client doesn't miss events
     // that fired before it connected.
@@ -71,6 +75,7 @@ export async function createServer() {
       pollerEvents.removeListener('sync', syncHandler);
       appEvents.removeListener('local-change', localHandler);
       appEvents.removeListener('session-state', stateHandler);
+      appEvents.removeListener('summary-updated', summaryHandler);
       sseConnections.delete(raw);
     });
   });

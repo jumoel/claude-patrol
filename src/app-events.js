@@ -22,3 +22,11 @@ export function emitLocalChange() {
 export function emitSessionState(sessionId, workspaceId, state) {
   appEvents.emit('session-state', { sessionId, workspaceId: workspaceId ?? null, state });
 }
+
+/**
+ * Notify clients that a workspace summary has been updated.
+ * @param {string} workspaceId
+ */
+export function emitSummaryUpdated(workspaceId) {
+  appEvents.emit('summary-updated', { workspaceId });
+}
