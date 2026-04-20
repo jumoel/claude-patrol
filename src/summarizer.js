@@ -1,0 +1,180 @@
+import { createHash } from 'node:crypto';
+import { spawn } from 'node:child_process';
+import { getDb } from './db.js';
+import { getWorkspaceConversationText } from './transcripts.js';
+import { emitSummaryUpdated } from './app-events.js';
+
+/** Minimum gap between summary runs for the same workspace (ms) - 5 minutes */
+const DEBOUNCE_MS = 5 * 60 * 1000;
+
+/** Track in-flight summarizations to prevent concurrent runs */
+const inFlight = new Set();
+
+/** Track last summary time per workspace for debouncing */
+const lastSummaryTime = new Map();
+
+/** Track content hash of new transcripts to skip no-op runs */
+const lastTranscriptHash = new Map();
+
+/**
+ * Build the summarization prompt.
+ * For incremental updates: passes existing summary + only new conversation text.
+ * For initial summaries: passes all conversation text with no prior summary.
+ * @param {string} newTranscriptText - only the new/changed conversation content
+ * @param {string | null} previousSummary
+ * @param {object} workspace
+ * @returns {string}
+ */
+function buildPrompt(newTranscriptText, previousSummary, workspace) {
+  const context = [
+    `Workspace branch: ${workspace.bookmark}`,
+    workspace.repo ? `Repository: ${workspace.repo}` : null,
+    `Created: ${workspace.created_at}`,
+  ].filter(Boolean).join('\n');
+
+  const format = `The summary should cover:
+- **Purpose**: What is this workspace for? What problem/feature is being worked on?
+- **Key decisions**: Design choices, tradeoffs, or direction changes that were discussed
+- **Current state**: Where things stand right now, any open questions or next steps
+
+Do NOT include implementation details like file names, function names, code patterns, or technical specifics of the changes. Focus on the *what* and *why* at a high level, not the *how*. Someone reading this summary should understand the goals and status without needing to know which files were touched.
+
+Keep the summary concise (under 300 words). Use markdown formatting. Write in present tense for current state, past tense for completed work. Do not include greetings, preamble, or meta-commentary - go straight to the content.`;
+
+  if (previousSummary) {
+    return `You are updating the summary for a development workspace. The existing summary captures earlier activity. New conversation has happened since then. Produce an updated summary that incorporates the new activity.
+
+${context}
+
+${format}
+
+Existing summary:
+
+${previousSummary}
+
+New activity since last summary:
+
+${newTranscriptText}`;
+  }
+
+  return `You are summarizing the activity in a development workspace. Generate a concise, structured summary that helps someone quickly regain context on what this workspace is about.
+
+${context}
+
+${format}
+
+Conversation transcript:
+
+${newTranscriptText}`;
+}
+
+/**
+ * Run `claude --print` with a prompt piped via stdin.
+ * Uses --bare for minimal overhead (no hooks, no CLAUDE.md, no plugins).
+ * @param {string} prompt
+ * @returns {Promise<string>}
+ */
+function runClaude(prompt) {
+  return new Promise((resolve, reject) => {
+    const proc = spawn('claude', [
+      '--print',
+      '--model', 'haiku',
+      '--bare',
+    ], {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: 60_000,
+    });
+
+    let stdout = '';
+    let stderr = '';
+
+    proc.stdout.on('data', (data) => { stdout += data; });
+    proc.stderr.on('data', (data) => { stderr += data; });
+
+    proc.on('close', (code) => {
+      if (code === 0) {
+        resolve(stdout.trim());
+      } else {
+        reject(new Error(`claude exited with code ${code}: ${stderr.trim()}`));
+      }
+    });
+
+    proc.on('error', reject);
+
+    proc.stdin.write(prompt);
+    proc.stdin.end();
+  });
+}
+
+/**
+ * Generate or update the summary for a workspace.
+ * Calls `claude --print --model haiku` with only the conversation content
+ * (human messages + assistant text, no tool calls or system messages).
+ * All transcript reading is delegated to transcripts.js.
+ * @param {string} workspaceId
+ * @param {{ force?: boolean }} [options]
+ * @returns {Promise<string | null>} the generated summary, or null if skipped
+ */
+export async function generateSummary(workspaceId, { force = false } = {}) {
+  // Debounce: skip if recently summarized (unless forced)
+  if (!force) {
+    const lastTime = lastSummaryTime.get(workspaceId);
+    if (lastTime && Date.now() - lastTime < DEBOUNCE_MS) {
+      return null;
+    }
+  }
+
+  // Prevent concurrent summarization for the same workspace
+  if (inFlight.has(workspaceId)) {
+    return null;
+  }
+
+  const db = getDb();
+  const workspace = db.prepare("SELECT * FROM workspaces WHERE id = ? AND status = 'active'").get(workspaceId);
+  if (!workspace) return null;
+
+  // Incremental: only gather transcripts modified since last summary.
+  // For first summary (no summary_updated_at), gathers everything.
+  const hasPrevious = !!workspace.summary;
+  const newText = getWorkspaceConversationText(workspaceId, { since: workspace.summary_updated_at });
+  if (!newText.trim()) {
+    return null; // nothing new to summarize
+  }
+
+  // Skip if the new transcript content is identical to what we last processed
+  const contentHash = createHash('sha256').update(newText).digest('hex');
+  if (!force && lastTranscriptHash.get(workspaceId) === contentHash) {
+    return null;
+  }
+
+  inFlight.add(workspaceId);
+  lastSummaryTime.set(workspaceId, Date.now());
+
+  try {
+    const prompt = buildPrompt(newText, hasPrevious ? workspace.summary : null, workspace);
+    const summary = await runClaude(prompt);
+    if (!summary) return null;
+
+    const now = new Date().toISOString();
+    db.prepare('UPDATE workspaces SET summary = ?, summary_updated_at = ? WHERE id = ?').run(summary, now, workspaceId);
+    lastTranscriptHash.set(workspaceId, contentHash);
+    emitSummaryUpdated(workspaceId);
+
+    console.log(`[summarizer] Updated summary for workspace ${workspaceId}`);
+    return summary;
+  } catch (err) {
+    console.warn(`[summarizer] Failed to generate summary for ${workspaceId}: ${err.message}`);
+    return null;
+  } finally {
+    inFlight.delete(workspaceId);
+  }
+}
+
+/**
+ * Schedule a debounced summary generation. Non-blocking - fires and forgets.
+ * @param {string} workspaceId
+ */
+export function scheduleSummary(workspaceId) {
+  // Fire and forget - don't await
+  generateSummary(workspaceId).catch(() => {});
+}

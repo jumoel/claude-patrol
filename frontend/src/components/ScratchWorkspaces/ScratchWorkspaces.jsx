@@ -113,6 +113,12 @@ export function ScratchWorkspaces({ workspaceStates, dismissedIdle, localChangeC
                 >
                   <td className={styles.cell}>
                     <span className={styles.bookmark}>{ws.bookmark}</span>
+                    {ws.summary && (
+                      <div className={styles.summaryPreview}>
+                        {ws.summary.split('\n').find(l => l.trim() && !l.startsWith('#'))?.slice(0, 120) || ws.summary.slice(0, 120)}
+                        {ws.summary.length > 120 ? '...' : ''}
+                      </div>
+                    )}
                   </td>
                   <td className={styles.cell}>
                     {ws.repo && <span className={styles.repoTag}>{ws.repo}</span>}

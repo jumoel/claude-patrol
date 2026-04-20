@@ -7,6 +7,7 @@ import pty from 'node-pty';
 import { emitSessionState } from './app-events.js';
 import { getDb } from './db.js';
 import { mcpConfigPath as getMcpConfigPath } from './paths.js';
+import { scheduleSummary } from './summarizer.js';
 import { archiveTranscript } from './transcripts.js';
 import { expandPath, toClaudeProjectKey } from './utils.js';
 
@@ -125,13 +126,14 @@ function attachPtyToTmux(sessionId, meta = {}) {
   const workspaceId = sessionRow?.workspace_id || null;
 
   // Activity state: null (untracked) | 'working' | 'idle'
-  //   null → working:  first substantial output (>= BURST_BYTE_THRESHOLD)
-  //   working → idle:  IDLE_THRESHOLD_MS of no substantial output
-  //   idle → working:  substantial output resumes
+  //   null -> working:  first substantial output (>= BURST_BYTE_THRESHOLD)
+  //   working -> idle:  IDLE_THRESHOLD_MS of no substantial output
+  //   idle -> working:  substantial output resumes
   // "Idle" only applies to sessions that WERE working and went silent.
   // Untracked sessions show "Session" badge in the UI.
   let state = null;
   let idleTimer = null;
+  let summaryTimer = null;
   function setState(s) {
     state = s;
     entry.activityState = s;
@@ -150,6 +152,7 @@ function attachPtyToTmux(sessionId, meta = {}) {
   const MOMENT_WINDOW = 10_000; // reset if no output for this long
   const LARGE_OUTPUT = 500; // instant transition for big chunks
   const MIN_PRINTABLE = 10; // ignore events with fewer printable chars (status bar refreshes)
+  const SUMMARY_IDLE_MS = 5 * 60 * 1000; // 5 min idle before summary generation
 
   const entry = {
     proc,
@@ -178,9 +181,14 @@ function attachPtyToTmux(sessionId, meta = {}) {
     if (state === 'working') {
       // Already working - any output resets the idle countdown.
       if (idleTimer) clearTimeout(idleTimer);
+      if (summaryTimer) { clearTimeout(summaryTimer); summaryTimer = null; }
       idleTimer = setTimeout(() => {
         setState('idle');
         emitSessionState(sessionId, workspaceId, 'idle');
+        // Start 5-min countdown for summary generation
+        if (workspaceId && !summaryTimer) {
+          summaryTimer = setTimeout(() => { summaryTimer = null; scheduleSummary(workspaceId); }, SUMMARY_IDLE_MS);
+        }
       }, IDLE_THRESHOLD_MS);
     } else {
       // State is null or 'idle'. Count distinct output moments.
@@ -199,10 +207,16 @@ function attachPtyToTmux(sessionId, meta = {}) {
         setState('working');
         momentCount = 0;
         emitSessionState(sessionId, workspaceId, 'working');
+        // Cancel pending summary - session is active again
+        if (summaryTimer) { clearTimeout(summaryTimer); summaryTimer = null; }
         if (idleTimer) clearTimeout(idleTimer);
         idleTimer = setTimeout(() => {
           setState('idle');
           emitSessionState(sessionId, workspaceId, 'idle');
+          // Start 5-min countdown for summary generation
+          if (workspaceId && !summaryTimer) {
+            summaryTimer = setTimeout(() => { summaryTimer = null; scheduleSummary(workspaceId); }, SUMMARY_IDLE_MS);
+          }
         }, IDLE_THRESHOLD_MS);
       }
     }
@@ -211,6 +225,7 @@ function attachPtyToTmux(sessionId, meta = {}) {
   proc.onExit(({ exitCode }) => {
     if (idleTimer) clearTimeout(idleTimer);
     if (momentTimer) clearTimeout(momentTimer);
+    if (summaryTimer) clearTimeout(summaryTimer);
     emitSessionState(sessionId, workspaceId, 'exited');
     const exitMsg = JSON.stringify({ type: 'exit', code: exitCode });
     for (const ws of entry.websockets) {
@@ -224,7 +239,11 @@ function attachPtyToTmux(sessionId, meta = {}) {
     db.prepare("UPDATE sessions SET status = 'killed', ended_at = ? WHERE id = ?").run(endedAt, sessionId);
 
     if (meta.claudeProjectDir) {
-      setTimeout(() => archiveTranscript(sessionId, meta.claudeProjectDir, meta.startedAt, endedAt), 500);
+      setTimeout(() => {
+        archiveTranscript(sessionId, meta.claudeProjectDir, meta.startedAt, endedAt);
+        // Generate summary after transcript is archived
+        if (workspaceId) setTimeout(() => scheduleSummary(workspaceId), 1000);
+      }, 500);
     }
   });
 

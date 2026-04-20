@@ -216,6 +216,20 @@ export async function promoteSession(sessionId, repo, branch) {
   return res.json();
 }
 
+/**
+ * Trigger summary generation for a workspace.
+ * @param {string} workspaceId
+ * @returns {Promise<{ok: boolean, summary: string}>}
+ */
+export async function generateWorkspaceSummary(workspaceId) {
+  const res = await fetch(`${BASE}/api/workspaces/${workspaceId}/summarize`, { method: 'POST' });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || `Failed to generate summary: ${res.status}`);
+  }
+  return res.json();
+}
+
 export async function reattachSession(sessionId) {
   const res = await fetch(`${BASE}/api/sessions/${sessionId}/reattach`, { method: 'POST' });
   if (!res.ok) throw new Error(`Failed to reattach session: ${res.status}`);

@@ -137,6 +137,10 @@ export function initDb(dbPath) {
     /* exists */
   }
 
+  // Migration: add workspace summary columns
+  try { db.exec("ALTER TABLE workspaces ADD COLUMN summary TEXT"); } catch { /* exists */ }
+  try { db.exec("ALTER TABLE workspaces ADD COLUMN summary_updated_at TEXT"); } catch { /* exists */ }
+
   return db;
 }
 
