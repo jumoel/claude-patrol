@@ -49,6 +49,13 @@ export function initDb(dbPath) {
     /* column already exists */
   }
 
+  // Migration: add base_branch column for stack detection
+  try {
+    db.exec("ALTER TABLE prs ADD COLUMN base_branch TEXT NOT NULL DEFAULT 'main'");
+  } catch {
+    /* column already exists */
+  }
+
   // Migration: add body/body_html columns for PR descriptions
   try {
     db.exec("ALTER TABLE prs ADD COLUMN body TEXT NOT NULL DEFAULT ''");
@@ -138,8 +145,16 @@ export function initDb(dbPath) {
   }
 
   // Migration: add workspace summary columns
-  try { db.exec("ALTER TABLE workspaces ADD COLUMN summary TEXT"); } catch { /* exists */ }
-  try { db.exec("ALTER TABLE workspaces ADD COLUMN summary_updated_at TEXT"); } catch { /* exists */ }
+  try {
+    db.exec('ALTER TABLE workspaces ADD COLUMN summary TEXT');
+  } catch {
+    /* exists */
+  }
+  try {
+    db.exec('ALTER TABLE workspaces ADD COLUMN summary_updated_at TEXT');
+  } catch {
+    /* exists */
+  }
 
   return db;
 }

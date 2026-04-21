@@ -22,6 +22,7 @@ query($q: String!, $cursor: String) {
         url
         isDraft
         headRefName
+        baseRefName
         mergeable
         createdAt
         updatedAt
@@ -276,8 +277,8 @@ function getStatements() {
   const db = getDb();
   if (!upsertStmt) {
     upsertStmt = db.prepare(`
-      INSERT OR REPLACE INTO prs (id, number, title, body, body_html, repo, org, author, url, branch, draft, mergeable, checks, reviews, labels, created_at, updated_at, synced_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT OR REPLACE INTO prs (id, number, title, body, body_html, repo, org, author, url, branch, base_branch, draft, mergeable, checks, reviews, labels, created_at, updated_at, synced_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
   }
   if (!deleteStaleByOrgStmt) {
@@ -366,6 +367,7 @@ function upsertPRs(prs) {
         pr.author?.login ?? 'unknown',
         pr.url,
         pr.headRefName,
+        pr.baseRefName || 'main',
         pr.isDraft ? 1 : 0,
         pr.mergeable || 'UNKNOWN',
         JSON.stringify(extractChecks(pr)),

@@ -45,6 +45,47 @@ function applyFilters(prs, filters) {
   });
 }
 
+/**
+ * Sort PRs so stacked branches appear together in dependency order.
+ * Stack roots appear first (sorted by updated_at), followed by their children
+ * in depth order. Non-stacked PRs keep their original position.
+ */
+function sortByStacks(prs) {
+  // Separate stacked and non-stacked
+  const stacked = prs.filter((p) => p.is_stacked);
+  const nonStacked = prs.filter((p) => !p.is_stacked);
+
+  if (stacked.length === 0) return prs;
+
+  // Group by stack_root
+  const groups = new Map();
+  for (const pr of stacked) {
+    const root = pr.stack_root;
+    if (!groups.has(root)) groups.set(root, []);
+    groups.get(root).push(pr);
+  }
+
+  // Sort each group by stack_depth (base first, top last)
+  for (const [, group] of groups) {
+    group.sort((a, b) => a.stack_depth - b.stack_depth);
+  }
+
+  // Sort groups by the most recent updated_at in the group
+  const sortedGroups = [...groups.entries()].sort((a, b) => {
+    const aMax = Math.max(...a[1].map((p) => new Date(p.updated_at).getTime()));
+    const bMax = Math.max(...b[1].map((p) => new Date(p.updated_at).getTime()));
+    return bMax - aMax;
+  });
+
+  // Interleave: stacked groups first, then non-stacked
+  const result = [];
+  for (const [, group] of sortedGroups) {
+    result.push(...group);
+  }
+  result.push(...nonStacked);
+  return result;
+}
+
 const NO_FILTERS = {};
 
 const FILTER_KEYS = ['org', 'repo', 'ci', 'review', 'mergeable', 'draft'];
@@ -66,11 +107,12 @@ function parseHashParams() {
   if (sortId) {
     sorting.push({ id: sortId, desc: params.get('dir') === 'desc' });
   }
-  return { filters, sorting };
+  const stackView = params.get('stacks') === '1';
+  return { filters, sorting, stackView };
 }
 
-/** Write filters and sorting into the hash query string, preserving the path. */
-function writeHashParams(filters, sorting) {
+/** Write filters, sorting, and stack view into the hash query string, preserving the path. */
+function writeHashParams(filters, sorting, stackView) {
   const hash = window.location.hash;
   const qIdx = hash.indexOf('?');
   const path = qIdx === -1 ? hash : hash.slice(0, qIdx);
@@ -83,6 +125,7 @@ function writeHashParams(filters, sorting) {
     params.set('sort', sorting[0].id);
     params.set('dir', sorting[0].desc ? 'desc' : 'asc');
   }
+  if (stackView) params.set('stacks', '1');
   const qs = params.toString();
   const newHash = qs ? `${path || '#/'}?${qs}` : path || '';
   // Use replaceState to avoid polluting history with every filter/sort change
@@ -95,6 +138,7 @@ export default function App() {
   const initial = useMemo(() => parseHashParams(), []);
   const [filters, setFilters] = useState(initial.filters);
   const [sorting, setSorting] = useState(initial.sorting);
+  const [stackView, setStackView] = useState(initial.stackView);
   const [selectedPR, setSelectedPR] = useState(null);
   const [selectedWorkspace, setSelectedWorkspace] = useState(null);
   const [terminalOpen, setTerminalOpen] = useState(false);
@@ -141,23 +185,34 @@ export default function App() {
   const handleFilterChange = useCallback(
     (newFilters) => {
       setFilters(newFilters);
-      writeHashParams(newFilters, sorting);
+      writeHashParams(newFilters, sorting, stackView);
     },
-    [sorting],
+    [sorting, stackView],
   );
 
   const handleSortingChange = useCallback(
     (updater) => {
       setSorting((prev) => {
         const next = typeof updater === 'function' ? updater(prev) : updater;
-        writeHashParams(filters, next);
+        writeHashParams(filters, next, stackView);
         return next;
       });
     },
-    [filters],
+    [filters, stackView],
   );
 
-  const filteredPRs = useMemo(() => applyFilters(allPRs, filters), [allPRs, filters]);
+  const handleStackViewChange = useCallback(
+    (value) => {
+      setStackView(value);
+      writeHashParams(filters, sorting, value);
+    },
+    [filters, sorting],
+  );
+
+  const filteredPRs = useMemo(() => {
+    const filtered = applyFilters(allPRs, filters);
+    return stackView ? sortByStacks(filtered) : filtered;
+  }, [allPRs, filters, stackView]);
 
   const copyFilteredAsMarkdown = useCallback(() => {
     const md = filteredPRs.map((pr) => `- [#${pr.number}](${pr.url}) - ${pr.title}`).join('\n');
@@ -189,10 +244,11 @@ export default function App() {
         setShowSetup(needsSetup === true);
         setSelectedPR(null);
         setSelectedWorkspace(null);
-        // Restore filters + sorting from URL when returning to dashboard
-        const { filters: f, sorting: s } = parseHashParams();
+        // Restore filters + sorting + stack view from URL when returning to dashboard
+        const { filters: f, sorting: s, stackView: sv } = parseHashParams();
         setFilters(f);
         setSorting(s);
+        setStackView(sv);
       }
     };
     handleHash();
@@ -264,13 +320,19 @@ export default function App() {
         <WorkspaceDetail workspaceId={selectedWorkspace} onBack={navigateBack} />
       ) : (
         <>
-          <DashboardSummary prCount={filteredPRs.length} syncedAt={syncedAt} onOpenGlobalTerminal={openGlobalTerminal} />
+          <DashboardSummary
+            prCount={filteredPRs.length}
+            syncedAt={syncedAt}
+            onOpenGlobalTerminal={openGlobalTerminal}
+          />
           <FilterBar
             prs={allPRs}
             filters={filters}
             onFilterChange={handleFilterChange}
             onCopyMarkdown={copyFilteredAsMarkdown}
             copied={copied}
+            stackView={stackView}
+            onStackViewChange={handleStackViewChange}
           />
           {error && <p>{error}</p>}
           {loading && allPRs.length === 0 && <p>Loading...</p>}
@@ -281,8 +343,13 @@ export default function App() {
             onSortingChange={handleSortingChange}
             workspaceStates={workspaceStates}
             dismissedIdle={dismissedIdle}
+            stackView={stackView}
           />
-          <ScratchWorkspaces workspaceStates={workspaceStates} dismissedIdle={dismissedIdle} localChangeCount={localChangeCount} />
+          <ScratchWorkspaces
+            workspaceStates={workspaceStates}
+            dismissedIdle={dismissedIdle}
+            localChangeCount={localChangeCount}
+          />
         </>
       )}
       <GlobalTerminal open={terminalOpen} onToggle={toggleTerminal} onSessionChange={setHasGlobalSession} />

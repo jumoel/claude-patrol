@@ -1,5 +1,9 @@
 # Build Log
 
+## 2026-04-21 - Branch stack detection and stack view
+
+Added detection of stacked branches (where a PR's base branch is another open PR's head branch). Backend now fetches `baseRefName` from GitHub GraphQL, stores it as `base_branch` in the DB, and computes stack relationships (parent, children, depth, root) across all PRs in the same repo. The main PR table shows a git-branch icon next to stacked PRs, with tree-like indentation when stack view is active. A purple "Stacks" toggle in the filter bar reorders PRs so each stack appears grouped together (base first, children in depth order). The PR detail page shows a purple banner for stacked PRs with clickable links to parent and child PRs. All state (stack view toggle) persists in the URL hash.
+
 ## 2026-03-17 - Navigate back immediately on workspace destroy
 
 Previously clicking "Destroy" blocked the UI on the workspace detail page until the full teardown completed (killing sessions, docker cleanup, jj forget, directory removal). Now the frontend navigates back to the homepage immediately and the destroy runs in the background. The workspace list shows up right away.

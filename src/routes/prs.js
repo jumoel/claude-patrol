@@ -1,6 +1,6 @@
 import { emitLocalChange } from '../app-events.js';
 import { getDb } from '../db.js';
-import { formatPR } from '../pr-status.js';
+import { enrichWithStackInfo, formatPR } from '../pr-status.js';
 import { execFile } from '../utils.js';
 
 /**
@@ -44,6 +44,9 @@ export function registerPRRoutes(app) {
       prs = prs.filter((pr) => pr.review_status === review);
     }
 
+    // Enrich with stack relationships
+    enrichWithStackInfo(prs);
+
     // Enrich with workspace/session indicators
     const activeWorkspaceRows = db.prepare("SELECT id, pr_id FROM workspaces WHERE status = 'active'").all();
     const activeWorkspaces = new Set(activeWorkspaceRows.map((r) => r.pr_id));
@@ -70,7 +73,11 @@ export function registerPRRoutes(app) {
     if (!row) {
       return reply.code(404).send({ error: 'Not found' });
     }
-    return formatPR(row);
+    // Format the target PR and all PRs in the same org/repo for stack computation
+    const siblingRows = db.prepare('SELECT * FROM prs WHERE org = ? AND repo = ?').all(row.org, row.repo);
+    const siblings = siblingRows.map(formatPR);
+    enrichWithStackInfo(siblings);
+    return siblings.find((p) => p.id === request.params.id);
   });
 
   app.post('/api/prs/:id/draft', async (request, reply) => {

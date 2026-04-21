@@ -265,279 +265,299 @@ export function PRDetail({ prId, onBack }) {
   const isMergeReady = checkMergeReady(pr);
 
   return (
-    <Box pb={16}><Stack direction="col" gap={4}>
-      {/* Header */}
-      <Box p={5} border rounded="lg" bg="white"><Stack direction="col" gap={3}>
-        <Stack justify="between">
-          <Button size="md" onClick={onBack}>
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-              <path
-                fillRule="evenodd"
-                d="M7.78 12.53a.75.75 0 01-1.06 0L2.47 8.28a.75.75 0 010-1.06l4.25-4.25a.75.75 0 011.06 1.06L4.81 7h7.44a.75.75 0 010 1.5H4.81l2.97 2.97a.75.75 0 010 1.06z"
-              />
-            </svg>
-            Back
-          </Button>
-          <Stack gap={2}>
-            {isMergeReady && (
-              <Button
-                as="a"
-                variant="success"
-                size="sm"
-                filled
-                href={pr.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className={styles.mergeButton}
-                onClick={(e) => e.stopPropagation()}
-              >
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+    <Box pb={16}>
+      <Stack direction="col" gap={4}>
+        {/* Header */}
+        <Box p={5} border rounded="lg" bg="white">
+          <Stack direction="col" gap={3}>
+            <Stack justify="between">
+              <Button size="md" onClick={onBack}>
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
                   <path
                     fillRule="evenodd"
-                    d="M5 3.254V3.25v.005a.75.75 0 110-.005v.004zm.45 1.9a2.25 2.25 0 10-1.95.218v5.256a2.25 2.25 0 101.5 0V7.123A5.735 5.735 0 009.25 9h1.378a2.251 2.251 0 100-1.5H9.25a4.25 4.25 0 01-3.8-2.346zM12.75 9a.75.75 0 100-1.5.75.75 0 000 1.5zm-8.5 4.5a.75.75 0 100-1.5.75.75 0 000 1.5z"
+                    d="M7.78 12.53a.75.75 0 01-1.06 0L2.47 8.28a.75.75 0 010-1.06l4.25-4.25a.75.75 0 011.06 1.06L4.81 7h7.44a.75.75 0 010 1.5H4.81l2.97 2.97a.75.75 0 010 1.06z"
                   />
                 </svg>
-                Merge on GitHub
+                Back
               </Button>
-            )}
-            <Button
-              variant={pr.draft ? 'success' : 'default'}
-              size="sm"
-              onClick={handleToggleDraft}
-              disabled={togglingDraft}
-              type="button"
-            >
-              {togglingDraft ? '...' : pr.draft ? 'Mark ready' : 'Mark draft'}
-            </Button>
-            <Button as="a" size="sm" href={`${pr.url}/files`} target="_blank" rel="noopener noreferrer">
-              View diff
-            </Button>
-            {workspace && (
-              <Button size="sm" onClick={handleOpenTerminal} type="button">
-                <svg
-                  width="14"
-                  height="14"
-                  viewBox="0 0 16 16"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
+              <Stack gap={2}>
+                {isMergeReady && (
+                  <Button
+                    as="a"
+                    variant="success"
+                    size="sm"
+                    filled
+                    href={pr.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={styles.mergeButton}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                      <path
+                        fillRule="evenodd"
+                        d="M5 3.254V3.25v.005a.75.75 0 110-.005v.004zm.45 1.9a2.25 2.25 0 10-1.95.218v5.256a2.25 2.25 0 101.5 0V7.123A5.735 5.735 0 009.25 9h1.378a2.251 2.251 0 100-1.5H9.25a4.25 4.25 0 01-3.8-2.346zM12.75 9a.75.75 0 100-1.5.75.75 0 000 1.5zm-8.5 4.5a.75.75 0 100-1.5.75.75 0 000 1.5z"
+                      />
+                    </svg>
+                    Merge on GitHub
+                  </Button>
+                )}
+                <Button
+                  variant={pr.draft ? 'success' : 'default'}
+                  size="sm"
+                  onClick={handleToggleDraft}
+                  disabled={togglingDraft}
+                  type="button"
                 >
-                  <rect x="1" y="2" width="14" height="12" rx="2" />
-                  <polyline points="5,6 7.5,8.5 5,11" />
-                  <line x1="9" y1="11" x2="12" y2="11" />
-                </svg>
-                Terminal
-              </Button>
-            )}
-            <a
-              href={pr.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className={styles.ghButton}
-              title="View on GitHub"
-            >
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z" />
-              </svg>
-            </a>
-          </Stack>
-        </Stack>
-
-        <h2 className={styles.title}>{pr.title}</h2>
-
-        <Stack gap={2} wrap className={shared.identityRow}>
-          <span className={shared.repoTag}>
-            {pr.org}/{pr.repo} #{pr.number}
-          </span>
-          <span className={shared.separator}>·</span>
-          <button
-            className={shared.branchTag}
-            title="Copy branch name"
-            onClick={() => {
-              navigator.clipboard.writeText(pr.branch);
-              setCopiedBranch(true);
-              setTimeout(() => setCopiedBranch(false), 1500);
-            }}
-          >
-            <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
-              <path
-                fillRule="evenodd"
-                d="M11.75 2.5a.75.75 0 100 1.5.75.75 0 000-1.5zm-2.25.75a2.25 2.25 0 113 2.122V6A2.5 2.5 0 0110 8.5H6a1 1 0 00-1 1v1.128a2.251 2.251 0 11-1.5 0V5.372a2.25 2.25 0 111.5 0v1.836A2.492 2.492 0 016 7h4a1 1 0 001-1v-.628A2.25 2.25 0 019.5 3.25zM4.25 12a.75.75 0 100 1.5.75.75 0 000-1.5zM3.5 3.25a.75.75 0 111.5 0 .75.75 0 01-1.5 0z"
-              />
-            </svg>
-            {pr.branch}
-            {copiedBranch && <span className={styles.copiedToast}>Copied!</span>}
-          </button>
-          <span className={shared.separator}>·</span>
-          <span className={shared.updatedText}>Updated {getRelativeTime(pr.updated_at)}</span>
-        </Stack>
-
-        <Stack gap={4}>
-          <Stack gap={2}>
-            <span className={styles.statusLabel}>CI</span>
-            <StatusBadge status={pr.ci_status} type="ci" />
-          </Stack>
-          <Stack gap={2}>
-            <span className={styles.statusLabel}>Review</span>
-            <StatusBadge status={pr.review_status} type="review" />
-          </Stack>
-          <Stack gap={2}>
-            <span className={styles.statusLabel}>Merge</span>
-            <StatusBadge status={pr.mergeable} type="merge" />
-          </Stack>
-          <Stack gap={2}>
-            <span className={styles.statusLabel}>PR</span>
-            <StatusBadge status={pr.draft ? 'draft' : 'open'} type="status" />
-          </Stack>
-        </Stack>
-
-        {pr.labels.length > 0 && (
-          <Stack gap={2} wrap className={styles.labels}>
-            {pr.labels.map((l) => (
-              <span
-                key={l.name}
-                className={styles.label}
-                style={{ backgroundColor: `#${l.color}20`, borderColor: `#${l.color}`, color: `#${l.color}` }}
-              >
-                {l.name}
-              </span>
-            ))}
-          </Stack>
-        )}
-
-        {pr.body_html && <PRDescription bodyHtml={pr.body_html} />}
-      </Stack></Box>
-
-      {/* Actions row */}
-      <Box p={5} border rounded="lg" bg="white">
-        <Stack direction="col" gap={3}>
-          <h3 className={shared.sectionTitle}>Workspace</h3>
-          <WorkspaceControls
-            prId={prId}
-            workspace={workspace}
-            onUpdate={loadData}
-            getOrCreateWorkspace={getOrCreateWorkspace}
-            claudeWaiting={openingClaude && !workspace}
-          />
-          {!session && (
-            <Button
-              variant="primary"
-              size="lg"
-              className={styles.openButtonSpaced}
-              onClick={handleOpenInClaude}
-              disabled={openingClaude}
-            >
-              {openingClaude ? openingStep : 'Open in Claude'}
-            </Button>
-          )}
-        </Stack>
-      </Box>
-
-      {session && (
-        <TerminalCard
-          session={session}
-          title={`Terminal - ${pr.org}/${pr.repo} #${pr.number}`}
-          onKill={handleKillSession}
-          onExit={handleSessionExit}
-          onPopOut={handlePopOut}
-          onReattach={handleReattach}
-          wsRef={wsRef}
-        />
-      )}
-
-      {/* Past Sessions */}
-      {workspace && <SessionHistory workspaceId={workspace.id} />}
-
-      {/* Checks */}
-      {pr.checks.length > 0 && (
-        <Box p={5} border rounded="lg" bg="white"><Stack direction="col" gap={3}>
-          <Stack justify="between" wrap gap={3}>
-            <Stack gap={3} as="h3" className={shared.sectionTitle}>
-              Checks
-              <Stack gap={2} as="span">
-                {passedChecks.length > 0 && <span className={styles.summaryPass}>{passedChecks.length} passed</span>}
-                {failedChecks.length > 0 && <span className={styles.summaryFail}>{failedChecks.length} failed</span>}
-                {runningChecks.length > 0 && (
-                  <span className={styles.summaryRunning}>{runningChecks.length} running</span>
+                  {togglingDraft ? '...' : pr.draft ? 'Mark ready' : 'Mark draft'}
+                </Button>
+                <Button as="a" size="sm" href={`${pr.url}/files`} target="_blank" rel="noopener noreferrer">
+                  View diff
+                </Button>
+                {workspace && (
+                  <Button size="sm" onClick={handleOpenTerminal} type="button">
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 16 16"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <rect x="1" y="2" width="14" height="12" rx="2" />
+                      <polyline points="5,6 7.5,8.5 5,11" />
+                      <line x1="9" y1="11" x2="12" y2="11" />
+                    </svg>
+                    Terminal
+                  </Button>
                 )}
-                {scheduledChecks.length > 0 && (
-                  <span className={styles.summaryScheduled}>{scheduledChecks.length} queued</span>
-                )}
+                <a
+                  href={pr.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={styles.ghButton}
+                  title="View on GitHub"
+                >
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                    <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z" />
+                  </svg>
+                </a>
               </Stack>
             </Stack>
-            {failedChecks.length > 0 && (
+
+            <h2 className={styles.title}>{pr.title}</h2>
+
+            <Stack gap={2} wrap className={shared.identityRow}>
+              <span className={shared.repoTag}>
+                {pr.org}/{pr.repo} #{pr.number}
+              </span>
+              <span className={shared.separator}>·</span>
+              <button
+                className={shared.branchTag}
+                title="Copy branch name"
+                onClick={() => {
+                  navigator.clipboard.writeText(pr.branch);
+                  setCopiedBranch(true);
+                  setTimeout(() => setCopiedBranch(false), 1500);
+                }}
+              >
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+                  <path
+                    fillRule="evenodd"
+                    d="M11.75 2.5a.75.75 0 100 1.5.75.75 0 000-1.5zm-2.25.75a2.25 2.25 0 113 2.122V6A2.5 2.5 0 0110 8.5H6a1 1 0 00-1 1v1.128a2.251 2.251 0 11-1.5 0V5.372a2.25 2.25 0 111.5 0v1.836A2.492 2.492 0 016 7h4a1 1 0 001-1v-.628A2.25 2.25 0 019.5 3.25zM4.25 12a.75.75 0 100 1.5.75.75 0 000-1.5zM3.5 3.25a.75.75 0 111.5 0 .75.75 0 01-1.5 0z"
+                  />
+                </svg>
+                {pr.branch}
+                {copiedBranch && <span className={styles.copiedToast}>Copied!</span>}
+              </button>
+              <span className={shared.separator}>·</span>
+              <span className={shared.updatedText}>Updated {getRelativeTime(pr.updated_at)}</span>
+            </Stack>
+
+            {pr.is_stacked && <StackInfo pr={pr} />}
+
+            <Stack gap={4}>
               <Stack gap={2}>
-                <Button variant="warning" size="sm" onClick={handleRetriggerFailed} disabled={retriggering}>
-                  {retriggering ? 'Retriggering...' : 'Retrigger failed'}
-                </Button>
-                <Button variant="primary" size="sm" onClick={handleInvestigateFailures}>
-                  Investigate failures
-                </Button>
+                <span className={styles.statusLabel}>CI</span>
+                <StatusBadge status={pr.ci_status} type="ci" />
+              </Stack>
+              <Stack gap={2}>
+                <span className={styles.statusLabel}>Review</span>
+                <StatusBadge status={pr.review_status} type="review" />
+              </Stack>
+              <Stack gap={2}>
+                <span className={styles.statusLabel}>Merge</span>
+                <StatusBadge status={pr.mergeable} type="merge" />
+              </Stack>
+              <Stack gap={2}>
+                <span className={styles.statusLabel}>PR</span>
+                <StatusBadge status={pr.draft ? 'draft' : 'open'} type="status" />
+              </Stack>
+            </Stack>
+
+            {pr.labels.length > 0 && (
+              <Stack gap={2} wrap className={styles.labels}>
+                {pr.labels.map((l) => (
+                  <span
+                    key={l.name}
+                    className={styles.label}
+                    style={{ backgroundColor: `#${l.color}20`, borderColor: `#${l.color}`, color: `#${l.color}` }}
+                  >
+                    {l.name}
+                  </span>
+                ))}
               </Stack>
             )}
+
+            {pr.body_html && <PRDescription bodyHtml={pr.body_html} />}
           </Stack>
+        </Box>
 
-          {/* Failed checks first */}
-          {failedChecks.length > 0 && (
-            <div className={styles.checkGroup}>
-              {failedChecks.map((c, i) => (
-                <CheckRow key={`fail-${i}`} check={c} prId={prId} />
-              ))}
-            </div>
-          )}
+        {/* Actions row */}
+        <Box p={5} border rounded="lg" bg="white">
+          <Stack direction="col" gap={3}>
+            <h3 className={shared.sectionTitle}>Workspace</h3>
+            <WorkspaceControls
+              prId={prId}
+              workspace={workspace}
+              onUpdate={loadData}
+              getOrCreateWorkspace={getOrCreateWorkspace}
+              claudeWaiting={openingClaude && !workspace}
+            />
+            {!session && (
+              <Button
+                variant="primary"
+                size="lg"
+                className={styles.openButtonSpaced}
+                onClick={handleOpenInClaude}
+                disabled={openingClaude}
+              >
+                {openingClaude ? openingStep : 'Open in Claude'}
+              </Button>
+            )}
+          </Stack>
+        </Box>
 
-          {/* Running checks */}
-          {runningChecks.length > 0 && (
-            <div className={styles.checkGroup}>
-              {runningChecks.map((c, i) => (
-                <CheckRow key={`running-${i}`} check={c} />
-              ))}
-            </div>
-          )}
+        {session && (
+          <TerminalCard
+            session={session}
+            title={`Terminal - ${pr.org}/${pr.repo} #${pr.number}`}
+            onKill={handleKillSession}
+            onExit={handleSessionExit}
+            onPopOut={handlePopOut}
+            onReattach={handleReattach}
+            wsRef={wsRef}
+          />
+        )}
 
-          {/* Scheduled checks */}
-          {scheduledChecks.length > 0 && (
-            <div className={styles.checkGroup}>
-              {scheduledChecks.map((c, i) => (
-                <CheckRow key={`scheduled-${i}`} check={c} />
-              ))}
-            </div>
-          )}
+        {/* Past Sessions */}
+        {workspace && <SessionHistory workspaceId={workspace.id} />}
 
-          {/* Passed checks - collapsed by default if there are many */}
-          {passedChecks.length > 0 && <PassedChecksGroup checks={passedChecks} />}
-        </Stack></Box>
-      )}
+        {/* Checks */}
+        {pr.checks.length > 0 && (
+          <Box p={5} border rounded="lg" bg="white">
+            <Stack direction="col" gap={3}>
+              <Stack justify="between" wrap gap={3}>
+                <Stack gap={3} as="h3" className={shared.sectionTitle}>
+                  Checks
+                  <Stack gap={2} as="span">
+                    {passedChecks.length > 0 && (
+                      <span className={styles.summaryPass}>{passedChecks.length} passed</span>
+                    )}
+                    {failedChecks.length > 0 && (
+                      <span className={styles.summaryFail}>{failedChecks.length} failed</span>
+                    )}
+                    {runningChecks.length > 0 && (
+                      <span className={styles.summaryRunning}>{runningChecks.length} running</span>
+                    )}
+                    {scheduledChecks.length > 0 && (
+                      <span className={styles.summaryScheduled}>{scheduledChecks.length} queued</span>
+                    )}
+                  </Stack>
+                </Stack>
+                {failedChecks.length > 0 && (
+                  <Stack gap={2}>
+                    <Button variant="warning" size="sm" onClick={handleRetriggerFailed} disabled={retriggering}>
+                      {retriggering ? 'Retriggering...' : 'Retrigger failed'}
+                    </Button>
+                    <Button variant="primary" size="sm" onClick={handleInvestigateFailures}>
+                      Investigate failures
+                    </Button>
+                  </Stack>
+                )}
+              </Stack>
 
-      {/* Reviews */}
-      {pr.reviews.length > 0 && (
-        <Box p={5} border rounded="lg" bg="white"><Stack direction="col" gap={3}>
-          <h3 className={shared.sectionTitle}>Reviews</h3>
-          <div className={styles.reviewsList}>
-            {pr.reviews.map((r, i) => (
-              <div key={i} className={styles.reviewRow}>
-                <span className={styles.reviewerName}>{r.reviewer}</span>
-                <span
-                  className={`${styles.reviewState} ${r.state === 'APPROVED' ? styles.reviewApproved : r.state === 'CHANGES_REQUESTED' ? styles.reviewChanges : styles.reviewComment}`}
-                >
-                  {r.state.toLowerCase().replace('_', ' ')}
-                </span>
+              {/* Failed checks first */}
+              {failedChecks.length > 0 && (
+                <div className={styles.checkGroup}>
+                  {failedChecks.map((c, i) => (
+                    <CheckRow key={`fail-${i}`} check={c} prId={prId} />
+                  ))}
+                </div>
+              )}
+
+              {/* Running checks */}
+              {runningChecks.length > 0 && (
+                <div className={styles.checkGroup}>
+                  {runningChecks.map((c, i) => (
+                    <CheckRow key={`running-${i}`} check={c} />
+                  ))}
+                </div>
+              )}
+
+              {/* Scheduled checks */}
+              {scheduledChecks.length > 0 && (
+                <div className={styles.checkGroup}>
+                  {scheduledChecks.map((c, i) => (
+                    <CheckRow key={`scheduled-${i}`} check={c} />
+                  ))}
+                </div>
+              )}
+
+              {/* Passed checks - collapsed by default if there are many */}
+              {passedChecks.length > 0 && <PassedChecksGroup checks={passedChecks} />}
+            </Stack>
+          </Box>
+        )}
+
+        {/* Reviews */}
+        {pr.reviews.length > 0 && (
+          <Box p={5} border rounded="lg" bg="white">
+            <Stack direction="col" gap={3}>
+              <h3 className={shared.sectionTitle}>Reviews</h3>
+              <div className={styles.reviewsList}>
+                {pr.reviews.map((r, i) => (
+                  <div key={i} className={styles.reviewRow}>
+                    <span className={styles.reviewerName}>{r.reviewer}</span>
+                    <span
+                      className={`${styles.reviewState} ${r.state === 'APPROVED' ? styles.reviewApproved : r.state === 'CHANGES_REQUESTED' ? styles.reviewChanges : styles.reviewComment}`}
+                    >
+                      {r.state.toLowerCase().replace('_', ' ')}
+                    </span>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-        </Stack></Box>
-      )}
+            </Stack>
+          </Box>
+        )}
 
-      {/* Review Comments & Conversation */}
-      {(commentsLoading || comments) && (
-        <Box p={5} border rounded="lg" bg="white"><Stack direction="col" gap={3}>
-          <h3 className={shared.sectionTitle}>Comments</h3>
-          <CommentsList reviews={comments?.reviews} conversation={comments?.conversation} loading={commentsLoading} />
-        </Stack></Box>
-      )}
-    </Stack></Box>
+        {/* Review Comments & Conversation */}
+        {(commentsLoading || comments) && (
+          <Box p={5} border rounded="lg" bg="white">
+            <Stack direction="col" gap={3}>
+              <h3 className={shared.sectionTitle}>Comments</h3>
+              <CommentsList
+                reviews={comments?.reviews}
+                conversation={comments?.conversation}
+                loading={commentsLoading}
+              />
+            </Stack>
+          </Box>
+        )}
+      </Stack>
+    </Box>
   );
 }
 
@@ -627,6 +647,52 @@ function PassedChecksGroup({ checks }) {
   );
 }
 
+function StackInfo({ pr }) {
+  const parentId = pr.stack_parent;
+  const childIds = pr.stack_children || [];
+
+  /** Extract display label from PR id (e.g. "org/repo#123" -> "#123") */
+  const prLabel = (id) => {
+    const match = id.match(/#(\d+)$/);
+    return match ? `#${match[1]}` : id;
+  };
+
+  const navigateTo = (id) => {
+    window.location.hash = `/pr/${encodeURIComponent(id)}`;
+  };
+
+  return (
+    <div className={styles.stackInfoBar}>
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" className={styles.stackInfoIcon}>
+        <path d="M5 3.254V3.25v.005a.75.75 0 110-.005v.004zm.45 1.9a2.25 2.25 0 10-1.95.218v5.256a2.25 2.25 0 101.5 0V7.123A5.735 5.735 0 009.25 9h1.378a2.251 2.251 0 100-1.5H9.25a4.25 4.25 0 01-3.8-2.346zM12.75 9a.75.75 0 100-1.5.75.75 0 000 1.5zm-8.5 4.5a.75.75 0 100-1.5.75.75 0 000 1.5z" />
+      </svg>
+      <span className={styles.stackInfoLabel}>Stacked branch</span>
+      {parentId && (
+        <span className={styles.stackInfoItem}>
+          Base:{' '}
+          <button className={styles.stackLink} onClick={() => navigateTo(parentId)}>
+            {prLabel(parentId)}
+          </button>
+        </span>
+      )}
+      {!parentId && <span className={styles.stackInfoItem}>Base: {pr.base_branch}</span>}
+      {childIds.length > 0 && (
+        <span className={styles.stackInfoItem}>
+          Depends on this:{' '}
+          {childIds.map((id, i) => (
+            <span key={id}>
+              {i > 0 && ', '}
+              <button className={styles.stackLink} onClick={() => navigateTo(id)}>
+                {prLabel(id)}
+              </button>
+            </span>
+          ))}
+        </span>
+      )}
+    </div>
+  );
+}
+
 function PRDescription({ bodyHtml }) {
   const [expanded, setExpanded] = useState(false);
 
@@ -687,40 +753,44 @@ function SessionHistory({ workspaceId }) {
   };
 
   return (
-    <Box p={5} border rounded="lg" bg="white"><Stack direction="col" gap={3}>
-      <button className={styles.toggleButton} onClick={() => setExpanded(!expanded)} style={{ padding: '0' }}>
-        {expanded ? 'Hide' : 'Show'} past sessions
-      </button>
-      {expanded && loading && <p className={shared.loading}>Loading...</p>}
-      {expanded && history && history.length === 0 && (
-        <p style={{ color: '#9ca3af', fontSize: '14px', marginTop: '8px' }}>No past sessions</p>
-      )}
-      {expanded && history && history.length > 0 && (
-        <div className={styles.reviewsList}>
-          {history.map((sess) => (
-            <div key={sess.id}>
-              <button className={styles.checkRow} onClick={() => handleViewTranscript(sess.id)}>
-                <Stack gap={2} className={styles.checkInfo}>
-                  <span style={{ fontSize: '14px', color: '#6b7280' }}>
-                    {new Date(sess.started_at).toLocaleString()}
+    <Box p={5} border rounded="lg" bg="white">
+      <Stack direction="col" gap={3}>
+        <button className={styles.toggleButton} onClick={() => setExpanded(!expanded)} style={{ padding: '0' }}>
+          {expanded ? 'Hide' : 'Show'} past sessions
+        </button>
+        {expanded && loading && <p className={shared.loading}>Loading...</p>}
+        {expanded && history && history.length === 0 && (
+          <p style={{ color: '#9ca3af', fontSize: '14px', marginTop: '8px' }}>No past sessions</p>
+        )}
+        {expanded && history && history.length > 0 && (
+          <div className={styles.reviewsList}>
+            {history.map((sess) => (
+              <div key={sess.id}>
+                <button className={styles.checkRow} onClick={() => handleViewTranscript(sess.id)}>
+                  <Stack gap={2} className={styles.checkInfo}>
+                    <span style={{ fontSize: '14px', color: '#6b7280' }}>
+                      {new Date(sess.started_at).toLocaleString()}
+                    </span>
+                    <span style={{ fontSize: '13px', color: '#9ca3af' }}>
+                      {formatDuration(sess.started_at, sess.ended_at)}
+                    </span>
+                  </Stack>
+                  <span className={`${styles.chevron} ${transcripts[sess.id] ? styles.chevronOpen : ''}`}>
+                    &#x25B8;
                   </span>
-                  <span style={{ fontSize: '13px', color: '#9ca3af' }}>
-                    {formatDuration(sess.started_at, sess.ended_at)}
-                  </span>
-                </Stack>
-                <span className={`${styles.chevron} ${transcripts[sess.id] ? styles.chevronOpen : ''}`}>&#x25B8;</span>
-              </button>
-              {(transcripts[sess.id] || transcriptLoading[sess.id] || transcriptErrors[sess.id]) && (
-                <TranscriptViewer
-                  entries={transcripts[sess.id] || null}
-                  loading={!!transcriptLoading[sess.id]}
-                  error={transcriptErrors[sess.id] || null}
-                />
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-    </Stack></Box>
+                </button>
+                {(transcripts[sess.id] || transcriptLoading[sess.id] || transcriptErrors[sess.id]) && (
+                  <TranscriptViewer
+                    entries={transcripts[sess.id] || null}
+                    loading={!!transcriptLoading[sess.id]}
+                    error={transcriptErrors[sess.id] || null}
+                  />
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </Stack>
+    </Box>
   );
 }

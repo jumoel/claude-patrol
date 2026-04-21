@@ -86,3 +86,36 @@
 .empty {
   @apply text-center text-gray-400 py-16 text-base;
 }
+
+/* Stack indicators */
+.stackIndicator {
+  @apply inline-flex items-center gap-0.5 flex-shrink-0;
+}
+
+.stackIndent {
+  @apply inline-block;
+}
+
+.stackIcon {
+  @apply text-purple-500 flex-shrink-0;
+}
+
+.stackLabel {
+  @apply text-xs font-medium text-purple-600 leading-none;
+}
+
+.stackBadge {
+  @apply inline-flex items-center text-purple-500 flex-shrink-0;
+}
+
+.stackedRow {
+  @apply bg-purple-50/30;
+}
+
+.stackedRow:hover {
+  @apply bg-purple-50/60;
+}
+
+.stackBoundary {
+  border-top: 2px solid rgb(168 85 247 / 0.3);
+}

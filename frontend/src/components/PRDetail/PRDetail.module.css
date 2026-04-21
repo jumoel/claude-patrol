@@ -240,6 +240,36 @@
   @apply border-gray-200 my-3;
 }
 
+/* Stack info */
+.stackInfoBar {
+  @apply flex items-center gap-2 px-3 py-2 bg-purple-50 border border-purple-200 rounded-md text-sm text-purple-800 flex-wrap;
+}
+
+.stackInfoIcon {
+  @apply text-purple-500 flex-shrink-0;
+}
+
+.stackInfoLabel {
+  @apply font-medium text-purple-700;
+}
+
+.stackInfoItem {
+  @apply text-purple-600;
+}
+
+.stackInfoItem::before {
+  content: '\00B7';
+  @apply mx-1 text-purple-400;
+}
+
+.stackLink {
+  @apply text-purple-700 font-medium hover:text-purple-900 hover:underline cursor-pointer;
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: inherit;
+}
+
 /* Copy-to-clipboard toast */
 .copiedToast {
   @apply text-xs font-medium text-green-400 ml-1;
