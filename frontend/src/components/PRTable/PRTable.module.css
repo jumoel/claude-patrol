@@ -109,11 +109,7 @@
 }
 
 .stackedRow {
-  @apply bg-purple-50/30;
-}
-
-.stackedRow:hover {
-  @apply bg-purple-50/60;
+  border-left: 3px solid rgb(168 85 247 / 0.4);
 }
 
 .stackBoundary {
