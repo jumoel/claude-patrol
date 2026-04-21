@@ -650,6 +650,7 @@ function PassedChecksGroup({ checks }) {
 function StackInfo({ pr }) {
   const parentId = pr.stack_parent;
   const childIds = pr.stack_children || [];
+  const { stack_position: pos, stack_size: size } = pr;
 
   /** Extract display label from PR id (e.g. "org/repo#123" -> "#123") */
   const prLabel = (id) => {
@@ -663,13 +664,13 @@ function StackInfo({ pr }) {
 
   return (
     <div className={styles.stackInfoBar}>
-      <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" className={styles.stackInfoIcon}>
-        <path d="M5 3.254V3.25v.005a.75.75 0 110-.005v.004zm.45 1.9a2.25 2.25 0 10-1.95.218v5.256a2.25 2.25 0 101.5 0V7.123A5.735 5.735 0 009.25 9h1.378a2.251 2.251 0 100-1.5H9.25a4.25 4.25 0 01-3.8-2.346zM12.75 9a.75.75 0 100-1.5.75.75 0 000 1.5zm-8.5 4.5a.75.75 0 100-1.5.75.75 0 000 1.5z" />
-      </svg>
-      <span className={styles.stackInfoLabel}>Stacked branch</span>
+      <span className={styles.stackInfoNode}>{pos}</span>
+      <span className={styles.stackInfoLabel}>
+        {pos} of {size} in stack
+      </span>
       {parentId && (
         <span className={styles.stackInfoItem}>
-          Base:{' '}
+          Based on{' '}
           <button className={styles.stackLink} onClick={() => navigateTo(parentId)}>
             {prLabel(parentId)}
           </button>
@@ -678,7 +679,7 @@ function StackInfo({ pr }) {
       {!parentId && <span className={styles.stackInfoItem}>Base: {pr.base_branch}</span>}
       {childIds.length > 0 && (
         <span className={styles.stackInfoItem}>
-          Depends on this:{' '}
+          Parent of{' '}
           {childIds.map((id, i) => (
             <span key={id}>
               {i > 0 && ', '}

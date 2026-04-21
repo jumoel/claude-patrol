@@ -8,36 +8,29 @@ import { Stack } from '../ui/Stack/Stack.jsx';
 import styles from './PRTable.module.css';
 
 /**
- * Stack position indicator showing depth in the stack.
+ * Stack position indicator.
+ * - Stack view: vertical tree line with numbered node circle
+ * - Normal view: compact "2/3" pill
  */
 function StackIndicator({ pr, stackView }) {
   if (!pr.is_stacked) return null;
 
-  const depth = pr.stack_depth;
-  const hasChildren = pr.stack_children?.length > 0;
-  const hasParent = !!pr.stack_parent;
+  const { stack_position: pos, stack_size: size } = pr;
+  const isFirst = pos === 1;
+  const isLast = pos === size;
 
-  // Build a visual tree connector when in stack view
   if (stackView) {
+    const lineClass = isFirst ? styles.stackLineFirst : isLast ? styles.stackLineLast : styles.stackLineMid;
     return (
-      <span className={styles.stackIndicator} title={`Stack depth: ${depth}`}>
-        {depth > 0 && <span className={styles.stackIndent} style={{ width: `${depth * 12}px` }} />}
-        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" className={styles.stackIcon}>
-          <path d="M5 3.254V3.25v.005a.75.75 0 110-.005v.004zm.45 1.9a2.25 2.25 0 10-1.95.218v5.256a2.25 2.25 0 101.5 0V7.123A5.735 5.735 0 009.25 9h1.378a2.251 2.251 0 100-1.5H9.25a4.25 4.25 0 01-3.8-2.346zM12.75 9a.75.75 0 100-1.5.75.75 0 000 1.5zm-8.5 4.5a.75.75 0 100-1.5.75.75 0 000 1.5z" />
-        </svg>
-        {!hasParent && hasChildren && <span className={styles.stackLabel}>base</span>}
-        {hasParent && hasChildren && <span className={styles.stackLabel}>{depth}</span>}
-        {hasParent && !hasChildren && <span className={styles.stackLabel}>top</span>}
+      <span className={`${styles.stackTree} ${lineClass}`} title={`${pos} of ${size} in stack`}>
+        <span className={styles.stackNode}>{pos}</span>
       </span>
     );
   }
 
-  // Compact badge in normal view
   return (
-    <span className={styles.stackBadge} title={`Part of a ${depth + 1}-deep stack`}>
-      <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
-        <path d="M5 3.254V3.25v.005a.75.75 0 110-.005v.004zm.45 1.9a2.25 2.25 0 10-1.95.218v5.256a2.25 2.25 0 101.5 0V7.123A5.735 5.735 0 009.25 9h1.378a2.251 2.251 0 100-1.5H9.25a4.25 4.25 0 01-3.8-2.346zM12.75 9a.75.75 0 100-1.5.75.75 0 000 1.5zm-8.5 4.5a.75.75 0 100-1.5.75.75 0 000 1.5z" />
-      </svg>
+    <span className={styles.stackPill} title={`${pos} of ${size} in stack`}>
+      {pos}/{size}
     </span>
   );
 }

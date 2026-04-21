@@ -245,8 +245,11 @@
   @apply flex items-center gap-2 px-3 py-2 bg-purple-50 border border-purple-200 rounded-md text-sm text-purple-800 flex-wrap;
 }
 
-.stackInfoIcon {
-  @apply text-purple-500 flex-shrink-0;
+.stackInfoNode {
+  @apply flex items-center justify-center text-xs font-semibold text-purple-700 bg-purple-100 border border-purple-300 rounded-full flex-shrink-0;
+  width: 20px;
+  height: 20px;
+  line-height: 1;
 }
 
 .stackInfoLabel {

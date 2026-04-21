@@ -90,12 +90,35 @@ export function enrichWithStackInfo(prs) {
       depth++;
       current = prs.find((p) => p.id === current.stack_parent);
       if (!current) break;
-      // Guard against cycles
       if (depth > 50) break;
     }
     pr.stack_depth = depth;
     pr.stack_root = current ? current.id : pr.id;
     pr.is_stacked = depth > 0 || pr.stack_children.length > 0;
+  }
+
+  // Compute stack_size and stack_position (1-indexed) for each stacked PR
+  const rootGroups = new Map();
+  for (const pr of prs) {
+    if (!pr.is_stacked) continue;
+    if (!rootGroups.has(pr.stack_root)) rootGroups.set(pr.stack_root, []);
+    rootGroups.get(pr.stack_root).push(pr);
+  }
+  for (const [, group] of rootGroups) {
+    group.sort((a, b) => a.stack_depth - b.stack_depth);
+    const size = group.length;
+    for (let i = 0; i < group.length; i++) {
+      group[i].stack_size = size;
+      group[i].stack_position = i + 1;
+    }
+  }
+
+  // Default for non-stacked
+  for (const pr of prs) {
+    if (!pr.is_stacked) {
+      pr.stack_size = 0;
+      pr.stack_position = 0;
+    }
   }
 
   return prs;
