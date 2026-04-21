@@ -94,7 +94,7 @@ const FILTER_KEYS = ['org', 'repo', 'ci', 'review', 'mergeable', 'draft'];
 function parseHashParams() {
   const hash = window.location.hash;
   const qIdx = hash.indexOf('?');
-  if (qIdx === -1) return { filters: {}, sorting: [] };
+  if (qIdx === -1) return { filters: {}, sorting: [], stackView: true };
   const params = new URLSearchParams(hash.slice(qIdx + 1));
   const filters = {};
   for (const key of FILTER_KEYS) {
@@ -107,7 +107,7 @@ function parseHashParams() {
   if (sortId) {
     sorting.push({ id: sortId, desc: params.get('dir') === 'desc' });
   }
-  const stackView = params.get('stacks') === '1';
+  const stackView = params.get('stacks') !== '0';
   return { filters, sorting, stackView };
 }
 
@@ -125,7 +125,7 @@ function writeHashParams(filters, sorting, stackView) {
     params.set('sort', sorting[0].id);
     params.set('dir', sorting[0].desc ? 'desc' : 'asc');
   }
-  if (stackView) params.set('stacks', '1');
+  if (!stackView) params.set('stacks', '0');
   const qs = params.toString();
   const newHash = qs ? `${path || '#/'}?${qs}` : path || '';
   // Use replaceState to avoid polluting history with every filter/sort change
