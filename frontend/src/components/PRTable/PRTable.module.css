@@ -39,6 +39,10 @@
   @apply px-4 py-3 text-base text-gray-700;
 }
 
+.prNumber {
+  @apply text-gray-400 font-normal flex-shrink-0;
+}
+
 .titleText {
   @apply font-medium text-gray-900 flex-1;
 }

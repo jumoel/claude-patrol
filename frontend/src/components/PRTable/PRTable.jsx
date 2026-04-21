@@ -50,6 +50,7 @@ export function PRTable({ prs, onRowClick, sorting, onSortingChange, workspaceSt
           return (
             <Stack gap={2} as="span">
               <StackIndicator pr={pr} stackView={stackView} />
+              <span className={styles.prNumber}>#{pr.number}</span>
               <span className={styles.titleText}>{pr.title}</span>
               <a
                 href={pr.url}
