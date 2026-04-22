@@ -279,9 +279,21 @@ export default function App() {
     window.location.hash = `/workspace/${wsId}`;
   };
 
-  const navigateBack = () => {
-    window.location.hash = '';
-  };
+  const navigateBack = useCallback(() => {
+    // Build query string preserving current dashboard state
+    const params = new URLSearchParams();
+    for (const key of FILTER_KEYS) {
+      if (filters[key]?.length) params.set(key, filters[key].join(','));
+    }
+    if (filters.needsWork) params.set('needsWork', '1');
+    if (sorting.length > 0) {
+      params.set('sort', sorting[0].id);
+      params.set('dir', sorting[0].desc ? 'desc' : 'asc');
+    }
+    if (!stackView) params.set('stacks', '0');
+    const qs = params.toString();
+    window.location.hash = qs ? `/?${qs}` : '';
+  }, [filters, sorting, stackView]);
 
   const handleConfigured = useCallback(() => {
     setNeedsSetup(false);
