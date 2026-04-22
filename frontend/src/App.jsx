@@ -217,25 +217,12 @@ export default function App() {
   const copyFilteredAsMarkdown = useCallback(() => {
     let md;
     if (stackView) {
-      const lines = [];
-      let currentRoot = null;
-      for (const pr of filteredPRs) {
-        if (pr.is_stacked) {
-          if (pr.stack_root !== currentRoot) {
-            if (lines.length > 0) lines.push('');
-            currentRoot = pr.stack_root;
-          }
-          const indent = '  '.repeat(pr.stack_depth);
-          lines.push(`${indent}- [#${pr.number}](${pr.url}) - ${pr.title}`);
-        } else {
-          if (currentRoot !== null) {
-            lines.push('');
-            currentRoot = null;
-          }
-          lines.push(`- [#${pr.number}](${pr.url}) - ${pr.title}`);
-        }
-      }
-      md = lines.join('\n');
+      md = filteredPRs
+        .map((pr) => {
+          const indent = pr.is_stacked ? '  '.repeat(pr.stack_depth) : '';
+          return `${indent}- [#${pr.number}](${pr.url}) - ${pr.title}`;
+        })
+        .join('\n');
     } else {
       md = filteredPRs.map((pr) => `- [#${pr.number}](${pr.url}) - ${pr.title}`).join('\n');
     }
