@@ -1,5 +1,9 @@
 # Build Log
 
+## 2026-04-22 - Fix summarizer: drop --bare flag, add diagnostic logging
+
+The summarizer was calling `claude --print --model haiku --bare` which fails with "Not logged in" because `--bare` strips authentication context. Removed the `--bare` flag so the CLI inherits the user's auth session. Also added console.log to every silent bail-out path in `generateSummary`, `scheduleSummary`, and `getWorkspaceConversationText` - previously all skip/failure conditions returned null with zero logging.
+
 ## 2026-04-21 - Branch stack detection and stack view
 
 Added detection of stacked branches (where a PR's base branch is another open PR's head branch). Backend now fetches `baseRefName` from GitHub GraphQL, stores it as `base_branch` in the DB, and computes stack relationships (parent, children, depth, root) across all PRs in the same repo. The main PR table shows a git-branch icon next to stacked PRs, with tree-like indentation when stack view is active. A purple "Stacks" toggle in the filter bar reorders PRs so each stack appears grouped together (base first, children in depth order). The PR detail page shows a purple banner for stacked PRs with clickable links to parent and child PRs. All state (stack view toggle) persists in the URL hash.

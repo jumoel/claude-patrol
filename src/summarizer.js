@@ -70,7 +70,6 @@ ${newTranscriptText}`;
 
 /**
  * Run `claude --print` with a prompt piped via stdin.
- * Uses --bare for minimal overhead (no hooks, no CLAUDE.md, no plugins).
  * @param {string} prompt
  * @returns {Promise<string>}
  */
@@ -79,7 +78,6 @@ function runClaude(prompt) {
     const proc = spawn('claude', [
       '--print',
       '--model', 'haiku',
-      '--bare',
     ], {
       stdio: ['pipe', 'pipe', 'pipe'],
       timeout: 60_000,
@@ -108,7 +106,7 @@ function runClaude(prompt) {
 
 /**
  * Generate or update the summary for a workspace.
- * Calls `claude --print --model haiku` with only the conversation content
+ * Calls `claude --print --model haiku` with the conversation content
  * (human messages + assistant text, no tool calls or system messages).
  * All transcript reading is delegated to transcripts.js.
  * @param {string} workspaceId
@@ -120,30 +118,41 @@ export async function generateSummary(workspaceId, { force = false } = {}) {
   if (!force) {
     const lastTime = lastSummaryTime.get(workspaceId);
     if (lastTime && Date.now() - lastTime < DEBOUNCE_MS) {
+      console.log(`[summarizer] Skipping ${workspaceId} - debounced (${Math.round((Date.now() - lastTime) / 1000)}s ago)`);
       return null;
     }
   }
 
   // Prevent concurrent summarization for the same workspace
   if (inFlight.has(workspaceId)) {
+    console.log(`[summarizer] Skipping ${workspaceId} - already in flight`);
     return null;
   }
 
   const db = getDb();
   const workspace = db.prepare("SELECT * FROM workspaces WHERE id = ? AND status = 'active'").get(workspaceId);
-  if (!workspace) return null;
+  if (!workspace) {
+    console.log(`[summarizer] Skipping ${workspaceId} - workspace not found or not active`);
+    return null;
+  }
+
+  console.log(`[summarizer] Generating summary for workspace ${workspaceId} (${workspace.name}, since=${workspace.summary_updated_at || 'beginning'})`);
 
   // Incremental: only gather transcripts modified since last summary.
   // For first summary (no summary_updated_at), gathers everything.
   const hasPrevious = !!workspace.summary;
   const newText = getWorkspaceConversationText(workspaceId, { since: workspace.summary_updated_at });
   if (!newText.trim()) {
+    console.log(`[summarizer] Skipping ${workspaceId} - no transcript content found`);
     return null; // nothing new to summarize
   }
+
+  console.log(`[summarizer] Found ${newText.length} chars of transcript for ${workspaceId}`);
 
   // Skip if the new transcript content is identical to what we last processed
   const contentHash = createHash('sha256').update(newText).digest('hex');
   if (!force && lastTranscriptHash.get(workspaceId) === contentHash) {
+    console.log(`[summarizer] Skipping ${workspaceId} - transcript unchanged`);
     return null;
   }
 
@@ -175,6 +184,9 @@ export async function generateSummary(workspaceId, { force = false } = {}) {
  * @param {string} workspaceId
  */
 export function scheduleSummary(workspaceId) {
+  console.log(`[summarizer] scheduleSummary called for workspace ${workspaceId}`);
   // Fire and forget - don't await
-  generateSummary(workspaceId).catch(() => {});
+  generateSummary(workspaceId).catch((err) => {
+    console.warn(`[summarizer] Unhandled error in generateSummary for ${workspaceId}: ${err.message}`);
+  });
 }

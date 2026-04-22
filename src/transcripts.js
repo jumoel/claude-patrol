@@ -310,7 +310,10 @@ export function extractConversation(entries) {
 export function getWorkspaceConversationText(workspaceId, { since = null } = {}) {
   const db = getDb();
   const workspace = db.prepare('SELECT path FROM workspaces WHERE id = ?').get(workspaceId);
-  if (!workspace) return '';
+  if (!workspace) {
+    console.log(`[transcripts] getWorkspaceConversationText: workspace ${workspaceId} not found`);
+    return '';
+  }
 
   const projectDir = claudeProjectDirForWorkspace(workspace.path);
   const cutoff = since ? new Date(since).getTime() : 0;
@@ -326,6 +329,8 @@ export function getWorkspaceConversationText(workspaceId, { since = null } = {})
     jsonlFiles = [];
   }
 
+  console.log(`[transcripts] Project dir ${projectDir}: ${jsonlFiles.length} JSONL files found`);
+
   // Also include archived transcripts from DB sessions (they live outside the project dir)
   const sessions = db.prepare('SELECT * FROM sessions WHERE workspace_id = ? ORDER BY started_at ASC').all(workspaceId);
   const seen = new Set(jsonlFiles);
@@ -336,6 +341,8 @@ export function getWorkspaceConversationText(workspaceId, { since = null } = {})
       seen.add(resolved);
     }
   }
+
+  console.log(`[transcripts] Total JSONL files for workspace ${workspaceId}: ${jsonlFiles.length} (${sessions.length} DB sessions, cutoff=${cutoff})`)
 
   // Sort by mtime so older transcripts come first
   jsonlFiles.sort((a, b) => {
