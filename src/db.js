@@ -20,6 +20,17 @@ export function initDb(dbPath) {
   db.exec('PRAGMA journal_mode = WAL');
   db.exec('PRAGMA foreign_keys = ON');
 
+  /** Run ALTER TABLE ADD COLUMN, logging success and swallowing "already exists". */
+  function addColumn(table, columnDef) {
+    try {
+      db.exec(`ALTER TABLE ${table} ADD COLUMN ${columnDef}`);
+      const colName = columnDef.split(/\s/)[0];
+      console.log(`[db] Migration: added column ${table}.${colName}`);
+    } catch {
+      /* column already exists */
+    }
+  }
+
   db.exec(`
     CREATE TABLE IF NOT EXISTS prs (
       id TEXT PRIMARY KEY,
@@ -42,31 +53,10 @@ export function initDb(dbPath) {
   db.exec('CREATE INDEX IF NOT EXISTS idx_prs_org ON prs(org)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_prs_repo ON prs(repo)');
 
-  // Migration: add mergeable column
-  try {
-    db.exec("ALTER TABLE prs ADD COLUMN mergeable TEXT NOT NULL DEFAULT 'UNKNOWN'");
-  } catch {
-    /* column already exists */
-  }
-
-  // Migration: add base_branch column for stack detection
-  try {
-    db.exec("ALTER TABLE prs ADD COLUMN base_branch TEXT NOT NULL DEFAULT 'main'");
-  } catch {
-    /* column already exists */
-  }
-
-  // Migration: add body/body_html columns for PR descriptions
-  try {
-    db.exec("ALTER TABLE prs ADD COLUMN body TEXT NOT NULL DEFAULT ''");
-  } catch {
-    /* column already exists */
-  }
-  try {
-    db.exec("ALTER TABLE prs ADD COLUMN body_html TEXT NOT NULL DEFAULT ''");
-  } catch {
-    /* column already exists */
-  }
+  addColumn('prs', "mergeable TEXT NOT NULL DEFAULT 'UNKNOWN'");
+  addColumn('prs', "base_branch TEXT NOT NULL DEFAULT 'main'");
+  addColumn('prs', "body TEXT NOT NULL DEFAULT ''");
+  addColumn('prs', "body_html TEXT NOT NULL DEFAULT ''")
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS workspaces (
@@ -90,6 +80,7 @@ export function initDb(dbPath) {
     const prIdCol = cols.find((c) => c.name === 'pr_id');
     const repoCol = cols.find((c) => c.name === 'repo');
     if ((prIdCol && prIdCol.notnull === 1) || !repoCol) {
+      console.log('[db] Migration: recreating workspaces table (nullable pr_id + repo column)');
       db.exec('PRAGMA foreign_keys = OFF');
       db.exec('BEGIN');
       try {
@@ -132,29 +123,10 @@ export function initDb(dbPath) {
   `);
   db.exec('CREATE INDEX IF NOT EXISTS idx_sessions_workspace ON sessions(workspace_id)');
 
-  // Migration: add transcript tracking columns
-  try {
-    db.exec('ALTER TABLE sessions ADD COLUMN claude_project_dir TEXT');
-  } catch {
-    /* exists */
-  }
-  try {
-    db.exec('ALTER TABLE sessions ADD COLUMN transcript_path TEXT');
-  } catch {
-    /* exists */
-  }
-
-  // Migration: add workspace summary columns
-  try {
-    db.exec('ALTER TABLE workspaces ADD COLUMN summary TEXT');
-  } catch {
-    /* exists */
-  }
-  try {
-    db.exec('ALTER TABLE workspaces ADD COLUMN summary_updated_at TEXT');
-  } catch {
-    /* exists */
-  }
+  addColumn('sessions', 'claude_project_dir TEXT');
+  addColumn('sessions', 'transcript_path TEXT');
+  addColumn('workspaces', 'summary TEXT');
+  addColumn('workspaces', 'summary_updated_at TEXT');
 
   return db;
 }
