@@ -215,13 +215,36 @@ export default function App() {
   }, [allPRs, filters, stackView]);
 
   const copyFilteredAsMarkdown = useCallback(() => {
-    const md = filteredPRs.map((pr) => `- [#${pr.number}](${pr.url}) - ${pr.title}`).join('\n');
+    let md;
+    if (stackView) {
+      const lines = [];
+      let currentRoot = null;
+      for (const pr of filteredPRs) {
+        if (pr.is_stacked) {
+          if (pr.stack_root !== currentRoot) {
+            if (lines.length > 0) lines.push('');
+            currentRoot = pr.stack_root;
+          }
+          const indent = '  '.repeat(pr.stack_depth);
+          lines.push(`${indent}- [#${pr.number}](${pr.url}) - ${pr.title}`);
+        } else {
+          if (currentRoot !== null) {
+            lines.push('');
+            currentRoot = null;
+          }
+          lines.push(`- [#${pr.number}](${pr.url}) - ${pr.title}`);
+        }
+      }
+      md = lines.join('\n');
+    } else {
+      md = filteredPRs.map((pr) => `- [#${pr.number}](${pr.url}) - ${pr.title}`).join('\n');
+    }
     navigator.clipboard.writeText(md).then(() => {
       setCopied(true);
       clearTimeout(copiedTimeout.current);
       copiedTimeout.current = setTimeout(() => setCopied(false), 2000);
     });
-  }, [filteredPRs]);
+  }, [filteredPRs, stackView]);
 
   // Simple hash-based routing
   useEffect(() => {

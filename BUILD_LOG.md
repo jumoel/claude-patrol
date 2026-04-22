@@ -1,5 +1,9 @@
 # Build Log
 
+## 2026-04-23 - Markdown copy respects stacked PR grouping
+
+The "copy as markdown" button now nests stacked PRs by depth when stack view is active. Each stack group is separated by a blank line, and child PRs are indented under their parents. Non-stacked PRs remain flat. When stack view is off, output is unchanged.
+
 ## 2026-04-22 - Summarizer: brief executive summaries instead of verbose reports
 
 Replaced the structured multi-section summary prompt (Purpose/Key Decisions/Current State headers, 300 words) with a 1-3 sentence executive summary format. No headers, no bullets - just a plain paragraph a busy person can glance at.
