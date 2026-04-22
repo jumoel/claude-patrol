@@ -1,5 +1,9 @@
 # Build Log
 
+## 2026-04-22 - Summarizer: brief executive summaries instead of verbose reports
+
+Replaced the structured multi-section summary prompt (Purpose/Key Decisions/Current State headers, 300 words) with a 1-3 sentence executive summary format. No headers, no bullets - just a plain paragraph a busy person can glance at.
+
 ## 2026-04-22 - Fix summarizer: drop --bare flag, add diagnostic logging
 
 The summarizer was calling `claude --print --model haiku --bare` which fails with "Not logged in" because `--bare` strips authentication context. Removed the `--bare` flag so the CLI inherits the user's auth session. Also added console.log to every silent bail-out path in `generateSummary`, `scheduleSummary`, and `getWorkspaceConversationText` - previously all skip/failure conditions returned null with zero logging.
