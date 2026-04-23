@@ -7,7 +7,7 @@ function getActions(baseBranch) {
   return [
     {
       label: `Rebase onto ${target}`,
-      command: `Rebase this branch onto remote ${target} using jj rebase -d ${target}@origin\r`,
+      command: `Rebase this branch onto remote ${target} using \`jj rebase -d ${target}@origin\`. First check if we're already up to date by comparing the current parent with ${target}@origin - if so, just say it's already rebased and do nothing.\r`,
     },
     {
       label: 'Fix lint errors',
