@@ -7,9 +7,7 @@ function getActions(baseBranch) {
   return [
     {
       label: `Rebase onto ${target}`,
-      command: '/clear\r',
-      followUp: `Rebase this branch onto remote ${target} using jj rebase -d ${target}@origin\r`,
-      delay: 500,
+      command: `Rebase this branch onto remote ${target} using jj rebase -d ${target}@origin\r`,
     },
     {
       label: 'Fix lint errors',
