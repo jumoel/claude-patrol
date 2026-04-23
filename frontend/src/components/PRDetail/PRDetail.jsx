@@ -449,6 +449,7 @@ export function PRDetail({ prId, onBack }) {
             onPopOut={handlePopOut}
             onReattach={handleReattach}
             wsRef={wsRef}
+            baseBranch={pr.base_branch}
           />
         )}
 

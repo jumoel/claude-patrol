@@ -21,9 +21,10 @@ import { Stack } from '../ui/Stack/Stack.jsx';
  *   onPopOut?: () => void,
  *   onReattach?: () => Promise<void>,
  *   wsRef?: { current: WebSocket | null },
+ *   baseBranch?: string,
  * }} props
  */
-export function TerminalCard({ session, title, onKill, onExit, onPopOut, onReattach, wsRef: externalWsRef }) {
+export function TerminalCard({ session, title, onKill, onExit, onPopOut, onReattach, wsRef: externalWsRef, baseBranch }) {
   const [maximized, setMaximized] = useState(false);
   const [terminalOpen, setTerminalOpen] = useState(true);
   const [reattaching, setReattaching] = useState(false);
@@ -144,7 +145,7 @@ export function TerminalCard({ session, title, onKill, onExit, onPopOut, onReatt
             borderless
           />
         </div>
-        <QuickActions onSend={handleSendCommand} />
+        <QuickActions onSend={handleSendCommand} baseBranch={baseBranch} />
       </div>,
       document.body,
     );
@@ -201,7 +202,7 @@ export function TerminalCard({ session, title, onKill, onExit, onPopOut, onReatt
           </Button>
         </Stack>
       </Stack>
-      <QuickActions onSend={handleSendCommand} />
+      <QuickActions onSend={handleSendCommand} baseBranch={baseBranch} />
       <div style={{ height: termHeight }}>
         <Terminal
           wsUrl={`/ws/sessions/${session.id}`}

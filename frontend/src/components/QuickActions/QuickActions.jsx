@@ -2,29 +2,32 @@ import { Button } from '../ui/Button/Button.jsx';
 import { Stack } from '../ui/Stack/Stack.jsx';
 import styles from './QuickActions.module.css';
 
-const BUILT_IN_ACTIONS = [
-  {
-    label: 'Rebase onto main',
-    command: '/clear\r',
-    followUp: 'Rebase this branch onto remote main using jj rebase -d main@origin\r',
-    delay: 500,
-  },
-  {
-    label: 'Fix lint errors',
-    command: 'Run the linter. Fix all errors and warnings. Show me what you changed.\r',
-  },
-  {
-    label: 'Update PR description',
-    command:
-      'Read the diff for the PR on this branch, then update the PR description using `gh pr edit` with `--body`. Follow any PR description conventions configured for this project.\r',
-  },
-];
+function getActions(baseBranch) {
+  const target = baseBranch || 'main';
+  return [
+    {
+      label: `Rebase onto ${target}`,
+      command: '/clear\r',
+      followUp: `Rebase this branch onto remote ${target} using jj rebase -d ${target}@origin\r`,
+      delay: 500,
+    },
+    {
+      label: 'Fix lint errors',
+      command: 'Run the linter. Fix all errors and warnings. Show me what you changed.\r',
+    },
+    {
+      label: 'Update PR description',
+      command:
+        'Read the diff for the PR on this branch, then update the PR description using `gh pr edit` with `--body`. Follow any PR description conventions configured for this project.\r',
+    },
+  ];
+}
 
 /**
  * Quick action buttons that send commands to an active terminal session.
- * @param {{ wsRef?: { current: WebSocket | null }, onSend?: (text: string) => void }} props
+ * @param {{ wsRef?: { current: WebSocket | null }, onSend?: (text: string) => void, baseBranch?: string }} props
  */
-export function QuickActions({ wsRef, onSend }) {
+export function QuickActions({ wsRef, onSend, baseBranch }) {
   const sendCommand = (text) => {
     if (onSend) {
       onSend(text);
@@ -45,7 +48,7 @@ export function QuickActions({ wsRef, onSend }) {
   return (
     <Stack gap={2} wrap className={styles.actions}>
       <span className={styles.label}>Quick actions:</span>
-      {BUILT_IN_ACTIONS.map((action) => (
+      {getActions(baseBranch).map((action) => (
         <Button key={action.label} size="md" onClick={() => handleAction(action)}>
           {action.label}
         </Button>
