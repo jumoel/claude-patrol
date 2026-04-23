@@ -42,6 +42,7 @@ export function formatPR(row) {
   return {
     ...row,
     draft: Boolean(row.draft),
+    is_fork: Boolean(row.is_fork),
     checks,
     reviews,
     labels: JSON.parse(row.labels),
@@ -60,16 +61,20 @@ export function formatPR(row) {
  */
 export function enrichWithStackInfo(prs) {
   // Build lookup: org/repo + branch -> PR
+  // Exclude fork PRs - their branch names live in a different namespace
+  // and can't be part of a same-repo stack.
   const branchToPR = new Map();
   for (const pr of prs) {
+    if (pr.is_fork) continue;
     const key = `${pr.org}/${pr.repo}:${pr.branch}`;
     branchToPR.set(key, pr);
   }
 
   // For each PR, find its parent (the PR whose branch matches this PR's base_branch)
+  // Fork PRs can't have stack parents either.
   for (const pr of prs) {
     const parentKey = `${pr.org}/${pr.repo}:${pr.base_branch}`;
-    const parent = branchToPR.get(parentKey);
+    const parent = pr.is_fork ? null : branchToPR.get(parentKey);
     pr.stack_parent = parent ? parent.id : null;
     pr.stack_children = [];
   }

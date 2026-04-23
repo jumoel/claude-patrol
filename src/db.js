@@ -57,7 +57,8 @@ export function initDb(dbPath) {
   addColumn('prs', "base_branch TEXT NOT NULL DEFAULT 'main'");
   addColumn('prs', "body TEXT NOT NULL DEFAULT ''");
   addColumn('prs', "body_html TEXT NOT NULL DEFAULT ''");
-  addColumn('prs', "pr_summary TEXT NOT NULL DEFAULT ''")
+  addColumn('prs', "pr_summary TEXT NOT NULL DEFAULT ''");
+  addColumn('prs', 'is_fork INTEGER NOT NULL DEFAULT 0')
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS workspaces (

@@ -74,6 +74,7 @@ query($q: String!, $cursor: String) {
         isDraft
         headRefName
         baseRefName
+        isCrossRepository
         mergeable
         createdAt
         updatedAt
@@ -330,8 +331,8 @@ function getStatements() {
   const db = getDb();
   if (!upsertStmt) {
     upsertStmt = db.prepare(`
-      INSERT OR REPLACE INTO prs (id, number, title, body, body_html, repo, org, author, url, branch, base_branch, draft, mergeable, checks, reviews, labels, created_at, updated_at, synced_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT OR REPLACE INTO prs (id, number, title, body, body_html, repo, org, author, url, branch, base_branch, is_fork, draft, mergeable, checks, reviews, labels, created_at, updated_at, synced_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
   }
   if (!deleteStaleByOrgStmt) {
@@ -433,6 +434,7 @@ function upsertPRs(prs) {
         pr.url,
         pr.headRefName,
         pr.baseRefName || 'main',
+        pr.isCrossRepository ? 1 : 0,
         pr.isDraft ? 1 : 0,
         pr.mergeable || 'UNKNOWN',
         JSON.stringify(extractChecks(pr)),
