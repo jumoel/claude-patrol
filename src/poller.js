@@ -8,6 +8,57 @@ import { destroyWorkspace } from './workspace.js';
 
 export const pollerEvents = new EventEmitter();
 
+/** Track in-flight PR summary generations */
+const prSummaryInFlight = new Set();
+
+/**
+ * Generate a 1-line executive summary for a PR from its title + description.
+ * Calls `claude --print --model haiku` and stores the result in the DB.
+ * @param {string} prId
+ * @param {string} title
+ * @param {string} body
+ */
+async function generatePRSummary(prId, title, body) {
+  if (prSummaryInFlight.has(prId)) return;
+  prSummaryInFlight.add(prId);
+
+  const prompt = `You are a PR summarizer. Given a PR title and description, write exactly one short sentence (under 100 characters) that captures what this PR does and why, for a busy human scanning a list. No markdown, no quotes, no preamble - just the sentence.
+
+Title: ${title}
+
+Description:
+${body.slice(0, 4000)}`;
+
+  try {
+    const summary = await new Promise((resolve, reject) => {
+      const proc = spawn('claude', ['--print', '--model', 'haiku'], {
+        stdio: ['pipe', 'pipe', 'pipe'],
+        timeout: 30_000,
+      });
+      let stdout = '';
+      let stderr = '';
+      proc.stdout.on('data', (d) => { stdout += d; });
+      proc.stderr.on('data', (d) => { stderr += d; });
+      proc.on('close', (code) => {
+        if (code === 0) resolve(stdout.trim());
+        else reject(new Error(`claude exited ${code}: ${stderr.trim()}`));
+      });
+      proc.on('error', reject);
+      proc.stdin.write(prompt);
+      proc.stdin.end();
+    });
+
+    if (summary) {
+      const db = getDb();
+      db.prepare('UPDATE prs SET pr_summary = ? WHERE id = ?').run(summary, prId);
+      emitLocalChange();
+      console.log(`[poller] PR summary for ${prId}: ${summary}`);
+    }
+  } finally {
+    prSummaryInFlight.delete(prId);
+  }
+}
+
 const GRAPHQL_QUERY = `
 query($q: String!, $cursor: String) {
   search(query: $q, type: ISSUE, first: 100, after: $cursor) {
@@ -269,6 +320,8 @@ let deleteStaleByRepoStmt = null;
 let findStaleByOrgStmt = null;
 /** @type {import('node:sqlite').StatementSync | null} */
 let findStaleByRepoStmt = null;
+/** @type {import('node:sqlite').StatementSync | null} */
+let getExistingBodyStmt = null;
 
 /**
  * Get or create cached prepared statements.
@@ -297,12 +350,16 @@ function getStatements() {
       'SELECT id FROM prs WHERE org = ? AND repo = ? AND id NOT IN (SELECT value FROM json_each(?))',
     );
   }
+  if (!getExistingBodyStmt) {
+    getExistingBodyStmt = db.prepare('SELECT body FROM prs WHERE id = ?');
+  }
   return {
     upsert: upsertStmt,
     deleteStaleByOrg: deleteStaleByOrgStmt,
     deleteStaleByRepo: deleteStaleByRepoStmt,
     findStaleByOrg: findStaleByOrgStmt,
     findStaleByRepo: findStaleByRepoStmt,
+    getExistingBody: getExistingBodyStmt,
   };
 }
 
@@ -347,7 +404,8 @@ async function cleanupStalePR(prId, config) {
 function upsertPRs(prs) {
   const db = getDb();
   const now = new Date().toISOString();
-  const { upsert } = getStatements();
+  const { upsert, getExistingBody } = getStatements();
+  const needsSummary = [];
 
   db.exec('BEGIN');
   try {
@@ -355,12 +413,19 @@ function upsertPRs(prs) {
       const prOrg = pr.repository.owner.login;
       const repo = pr.repository.name;
       const id = makePrId(prOrg, repo, pr.number);
+      const newBody = pr.body || '';
+
+      // Check if body changed (new PR or updated description)
+      const existing = getExistingBody.get(id);
+      if (!existing || existing.body !== newBody) {
+        needsSummary.push({ id, title: pr.title, body: newBody });
+      }
 
       upsert.run(
         id,
         pr.number,
         pr.title,
-        pr.body || '',
+        newBody,
         pr.bodyHTML || '',
         repo,
         prOrg,
@@ -382,6 +447,14 @@ function upsertPRs(prs) {
   } catch (err) {
     db.exec('ROLLBACK');
     throw err;
+  }
+
+  // Fire-and-forget background summarization for PRs with new/changed bodies
+  for (const { id, title, body } of needsSummary) {
+    if (!body.trim()) continue;
+    generatePRSummary(id, title, body).catch((err) => {
+      console.warn(`[poller] PR summary failed for ${id}: ${err.message}`);
+    });
   }
 }
 

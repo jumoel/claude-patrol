@@ -13,26 +13,6 @@ import { useIdleNotification } from './hooks/useIdleNotification.js';
 import { usePRs } from './hooks/usePRs.js';
 import { fetchConfig, fetchScratchWorkspaces } from './lib/api.js';
 
-/** Extract a short summary from a PR body, or return empty string. */
-function extractSummary(body) {
-  if (!body) return '';
-  const lines = body.split('\n');
-  for (const raw of lines) {
-    const line = raw.trim();
-    // Skip blank lines, markdown headings, HTML comments, horizontal rules, checklist-only lines
-    if (!line) continue;
-    if (/^#{1,6}\s/.test(line)) continue;
-    if (line.startsWith('<!--') || line.startsWith('-->')) continue;
-    if (/^-{3,}$/.test(line) || /^\*{3,}$/.test(line)) continue;
-    if (/^[-*]\s*\[[ x]\]\s*$/.test(line)) continue;
-    // Found a content line - clean it up and truncate
-    const cleaned = line.replace(/^[-*]\s+/, '').trim();
-    if (!cleaned) continue;
-    return cleaned.length > 120 ? cleaned.slice(0, 117) + '...' : cleaned;
-  }
-  return '';
-}
-
 function formatCountdown(seconds) {
   const m = Math.floor(seconds / 60);
   const s = seconds % 60;
@@ -237,8 +217,7 @@ export default function App() {
   const copyFilteredAsMarkdown = useCallback(() => {
     const formatPR = (pr, indent = '') => {
       let line = `${indent}- [#${pr.number}](${pr.url}) - ${pr.title}`;
-      const summary = extractSummary(pr.body);
-      if (summary) line += ` - ${summary}`;
+      if (pr.pr_summary) line += ` - ${pr.pr_summary}`;
       return line;
     };
     let md;

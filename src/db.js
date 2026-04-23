@@ -56,7 +56,8 @@ export function initDb(dbPath) {
   addColumn('prs', "mergeable TEXT NOT NULL DEFAULT 'UNKNOWN'");
   addColumn('prs', "base_branch TEXT NOT NULL DEFAULT 'main'");
   addColumn('prs', "body TEXT NOT NULL DEFAULT ''");
-  addColumn('prs', "body_html TEXT NOT NULL DEFAULT ''")
+  addColumn('prs', "body_html TEXT NOT NULL DEFAULT ''");
+  addColumn('prs', "pr_summary TEXT NOT NULL DEFAULT ''")
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS workspaces (
