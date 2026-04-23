@@ -13,6 +13,26 @@ import { useIdleNotification } from './hooks/useIdleNotification.js';
 import { usePRs } from './hooks/usePRs.js';
 import { fetchConfig, fetchScratchWorkspaces } from './lib/api.js';
 
+/** Extract a short summary from a PR body, or return empty string. */
+function extractSummary(body) {
+  if (!body) return '';
+  const lines = body.split('\n');
+  for (const raw of lines) {
+    const line = raw.trim();
+    // Skip blank lines, markdown headings, HTML comments, horizontal rules, checklist-only lines
+    if (!line) continue;
+    if (/^#{1,6}\s/.test(line)) continue;
+    if (line.startsWith('<!--') || line.startsWith('-->')) continue;
+    if (/^-{3,}$/.test(line) || /^\*{3,}$/.test(line)) continue;
+    if (/^[-*]\s*\[[ x]\]\s*$/.test(line)) continue;
+    // Found a content line - clean it up and truncate
+    const cleaned = line.replace(/^[-*]\s+/, '').trim();
+    if (!cleaned) continue;
+    return cleaned.length > 120 ? cleaned.slice(0, 117) + '...' : cleaned;
+  }
+  return '';
+}
+
 function formatCountdown(seconds) {
   const m = Math.floor(seconds / 60);
   const s = seconds % 60;
@@ -215,16 +235,22 @@ export default function App() {
   }, [allPRs, filters, stackView]);
 
   const copyFilteredAsMarkdown = useCallback(() => {
+    const formatPR = (pr, indent = '') => {
+      let line = `${indent}- [#${pr.number}](${pr.url}) - ${pr.title}`;
+      const summary = extractSummary(pr.body);
+      if (summary) line += ` - ${summary}`;
+      return line;
+    };
     let md;
     if (stackView) {
       md = filteredPRs
         .map((pr) => {
           const indent = pr.is_stacked ? '  '.repeat(pr.stack_depth) : '';
-          return `${indent}- [#${pr.number}](${pr.url}) - ${pr.title}`;
+          return formatPR(pr, indent);
         })
         .join('\n');
     } else {
-      md = filteredPRs.map((pr) => `- [#${pr.number}](${pr.url}) - ${pr.title}`).join('\n');
+      md = filteredPRs.map((pr) => formatPR(pr)).join('\n');
     }
     navigator.clipboard.writeText(md).then(() => {
       setCopied(true);
