@@ -7,7 +7,9 @@ function getActions(baseBranch) {
   return [
     {
       label: `Rebase onto ${target}`,
-      command: `Rebase this branch onto remote ${target}. First run \`jj git fetch\` to get the latest remote state, then check if we're already up to date by comparing the current parent with ${target}@origin - if so, just say it's already rebased and do nothing. Otherwise run \`jj rebase -d ${target}@origin\`.\r`,
+      command: `Rebase this branch onto remote ${target}. First run \`jj git fetch\` to get the latest remote state, then check if we're already up to date by comparing the current parent with ${target}@origin - if so, just say it's already rebased and do nothing. Otherwise run \`jj rebase -d ${target}@origin\`.`,
+      followUp: '\r',
+      delay: 100,
     },
     {
       label: 'Fix lint errors',
