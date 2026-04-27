@@ -215,6 +215,36 @@ export default function App() {
   }, [allPRs, filters, stackView]);
 
   const copyFilteredAsMarkdown = useCallback(() => {
+    // Apply the same column sorting that TanStack Table uses so markdown matches screen order
+    let prs = filteredPRs;
+    if (sorting.length > 0) {
+      const { id, desc } = sorting[0];
+      const getValue = (pr) => {
+        switch (id) {
+          case 'repo': return `${pr.org}/${pr.repo}`;
+          case 'local': {
+            const wsState = pr.has_session && pr.workspace_id && workspaceStates?.get(pr.workspace_id);
+            const isDismissed = pr.workspace_id && dismissedIdle?.has(pr.workspace_id);
+            if (wsState === 'working') return 5;
+            if (wsState === 'idle' && !isDismissed) return 4;
+            if (wsState === 'idle' && isDismissed) return 3;
+            if (pr.has_session) return 2;
+            if (pr.has_workspace) return 1;
+            return 0;
+          }
+          case 'pr_status': return pr.draft ? 'draft' : 'open';
+          default: return pr[id];
+        }
+      };
+      prs = [...filteredPRs].sort((a, b) => {
+        const aVal = getValue(a);
+        const bVal = getValue(b);
+        if (aVal < bVal) return desc ? 1 : -1;
+        if (aVal > bVal) return desc ? -1 : 1;
+        return 0;
+      });
+    }
+
     const formatPR = (pr, indent = '') => {
       let line = `${indent}- [#${pr.number}](${pr.url}) - ${pr.title}`;
       if (pr.pr_summary) line += ` - ${pr.pr_summary}`;
@@ -222,21 +252,21 @@ export default function App() {
     };
     let md;
     if (stackView) {
-      md = filteredPRs
+      md = prs
         .map((pr) => {
           const indent = pr.is_stacked ? '  '.repeat(pr.stack_depth) : '';
           return formatPR(pr, indent);
         })
         .join('\n');
     } else {
-      md = filteredPRs.map((pr) => formatPR(pr)).join('\n');
+      md = prs.map((pr) => formatPR(pr)).join('\n');
     }
     navigator.clipboard.writeText(md).then(() => {
       setCopied(true);
       clearTimeout(copiedTimeout.current);
       copiedTimeout.current = setTimeout(() => setCopied(false), 2000);
     });
-  }, [filteredPRs, stackView]);
+  }, [filteredPRs, stackView, sorting, workspaceStates, dismissedIdle]);
 
   // Simple hash-based routing
   useEffect(() => {
