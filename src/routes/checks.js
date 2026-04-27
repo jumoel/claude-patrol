@@ -23,6 +23,40 @@ function getFailedChecks(row) {
 }
 
 /**
+ * Fetch current check runs from GitHub REST API and return the failed ones.
+ * Bypasses the DB entirely so stale data can't cause empty results.
+ * @param {string} org
+ * @param {string} repo
+ * @param {string} branch
+ * @returns {Promise<Array<{name: string, conclusion: string, url: string}>>}
+ */
+async function fetchFreshFailedChecks(org, repo, branch) {
+  const allRuns = [];
+  let page = 1;
+
+  while (true) {
+    const { stdout } = await execFile(
+      'gh',
+      ['api', `repos/${org}/${repo}/commits/${encodeURIComponent(branch)}/check-runs?per_page=100&filter=latest&page=${page}`],
+      { timeout: 30_000 },
+    );
+    const data = JSON.parse(stdout);
+    const runs = data.check_runs || [];
+    allRuns.push(...runs);
+    if (allRuns.length >= data.total_count || runs.length < 100) break;
+    page++;
+  }
+
+  return allRuns
+    .filter((r) => FAILED_JOB_CONCLUSIONS.has(r.conclusion))
+    .map((r) => ({
+      name: r.name,
+      conclusion: r.conclusion?.toUpperCase(),
+      url: r.html_url,
+    }));
+}
+
+/**
  * Extract unique GitHub Actions run IDs from failed check URLs.
  * @param {Array<{url?: string}>} checks
  * @returns {Set<string>}
@@ -54,7 +88,12 @@ export function registerCheckRoutes(app) {
       return reply.code(404).send({ error: 'PR not found' });
     }
 
-    let failed = getFailedChecks(row);
+    let failed;
+    try {
+      failed = await fetchFreshFailedChecks(row.org, row.repo, row.branch);
+    } catch {
+      failed = getFailedChecks(row);
+    }
 
     // Optional: filter to checks matching a name pattern (case-insensitive substring)
     if (check_name) {
@@ -134,7 +173,15 @@ export function registerCheckRoutes(app) {
       return reply.code(404).send({ error: 'PR not found' });
     }
 
-    const failed = getFailedChecks(row);
+    // Fetch fresh check data from GitHub to avoid stale DB results.
+    // The DB may still show checks as IN_PROGRESS long after they've completed.
+    let failed;
+    try {
+      failed = await fetchFreshFailedChecks(row.org, row.repo, row.branch);
+    } catch {
+      // Fall back to DB if the GitHub API call fails
+      failed = getFailedChecks(row);
+    }
 
     if (failed.length === 0) {
       return { logs: [] };
