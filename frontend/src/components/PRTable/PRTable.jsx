@@ -1,5 +1,5 @@
 import { flexRender, getCoreRowModel, getSortedRowModel, useReactTable } from '@tanstack/react-table';
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import { isMergeReady } from '../../lib/checks.js';
 import { getRelativeTime } from '../../lib/time.js';
 import { StatusBadge } from '../StatusBadge/StatusBadge.jsx';
@@ -39,7 +39,7 @@ function StackIndicator({ pr, stackView }) {
  * PR data table with TanStack Table for sorting.
  * @param {{ prs: object[], onRowClick?: (prId: string) => void, stackView?: boolean }} props
  */
-export function PRTable({ prs, onRowClick, sorting, onSortingChange, workspaceStates, dismissedIdle, stackView }) {
+export function PRTable({ prs, onRowClick, sorting, onSortingChange, workspaceStates, dismissedIdle, stackView, sortedRowsRef }) {
   const columns = useMemo(
     () => [
       {
@@ -171,6 +171,11 @@ export function PRTable({ prs, onRowClick, sorting, onSortingChange, workspaceSt
   });
 
   const rows = table.getRowModel().rows;
+
+  // Expose the sorted row order to the parent so markdown export matches the table exactly
+  useEffect(() => {
+    if (sortedRowsRef) sortedRowsRef.current = rows.map((r) => r.original);
+  });
 
   return (
     <table className={styles.table}>
