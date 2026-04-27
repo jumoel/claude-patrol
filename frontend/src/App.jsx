@@ -227,7 +227,7 @@ export default function App() {
     if (stackView) {
       md = prs
         .map((pr) => {
-          const indent = pr.is_stacked ? '  '.repeat(pr.stack_depth) : '';
+          const indent = pr.is_stacked ? '    '.repeat(pr.stack_depth) : '';
           return formatPR(pr, indent);
         })
         .join('\n');
