@@ -133,6 +133,15 @@
   border-left: 3px solid rgb(168 85 247 / 0.4);
 }
 
-.stackBoundary {
-  border-top: 2px solid rgb(168 85 247 / 0.3);
+/* Visual gap between stack groups and between stacked/non-stacked sections */
+.stackSeparator {
+  height: 10px;
+  border: none;
+  pointer-events: none;
+}
+
+.stackSeparator > td {
+  padding: 0;
+  border: none;
+  background: rgb(249 250 251); /* gray-50 */
 }

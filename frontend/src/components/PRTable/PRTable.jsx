@@ -1,5 +1,5 @@
 import { flexRender, getCoreRowModel, getSortedRowModel, useReactTable } from '@tanstack/react-table';
-import { useEffect, useMemo } from 'react';
+import { Fragment, useEffect, useMemo } from 'react';
 import { isMergeReady } from '../../lib/checks.js';
 import { getRelativeTime } from '../../lib/time.js';
 import { StatusBadge } from '../StatusBadge/StatusBadge.jsx';
@@ -220,23 +220,31 @@ export function PRTable({ prs, onRowClick, sorting, onSortingChange, workspaceSt
             const pr = row.original;
             const prevPr = idx > 0 ? rows[idx - 1].original : null;
             const isStackBoundary = stackView && prevPr && pr.is_stacked && pr.stack_root !== prevPr.stack_root;
+            const isStackEnd = stackView && prevPr?.is_stacked && !pr.is_stacked;
             const isStackedRow = stackView && pr.is_stacked;
+            const needsSeparator = isStackBoundary || isStackEnd;
             return (
-              <tr
-                key={row.id}
-                className={`${styles.row} ${pr.draft ? styles.draft : ''} ${isMergeReady(pr) ? styles.mergeReady : ''} ${isStackedRow ? styles.stackedRow : ''} ${isStackBoundary ? styles.stackBoundary : ''}`}
-                onClick={() => onRowClick?.(pr.id)}
-                style={{ cursor: onRowClick ? 'pointer' : undefined }}
-              >
-                {row.getVisibleCells().map((cell) => (
-                  <td
-                    key={cell.id}
-                    className={`${styles.cell} ${cell.column.columnDef.meta?.centered ? styles.cellCenter : ''} ${cell.column.columnDef.meta?.alignRight ? styles.cellRight : ''}`}
-                  >
-                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                  </td>
-                ))}
-              </tr>
+              <Fragment key={row.id}>
+                {needsSeparator && (
+                  <tr className={styles.stackSeparator} aria-hidden="true">
+                    <td colSpan={columns.length} />
+                  </tr>
+                )}
+                <tr
+                  className={`${styles.row} ${pr.draft ? styles.draft : ''} ${isMergeReady(pr) ? styles.mergeReady : ''} ${isStackedRow ? styles.stackedRow : ''}`}
+                  onClick={() => onRowClick?.(pr.id)}
+                  style={{ cursor: onRowClick ? 'pointer' : undefined }}
+                >
+                  {row.getVisibleCells().map((cell) => (
+                    <td
+                      key={cell.id}
+                      className={`${styles.cell} ${cell.column.columnDef.meta?.centered ? styles.cellCenter : ''} ${cell.column.columnDef.meta?.alignRight ? styles.cellRight : ''}`}
+                    >
+                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                    </td>
+                  ))}
+                </tr>
+              </Fragment>
             );
           })
         )}

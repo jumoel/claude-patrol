@@ -1,5 +1,9 @@
 # Build Log
 
+## 2026-04-27 - Visual separation between multiple stack groups
+
+When the PR table showed multiple stacks, they rendered as one continuous block - the purple left border ran unbroken across both stacks with only a nearly-invisible 2px/30%-opacity top border between them. Replaced the old `stackBoundary` border with a separator row that creates a clear visual gap between stack groups (and between stacked and non-stacked sections). Stack view toggle still correctly hides all stack visual treatment when off.
+
 ## 2026-04-23 - Markdown copy respects stacked PR grouping
 
 The "copy as markdown" button now nests stacked PRs by depth when stack view is active. Each stack group is separated by a blank line, and child PRs are indented under their parents. Non-stacked PRs remain flat. When stack view is off, output is unchanged.
