@@ -2,6 +2,7 @@ import { useCallback, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useEscapeKey } from '../../hooks/useEscapeKey.js';
 import { useResizeHandle } from '../../hooks/useResizeHandle.js';
+import { sendTerminalCommand } from '../../lib/terminal.js';
 import shared from '../../styles/shared.module.css';
 import { QuickActions } from '../QuickActions/QuickActions.jsx';
 import { Terminal } from '../Terminal/Terminal.jsx';
@@ -60,9 +61,7 @@ export function TerminalCard({ session, title, onKill, onExit, onPopOut, onReatt
 
   const handleSendCommand = useCallback(
     (text) => {
-      if (wsRef.current?.readyState === WebSocket.OPEN) {
-        wsRef.current.send(JSON.stringify({ type: 'input', data: text }));
-      }
+      sendTerminalCommand(wsRef.current, text);
     },
     [wsRef],
   );

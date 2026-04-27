@@ -23,6 +23,7 @@ import {
   isScheduledCheck,
   statusColorGroup,
 } from '../../lib/checks.js';
+import { sendTerminalCommand } from '../../lib/terminal.js';
 import { getRelativeTime } from '../../lib/time.js';
 import shared from '../../styles/shared.module.css';
 import { CheckLogViewer } from '../CheckLogViewer/CheckLogViewer.jsx';
@@ -242,11 +243,8 @@ export function PRDetail({ prId, onBack }) {
 
     // Send command to the PR terminal
     setTimeout(() => {
-      const wsConn = wsRef.current;
-      if (wsConn && wsConn.readyState === WebSocket.OPEN) {
-        const command = `Investigate the failed CI checks on this PR (${pr.org}/${pr.repo}#${pr.number}, branch: ${pr.branch}). The following checks failed: ${failedCheckNames.join(', ')}. Look at the CI logs and determine root causes.\r`;
-        wsConn.send(JSON.stringify({ type: 'input', data: command }));
-      }
+      const command = `Investigate the failed CI checks on this PR (${pr.org}/${pr.repo}#${pr.number}, branch: ${pr.branch}). The following checks failed: ${failedCheckNames.join(', ')}. Look at the CI logs and determine root causes.`;
+      sendTerminalCommand(wsRef.current, command);
     }, 500);
   }, [pr, ensureWorkspaceAndSession]);
 
