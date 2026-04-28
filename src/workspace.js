@@ -139,6 +139,43 @@ export async function createScratchWorkspace(repo, branch, config, { startRevisi
 }
 
 /**
+ * Tear down any Docker Compose stack associated with a workspace.
+ * First tries file-based teardown (cwd in workspace dir), then falls back to
+ * project-name-based cleanup for cases where the compose file is missing but
+ * containers still exist (Docker tracks projects independently of files).
+ * @param {string} workspacePath - absolute path to workspace
+ * @returns {Promise<string|null>} warning message if cleanup failed, null if ok or no stack found
+ */
+async function dockerComposeDown(workspacePath) {
+  const hasComposeFile =
+    existsSync(resolve(workspacePath, 'docker-compose.yml')) || existsSync(resolve(workspacePath, 'compose.yml'));
+
+  if (hasComposeFile) {
+    try {
+      await execFile('docker', ['compose', 'down', '-v', '--remove-orphans'], {
+        cwd: workspacePath,
+        timeout: 30_000,
+      });
+      return null;
+    } catch (err) {
+      return `Docker compose down failed: ${err.message}`;
+    }
+  }
+
+  // Fallback: try by project name (directory basename). Docker Compose derives
+  // the default project name from the directory, so this catches stacks whose
+  // compose file was deleted or moved.
+  const projectName = workspacePath.split('/').pop();
+  try {
+    await execFile('docker', ['compose', '-p', projectName, 'down', '-v', '--remove-orphans'], { timeout: 30_000 });
+    return null;
+  } catch {
+    // No matching project - expected for workspaces that never used Docker
+    return null;
+  }
+}
+
+/**
  * Clean up all artifacts from a failed workspace creation.
  * Best-effort: logs warnings but does not throw.
  * @param {object} opts
@@ -151,6 +188,9 @@ async function rollbackWorkspace({ id, name, workspacePath, mainRepoPath }) {
   const db = getDb();
 
   db.prepare('DELETE FROM workspaces WHERE id = ?').run(id);
+
+  // Docker compose down before removing the directory (compose file may still be needed)
+  await dockerComposeDown(workspacePath).catch(() => {});
 
   await execFile('jj', ['workspace', 'forget', name, '-R', mainRepoPath]).catch(() => {});
 
@@ -313,12 +353,9 @@ export async function destroyWorkspace(workspaceId, config) {
   }
 
   // Step 2: Docker compose down if applicable
-  if (existsSync(resolve(workspace.path, 'docker-compose.yml')) || existsSync(resolve(workspace.path, 'compose.yml'))) {
-    try {
-      await execFile('docker', ['compose', 'down', '-v'], { cwd: workspace.path, timeout: 30000 });
-    } catch (err) {
-      warnings.push(`Docker compose down failed: ${err.message}`);
-    }
+  const dockerWarning = await dockerComposeDown(workspace.path);
+  if (dockerWarning) {
+    warnings.push(dockerWarning);
   }
 
   // Step 3: jj workspace forget

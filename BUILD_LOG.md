@@ -1,5 +1,9 @@
 # Build Log
 
+## 2026-04-28 - Docker Compose cleanup on workspace destroy and rollback
+
+Extracted a shared `dockerComposeDown` helper that both `destroyWorkspace` and `rollbackWorkspace` call. Previously, `rollbackWorkspace` didn't touch Docker at all, so if `initCommands` started a compose stack and a later step failed, containers were orphaned. The helper also falls back to project-name-based cleanup when the compose file is missing but containers still exist - Docker tracks projects independently of the file on disk.
+
 ## 2026-04-27 - Visual separation between multiple stack groups
 
 When the PR table showed multiple stacks, they rendered as one continuous block - the purple left border ran unbroken across both stacks with only a nearly-invisible 2px/30%-opacity top border between them. Replaced the old `stackBoundary` border with a separator row that creates a clear visual gap between stack groups (and between stacked and non-stacked sections). Stack view toggle still correctly hides all stack visual treatment when off.
