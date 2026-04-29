@@ -4,6 +4,7 @@ import { getCurrentConfig } from '../config.js';
 import { getDb } from '../db.js';
 import { formatPR } from '../pr-status.js';
 import { generateSummary } from '../summarizer.js';
+import { runTask } from '../tasks.js';
 import { createScratchWorkspace, createWorkspace, destroyWorkspace } from '../workspace.js';
 
 /**
@@ -122,18 +123,42 @@ export function registerWorkspaceRoutes(app) {
       return { ok: true, destroyed: 0, workspaces: [] };
     }
 
-    const results = [];
-    for (const { workspace_id, pr_id } of matched) {
-      try {
-        await destroyWorkspace(workspace_id, getCurrentConfig());
-        results.push({ workspace_id, pr_id, status: 'destroyed' });
-      } catch (err) {
-        results.push({ workspace_id, pr_id, status: 'error', message: err.message });
-      }
-    }
+    const filterParts = [
+      ci && `ci=${ci}`,
+      review && `review=${review}`,
+      mergeable && `mergeable=${mergeable}`,
+      repo && `repo=${repo}`,
+    ].filter(Boolean);
+    const filterLabel = filterParts.length > 0 ? ` (${filterParts.join(', ')})` : '';
 
-    if (results.some((r) => r.status === 'destroyed')) emitLocalChange();
-    return { ok: true, destroyed: results.filter((r) => r.status === 'destroyed').length, workspaces: results };
+    return runTask(
+      {
+        kind: 'workspace.cleanup',
+        label: `Cleanup ${matched.length} workspaces${filterLabel}`,
+        context: { count: matched.length, filter: { ci, review, mergeable, repo } },
+      },
+      async () => {
+        const results = [];
+        const warnings = [];
+        for (const { workspace_id, pr_id } of matched) {
+          try {
+            await destroyWorkspace(workspace_id, getCurrentConfig());
+            results.push({ workspace_id, pr_id, status: 'destroyed' });
+          } catch (err) {
+            results.push({ workspace_id, pr_id, status: 'error', message: err.message });
+            warnings.push(`${pr_id}: ${err.message}`);
+          }
+        }
+
+        if (results.some((r) => r.status === 'destroyed')) emitLocalChange();
+        return {
+          ok: true,
+          destroyed: results.filter((r) => r.status === 'destroyed').length,
+          workspaces: results,
+          warnings,
+        };
+      },
+    );
   });
 
   app.post('/api/workspaces/:id/summarize', async (request, reply) => {

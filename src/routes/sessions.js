@@ -11,7 +11,13 @@ import {
   popOutSession,
   reattachSession,
 } from '../pty-manager.js';
-import { findSessionJsonl, getOrCreateTranscriptSummary, parseTranscript, claudeProjectDirForWorkspace } from '../transcripts.js';
+import { runTask } from '../tasks.js';
+import {
+  claudeProjectDirForWorkspace,
+  findSessionJsonl,
+  getOrCreateTranscriptSummary,
+  parseTranscript,
+} from '../transcripts.js';
 import { execFile, expandPath, toClaudeProjectKey } from '../utils.js';
 import { createScratchWorkspace } from '../workspace.js';
 
@@ -91,11 +97,9 @@ export function registerSessionRoutes(app) {
     const db = getDb();
     const { workspace_id } = request.query;
     if (workspace_id) {
-      return db
-        .prepare('SELECT * FROM sessions WHERE workspace_id = ? ORDER BY started_at DESC')
-        .all(workspace_id);
+      return db.prepare('SELECT * FROM sessions WHERE workspace_id = ? ORDER BY started_at DESC').all(workspace_id);
     }
-    return db.prepare('SELECT * FROM sessions WHERE status = \'killed\' ORDER BY started_at DESC LIMIT 100').all();
+    return db.prepare("SELECT * FROM sessions WHERE status = 'killed' ORDER BY started_at DESC LIMIT 100").all();
   });
 
   // Session transcript
@@ -165,47 +169,55 @@ export function registerSessionRoutes(app) {
     const mainRepoPath = resolve(expandPath(config.work_dir), org, repoName);
 
     try {
-      // 1. Create scratch workspace starting from default@- (parent of main working copy)
-      const workspace = await createScratchWorkspace(repo, branch, config, { startRevision: 'default@-' });
+      const { workspace, session: newSession } = await runTask(
+        {
+          kind: 'session.promote',
+          label: `Promote session to scratch-${branch.replace(/[^a-z0-9-]/gi, '-').toLowerCase()}`,
+          context: { sessionId: session.id, repo, branch },
+        },
+        async () => {
+          // 1. Create scratch workspace starting from default@- (parent of main working copy)
+          const workspace = await createScratchWorkspace(repo, branch, config, { startRevision: 'default@-' });
 
-      // 2. Migrate changes via jj squash (non-fatal if empty)
-      try {
-        await execFile('jj', ['squash', '--from', 'default@', '--into', `${workspace.name}@`, '-R', mainRepoPath]);
-      } catch (err) {
-        console.warn(`[promote] jj squash non-fatal: ${err.message}`);
-      }
-
-      // 3. Copy Claude session files to new workspace's project dir
-      let claudeSessionUuid = null;
-      if (session.claude_project_dir) {
-        const jsonlPath = findSessionJsonl(session.claude_project_dir, session.started_at, null);
-        if (jsonlPath) {
-          claudeSessionUuid = basename(jsonlPath, '.jsonl');
-          const targetProjectDir = resolve(expandPath('~/.claude/projects'), toClaudeProjectKey(workspace.path));
-          mkdirSync(targetProjectDir, { recursive: true });
-
-          // Copy the .jsonl file
-          copyFileSync(jsonlPath, resolve(targetProjectDir, basename(jsonlPath)));
-
-          // Copy the session directory (contains tool results, images, etc.) if it exists
-          const sessionDir = resolve(session.claude_project_dir, claudeSessionUuid);
-          const targetSessionDir = resolve(targetProjectDir, claudeSessionUuid);
-          if (existsSync(sessionDir)) {
-            cpSync(sessionDir, targetSessionDir, { recursive: true });
+          // 2. Migrate changes via jj squash (non-fatal if empty)
+          try {
+            await execFile('jj', ['squash', '--from', 'default@', '--into', `${workspace.name}@`, '-R', mainRepoPath]);
+          } catch (err) {
+            console.warn(`[promote] jj squash non-fatal: ${err.message}`);
           }
-        }
-      }
 
-      // 4. Kill the old global session
-      killSession(session.id);
+          // 3. Copy Claude session files to new workspace's project dir
+          let claudeSessionUuid = null;
+          if (session.claude_project_dir) {
+            const jsonlPath = findSessionJsonl(session.claude_project_dir, session.started_at, null);
+            if (jsonlPath) {
+              claudeSessionUuid = basename(jsonlPath, '.jsonl');
+              const targetProjectDir = resolve(expandPath('~/.claude/projects'), toClaudeProjectKey(workspace.path));
+              mkdirSync(targetProjectDir, { recursive: true });
 
-      // 5. Create new session in workspace with --resume
-      let newSession;
-      if (claudeSessionUuid) {
-        newSession = createResumedSession(workspace.id, workspace.path, claudeSessionUuid);
-      } else {
-        newSession = createSession(workspace.id, workspace.path);
-      }
+              // Copy the .jsonl file
+              copyFileSync(jsonlPath, resolve(targetProjectDir, basename(jsonlPath)));
+
+              // Copy the session directory (contains tool results, images, etc.) if it exists
+              const sessionDir = resolve(session.claude_project_dir, claudeSessionUuid);
+              const targetSessionDir = resolve(targetProjectDir, claudeSessionUuid);
+              if (existsSync(sessionDir)) {
+                cpSync(sessionDir, targetSessionDir, { recursive: true });
+              }
+            }
+          }
+
+          // 4. Kill the old global session
+          killSession(session.id);
+
+          // 5. Create new session in workspace with --resume
+          const newSession = claudeSessionUuid
+            ? createResumedSession(workspace.id, workspace.path, claudeSessionUuid)
+            : createSession(workspace.id, workspace.path);
+
+          return { workspace, session: newSession };
+        },
+      );
 
       emitLocalChange();
       return reply.code(201).send({ workspace, session: newSession });

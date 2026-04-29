@@ -69,10 +69,19 @@ export async function createWorkspace(prId, config) {
 
   // Everything after DB insert gets full rollback on failure
   try {
-    await ensureJjInit(mainRepoPath);
-    mkdirSync(dirname(workspacePath), { recursive: true });
-    await execFile('jj', ['workspace', 'add', workspacePath, '--name', name, '-r', pr.branch, '-R', mainRepoPath]);
-    await runPostCreateSetup(workspacePath, mainRepoPath, name, config, `${pr.org}/${pr.repo}`);
+    await runTask(
+      {
+        kind: 'workspace.create',
+        label: `Create ${name}`,
+        context: { workspaceId: id, prId, repo: `${pr.org}/${pr.repo}` },
+      },
+      async () => {
+        await ensureJjInit(mainRepoPath);
+        mkdirSync(dirname(workspacePath), { recursive: true });
+        await execFile('jj', ['workspace', 'add', workspacePath, '--name', name, '-r', pr.branch, '-R', mainRepoPath]);
+        await runPostCreateSetup(workspacePath, mainRepoPath, name, config, `${pr.org}/${pr.repo}`);
+      },
+    );
   } catch (err) {
     await rollbackWorkspace({ id, name, workspacePath, mainRepoPath });
     throw new Error(`Workspace creation failed: ${err.message}`);
@@ -121,18 +130,37 @@ export async function createScratchWorkspace(repo, branch, config, { startRevisi
 
   // Everything after DB insert gets full rollback on failure
   try {
-    await ensureJjInit(mainRepoPath);
-    mkdirSync(dirname(workspacePath), { recursive: true });
-    await execFile('jj', ['workspace', 'add', workspacePath, '--name', name, '-r', startRevision, '-R', mainRepoPath]);
+    await runTask(
+      {
+        kind: 'workspace.create',
+        label: `Create ${name}`,
+        context: { workspaceId: id, repo, branch },
+      },
+      async () => {
+        await ensureJjInit(mainRepoPath);
+        mkdirSync(dirname(workspacePath), { recursive: true });
+        await execFile('jj', [
+          'workspace',
+          'add',
+          workspacePath,
+          '--name',
+          name,
+          '-r',
+          startRevision,
+          '-R',
+          mainRepoPath,
+        ]);
 
-    // Create bookmark for the branch (non-fatal - may already exist)
-    try {
-      await execFile('jj', ['bookmark', 'create', branch, '-R', workspacePath]);
-    } catch (err) {
-      console.warn(`[workspace] Bookmark create failed (may already exist): ${err.message}`);
-    }
+        // Create bookmark for the branch (non-fatal - may already exist)
+        try {
+          await execFile('jj', ['bookmark', 'create', branch, '-R', workspacePath]);
+        } catch (err) {
+          console.warn(`[workspace] Bookmark create failed (may already exist): ${err.message}`);
+        }
 
-    await runPostCreateSetup(workspacePath, mainRepoPath, name, config, repo);
+        await runPostCreateSetup(workspacePath, mainRepoPath, name, config, repo);
+      },
+    );
   } catch (err) {
     await rollbackWorkspace({ id, name, workspacePath, mainRepoPath });
     throw new Error(`Workspace creation failed: ${err.message}`);

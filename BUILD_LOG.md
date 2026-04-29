@@ -1,5 +1,11 @@
 # Build Log
 
+## 2026-04-29 - Wrap remaining async ops as tasks
+
+Extended task tracking to the four candidates noted in the previous entry: `summarizer.generateSummary`, `POST /api/workspaces/cleanup`, `createWorkspace` / `createScratchWorkspace`, and `POST /api/sessions/:id/promote`. The summarizer wraps only the actual `claude --print` call (after debounce/no-content/hash-unchanged bailouts) so the dropdown only shows real work, not skipped runs. The cleanup endpoint creates a parent task labeled with the filter (e.g. "Cleanup 3 workspaces (ci=fail)") so bulk teardown is visible alongside the individual destroy children. Workspace create wraps the post-DB-insert work (jj init, jj add, init commands), keeping the existing rollback semantics on failure. Promote wraps the entire scratch-creation + jj squash + transcript copy + session resume flow as one task so the user sees progress for what is otherwise a multi-step background op.
+
+Verified end to end: hitting `POST /api/workspaces/:id/summarize` against a real workspace produced a `task-update` running event, then a success event 13 seconds later, both with full context attached.
+
 ## 2026-04-29 - Tasks dropdown for async background ops
 
 Added a small in-memory task registry (`src/tasks.js`) for surfacing long-running async operations to the UI: `createTask` / `completeTask` plus a `runTask(opts, fn)` wrapper that captures returned warnings and converts thrown errors into task errors. Tasks emit a `task-update` SSE event, and a new `GET /api/tasks` returns the current snapshot (running first, then most recently completed; pruned after 5 minutes or 50 entries). Wrapped `destroyWorkspace`'s post-mark cleanup in `runTask` so users see "Destroy <name>" with status (Running / Done / Warnings / Failed) and any collected warnings. The registry is observability-only and is not persisted - on restart, the slate is empty, which is fine since the underlying ops complete regardless.
