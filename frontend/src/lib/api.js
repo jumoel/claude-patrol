@@ -360,3 +360,13 @@ export async function triggerRestart() {
   }
   return res.json();
 }
+
+/**
+ * Fetch the current task list (running + recently completed background ops).
+ * @returns {Promise<Array<object>>}
+ */
+export async function fetchTasks() {
+  const res = await fetch(`${BASE}/api/tasks`);
+  if (!res.ok) throw new Error(`Failed to fetch tasks: ${res.status}`);
+  return res.json();
+}

@@ -1,5 +1,13 @@
 # Build Log
 
+## 2026-04-29 - Tasks dropdown for async background ops
+
+Added a small in-memory task registry (`src/tasks.js`) for surfacing long-running async operations to the UI: `createTask` / `completeTask` plus a `runTask(opts, fn)` wrapper that captures returned warnings and converts thrown errors into task errors. Tasks emit a `task-update` SSE event, and a new `GET /api/tasks` returns the current snapshot (running first, then most recently completed; pruned after 5 minutes or 50 entries). Wrapped `destroyWorkspace`'s post-mark cleanup in `runTask` so users see "Destroy <name>" with status (Running / Done / Warnings / Failed) and any collected warnings. The registry is observability-only and is not persisted - on restart, the slate is empty, which is fine since the underlying ops complete regardless.
+
+Frontend: a `useTasks()` hook seeds from `/api/tasks` and merges in `task-update` SSE events. `DashboardSummary` shows a third `StatDropdown` next to workspaces and sessions ("N running tasks" or "N recent tasks"), hidden entirely when there are no tasks.
+
+**Other candidates worth wrapping next, found while spelunking:** (1) `summarizer.generateSummary` - calls Claude haiku, runs auto on 5-min idle and on session exit, currently invisible; (2) `workspace.cleanup` (`POST /api/workspaces/cleanup`) which destroys multiple workspaces by filter and would benefit most from progress reporting; (3) `createWorkspace` / `createScratchWorkspace`, especially when `initCommands` runs `pnpm install` or similar; (4) `session.promote`, which moves a global session into a scratch workspace.
+
 ## 2026-04-29 - Unblock event loop during workspace destroy
 
 Workspace destroy used `rmSync` with `recursive: true` to remove the workspace directory. For workspaces with `node_modules` or other large trees, that synchronous walk pinned the Node.js event loop for several seconds, so every other API request (including `GET /api/workspaces?type=scratch` from the dashboard) stalled. The dashboard appeared to "lose" scratch workspaces because the fetch couldn't return until destroy was finished. Switched `destroyWorkspace` and `rollbackWorkspace` to `rm` from `node:fs/promises` so the directory removal yields, and moved `emitLocalChange()` inside `destroyWorkspace` right after the DB row is marked destroyed - the UI now drops the workspace from active lists immediately rather than after filesystem cleanup completes.

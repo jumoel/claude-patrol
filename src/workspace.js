@@ -4,6 +4,7 @@ import { rm } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { emitLocalChange } from './app-events.js';
 import { getDb } from './db.js';
+import { runTask } from './tasks.js';
 import { archiveTranscript } from './transcripts.js';
 import { execFile, expandPath, toClaudeProjectKey } from './utils.js';
 
@@ -330,69 +331,79 @@ export async function destroyWorkspace(workspaceId, config) {
   // seconds for workspaces with node_modules / build artifacts).
   emitLocalChange();
 
-  // Step 1: Kill active sessions for this workspace
-  const sessions = db
-    .prepare("SELECT * FROM sessions WHERE workspace_id = ? AND status IN ('active', 'detached')")
-    .all(workspaceId);
-  for (const session of sessions) {
-    if (session.pid) {
+  // Track the rest as an observable task so the UI can show progress.
+  return runTask(
+    {
+      kind: 'workspace.destroy',
+      label: `Destroy ${workspace.name}`,
+      context: { workspaceId, prId: workspace.pr_id, repo: workspace.repo },
+    },
+    async () => {
+      // Step 1: Kill active sessions for this workspace
+      const sessions = db
+        .prepare("SELECT * FROM sessions WHERE workspace_id = ? AND status IN ('active', 'detached')")
+        .all(workspaceId);
+      for (const session of sessions) {
+        if (session.pid) {
+          try {
+            process.kill(session.pid, 'SIGTERM');
+            await waitForExit(session.pid, 5000);
+          } catch {
+            try {
+              process.kill(session.pid, 'SIGKILL');
+            } catch {
+              /* already dead */
+            }
+          }
+        }
+        db.prepare("UPDATE sessions SET status = 'killed', ended_at = ? WHERE id = ?").run(
+          new Date().toISOString(),
+          session.id,
+        );
+      }
+
+      // Step 2: Docker compose down if applicable
+      const dockerWarning = await dockerComposeDown(workspace.path);
+      if (dockerWarning) {
+        warnings.push(dockerWarning);
+      }
+
+      // Step 3: jj workspace forget
       try {
-        process.kill(session.pid, 'SIGTERM');
-        await waitForExit(session.pid, 5000);
-      } catch {
-        try {
-          process.kill(session.pid, 'SIGKILL');
-        } catch {
-          /* already dead */
+        await execFile('jj', ['workspace', 'forget', workspace.name, '-R', mainRepoPath]);
+      } catch (err) {
+        warnings.push(`jj workspace forget failed: ${err.message}`);
+      }
+
+      // Step 4: Remove workspace directory (async - can take seconds for large
+      // trees like node_modules, so we must not block the event loop here)
+      try {
+        await rm(workspace.path, { recursive: true, force: true });
+      } catch (err) {
+        warnings.push(`Directory cleanup failed: ${err.message}`);
+      }
+
+      // Step 4.5: Archive session transcripts before Claude folder is deleted
+      const allSessions = db.prepare('SELECT * FROM sessions WHERE workspace_id = ?').all(workspaceId);
+      for (const sess of allSessions) {
+        if (sess.claude_project_dir && !sess.transcript_path) {
+          archiveTranscript(sess.id, sess.claude_project_dir, sess.started_at, sess.ended_at);
         }
       }
-    }
-    db.prepare("UPDATE sessions SET status = 'killed', ended_at = ? WHERE id = ?").run(
-      new Date().toISOString(),
-      session.id,
-    );
-  }
 
-  // Step 2: Docker compose down if applicable
-  const dockerWarning = await dockerComposeDown(workspace.path);
-  if (dockerWarning) {
-    warnings.push(dockerWarning);
-  }
+      // Step 5: Clean up Claude project memory symlink
+      try {
+        const claudeProjects = expandPath('~/.claude/projects');
+        const wsKey = toClaudeProjectKey(workspace.path);
+        const wsProjectDir = resolve(claudeProjects, wsKey);
+        await rm(wsProjectDir, { recursive: true, force: true });
+      } catch (err) {
+        warnings.push(`Claude memory cleanup failed: ${err.message}`);
+      }
 
-  // Step 3: jj workspace forget
-  try {
-    await execFile('jj', ['workspace', 'forget', workspace.name, '-R', mainRepoPath]);
-  } catch (err) {
-    warnings.push(`jj workspace forget failed: ${err.message}`);
-  }
-
-  // Step 4: Remove workspace directory (async - can take seconds for large
-  // trees like node_modules, so we must not block the event loop here)
-  try {
-    await rm(workspace.path, { recursive: true, force: true });
-  } catch (err) {
-    warnings.push(`Directory cleanup failed: ${err.message}`);
-  }
-
-  // Step 4.5: Archive session transcripts before Claude folder is deleted
-  const allSessions = db.prepare('SELECT * FROM sessions WHERE workspace_id = ?').all(workspaceId);
-  for (const sess of allSessions) {
-    if (sess.claude_project_dir && !sess.transcript_path) {
-      archiveTranscript(sess.id, sess.claude_project_dir, sess.started_at, sess.ended_at);
-    }
-  }
-
-  // Step 5: Clean up Claude project memory symlink
-  try {
-    const claudeProjects = expandPath('~/.claude/projects');
-    const wsKey = toClaudeProjectKey(workspace.path);
-    const wsProjectDir = resolve(claudeProjects, wsKey);
-    await rm(wsProjectDir, { recursive: true, force: true });
-  } catch (err) {
-    warnings.push(`Claude memory cleanup failed: ${err.message}`);
-  }
-
-  return { ok: true, warnings };
+      return { ok: true, warnings };
+    },
+  );
 }
 
 /**

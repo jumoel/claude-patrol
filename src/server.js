@@ -14,6 +14,7 @@ import { registerPRRoutes } from './routes/prs.js';
 import { registerSessionRoutes } from './routes/sessions.js';
 import { registerSetupRoutes } from './routes/setup.js';
 import { registerSyncRoutes } from './routes/sync.js';
+import { registerTaskRoutes } from './routes/tasks.js';
 import { registerWorkspaceRoutes } from './routes/workspaces.js';
 
 /**
@@ -34,6 +35,7 @@ export async function createServer() {
   registerCheckRoutes(app);
   registerCommentRoutes(app);
   registerSetupRoutes(app);
+  registerTaskRoutes(app);
 
   // SSE endpoint for live updates
   const sseConnections = new Set();
@@ -60,11 +62,15 @@ export async function createServer() {
     const summaryHandler = (data) => {
       raw.write(`event: summary-updated\ndata: ${JSON.stringify(data)}\n\n`);
     };
+    const taskHandler = (data) => {
+      raw.write(`event: task-update\ndata: ${JSON.stringify(data)}\n\n`);
+    };
 
     pollerEvents.on('sync', syncHandler);
     appEvents.on('local-change', localHandler);
     appEvents.on('session-state', stateHandler);
     appEvents.on('summary-updated', summaryHandler);
+    appEvents.on('task-update', taskHandler);
 
     // Send current session states so the client doesn't miss events
     // that fired before it connected.
@@ -76,6 +82,7 @@ export async function createServer() {
       appEvents.removeListener('local-change', localHandler);
       appEvents.removeListener('session-state', stateHandler);
       appEvents.removeListener('summary-updated', summaryHandler);
+      appEvents.removeListener('task-update', taskHandler);
       sseConnections.delete(raw);
     });
   });
