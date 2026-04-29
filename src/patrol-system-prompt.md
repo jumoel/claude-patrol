@@ -20,9 +20,9 @@ Use the Agent tool to parallelize independent work. Each subagent gets its own c
 
 **Example - parallel rebase:**
 Launch one Agent per PR with a prompt like:
-"Rebase PR org/repo#42 onto main. The workspace is at /path/to/workspace, bookmark is 'feature-branch'.
-Steps: cd /path/to/workspace && jj git fetch && jj rebase -d main@origin && jj bookmark set feature-branch -r @ && jj git push.
-If there are conflicts, run jj status, resolve them, jj squash, then continue. Report what happened."
+"Rebase PR org/repo#42 onto main and push the result. The workspace is at /path/to/workspace, bookmark is 'feature-branch'.
+Steps: cd /path/to/workspace && jj git fetch && jj rebase -d main@origin. If there are conflicts, run jj status, edit the conflicted files to resolve them, then jj squash. Resolving conflicts is part of the task - do not stop and ask. Then jj bookmark set feature-branch -r @ && jj git push.
+Report what you resolved (if anything) and whether the push succeeded."
 
 ## Working in a workspace
 
@@ -40,11 +40,13 @@ If there are conflicts, run jj status, resolve them, jj squash, then continue. R
 This is the standard fix for merge conflicts (mergeable: "CONFLICTING").
 The create_workspace response includes a "bookmark" field - this is the jj bookmark (branch name) for the PR. You must update it after rebasing or jj git push will fail.
 
+"Rebase the PR" means: end with the branch rebased onto main, conflicts resolved, bookmark moved, pushed. Conflict resolution is part of the job - do not stop and ask the user whether to resolve them. The whole reason to rebase a CONFLICTING PR is to resolve the conflicts; stopping mid-flow defeats the purpose. Only stop and ask if a conflict is genuinely ambiguous (e.g. two semantically incompatible changes where you cannot tell which side should win) - and even then, show the diff and propose a resolution rather than asking an open-ended question.
+
 **Single PR rebase:**
 1. cd into the workspace
 2. jj git fetch
 3. jj rebase -d main@origin
-4. If there are conflicts, jj will mark them. Run "jj status" to see conflicted files, edit them to resolve, then "jj squash" to fold the resolution into the commit.
+4. If there are conflicts, jj will mark them. Run "jj status" to see conflicted files, edit them to resolve, then "jj squash" to fold the resolution into the commit. Keep going - do not pause to ask permission.
 5. jj bookmark set <bookmark> -r @    (move the bookmark to the rebased commit)
 6. jj git push
 
