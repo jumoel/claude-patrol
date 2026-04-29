@@ -192,14 +192,14 @@ server.tool('trigger_sync', 'Trigger an immediate sync of PR data from GitHub.',
 
 server.tool(
   'retrigger_checks',
-  'Re-run failed CI checks for a PR. Optionally filter to specific checks by name pattern. Use require_all_final=true to only retrigger when no checks are still running or queued.',
+  'Re-run failed CI checks for a PR. Optionally filter to specific checks by name pattern. Use require_all_final=true to only retrigger when no checks are still running or queued. If check_name matches nothing, the response includes available_failed_checks so you can retry with a valid substring.',
   {
     pr_id: z.string().describe('PR database ID (e.g. "org/repo#42")'),
     check_name: z
       .string()
       .optional()
       .describe(
-        'Only retrigger checks whose name contains this substring (case-insensitive). E.g. "smith-bench" to only retrigger smith-bench failures.',
+        'Only retrigger checks whose name contains this substring (case-insensitive). Matched against both the workflow-prefixed name shown in get_pr/wait_for_checks (e.g. "smith-bench / @adobe/css-tools@4.4.4") and the bare matrix variant name from GitHub\'s REST API (e.g. "@adobe/css-tools@4.4.4"). If nothing matches, the response returns available_failed_checks listing every failed check name so you can pick a working pattern.',
       ),
     require_all_final: z
       .boolean()

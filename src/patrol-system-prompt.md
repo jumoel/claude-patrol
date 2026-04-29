@@ -82,7 +82,7 @@ For multiple PRs with CI failures, use subagents to investigate each in parallel
 
 Use retrigger_checks to re-run failed CI checks for a PR. Useful after pushing a fix.
 
-- `check_name`: filter to specific checks by name substring (e.g. "smith-bench" to only retrigger smith-bench failures, not all failures)
+- `check_name`: filter to specific checks by name substring. Matches against both the workflow-prefixed name you see in get_pr/wait_for_checks (e.g. "smith-bench / @adobe/css-tools@4.4.4") and the bare GitHub Actions check name (e.g. "@adobe/css-tools@4.4.4"). If your substring matches zero checks, the response returns `available_failed_checks` listing every failed name - pick one of those and try again, or omit `check_name` to retrigger all failures.
 - `require_all_final`: set to true to refuse retriggering if any checks are still running/queued
 
 ## Waiting for CI

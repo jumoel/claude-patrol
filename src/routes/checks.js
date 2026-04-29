@@ -88,21 +88,47 @@ export function registerCheckRoutes(app) {
       return reply.code(404).send({ error: 'PR not found' });
     }
 
-    let failed;
+    // DB check names come from GraphQL with a workflow prefix ("workflow / job"),
+    // matching what callers see via get_pr/wait_for_checks. REST check-run names
+    // are just the job name with no prefix. Pull both so the substring filter can
+    // match either form.
+    const failedDb = getFailedChecks(row);
+    let failedRest = null;
     try {
-      failed = await fetchFreshFailedChecks(row.org, row.repo, row.branch);
+      failedRest = await fetchFreshFailedChecks(row.org, row.repo, row.branch);
     } catch {
-      failed = getFailedChecks(row);
+      failedRest = null;
     }
 
-    // Optional: filter to checks matching a name pattern (case-insensitive substring)
+    let failed;
     if (check_name) {
       const pattern = check_name.toLowerCase();
-      failed = failed.filter((c) => c.name.toLowerCase().includes(pattern));
-    }
+      const restMatches = (failedRest || []).filter((c) => c.name.toLowerCase().includes(pattern));
+      const dbMatches = failedDb.filter((c) => c.name.toLowerCase().includes(pattern));
+      // Prefer REST entries (fresher); fall back to DB matches if REST didn't catch them
+      // (e.g. when the user passed the workflow name as the substring).
+      failed = restMatches.length > 0 ? restMatches : dbMatches;
 
-    if (failed.length === 0) {
-      return { ok: true, retriggered: 0, matched_checks: [] };
+      if (failed.length === 0) {
+        const available = [
+          ...new Set([...(failedRest || []).map((c) => c.name), ...failedDb.map((c) => c.name)]),
+        ];
+        return {
+          ok: true,
+          retriggered: 0,
+          matched_checks: [],
+          available_failed_checks: available,
+          message:
+            `No failed checks matched substring "${check_name}". ` +
+            'Use one of the names in available_failed_checks, or omit check_name to retrigger all failures. ' +
+            'Note: matrix job check names from GitHub Actions may be just the matrix variant (e.g. "@adobe/css-tools@4.4.4") rather than the workflow name.',
+        };
+      }
+    } else {
+      failed = failedRest && failedRest.length > 0 ? failedRest : failedDb;
+      if (failed.length === 0) {
+        return { ok: true, retriggered: 0, matched_checks: [] };
+      }
     }
 
     // Group failed checks by run ID so we can retrigger per-run
