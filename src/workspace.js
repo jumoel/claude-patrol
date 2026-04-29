@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, rmSync, symlinkSync } from 'node:fs';
+import { rm } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
+import { emitLocalChange } from './app-events.js';
 import { getDb } from './db.js';
 import { archiveTranscript } from './transcripts.js';
 import { execFile, expandPath, toClaudeProjectKey } from './utils.js';
@@ -194,19 +196,13 @@ async function rollbackWorkspace({ id, name, workspacePath, mainRepoPath }) {
 
   await execFile('jj', ['workspace', 'forget', name, '-R', mainRepoPath]).catch(() => {});
 
-  try {
-    rmSync(workspacePath, { recursive: true, force: true });
-  } catch {
-    /* best effort */
-  }
+  await rm(workspacePath, { recursive: true, force: true }).catch(() => {});
 
   try {
     const claudeProjects = expandPath('~/.claude/projects');
     const wsKey = toClaudeProjectKey(workspacePath);
     const wsProjectDir = resolve(claudeProjects, wsKey);
-    if (existsSync(wsProjectDir)) {
-      rmSync(wsProjectDir, { recursive: true, force: true });
-    }
+    await rm(wsProjectDir, { recursive: true, force: true });
   } catch {
     /* best effort */
   }
@@ -329,6 +325,11 @@ export async function destroyWorkspace(workspaceId, config) {
     workspaceId,
   );
 
+  // Notify clients now so the UI removes the workspace from active lists
+  // immediately, instead of waiting for filesystem cleanup (which can take
+  // seconds for workspaces with node_modules / build artifacts).
+  emitLocalChange();
+
   // Step 1: Kill active sessions for this workspace
   const sessions = db
     .prepare("SELECT * FROM sessions WHERE workspace_id = ? AND status IN ('active', 'detached')")
@@ -365,9 +366,10 @@ export async function destroyWorkspace(workspaceId, config) {
     warnings.push(`jj workspace forget failed: ${err.message}`);
   }
 
-  // Step 4: Remove workspace directory
+  // Step 4: Remove workspace directory (async - can take seconds for large
+  // trees like node_modules, so we must not block the event loop here)
   try {
-    rmSync(workspace.path, { recursive: true, force: true });
+    await rm(workspace.path, { recursive: true, force: true });
   } catch (err) {
     warnings.push(`Directory cleanup failed: ${err.message}`);
   }
@@ -385,9 +387,7 @@ export async function destroyWorkspace(workspaceId, config) {
     const claudeProjects = expandPath('~/.claude/projects');
     const wsKey = toClaudeProjectKey(workspace.path);
     const wsProjectDir = resolve(claudeProjects, wsKey);
-    if (existsSync(wsProjectDir)) {
-      rmSync(wsProjectDir, { recursive: true, force: true });
-    }
+    await rm(wsProjectDir, { recursive: true, force: true });
   } catch (err) {
     warnings.push(`Claude memory cleanup failed: ${err.message}`);
   }

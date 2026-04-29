@@ -1,5 +1,9 @@
 # Build Log
 
+## 2026-04-29 - Unblock event loop during workspace destroy
+
+Workspace destroy used `rmSync` with `recursive: true` to remove the workspace directory. For workspaces with `node_modules` or other large trees, that synchronous walk pinned the Node.js event loop for several seconds, so every other API request (including `GET /api/workspaces?type=scratch` from the dashboard) stalled. The dashboard appeared to "lose" scratch workspaces because the fetch couldn't return until destroy was finished. Switched `destroyWorkspace` and `rollbackWorkspace` to `rm` from `node:fs/promises` so the directory removal yields, and moved `emitLocalChange()` inside `destroyWorkspace` right after the DB row is marked destroyed - the UI now drops the workspace from active lists immediately rather than after filesystem cleanup completes.
+
 ## 2026-04-28 - Docker Compose cleanup on workspace destroy and rollback
 
 Extracted a shared `dockerComposeDown` helper that both `destroyWorkspace` and `rollbackWorkspace` call. Previously, `rollbackWorkspace` didn't touch Docker at all, so if `initCommands` started a compose stack and a later step failed, containers were orphaned. The helper also falls back to project-name-based cleanup when the compose file is missing but containers still exist - Docker tracks projects independently of the file on disk.
