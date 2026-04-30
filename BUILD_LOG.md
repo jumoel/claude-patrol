@@ -1,5 +1,9 @@
 # Build Log
 
+## 2026-04-30 - Remove stale root `public/` and ignore it
+
+The repo had an untracked `public/` folder at the project root with hashed Vite build artifacts (`assets/index-*.js`, `assets/index-*.css`) from late April. Nothing serves it: `src/server.js` registers `@fastify/static` against `frontend/dist`, and Vite's source assets live at `frontend/public/`. The root folder was leftover from an earlier layout where build output landed there. Deleted it and added `/public/` to `.gitignore` so a stray build can't recreate the confusion.
+
 ## 2026-04-29 - Don't pause mid-rebase to ask about conflicts
 
 A rebase session ended with the subagent saying "Your scoped instruction was just fetch + rebase, so I stopped here. Want me to resolve the conflicts and continue, or leave the workspace in this state for manual inspection?" - which is the wrong default. A user asking to rebase a CONFLICTING PR is asking for the conflicts to be resolved; pausing to ask defeats the entire point. Tightened the rebase section of `patrol-system-prompt.md` to spell out that "rebase the PR" includes conflict resolution and that the model should only stop on genuinely ambiguous conflicts (and even then propose a resolution rather than asking open-ended). Updated the parallel-rebase subagent example to match - the previous version put conflict handling in a trailing "if there are conflicts" sentence after a single `&&`-chained command line, which read as optional cleanup rather than part of the job.
