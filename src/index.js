@@ -11,7 +11,7 @@ import {
 } from './config.js';
 import { initDb } from './db.js';
 import { startHealthChecks, stopHealthChecks } from './health.js';
-import { isRunning, removePid, writePid } from './pid.js';
+import { isRunning, readPid, removePid, writePid } from './pid.js';
 import { resetStatements, startPoller, stopPoller } from './poller.js';
 import {
   activeSessionCount,
@@ -34,9 +34,16 @@ import { startUpdateChecks, stopUpdateChecks } from './update-check.js';
 export async function startServer(options = {}) {
   // --port <number> overrides config.port and skips the single-instance check
   const portFlagIdx = process.argv.indexOf('--port');
-  const portOverride = portFlagIdx !== -1 ? Number(process.argv[portFlagIdx + 1]) : null;
+  let portOverride = portFlagIdx !== -1 ? Number(process.argv[portFlagIdx + 1]) : null;
 
   const isReattachEarly = options.reattach || process.argv.includes('--reattach');
+  // On a restart-style relaunch (--reattach) without an explicit --port, pin
+  // to the previous instance's port so MCP URLs in already-running Claude
+  // sessions stay valid.
+  if (isReattachEarly && portOverride === null) {
+    const previousPort = readPid()?.port;
+    if (typeof previousPort === 'number') portOverride = previousPort;
+  }
   if (!isReattachEarly && !portOverride) {
     const status = isRunning();
     if (status.running) {

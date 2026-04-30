@@ -1,5 +1,13 @@
 # Build Log
 
+## 2026-04-30 - Restart-via-wrapper-loop instead of detached respawn
+
+Clicking "Restart now" in the web UI left the TUI broken when running interactively under `pnpm start`. The old flow rebuilt the frontend, called `destroyTui()`, spawned a `detached: true` child with `stdio: 'inherit'`, then `process.exit(0)` after 500 ms. The fatal step was the parent exiting: `pnpm` saw its child die and exited too, so the user's shell reclaimed the terminal and started drawing its prompt while the orphaned new node process - in its own session, no controlling TTY - tried to render a TUI on top of it. Two processes fighting for the same terminal, raw mode toggling between them, stdin going to the shell. Looked "borked" because it was.
+
+Fix: keep the foreground process group alive across the restart. `pnpm start` now ends in `bash scripts/start-loop.sh`, a tiny while-loop that runs `node src/index.js`, and on exit code 42 adds `--reattach` and runs again. `restartServer()` no longer spawns anything - it builds the frontend, tears down the TUI, and `process.exit(42)`. The wrapper holds the TTY the whole time, so the shell never gets a chance to draw a prompt mid-restart. Watch mode (`src/watch.js`) supervises its child differently but had the same exit-code gap, so it now treats 42 as "relaunch with --reattach" too.
+
+Port stickiness used to ride on `restartServer()` passing `--port <currentPort>` to the spawned child so the in-process MCP URL stayed valid. With the wrapper there's no good way to pass that. Instead, `startServer()` now treats `--reattach` without an explicit `--port` as a signal to read the previous instance's port from the PID file and pin to it (sticky-retry through the overlap window) - same end result, simpler chain of custody.
+
 ## 2026-04-30 - Maximized terminals leave the app header visible
 
 Maximizing a terminal (TerminalCard overlay or GlobalTerminal drawer) used `fixed inset-0`, which painted over the AppShell header and stranded users on whatever page the terminal was attached to - the only way back to the dashboard was Escape, Cmd+Enter, or the Restore button. Cheap fix: the overlay now starts below the header instead of at the top of the viewport. AppShell measures the actual header element with a ResizeObserver and publishes its height as a `--app-header-height` CSS variable on `<html>`, which the two overlay rules (`shared.terminalOverlay`, `GlobalTerminal.maximized`) read via `top: var(--app-header-height, 0px)`. ResizeObserver instead of a hardcoded number so the update banner / future header changes don't require a CSS edit.

@@ -94,6 +94,13 @@ function startServer(reattach) {
       return;
     }
     if (code === null) return; // killed by signal during cleanup
+    // Exit 42 = user-triggered restart (e.g. "Apply update" in the web UI).
+    // Relaunch with --reattach so existing sessions are recovered.
+    if (code === 42) {
+      sendToServer(`${prefix('watch', 'magenta')}Server requested restart, relaunching...`);
+      startServer(true);
+      return;
+    }
     // Exit 78 = already running (precondition failure) - exit watch cleanly
     if (code === 78) {
       vite.kill('SIGTERM');

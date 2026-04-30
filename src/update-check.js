@@ -1,8 +1,13 @@
 import { execFile, execFileSync, spawn } from 'node:child_process';
-import { dirname, join } from 'node:path';
+import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { readPid } from './pid.js';
 import { destroyTui } from './tui.js';
+
+/**
+ * Exit code that signals the wrapper script (`scripts/start-loop.sh`) to
+ * relaunch the server with `--reattach`. Any other code breaks the loop.
+ */
+export const RESTART_EXIT_CODE = 42;
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_DIR = dirname(__dirname);
@@ -115,14 +120,17 @@ export function pullUpdate() {
 }
 
 /**
- * Restart the server process. Rebuilds the frontend, spawns a new instance
- * with --reattach so terminal sessions survive, then exits the current process.
+ * Restart the server process. Rebuilds the frontend, then exits with the
+ * sentinel code so `scripts/start-loop.sh` relaunches us with --reattach.
+ *
+ * We can't fork a detached child from here when running in a foreground TTY:
+ * the parent shell would reclaim the terminal as soon as we exit, then fight
+ * the orphaned child for input/output. Letting the wrapper script stay in
+ * the foreground process group across the restart keeps the TUI intact.
  */
 export function restartServer() {
-  const entryPoint = join(REPO_DIR, 'src', 'index.js');
   restartPhase = { phase: 'building', started_at: new Date().toISOString() };
   console.log('[restart] Rebuilding frontend...');
-  // Capture build output and pipe through console.log so it appears in the TUI
   const build = spawn('pnpm', ['--filter', 'claude-patrol-frontend', 'build'], {
     cwd: REPO_DIR,
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -134,7 +142,7 @@ export function restartServer() {
     stream.on('data', (chunk) => {
       buffer += chunk;
       const lines = buffer.split('\n');
-      buffer = lines.pop(); // keep incomplete last line
+      buffer = lines.pop();
       for (const line of lines) {
         if (line.trim()) console[level](`[build] ${line}`);
       }
@@ -147,29 +155,13 @@ export function restartServer() {
   logLines(build.stderr, 'warn');
   build.on('close', (code) => {
     if (code !== 0) {
-      console.warn(`[restart] Frontend build exited with code ${code}, starting anyway`);
+      console.warn(`[restart] Frontend build exited with code ${code}, restarting anyway`);
     } else {
       console.log('[restart] Frontend build complete');
     }
-    restartPhase = { phase: 'spawning', started_at: new Date().toISOString() };
-    console.log('[restart] Spawning new server with --reattach...');
-    // Tear down the TUI before spawning so the new process gets a clean terminal
-    destroyTui();
-    // Pin the new process to the same port so the MCP URL inside running
-    // Claude sessions stays valid across the restart. If we let the new
-    // instance pick its own port, every existing session's MCP client
-    // would be stuck calling the old URL.
-    const args = [entryPoint, '--reattach'];
-    const currentPort = readPid()?.port;
-    if (currentPort) args.push('--port', String(currentPort));
-    const child = spawn(process.execPath, args, {
-      cwd: REPO_DIR,
-      detached: true,
-      stdio: 'inherit',
-    });
-    child.unref();
     restartPhase = { phase: 'shutting_down', started_at: new Date().toISOString() };
-    // Give the new process time to start before exiting
-    setTimeout(() => process.exit(0), 500);
+    console.log('[restart] Handing off to wrapper for relaunch...');
+    destroyTui();
+    process.exit(RESTART_EXIT_CODE);
   });
 }

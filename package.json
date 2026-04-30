@@ -7,7 +7,7 @@
   },
   "scripts": {
     "setup:xterm": "bash scripts/setup-xterm.sh",
-    "start": "([ -d vendor/xterm.js/lib ] || pnpm run setup:xterm) && pnpm --filter claude-patrol-frontend build && node src/index.js",
+    "start": "([ -d vendor/xterm.js/lib ] || pnpm run setup:xterm) && pnpm --filter claude-patrol-frontend build && bash scripts/start-loop.sh",
     "watch": "([ -d vendor/xterm.js/lib ] || pnpm run setup:xterm) && pnpm --filter claude-patrol-frontend build && node src/watch.js",
     "postinstall": "chmod +x node_modules/node-pty/prebuilds/darwin-*/spawn-helper 2>/dev/null || true",
     "lint": "biome check src/ frontend/src/",

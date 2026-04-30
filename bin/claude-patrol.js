@@ -3,7 +3,7 @@
 import { isRunning, readPid, removePid } from '../src/pid.js';
 import { pidPath, stateDir, dataDir, configDir, configPath, defaultDbPath, mcpConfigPath } from '../src/paths.js';
 import { unlinkSync, rmSync, existsSync } from 'node:fs';
-import { execSync } from 'node:child_process';
+import { execSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -12,13 +12,30 @@ const command = args[0] || 'start';
 
 switch (command) {
   case 'start': {
-    const open = args.includes('--open');
     const rootDir = join(dirname(fileURLToPath(import.meta.url)), '..');
     console.log('[claude-patrol] Building frontend...');
     execSync('pnpm --filter claude-patrol-frontend build', { cwd: rootDir, stdio: 'inherit' });
-    const { startServer } = await import('../src/index.js');
-    await startServer({ open });
-    break;
+
+    // Supervise the server so user-triggered restarts (exit code 42) relaunch
+    // it without losing the controlling terminal. Running startServer in-process
+    // would exit this whole script on restart, dropping the TUI back to the shell.
+    const childArgs = [join(rootDir, 'src/index.js'), ...args.slice(1)];
+    let firstRun = true;
+    while (true) {
+      const runArgs = firstRun ? childArgs : (childArgs.includes('--reattach') ? childArgs : [...childArgs, '--reattach']);
+      const result = spawnSync(process.execPath, runArgs, { cwd: rootDir, stdio: 'inherit' });
+      if (result.error) {
+        console.error(`[claude-patrol] Failed to launch server: ${result.error.message}`);
+        process.exit(1);
+      }
+      if (result.signal) {
+        process.exit(1);
+      }
+      if (result.status !== 42) {
+        process.exit(result.status ?? 0);
+      }
+      firstRun = false;
+    }
   }
 
   case 'stop': {
