@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import logoSvg from '../../assets/logo.svg';
 import { triggerRestart, triggerUpdate } from '../../lib/api.js';
 import { Button } from '../ui/Button/Button.jsx';
@@ -30,7 +30,24 @@ export function AppShell({
   const [pullResult, setPullResult] = useState(null);
   const [restarting, setRestarting] = useState(false);
   const [restartPhase, setRestartPhase] = useState(null);
+  const headerRef = useRef(null);
   const showBanner = (updateAvailable || pullResult || restartNeeded) && !dismissed;
+
+  // Publish header height as a CSS variable so maximized terminals can leave it visible.
+  useEffect(() => {
+    const el = headerRef.current;
+    if (!el) return;
+    const update = () => {
+      document.documentElement.style.setProperty('--app-header-height', `${el.offsetHeight}px`);
+    };
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(el);
+    return () => {
+      observer.disconnect();
+      document.documentElement.style.removeProperty('--app-header-height');
+    };
+  }, []);
 
   const handlePull = async () => {
     setPulling(true);
@@ -91,7 +108,7 @@ export function AppShell({
 
   return (
     <div className={styles.shell}>
-      <header className={styles.header}>
+      <header ref={headerRef} className={styles.header}>
         <div className={styles.headerInner}>
           <a href="#/" className={styles.brand}>
             <img src={logoSvg} alt="" className={styles.logo} />

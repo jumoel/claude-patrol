@@ -1,5 +1,9 @@
 # Build Log
 
+## 2026-04-30 - Maximized terminals leave the app header visible
+
+Maximizing a terminal (TerminalCard overlay or GlobalTerminal drawer) used `fixed inset-0`, which painted over the AppShell header and stranded users on whatever page the terminal was attached to - the only way back to the dashboard was Escape, Cmd+Enter, or the Restore button. Cheap fix: the overlay now starts below the header instead of at the top of the viewport. AppShell measures the actual header element with a ResizeObserver and publishes its height as a `--app-header-height` CSS variable on `<html>`, which the two overlay rules (`shared.terminalOverlay`, `GlobalTerminal.maximized`) read via `top: var(--app-header-height, 0px)`. ResizeObserver instead of a hardcoded number so the update banner / future header changes don't require a CSS edit.
+
 ## 2026-04-30 - In-process HTTP MCP server, port-stable restarts
 
 The patrol MCP server was a stdio child of every Claude session. With 10-20 active sessions that meant 10-20 `node mcp-server.js` processes, each holding ~30-50 MB and a frozen `PATROL_PORT` env var captured at spawn time. After a Patrol restart on a different port, every existing child kept fetching the old port, every tool call returned `ECONNREFUSED`, and `/mcp` still showed "connected" because the stdio child itself was alive. Hard to diagnose, easy to misread as "Claude can't connect."
