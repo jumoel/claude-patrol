@@ -1,5 +1,15 @@
 # Build Log
 
+## 2026-04-30 - In-process HTTP MCP server, port-stable restarts
+
+The patrol MCP server was a stdio child of every Claude session. With 10-20 active sessions that meant 10-20 `node mcp-server.js` processes, each holding ~30-50 MB and a frozen `PATROL_PORT` env var captured at spawn time. After a Patrol restart on a different port, every existing child kept fetching the old port, every tool call returned `ECONNREFUSED`, and `/mcp` still showed "connected" because the stdio child itself was alive. Hard to diagnose, easy to misread as "Claude can't connect."
+
+Replaced the stdio shape with an in-process HTTP MCP endpoint mounted at `POST /mcp` in the Patrol Fastify app. `src/mcp-server.js` now exports `createMcpServer(app)` which builds an `McpServer` whose tool handlers call routes via `app.inject()` instead of HTTP loopback. The new MCP config writes `{type: "http", url: "http://127.0.0.1:<port>/mcp"}`, so spawned Claude sessions connect to the live Patrol server directly. One server, no extra processes, no port to go stale.
+
+Restart needed two follow-ups: the URL still embeds the port, so a Patrol restart on a different port would invalidate every running Claude session's MCP config. `restartServer()` now reads the current port from the PID file and passes `--port <currentPort>` to the spawned `--reattach` instance, and `startServer()` treats an explicit `--port` as sticky - retrying the same port for up to 5 seconds across the overlap window with the dying old process instead of bumping. tmux session reattach is unchanged; what's new is that the MCP endpoint comes back at the same URL the existing sessions are already calling.
+
+Verified end to end: HTTP probe lists 17 tools and round-trips `list_prs` and `list_workspaces`; 10 concurrent clients complete in 76 ms total against a single Patrol server; Claude with the new HTTP config calls `mcp__patrol__list_workspaces` and returns the right count; killing a server while a sticky-port replacement is starting takes ~2 s for the new instance to bind, after which MCP responds normally.
+
 ## 2026-04-30 - Remove stale root `public/` and ignore it
 
 The repo had an untracked `public/` folder at the project root with hashed Vite build artifacts (`assets/index-*.js`, `assets/index-*.css`) from late April. Nothing serves it: `src/server.js` registers `@fastify/static` against `frontend/dist`, and Vite's source assets live at `frontend/public/`. The root folder was leftover from an earlier layout where build output landed there. Deleted it and added `/public/` to `.gitignore` so a stray build can't recreate the confusion.

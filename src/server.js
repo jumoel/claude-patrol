@@ -3,8 +3,10 @@ import { resolve } from 'node:path';
 import fastifyCors from '@fastify/cors';
 import fastifyStatic from '@fastify/static';
 import fastifyWebsocket from '@fastify/websocket';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import Fastify from 'fastify';
 import { appEvents } from './app-events.js';
+import { createMcpServer } from './mcp-server.js';
 import { pollerEvents } from './poller.js';
 import { getSessionStates } from './pty-manager.js';
 import { registerCheckRoutes } from './routes/checks.js';
@@ -36,6 +38,39 @@ export async function createServer() {
   registerCommentRoutes(app);
   registerSetupRoutes(app);
   registerTaskRoutes(app);
+
+  // MCP endpoint - one in-process server shared by all Claude sessions.
+  // Stateless transport: each POST creates its own transport instance, but
+  // the server itself (and all tool handlers) lives once inside this Fastify
+  // app. Tools call routes via app.inject(), so there is no port to capture
+  // and no separate child process to babysit.
+  app.post('/mcp', async (request, reply) => {
+    reply.hijack();
+    const mcp = createMcpServer(app);
+    const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+    // Tear down on response close (client disconnect), not request close -
+    // Fastify drains request.raw before we get here, so 'close' fires
+    // immediately on the request stream.
+    reply.raw.on('close', () => {
+      transport.close().catch(() => {});
+      mcp.close().catch(() => {});
+    });
+    try {
+      await mcp.connect(transport);
+      await transport.handleRequest(request.raw, reply.raw, request.body);
+    } catch (err) {
+      if (!reply.raw.headersSent) {
+        reply.raw.writeHead(500, { 'content-type': 'application/json' });
+        reply.raw.end(
+          JSON.stringify({
+            jsonrpc: '2.0',
+            error: { code: -32603, message: `MCP error: ${err.message}` },
+            id: null,
+          }),
+        );
+      }
+    }
+  });
 
   // SSE endpoint for live updates
   const sseConnections = new Set();

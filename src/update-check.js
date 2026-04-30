@@ -1,6 +1,7 @@
 import { execFile, execFileSync, spawn } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { readPid } from './pid.js';
 import { destroyTui } from './tui.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -154,7 +155,14 @@ export function restartServer() {
     console.log('[restart] Spawning new server with --reattach...');
     // Tear down the TUI before spawning so the new process gets a clean terminal
     destroyTui();
-    const child = spawn(process.execPath, [entryPoint, '--reattach'], {
+    // Pin the new process to the same port so the MCP URL inside running
+    // Claude sessions stays valid across the restart. If we let the new
+    // instance pick its own port, every existing session's MCP client
+    // would be stuck calling the old URL.
+    const args = [entryPoint, '--reattach'];
+    const currentPort = readPid()?.port;
+    if (currentPort) args.push('--port', String(currentPort));
+    const child = spawn(process.execPath, args, {
       cwd: REPO_DIR,
       detached: true,
       stdio: 'inherit',

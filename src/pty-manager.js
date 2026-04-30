@@ -37,18 +37,18 @@ const PATROL_SYSTEM_PROMPT = readFileSync(resolve(import.meta.dirname, 'patrol-s
 let mcpConfigPathCached = null;
 
 /**
- * Write the MCP config JSON for the patrol server. Called once at startup.
+ * Write the MCP config JSON for the patrol server. Called once at startup,
+ * and again whenever the listening port changes. Spawned Claude sessions
+ * point at the in-process HTTP MCP endpoint inside the running Patrol
+ * server, so there is no per-session subprocess.
  * @param {object} config
  */
 export function initMcpConfig(config) {
-  const mcpServerPath = resolve(import.meta.dirname, 'mcp-server.js');
   const configJson = {
     mcpServers: {
       patrol: {
-        type: 'stdio',
-        command: 'node',
-        args: [mcpServerPath],
-        env: { PATROL_PORT: String(config.port) },
+        type: 'http',
+        url: `http://127.0.0.1:${config.port}/mcp`,
       },
     },
   };

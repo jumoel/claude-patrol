@@ -87,17 +87,24 @@ export async function startServer(options = {}) {
 
   const server = await createServer();
   let port = portOverride || config.port;
+  // When an explicit --port is given (e.g. on restart), the caller wants
+  // exactly that port - bumping would invalidate MCP URLs in already-running
+  // Claude sessions. Retry the same port through the overlap window with the
+  // dying old process, then bail out. Without --port, fall back to bumping.
+  const stickyPort = portOverride !== null;
   for (let attempt = 0; attempt < 10; attempt++) {
     try {
       await server.listen({ port, host: '0.0.0.0' });
       break;
     } catch (err) {
-      if (err.code === 'EADDRINUSE') {
-        console.warn(`[claude-patrol] Port ${port} in use, trying ${port + 1}`);
-        port++;
-      } else {
-        throw err;
+      if (err.code !== 'EADDRINUSE') throw err;
+      if (stickyPort) {
+        if (attempt === 9) throw err;
+        await new Promise((r) => setTimeout(r, 500));
+        continue;
       }
+      console.warn(`[claude-patrol] Port ${port} in use, trying ${port + 1}`);
+      port++;
     }
   }
 
