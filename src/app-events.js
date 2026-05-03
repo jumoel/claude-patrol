@@ -24,14 +24,6 @@ export function emitSessionState(sessionId, workspaceId, state) {
 }
 
 /**
- * Notify clients that a workspace summary has been updated.
- * @param {string} workspaceId
- */
-export function emitSummaryUpdated(workspaceId) {
-  appEvents.emit('summary-updated', { workspaceId });
-}
-
-/**
  * Notify clients that the gh rate-limit state changed.
  * @param {{limited: boolean, message: string | null, detectedAt: string | null, resetAt: string | null}} state
  */

@@ -3,7 +3,6 @@ import { emitLocalChange } from '../app-events.js';
 import { getCurrentConfig } from '../config.js';
 import { getDb } from '../db.js';
 import { formatPR } from '../pr-status.js';
-import { generateSummary } from '../summarizer.js';
 import { runTask } from '../tasks.js';
 import { createScratchWorkspace, createWorkspace, destroyWorkspace } from '../workspace.js';
 
@@ -161,27 +160,4 @@ export function registerWorkspaceRoutes(app) {
     );
   });
 
-  app.post('/api/workspaces/:id/summarize', async (request, reply) => {
-    const db = getDb();
-    const workspace = db.prepare("SELECT * FROM workspaces WHERE id = ? AND status = 'active'").get(request.params.id);
-    if (!workspace) {
-      return reply.code(404).send({ error: 'Workspace not found or not active' });
-    }
-    if (workspace.pr_id) {
-      return reply.code(400).send({
-        error: 'Summaries are only stored for scratch workspaces. This workspace is bound to a PR.',
-      });
-    }
-    try {
-      const summary = await generateSummary(workspace.id, { force: true });
-      if (!summary) {
-        return reply.code(404).send({
-          error: 'No recap found in transcripts yet. Run /recap inside the Claude session to generate one.',
-        });
-      }
-      return { ok: true, summary };
-    } catch (err) {
-      return reply.code(500).send({ error: `Summary generation failed: ${err.message}` });
-    }
-  });
 }

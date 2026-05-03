@@ -9,7 +9,6 @@ import {
   fetchSessions,
   fetchSessionTranscript,
   fetchWorkspace,
-  generateWorkspaceSummary,
 } from '../../lib/api.js';
 import { getRelativeTime } from '../../lib/time.js';
 import shared from '../../styles/shared.module.css';
@@ -30,7 +29,6 @@ export function WorkspaceDetail({ workspaceId, onBack }) {
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
   const [openingSession, setOpeningSession] = useState(false);
-  const [summarizing, setSummarizing] = useState(false);
 
   const loadData = useCallback(async () => {
     try {
@@ -53,20 +51,6 @@ export function WorkspaceDetail({ workspaceId, onBack }) {
     loadData();
   }, [loadData]);
   useSyncEvents(loadData);
-
-  // Listen for summary-updated SSE events to refresh data when a summary is generated
-  useEffect(() => {
-    const source = new EventSource('/api/events');
-    source.addEventListener('summary-updated', (e) => {
-      try {
-        const data = JSON.parse(e.data);
-        if (data.workspaceId === workspaceId) {
-          loadData();
-        }
-      } catch { /* ignore */ }
-    });
-    return () => source.close();
-  }, [workspaceId, loadData]);
 
   const handleStartSession = useCallback(async () => {
     if (!workspace) return;
@@ -104,19 +88,6 @@ export function WorkspaceDetail({ workspaceId, onBack }) {
       console.error('Failed to reattach session:', err);
     }
   }, [session]);
-
-  const handleRefreshSummary = useCallback(async () => {
-    if (!workspace) return;
-    setSummarizing(true);
-    try {
-      await generateWorkspaceSummary(workspace.id);
-      await loadData();
-    } catch (err) {
-      console.error('Failed to generate summary:', err);
-    } finally {
-      setSummarizing(false);
-    }
-  }, [workspace, loadData]);
 
   const handleDestroy = useCallback(() => {
     if (!workspace) return;
@@ -173,38 +144,6 @@ export function WorkspaceDetail({ workspaceId, onBack }) {
         )}
       </Stack></Box>
 
-      {/* Summary - scratch workspaces only. PR-bound workspaces get their
-          context from the linked PR, so no summary panel is rendered. */}
-      {workspace.status === 'active' && !workspace.pr_id && (
-        <div className={shared.card}>
-          <div className={styles.summaryHeader}>
-            <h3 className={shared.sectionTitle}>Summary</h3>
-            <button
-              className={styles.refreshBtn}
-              onClick={handleRefreshSummary}
-              disabled={summarizing}
-              title="Pick up the latest /recap from the session transcripts"
-            >
-              {summarizing ? 'Refreshing...' : 'Refresh'}
-            </button>
-          </div>
-          {workspace.summary ? (
-            <div className={styles.summaryContent}>
-              <SummaryMarkdown text={workspace.summary} />
-              {workspace.summary_updated_at && (
-                <div className={styles.summaryMeta}>
-                  Updated {getRelativeTime(workspace.summary_updated_at)}
-                </div>
-              )}
-            </div>
-          ) : (
-            <p className={styles.summaryEmpty}>
-              No recap yet. Run /recap inside the Claude session to generate one.
-            </p>
-          )}
-        </div>
-      )}
-
       {/* Terminal */}
       {workspace.status === 'active' &&
         (session ? (
@@ -230,90 +169,6 @@ export function WorkspaceDetail({ workspaceId, onBack }) {
       <SessionHistory workspaceId={workspaceId} />
     </Stack></Box>
   );
-}
-
-/**
- * Minimal markdown renderer for summaries.
- * Handles **bold**, headings, and bullet lists. Falls back to raw text.
- */
-function SummaryMarkdown({ text }) {
-  const lines = text.split('\n');
-  const elements = [];
-  let listItems = [];
-
-  const flushList = () => {
-    if (listItems.length > 0) {
-      elements.push(<ul key={`ul-${elements.length}`} className={styles.summaryList}>{listItems}</ul>);
-      listItems = [];
-    }
-  };
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-
-    if (line.match(/^#{1,3}\s/)) {
-      flushList();
-      const level = line.match(/^(#{1,3})\s/)[1].length;
-      const heading = line.replace(/^#{1,3}\s+/, '');
-      const Tag = level === 1 ? 'h4' : level === 2 ? 'h5' : 'h6';
-      elements.push(<Tag key={i} className={styles.summaryHeading}>{formatInline(heading)}</Tag>);
-    } else if (line.match(/^[-*]\s/)) {
-      listItems.push(<li key={i}>{formatInline(line.replace(/^[-*]\s+/, ''))}</li>);
-    } else if (line.trim() === '') {
-      flushList();
-    } else {
-      flushList();
-      elements.push(<p key={i} className={styles.summaryParagraph}>{formatInline(line)}</p>);
-    }
-  }
-  flushList();
-
-  return <div>{elements}</div>;
-}
-
-/** Format inline markdown: **bold** and `code` */
-function formatInline(text) {
-  const parts = [];
-  let remaining = text;
-  let key = 0;
-
-  while (remaining.length > 0) {
-    // Bold
-    const boldMatch = remaining.match(/\*\*(.+?)\*\*/);
-    // Code
-    const codeMatch = remaining.match(/`([^`]+)`/);
-
-    let firstMatch = null;
-    let firstIndex = Infinity;
-
-    if (boldMatch && boldMatch.index < firstIndex) {
-      firstMatch = { type: 'bold', match: boldMatch };
-      firstIndex = boldMatch.index;
-    }
-    if (codeMatch && codeMatch.index < firstIndex) {
-      firstMatch = { type: 'code', match: codeMatch };
-      firstIndex = codeMatch.index;
-    }
-
-    if (!firstMatch) {
-      parts.push(remaining);
-      break;
-    }
-
-    if (firstIndex > 0) {
-      parts.push(remaining.slice(0, firstIndex));
-    }
-
-    if (firstMatch.type === 'bold') {
-      parts.push(<strong key={key++}>{firstMatch.match[1]}</strong>);
-    } else {
-      parts.push(<code key={key++} className={styles.summaryCode}>{firstMatch.match[1]}</code>);
-    }
-
-    remaining = remaining.slice(firstIndex + firstMatch.match[0].length);
-  }
-
-  return parts;
 }
 
 function SessionHistory({ workspaceId }) {

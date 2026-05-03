@@ -94,9 +94,6 @@ export async function createServer() {
     const stateHandler = (data) => {
       raw.write(`event: session-state\ndata: ${JSON.stringify(data)}\n\n`);
     };
-    const summaryHandler = (data) => {
-      raw.write(`event: summary-updated\ndata: ${JSON.stringify(data)}\n\n`);
-    };
     const taskHandler = (data) => {
       raw.write(`event: task-update\ndata: ${JSON.stringify(data)}\n\n`);
     };
@@ -107,7 +104,6 @@ export async function createServer() {
     pollerEvents.on('sync', syncHandler);
     appEvents.on('local-change', localHandler);
     appEvents.on('session-state', stateHandler);
-    appEvents.on('summary-updated', summaryHandler);
     appEvents.on('task-update', taskHandler);
     appEvents.on('gh-rate-limit', rateLimitHandler);
 
@@ -122,7 +118,6 @@ export async function createServer() {
       pollerEvents.removeListener('sync', syncHandler);
       appEvents.removeListener('local-change', localHandler);
       appEvents.removeListener('session-state', stateHandler);
-      appEvents.removeListener('summary-updated', summaryHandler);
       appEvents.removeListener('task-update', taskHandler);
       appEvents.removeListener('gh-rate-limit', rateLimitHandler);
       sseConnections.delete(raw);

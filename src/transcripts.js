@@ -4,9 +4,6 @@ import { getDb } from './db.js';
 import { transcriptsDir } from './paths.js';
 import { expandPath, toClaudeProjectKey } from './utils.js';
 
-/** Max conversation characters to return from getWorkspaceConversationText */
-const MAX_CONVERSATION_CHARS = 80_000;
-
 /**
  * Find the best-matching Claude Code JSONL file for a session.
  * Matches by mtime: created after startedAt and before endedAt + 60s.
@@ -75,7 +72,7 @@ export function archiveTranscript(sessionId, claudeProjectDir, startedAt, endedA
   }
 }
 
-// --- Shared transcript parsing (used by routes/sessions.js, summarizer, and getOrCreateTranscriptSummary) ---
+// --- Shared transcript parsing (used by routes/sessions.js and getOrCreateTranscriptSummary) ---
 
 const SYSTEM_PATTERNS = [
   '<task-notification>',
@@ -194,7 +191,7 @@ export function claudeProjectDirForWorkspace(workspacePath) {
 
 /**
  * Parse a JSONL transcript into structured entries with isHuman tagging.
- * This is the shared logic used by both the transcript API route and the summarizer.
+ * This is the shared logic used by the transcript API route and archival.
  * @param {string} jsonlPath
  * @returns {Array<{timestamp: string, role: string, content: Array, isHuman: boolean}>}
  */
@@ -272,182 +269,3 @@ export function simplifyContent(content) {
   });
 }
 
-/**
- * Extract only human/assistant conversation text from parsed transcript entries.
- * Drops tool_use, tool_result, thinking blocks, and system-injected user messages.
- * @param {Array} entries - parsed transcript entries from parseTranscript()
- * @returns {string}
- */
-export function extractConversation(entries) {
-  const parts = [];
-
-  for (const entry of entries) {
-    if (entry.role === 'user' && !entry.isHuman) continue;
-
-    const textParts = entry.content
-      .filter(b => b.type === 'text')
-      .map(b => b.text);
-
-    if (textParts.length === 0) continue;
-
-    const label = entry.role === 'user' ? 'User' : 'Assistant';
-    parts.push(`${label}: ${textParts.join('\n')}`);
-  }
-
-  return parts.join('\n\n');
-}
-
-/**
- * Get conversation text for all sessions in a workspace.
- * Discovers ALL JSONL files in the Claude project dir (not just DB-tracked sessions),
- * plus archived transcripts. Filters by mtime when `since` is provided for incremental reads.
- * Returns only human + assistant text, no tool calls or system messages.
- *
- * @param {string} workspaceId
- * @param {{ since?: string | null }} [options]
- * @returns {string} combined conversation text, truncated to MAX_CONVERSATION_CHARS from the end
- */
-export function getWorkspaceConversationText(workspaceId, { since = null } = {}) {
-  const db = getDb();
-  const workspace = db.prepare('SELECT path FROM workspaces WHERE id = ?').get(workspaceId);
-  if (!workspace) {
-    console.log(`[transcripts] getWorkspaceConversationText: workspace ${workspaceId} not found`);
-    return '';
-  }
-
-  const projectDir = claudeProjectDirForWorkspace(workspace.path);
-  const cutoff = since ? new Date(since).getTime() : 0;
-
-  // Discover all JSONL files in the Claude project dir.
-  // This catches sessions started outside patrol (e.g. direct `claude` CLI).
-  let jsonlFiles;
-  try {
-    jsonlFiles = readdirSync(projectDir)
-      .filter(f => f.endsWith('.jsonl'))
-      .map(f => join(projectDir, f));
-  } catch {
-    jsonlFiles = [];
-  }
-
-  console.log(`[transcripts] Project dir ${projectDir}: ${jsonlFiles.length} JSONL files found`);
-
-  // Also include archived transcripts from DB sessions (they live outside the project dir)
-  const sessions = db.prepare('SELECT * FROM sessions WHERE workspace_id = ? ORDER BY started_at ASC').all(workspaceId);
-  const seen = new Set(jsonlFiles);
-  for (const sess of sessions) {
-    const resolved = resolveSessionJsonlPath(sess, projectDir);
-    if (resolved && !seen.has(resolved)) {
-      jsonlFiles.push(resolved);
-      seen.add(resolved);
-    }
-  }
-
-  console.log(`[transcripts] Total JSONL files for workspace ${workspaceId}: ${jsonlFiles.length} (${sessions.length} DB sessions, cutoff=${cutoff})`)
-
-  // Sort by mtime so older transcripts come first
-  jsonlFiles.sort((a, b) => {
-    try { return statSync(a).mtimeMs - statSync(b).mtimeMs; } catch { return 0; }
-  });
-
-  const parts = [];
-  for (const jsonlPath of jsonlFiles) {
-    // For incremental updates, only read files modified after the cutoff
-    try {
-      if (statSync(jsonlPath).mtimeMs <= cutoff) continue;
-    } catch {
-      continue;
-    }
-
-    try {
-      const entries = parseTranscript(jsonlPath);
-      const text = extractConversation(entries);
-      if (text.trim()) {
-        parts.push(`--- Session ---\n${text}`);
-      }
-    } catch {
-      // Skip unreadable transcripts
-    }
-  }
-
-  let combined = parts.join('\n\n');
-
-  // Truncate from the beginning if too long (keep recent context)
-  if (combined.length > MAX_CONVERSATION_CHARS) {
-    combined = '...[earlier conversation truncated]...\n\n' +
-      combined.slice(combined.length - MAX_CONVERSATION_CHARS);
-  }
-
-  return combined;
-}
-
-/**
- * Find the most recent Claude Code "away_summary" recap (`/recap` output)
- * across all transcripts that belong to a workspace. We use these verbatim
- * as the workspace summary - free, model-generated, higher quality than
- * anything we'd produce ourselves with a follow-up Haiku call.
- *
- * The JSONL line looks like:
- * `{"type":"system","subtype":"away_summary","content":"...","timestamp":"..."}`
- * We strip the trailing `(disable recaps in /config)` cue Claude Code appends.
- *
- * @param {string} workspaceId
- * @returns {{content: string, timestamp: string} | null}
- */
-export function getLatestAwaySummary(workspaceId) {
-  const db = getDb();
-  const workspace = db.prepare('SELECT path FROM workspaces WHERE id = ?').get(workspaceId);
-  if (!workspace) return null;
-
-  const projectDir = claudeProjectDirForWorkspace(workspace.path);
-
-  let jsonlFiles;
-  try {
-    jsonlFiles = readdirSync(projectDir)
-      .filter((f) => f.endsWith('.jsonl'))
-      .map((f) => join(projectDir, f));
-  } catch {
-    jsonlFiles = [];
-  }
-
-  // Include archived transcripts from DB sessions (live outside the project dir).
-  const sessions = db.prepare('SELECT * FROM sessions WHERE workspace_id = ?').all(workspaceId);
-  const seen = new Set(jsonlFiles);
-  for (const sess of sessions) {
-    const resolved = resolveSessionJsonlPath(sess, projectDir);
-    if (resolved && !seen.has(resolved)) {
-      jsonlFiles.push(resolved);
-      seen.add(resolved);
-    }
-  }
-
-  let latest = null;
-  for (const file of jsonlFiles) {
-    let raw;
-    try {
-      raw = readFileSync(file, 'utf8');
-    } catch {
-      continue;
-    }
-    // Fast path: skip files with no recap marker rather than parsing every line.
-    if (!raw.includes('"away_summary"')) continue;
-    for (const line of raw.split('\n')) {
-      if (!line || !line.includes('"away_summary"')) continue;
-      let entry;
-      try {
-        entry = JSON.parse(line);
-      } catch {
-        continue;
-      }
-      if (entry?.type !== 'system' || entry?.subtype !== 'away_summary') continue;
-      if (typeof entry.content !== 'string' || typeof entry.timestamp !== 'string') continue;
-      if (!latest || entry.timestamp > latest.timestamp) {
-        latest = { content: entry.content, timestamp: entry.timestamp };
-      }
-    }
-  }
-
-  if (!latest) return null;
-  const cleaned = latest.content.replace(/\s*\(disable recaps in \/config\)\s*$/i, '').trim();
-  if (!cleaned) return null;
-  return { content: cleaned, timestamp: latest.timestamp };
-}

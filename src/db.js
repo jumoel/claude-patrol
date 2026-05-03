@@ -127,8 +127,9 @@ export function initDb(dbPath) {
 
   addColumn('sessions', 'claude_project_dir TEXT');
   addColumn('sessions', 'transcript_path TEXT');
-  addColumn('workspaces', 'summary TEXT');
-  addColumn('workspaces', 'summary_updated_at TEXT');
+  // workspaces.summary / workspaces.summary_updated_at columns may exist on
+  // older DBs from when the patrol-side summarizer was active. They're left
+  // in place (sqlite drop is destructive) but no longer read or written.
 
   return db;
 }

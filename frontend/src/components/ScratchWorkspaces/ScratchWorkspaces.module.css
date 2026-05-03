@@ -82,10 +82,6 @@
   @apply text-xs text-gray-400;
 }
 
-.summaryPreview {
-  @apply text-xs text-gray-500 leading-snug truncate;
-}
-
 .emptyText {
   @apply text-sm text-gray-400 px-4;
 }
