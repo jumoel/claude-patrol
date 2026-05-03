@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { unlinkSync } from 'node:fs';
-import { emitLocalChange } from './app-events.js';
+import { emitGhRateLimit, emitLocalChange } from './app-events.js';
 import { getDb } from './db.js';
 import { makePrId } from './utils.js';
 import { destroyWorkspace } from './workspace.js';
@@ -132,6 +132,107 @@ const RETRY_BASE_MS = 1000;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /**
+ * Detect rate-limit signals in gh output.
+ * Matches both REST (HTTP 403 stderr text) and GraphQL (response body) patterns.
+ * @param {string} text
+ */
+function isRateLimitMessage(text) {
+  if (!text) return false;
+  return (
+    /API rate limit exceeded/i.test(text) ||
+    /exceeded a secondary rate limit/i.test(text) ||
+    /\brate limit\b.*\bexceeded\b/i.test(text) ||
+    /"type"\s*:\s*"RATE_LIMITED"/.test(text)
+  );
+}
+
+class RateLimitedError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'RateLimitedError';
+    this.rateLimited = true;
+  }
+}
+
+/** @type {{limited: boolean, message: string | null, detectedAt: string | null, resetAt: string | null}} */
+let rateLimitState = { limited: false, message: null, detectedAt: null, resetAt: null };
+let resetLookupInFlight = false;
+
+/** Snapshot of the current gh rate-limit state. */
+export function getGhRateLimitState() {
+  return { ...rateLimitState };
+}
+
+function setRateLimited(rawMessage) {
+  const message = (rawMessage || '').trim().slice(0, 500) || 'gh API rate limit exceeded';
+  const wasLimited = rateLimitState.limited;
+  rateLimitState = {
+    limited: true,
+    message,
+    detectedAt: wasLimited ? rateLimitState.detectedAt : new Date().toISOString(),
+    resetAt: rateLimitState.resetAt,
+  };
+  if (!wasLimited) {
+    console.warn(`[poller] gh rate limit detected: ${message.slice(0, 200)}`);
+    emitGhRateLimit(getGhRateLimitState());
+    fetchRateLimitReset();
+  }
+}
+
+function clearRateLimited() {
+  if (!rateLimitState.limited) return;
+  rateLimitState = { limited: false, message: null, detectedAt: null, resetAt: null };
+  console.log('[poller] gh rate limit cleared');
+  emitGhRateLimit(getGhRateLimitState());
+}
+
+/**
+ * Best-effort fetch of `gh api rate_limit` to learn when the window resets.
+ * The rate_limit endpoint is exempt from rate limiting per GitHub docs, so it
+ * normally succeeds even while the user is throttled.
+ */
+function fetchRateLimitReset() {
+  if (resetLookupInFlight) return;
+  resetLookupInFlight = true;
+  const child = spawn('gh', ['api', 'rate_limit'], { stdio: ['ignore', 'pipe', 'pipe'] });
+  const out = [];
+  child.stdout.on('data', (d) => out.push(d));
+  child.on('error', () => {
+    resetLookupInFlight = false;
+  });
+  child.on('close', (code) => {
+    resetLookupInFlight = false;
+    if (code !== 0) return;
+    try {
+      const parsed = JSON.parse(Buffer.concat(out).toString());
+      const buckets = parsed?.resources;
+      if (!buckets) return;
+      // Pick the soonest reset among buckets that are actually exhausted; fall
+      // back to the soonest reset overall.
+      let soonest = null;
+      for (const b of Object.values(buckets)) {
+        if (typeof b?.reset !== 'number') continue;
+        if (b.remaining === 0 && (soonest === null || b.reset < soonest)) {
+          soonest = b.reset;
+        }
+      }
+      if (soonest === null) {
+        for (const b of Object.values(buckets)) {
+          if (typeof b?.reset !== 'number') continue;
+          if (soonest === null || b.reset < soonest) soonest = b.reset;
+        }
+      }
+      if (soonest !== null && rateLimitState.limited) {
+        rateLimitState = { ...rateLimitState, resetAt: new Date(soonest * 1000).toISOString() };
+        emitGhRateLimit(getGhRateLimitState());
+      }
+    } catch {
+      /* ignore */
+    }
+  });
+}
+
+/**
  * Run a single gh api graphql call. Returns { stdout, stderr, code } or
  * rejects on spawn error.
  */
@@ -175,11 +276,16 @@ async function ghGraphql(query, variables) {
       const { stdout, stderr, code } = await ghGraphqlOnce(query, variables);
 
       if (code !== 0) {
-        lastError = new Error(`gh graphql failed (exit ${code}): ${stderr || stdout}`);
+        const errText = stderr || stdout;
+        if (isRateLimitMessage(errText)) {
+          setRateLimited(errText);
+          throw new RateLimitedError(`gh rate limit exceeded: ${errText.slice(0, 200)}`);
+        }
+        lastError = new Error(`gh graphql failed (exit ${code}): ${errText}`);
         if (attempt < MAX_RETRIES) {
           const delay = RETRY_BASE_MS * 2 ** (attempt - 1);
           console.warn(
-            `[poller] gh graphql failed (attempt ${attempt}/${MAX_RETRIES}), retrying in ${delay}ms: ${(stderr || stdout).slice(0, 120)}`,
+            `[poller] gh graphql failed (attempt ${attempt}/${MAX_RETRIES}), retrying in ${delay}ms: ${errText.slice(0, 120)}`,
           );
           await sleep(delay);
           continue;
@@ -187,14 +293,28 @@ async function ghGraphql(query, variables) {
         throw lastError;
       }
 
+      let parsed;
       try {
-        return JSON.parse(stdout);
+        parsed = JSON.parse(stdout);
       } catch {
         // JSON parse error - not transient, don't retry
         throw new Error(`gh graphql returned non-JSON: ${stdout.slice(0, 200)}`);
       }
+
+      // GraphQL primary rate limit returns HTTP 200 with errors[].type === 'RATE_LIMITED'.
+      const rateLimitErr = parsed.errors?.find(
+        (e) => e?.type === 'RATE_LIMITED' || isRateLimitMessage(e?.message || ''),
+      );
+      if (rateLimitErr) {
+        setRateLimited(rateLimitErr.message || 'GraphQL rate limit exceeded');
+        throw new RateLimitedError(`gh graphql rate limited: ${rateLimitErr.message || ''}`);
+      }
+
+      clearRateLimited();
+      return parsed;
     } catch (err) {
       lastError = err;
+      if (err instanceof RateLimitedError) throw err;
       // If it's a JSON parse error, don't retry
       if (err.message.startsWith('gh graphql returned non-JSON')) throw err;
       if (attempt < MAX_RETRIES) {

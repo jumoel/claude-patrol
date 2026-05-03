@@ -30,3 +30,11 @@ export function emitSessionState(sessionId, workspaceId, state) {
 export function emitSummaryUpdated(workspaceId) {
   appEvents.emit('summary-updated', { workspaceId });
 }
+
+/**
+ * Notify clients that the gh rate-limit state changed.
+ * @param {{limited: boolean, message: string | null, detectedAt: string | null, resetAt: string | null}} state
+ */
+export function emitGhRateLimit(state) {
+  appEvents.emit('gh-rate-limit', state);
+}

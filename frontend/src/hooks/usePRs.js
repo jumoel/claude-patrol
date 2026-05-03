@@ -25,6 +25,7 @@ export function usePRs(filters) {
   const [syncing, setSyncing] = useState(false);
   const [_pollInterval, setPollInterval] = useState(600);
   const [countdown, setCountdown] = useState(0);
+  const [ghRateLimit, setGhRateLimit] = useState(null);
   const filtersRef = useRef(filters);
   const syncedAtRef = useRef(null);
   const pollIntervalRef = useRef(600);
@@ -79,6 +80,14 @@ export function usePRs(filters) {
       setSyncing(false);
       loadPRs();
     });
+    source.addEventListener('gh-rate-limit', (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        setGhRateLimit(data?.limited ? data : null);
+      } catch {
+        /* ignore */
+      }
+    });
     source.addEventListener('local-change', () => {
       // Re-fetch config so interval is up-to-date for the next sync
       fetchConfig()
@@ -107,5 +116,5 @@ export function usePRs(filters) {
     }
   }, []);
 
-  return { prs, syncedAt, loading, error, syncing, countdown, triggerSync };
+  return { prs, syncedAt, loading, error, syncing, countdown, triggerSync, ghRateLimit };
 }

@@ -1,5 +1,9 @@
 # Build Log
 
+## 2026-05-03 - Surface gh rate-limit state in the UI
+
+When the `gh` CLI hits a rate limit during polling, the poller used to log the error and the next sync just looked stuck. Nothing told the user why PRs stopped updating. The poller now sniffs both REST stderr ("API rate limit exceeded", "exceeded a secondary rate limit") and the GraphQL response shape (`errors[].type === "RATE_LIMITED"`), records a server-wide rate-limit state, and emits a new `gh-rate-limit` event on the existing app event bus. On detection it also fires a one-shot `gh api rate_limit` lookup (that endpoint is exempt from rate limiting per GitHub) to get the reset timestamp; once the next gh call succeeds the state clears and a follow-up event is emitted. The SSE stream broadcasts the event and replays the current state on connect, so a fresh tab knows it's throttled. AppShell renders a red banner above the existing update banner with the `gh` error text and a live "resets in Xm Ys" countdown when known. Rate-limited errors no longer trigger the retry+backoff loop in `ghGraphql` - they fail fast via a dedicated `RateLimitedError` so we don't waste three more attempts on something that won't recover for minutes.
+
 ## 2026-05-03 - "Rebase onto X" quick-action: resolve conflicts and push on green
 
 The "Rebase onto $base" button in `QuickActions` only told Claude to fetch and run `jj rebase -d <base>@origin`. If the rebase landed cleanly it was fine, but with conflicts Claude would stop after marking them and never push, leaving the user to finish by hand. Extended the button's command string to spell out the rest of the flow: resolve any conflicts via `jj status` + edit + `jj squash` (without pausing to ask), run the project's test suite, then move the bookmark and `jj git push` only if tests pass. Failing tests halt before the push and get reported instead.

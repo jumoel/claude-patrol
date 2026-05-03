@@ -9,6 +9,22 @@ import styles from './AppShell.module.css';
  * Top-level layout shell. Provides page structure, header, and content area.
  */
 
+function formatResetCountdown(resetAt) {
+  if (!resetAt) return null;
+  const ms = new Date(resetAt).getTime() - Date.now();
+  if (!Number.isFinite(ms) || ms <= 0) return null;
+  const totalSeconds = Math.ceil(ms / 1000);
+  const m = Math.floor(totalSeconds / 60);
+  const s = totalSeconds % 60;
+  if (m >= 60) {
+    const h = Math.floor(m / 60);
+    const mm = m % 60;
+    return `${h}h ${mm}m`;
+  }
+  if (m > 0) return `${m}m ${s.toString().padStart(2, '0')}s`;
+  return `${s}s`;
+}
+
 export function AppShell({
   title,
   syncTime,
@@ -23,6 +39,7 @@ export function AppShell({
   restartNeeded,
   startupSha,
   currentSha,
+  ghRateLimit,
   children,
 }) {
   const [dismissed, setDismissed] = useState(false);
@@ -30,8 +47,19 @@ export function AppShell({
   const [pullResult, setPullResult] = useState(null);
   const [restarting, setRestarting] = useState(false);
   const [restartPhase, setRestartPhase] = useState(null);
+  const [, setNow] = useState(0);
   const headerRef = useRef(null);
   const showBanner = (updateAvailable || pullResult || restartNeeded) && !dismissed;
+  const showRateLimit = !!ghRateLimit?.limited;
+
+  // Tick once per second while rate-limited so the reset countdown updates.
+  useEffect(() => {
+    if (!showRateLimit || !ghRateLimit?.resetAt) return;
+    const id = setInterval(() => setNow((n) => n + 1), 1000);
+    return () => clearInterval(id);
+  }, [showRateLimit, ghRateLimit?.resetAt]);
+
+  const resetCountdown = showRateLimit ? formatResetCountdown(ghRateLimit?.resetAt) : null;
 
   // Publish header height as a CSS variable so maximized terminals can leave it visible.
   useEffect(() => {
@@ -194,6 +222,24 @@ export function AppShell({
           </Stack>
         </div>
       </header>
+      {showRateLimit && (
+        <div className={styles.rateLimitBanner} role="alert">
+          <div className={styles.rateLimitInner}>
+            <Stack gap={2} as="span">
+              <strong>GitHub rate limit hit.</strong>
+              <span>
+                {ghRateLimit?.message || 'gh API rate limit exceeded.'}
+                {resetCountdown && (
+                  <>
+                    {' '}
+                    Resets in <span className={styles.rateLimitCountdown}>{resetCountdown}</span>.
+                  </>
+                )}
+              </span>
+            </Stack>
+          </div>
+        </div>
+      )}
       {showBanner && (
         <div className={`${styles.updateBanner} ${pullResult?.ok || restartNeeded ? styles.updateBannerSuccess : ''}`}>
           <div className={styles.updateBannerInner}>

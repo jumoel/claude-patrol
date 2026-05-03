@@ -7,7 +7,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import Fastify from 'fastify';
 import { appEvents } from './app-events.js';
 import { createMcpServer } from './mcp-server.js';
-import { pollerEvents } from './poller.js';
+import { getGhRateLimitState, pollerEvents } from './poller.js';
 import { getSessionStates } from './pty-manager.js';
 import { registerCheckRoutes } from './routes/checks.js';
 import { registerCommentRoutes } from './routes/comments.js';
@@ -100,24 +100,31 @@ export async function createServer() {
     const taskHandler = (data) => {
       raw.write(`event: task-update\ndata: ${JSON.stringify(data)}\n\n`);
     };
+    const rateLimitHandler = (data) => {
+      raw.write(`event: gh-rate-limit\ndata: ${JSON.stringify(data)}\n\n`);
+    };
 
     pollerEvents.on('sync', syncHandler);
     appEvents.on('local-change', localHandler);
     appEvents.on('session-state', stateHandler);
     appEvents.on('summary-updated', summaryHandler);
     appEvents.on('task-update', taskHandler);
+    appEvents.on('gh-rate-limit', rateLimitHandler);
 
     // Send current session states so the client doesn't miss events
     // that fired before it connected.
     for (const s of getSessionStates()) {
       raw.write(`event: session-state\ndata: ${JSON.stringify(s)}\n\n`);
     }
+    // Replay current gh rate-limit state so a fresh tab knows it's throttled.
+    raw.write(`event: gh-rate-limit\ndata: ${JSON.stringify(getGhRateLimitState())}\n\n`);
     request.raw.on('close', () => {
       pollerEvents.removeListener('sync', syncHandler);
       appEvents.removeListener('local-change', localHandler);
       appEvents.removeListener('session-state', stateHandler);
       appEvents.removeListener('summary-updated', summaryHandler);
       appEvents.removeListener('task-update', taskHandler);
+      appEvents.removeListener('gh-rate-limit', rateLimitHandler);
       sseConnections.delete(raw);
     });
   });

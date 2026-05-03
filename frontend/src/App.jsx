@@ -149,7 +149,7 @@ export default function App() {
   const toggleTerminal = useCallback(() => setTerminalOpen((prev) => !prev), []);
   const openGlobalTerminal = useCallback(() => setTerminalOpen(true), []);
   const closeGlobalTerminal = useCallback(() => setTerminalOpen(false), []);
-  const { prs: allPRs, syncedAt, loading, error, syncing, countdown, triggerSync } = usePRs(NO_FILTERS);
+  const { prs: allPRs, syncedAt, loading, error, syncing, countdown, triggerSync, ghRateLimit } = usePRs(NO_FILTERS);
   const { workspaceStates, dismissedIdle, setActiveWorkspace, localChangeCount } = useIdleNotification();
   const [scratchWorkspaces, setScratchWorkspaces] = useState([]);
   const [updateAvailable, setUpdateAvailable] = useState(false);
@@ -341,6 +341,7 @@ export default function App() {
       restartNeeded={restartNeeded}
       startupSha={startupSha}
       currentSha={currentSha}
+      ghRateLimit={ghRateLimit}
     >
       {showSetup ? (
         <SetupMode onConfigured={handleConfigured} isFirstRun={needsSetup === true} />

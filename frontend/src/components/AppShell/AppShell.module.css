@@ -83,3 +83,15 @@
 .updateBannerSuccess .updateDismiss {
   @apply text-green-600 hover:text-green-800;
 }
+
+.rateLimitBanner {
+  @apply bg-red-50 border-b border-red-200 text-sm text-red-800;
+}
+
+.rateLimitInner {
+  @apply max-w-[1440px] mx-auto px-8 py-3 flex items-center justify-between gap-4;
+}
+
+.rateLimitCountdown {
+  font-variant-numeric: tabular-nums;
+}
