@@ -69,7 +69,6 @@ query($q: String!, $cursor: String) {
         number
         title
         body
-        bodyHTML
         url
         isDraft
         headRefName
@@ -98,6 +97,16 @@ query($q: String!, $cursor: String) {
           }
         }
       }
+    }
+  }
+}
+`;
+
+const PR_BODY_HTML_QUERY = `
+query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      bodyHTML
     }
   }
 }
@@ -233,6 +242,25 @@ function fetchRateLimitReset() {
 }
 
 /**
+ * Fetch a single PR's bodyHTML on demand. Returns the rendered HTML string,
+ * or null if the call fails (e.g. rate-limited). Used by the detail route to
+ * avoid pulling bodyHTML for every PR on every poll cycle.
+ * @param {string} owner
+ * @param {string} name
+ * @param {number} number
+ * @returns {Promise<string | null>}
+ */
+export async function fetchPRBodyHtml(owner, name, number) {
+  try {
+    const result = await ghGraphql(PR_BODY_HTML_QUERY, { owner, name, number });
+    return result?.data?.repository?.pullRequest?.bodyHTML ?? null;
+  } catch (err) {
+    console.warn(`[poller] body_html fetch failed for ${owner}/${name}#${number}: ${err.message}`);
+    return null;
+  }
+}
+
+/**
  * Run a single gh api graphql call. Returns { stdout, stderr, code } or
  * rejects on spawn error.
  */
@@ -356,16 +384,28 @@ async function fetchRemainingChecks(nodeId, startCursor) {
 /**
  * Fetch all open PRs for a search qualifier, handling pagination.
  * Also paginates check contexts for PRs that exceed 100 checks.
- * @param {string} qualifier - e.g. "org:foo" or "repo:owner/repo"
- * @returns {Promise<object[]>}
+ *
+ * Results are sorted by updatedAt descending; if `since` is provided, the
+ * pagination loop stops as soon as a page's oldest PR is already older than
+ * `since`. Any later page would only contain even older entries that we
+ * already have in the DB, so skipping them is safe for upsert but means we
+ * didn't see the full open-PR set - the caller must skip stale-row cleanup
+ * when `complete` is false.
+ *
+ * @param {string} qualifier - e.g. "org:foo" or "repo:owner/repo" or
+ *   "org:a org:b repo:c/d" (multiple qualifiers are OR'd by GitHub search).
+ * @param {{since?: string | null}} [options]
+ * @returns {Promise<{prs: object[], complete: boolean}>}
  */
-async function fetchPRs(qualifier) {
+async function fetchPRs(qualifier, options = {}) {
+  const { since } = options;
   const allPRs = [];
   let cursor = null;
   let hasNext = true;
+  let complete = true;
 
   while (hasNext) {
-    const vars = { q: `${qualifier} is:pr is:open author:@me` };
+    const vars = { q: `${qualifier} is:pr is:open author:@me sort:updated-desc` };
     if (cursor) vars.cursor = cursor;
     const result = await ghGraphql(GRAPHQL_QUERY, vars);
     const search = result.data?.search;
@@ -374,6 +414,17 @@ async function fetchPRs(qualifier) {
       break;
     }
     allPRs.push(...search.nodes);
+
+    // Early terminate when the oldest PR on this page is already older than
+    // anything we'd find on later pages.
+    if (since && search.nodes.length > 0) {
+      const oldestOnPage = search.nodes[search.nodes.length - 1].updatedAt;
+      if (oldestOnPage && oldestOnPage <= since) {
+        complete = false;
+        break;
+      }
+    }
+
     hasNext = search.pageInfo.hasNextPage;
     cursor = search.pageInfo.endCursor;
   }
@@ -388,7 +439,7 @@ async function fetchPRs(qualifier) {
     }
   }
 
-  return allPRs;
+  return { prs: allPRs, complete };
 }
 
 /**
@@ -472,7 +523,7 @@ function getStatements() {
     );
   }
   if (!getExistingBodyStmt) {
-    getExistingBodyStmt = db.prepare('SELECT body FROM prs WHERE id = ?');
+    getExistingBodyStmt = db.prepare('SELECT body, body_html FROM prs WHERE id = ?');
   }
   return {
     upsert: upsertStmt,
@@ -538,16 +589,22 @@ function upsertPRs(prs) {
 
       // Check if body changed (new PR or updated description)
       const existing = getExistingBody.get(id);
-      if (!existing || existing.body !== newBody) {
+      const bodyChanged = !existing || existing.body !== newBody;
+      if (bodyChanged) {
         needsSummary.push({ id, title: pr.title, body: newBody });
       }
+
+      // body_html isn't fetched in the poll cycle (it's heavy and only used on
+      // the detail view). Reuse any cached html as long as the body hasn't
+      // changed; otherwise blank it so the detail route refetches it lazily.
+      const newBodyHtml = bodyChanged ? '' : (existing?.body_html ?? '');
 
       upsert.run(
         id,
         pr.number,
         pr.title,
         newBody,
-        pr.bodyHTML || '',
+        newBodyHtml,
         repo,
         prOrg,
         pr.author?.login ?? 'unknown',
@@ -608,66 +665,105 @@ async function cleanupStale(scope, org, repo, seenIds, config) {
 }
 
 /**
+ * Force a full (non-incremental) sweep at least this often, so stale-row
+ * cleanup still runs even when steady-state cycles terminate early on the
+ * first page.
+ */
+const FULL_SYNC_INTERVAL_MS = 30 * 60 * 1000;
+/** Margin subtracted from the stored max(updated_at) to absorb clock skew. */
+const SINCE_MARGIN_MS = 60 * 1000;
+let lastFullSyncAt = 0;
+
+/**
  * Run a single poll cycle across all configured targets.
  * @param {object} config
  */
 async function pollOnce(config) {
+  // Skip the cycle entirely if gh is rate-limited and we know when it resets.
+  // Without a known reset time we still try, so we can detect recovery and
+  // re-fetch the reset window. The first failed call will re-flag us as limited.
+  const rl = getGhRateLimitState();
+  if (rl.limited && rl.resetAt && Date.parse(rl.resetAt) > Date.now()) {
+    console.log(`[poller] Skipping poll - gh rate-limited until ${rl.resetAt}`);
+    return;
+  }
+
   const orgs = config.poll.orgs;
-  const repos = config.poll.repos;
   const orgSet = new Set(orgs);
+  // Drop repos already covered by an org-level scan
+  const repos = config.poll.repos.filter((r) => !orgSet.has(r.split('/')[0]));
 
-  let totalCount = 0;
+  if (orgs.length === 0 && repos.length === 0) {
+    pollerEvents.emit('sync', { synced_at: new Date().toISOString(), pr_count: 0 });
+    return;
+  }
 
-  // Org-level fetches
-  const orgResults = await Promise.allSettled(
-    orgs.map(async (org) => {
-      const prs = await fetchPRs(`org:${org}`);
-      upsertPRs(prs);
-      const seenIds = prs.map((pr) => makePrId(pr.repository.owner.login, pr.repository.name, pr.number));
-      await cleanupStale('org', org, null, seenIds, config);
-      console.log(`[poller] Synced ${prs.length} PRs for org:${org}`);
-      return prs.length;
-    }),
-  );
+  // Combine all configured targets into a single search. GitHub search OR's
+  // multiple `org:` / `repo:` qualifiers, so one call covers everything.
+  const qualifier = [...orgs.map((o) => `org:${o}`), ...repos.map((r) => `repo:${r}`)].join(' ');
 
-  for (const result of orgResults) {
-    if (result.status === 'fulfilled') {
-      totalCount += result.value;
-    } else {
-      console.error(`[poller] Error polling: ${result.reason.message}`);
+  // Force a full sweep periodically so stale-row cleanup actually runs.
+  const forceFull = Date.now() - lastFullSyncAt > FULL_SYNC_INTERVAL_MS;
+  let since = null;
+  if (!forceFull) {
+    const row = getDb().prepare('SELECT MAX(updated_at) AS m FROM prs').get();
+    if (row?.m) {
+      since = new Date(Date.parse(row.m) - SINCE_MARGIN_MS).toISOString();
     }
   }
 
-  // Repo-level fetches
-  const repoResults = await Promise.allSettled(
-    repos.map(async (ownerRepo) => {
-      const [owner, repo] = ownerRepo.split('/');
-      // Skip if this repo's org is already covered by org-level polling
-      if (orgSet.has(owner)) {
-        console.log(`[poller] Skipping repo:${ownerRepo} (org:${owner} already polled)`);
-        return 0;
-      }
-      const prs = await fetchPRs(`repo:${ownerRepo}`);
-      upsertPRs(prs);
-      const seenIds = prs.map((pr) => makePrId(pr.repository.owner.login, pr.repository.name, pr.number));
-      await cleanupStale('repo', owner, repo, seenIds, config);
-      console.log(`[poller] Synced ${prs.length} PRs for repo:${ownerRepo}`);
-      return prs.length;
-    }),
-  );
+  let result;
+  try {
+    result = await fetchPRs(qualifier, { since });
+  } catch (err) {
+    console.error(`[poller] Poll failed: ${err.message}`);
+    return;
+  }
+  const { prs, complete } = result;
+  upsertPRs(prs);
 
-  for (const result of repoResults) {
-    if (result.status === 'fulfilled') {
-      totalCount += result.value;
-    } else {
-      console.error(`[poller] Error polling: ${result.reason.message}`);
+  if (complete) {
+    lastFullSyncAt = Date.now();
+    // Group seen IDs back to per-scope buckets for stale cleanup.
+    const seenByOrg = new Map();
+    const seenByRepo = new Map();
+    for (const pr of prs) {
+      const o = pr.repository.owner.login;
+      const r = pr.repository.name;
+      const id = makePrId(o, r, pr.number);
+      if (orgSet.has(o)) {
+        if (!seenByOrg.has(o)) seenByOrg.set(o, []);
+        seenByOrg.get(o).push(id);
+      } else {
+        const key = `${o}/${r}`;
+        if (!seenByRepo.has(key)) seenByRepo.set(key, []);
+        seenByRepo.get(key).push(id);
+      }
     }
+    for (const org of orgs) {
+      try {
+        await cleanupStale('org', org, null, seenByOrg.get(org) || [], config);
+      } catch (err) {
+        console.error(`[poller] Cleanup failed for org:${org}: ${err.message}`);
+      }
+    }
+    for (const ownerRepo of repos) {
+      const [owner, repo] = ownerRepo.split('/');
+      try {
+        await cleanupStale('repo', owner, repo, seenByRepo.get(ownerRepo) || [], config);
+      } catch (err) {
+        console.error(`[poller] Cleanup failed for repo:${ownerRepo}: ${err.message}`);
+      }
+    }
+    console.log(`[poller] Full sync complete - ${prs.length} PRs across ${qualifier}`);
+  } else {
+    console.log(`[poller] Incremental sync - ${prs.length} updated PRs (since=${since}); skipping stale cleanup`);
   }
 
   // Adopt scratch workspaces whose branch matches a newly-synced PR
   adoptScratchWorkspaces();
 
-  pollerEvents.emit('sync', { synced_at: new Date().toISOString(), pr_count: totalCount });
+  pollerEvents.emit('sync', { synced_at: new Date().toISOString(), pr_count: prs.length });
 }
 
 /** @type {import('node:sqlite').StatementSync | null} */
@@ -762,6 +858,9 @@ export function startPoller(config) {
   const targetsChanged = targetsKey !== lastTargetsKey;
   lastTargetsKey = targetsKey;
   if (targetsChanged) {
+    // Force the next pollOnce to do a full sweep so cleanup runs against the
+    // new target set instead of relying on stale incremental state.
+    lastFullSyncAt = 0;
     cleanupRemovedTargets(config).catch((err) => console.error(`[poller] Cleanup failed: ${err.message}`));
     pollOnce(config).catch((err) => console.error(`[poller] Poll failed: ${err.message}`));
   }

@@ -1,5 +1,21 @@
 # Build Log
 
+## 2026-05-03 - Cut gh API load on the poll path
+
+Five changes to the polling layer that together drop steady-state gh API usage by something like an order of magnitude for typical multi-org users:
+
+1. **Skip the cycle while rate-limited.** `pollOnce` now bails early when `getGhRateLimitState()` says we're limited and a known reset is still in the future. Without a known reset we still attempt one call per interval so we can detect recovery and re-fetch the reset window. Stops the loop from re-tripping a secondary rate limit by hammering an already-throttled token.
+
+2. **Drop `bodyHTML` from the poll query, fetch lazily.** `bodyHTML` is large and only used on the detail view. It's now omitted from the bulk search query and fetched on first detail-view open via a small per-PR query (`fetchPRBodyHtml`), then cached in the existing `body_html` column. The cache is invalidated in the poller whenever the plain `body` changes - if the description is the same the previously-rendered html is still valid.
+
+3. **`sort:updated-desc` + early termination.** The search query is now sorted newest-first, and `fetchPRs` stops paginating as soon as a page's oldest PR is older than `max(stored updated_at) - 60s`. For users with one open page of PRs this is a no-op; for users with many open PRs it turns multi-page polls into single-page polls in the steady state.
+
+4. **One search per cycle instead of one per target.** Multiple `org:` / `repo:` qualifiers are OR'd by GitHub search, so all configured targets fold into a single GraphQL call per cycle. Results are split back to per-org / per-repo buckets in JS for stale-row cleanup. For an N-org user that's N calls collapsed to 1 every 600 seconds.
+
+5. **In-memory cache for `/api/prs/:id/comments`.** Three paginated REST calls fired on every detail-view open before; now keyed by `pr_id` + `updated_at` with a 60s TTL and a 200-entry cap. Click-thrashing across PRs no longer hits the API.
+
+#3 and #4 cooperate: when an incremental cycle terminates early it didn't see all open PRs, so stale-row cleanup is skipped that cycle. A full sweep is forced at least every 30 minutes (and on target-set changes) to keep cleanup correct.
+
 ## 2026-05-03 - Surface gh rate-limit state in the UI
 
 When the `gh` CLI hits a rate limit during polling, the poller used to log the error and the next sync just looked stuck. Nothing told the user why PRs stopped updating. The poller now sniffs both REST stderr ("API rate limit exceeded", "exceeded a secondary rate limit") and the GraphQL response shape (`errors[].type === "RATE_LIMITED"`), records a server-wide rate-limit state, and emits a new `gh-rate-limit` event on the existing app event bus. On detection it also fires a one-shot `gh api rate_limit` lookup (that endpoint is exempt from rate limiting per GitHub) to get the reset timestamp; once the next gh call succeeds the state clears and a follow-up event is emitted. The SSE stream broadcasts the event and replays the current state on connect, so a fresh tab knows it's throttled. AppShell renders a red banner above the existing update banner with the `gh` error text and a live "resets in Xm Ys" countdown when known. Rate-limited errors no longer trigger the retry+backoff loop in `ghGraphql` - they fail fast via a dedicated `RateLimitedError` so we don't waste three more attempts on something that won't recover for minutes.

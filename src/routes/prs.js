@@ -1,5 +1,6 @@
 import { emitLocalChange } from '../app-events.js';
 import { getDb } from '../db.js';
+import { fetchPRBodyHtml } from '../poller.js';
 import { enrichWithStackInfo, formatPR } from '../pr-status.js';
 import { execFile } from '../utils.js';
 
@@ -67,17 +68,32 @@ export function registerPRRoutes(app) {
     return { prs, synced_at: syncRow?.synced_at ?? null };
   });
 
-  app.get('/api/prs/:id', (request, reply) => {
+  app.get('/api/prs/:id', async (request, reply) => {
     const db = getDb();
     const row = db.prepare('SELECT * FROM prs WHERE id = ?').get(request.params.id);
     if (!row) {
       return reply.code(404).send({ error: 'Not found' });
     }
+
+    // body_html isn't fetched in the poll cycle (heavy, only used here). Fetch
+    // it on the first detail-view open for this PR (or after the body changed,
+    // which clears the cached html in the poller). Failures degrade silently.
+    if (!row.body_html) {
+      const html = await fetchPRBodyHtml(row.org, row.repo, row.number);
+      if (html != null) {
+        db.prepare('UPDATE prs SET body_html = ? WHERE id = ?').run(html, row.id);
+        row.body_html = html;
+      }
+    }
+
     // Format the target PR and all PRs in the same org/repo for stack computation
     const siblingRows = db.prepare('SELECT * FROM prs WHERE org = ? AND repo = ?').all(row.org, row.repo);
     const siblings = siblingRows.map(formatPR);
     enrichWithStackInfo(siblings);
-    return siblings.find((p) => p.id === request.params.id);
+    const target = siblings.find((p) => p.id === request.params.id);
+    // siblings re-read from DB above, so override with the freshly-fetched html
+    if (target && row.body_html) target.body_html = row.body_html;
+    return target;
   });
 
   app.post('/api/prs/:id/draft', async (request, reply) => {

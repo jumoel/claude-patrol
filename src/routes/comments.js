@@ -21,15 +21,34 @@ async function ghApi(endpoint) {
 }
 
 /**
+ * In-memory response cache for the comments endpoint. Clicking between PRs
+ * normally re-fires three paginated REST calls per open; cache hits avoid all
+ * three. Entries are invalidated when the PR's updated_at advances or after
+ * the TTL, whichever comes first.
+ * @type {Map<string, {key: string, ts: number, data: object}>}
+ */
+const commentsCache = new Map();
+const COMMENTS_CACHE_TTL_MS = 60_000;
+const COMMENTS_CACHE_MAX_ENTRIES = 200;
+
+/**
  * Register comment routes.
  * @param {import('fastify').FastifyInstance} app
  */
 export function registerCommentRoutes(app) {
   app.get('/api/prs/:id/comments', async (request, reply) => {
     const db = getDb();
-    const pr = db.prepare('SELECT org, repo, number FROM prs WHERE id = ?').get(request.params.id);
+    const pr = db.prepare('SELECT org, repo, number, updated_at FROM prs WHERE id = ?').get(request.params.id);
     if (!pr) {
       return reply.code(404).send({ error: 'PR not found' });
+    }
+
+    const cacheId = request.params.id;
+    const cacheKey = pr.updated_at || '';
+    const now = Date.now();
+    const cached = commentsCache.get(cacheId);
+    if (cached && cached.key === cacheKey && now - cached.ts < COMMENTS_CACHE_TTL_MS) {
+      return cached.data;
     }
 
     const { org, repo, number } = pr;
@@ -73,6 +92,14 @@ export function registerCommentRoutes(app) {
       created_at: c.created_at,
     }));
 
-    return { reviews: structuredReviews, conversation };
+    const payload = { reviews: structuredReviews, conversation };
+
+    // Bound the cache so it can't grow unboundedly across long-lived sessions.
+    if (commentsCache.size >= COMMENTS_CACHE_MAX_ENTRIES) {
+      const oldest = commentsCache.keys().next().value;
+      if (oldest !== undefined) commentsCache.delete(oldest);
+    }
+    commentsCache.set(cacheId, { key: cacheKey, ts: now, data: payload });
+    return payload;
   });
 }
