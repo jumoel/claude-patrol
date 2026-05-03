@@ -1,5 +1,9 @@
 # Build Log
 
+## 2026-05-03 - "Rebase onto X" quick-action: resolve conflicts and push on green
+
+The "Rebase onto $base" button in `QuickActions` only told Claude to fetch and run `jj rebase -d <base>@origin`. If the rebase landed cleanly it was fine, but with conflicts Claude would stop after marking them and never push, leaving the user to finish by hand. Extended the button's command string to spell out the rest of the flow: resolve any conflicts via `jj status` + edit + `jj squash` (without pausing to ask), run the project's test suite, then move the bookmark and `jj git push` only if tests pass. Failing tests halt before the push and get reported instead.
+
 ## 2026-04-30 - Restart-via-wrapper-loop instead of detached respawn
 
 Clicking "Restart now" in the web UI left the TUI broken when running interactively under `pnpm start`. The old flow rebuilt the frontend, called `destroyTui()`, spawned a `detached: true` child with `stdio: 'inherit'`, then `process.exit(0)` after 500 ms. The fatal step was the parent exiting: `pnpm` saw its child die and exited too, so the user's shell reclaimed the terminal and started drawing its prompt while the orphaned new node process - in its own session, no controlling TTY - tried to render a TUI on top of it. Two processes fighting for the same terminal, raw mode toggling between them, stdin going to the shell. Looked "borked" because it was.

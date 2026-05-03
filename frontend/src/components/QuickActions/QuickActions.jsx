@@ -8,7 +8,7 @@ function getActions(baseBranch) {
   return [
     {
       label: `Rebase onto ${target}`,
-      command: `Rebase this branch onto remote ${target}. First run \`jj git fetch\` to get the latest remote state, then check if we're already up to date by comparing the current parent with ${target}@origin - if so, just say it's already rebased and do nothing. Otherwise run \`jj rebase -d ${target}@origin\`.`,
+      command: `Rebase this branch onto remote ${target}. First run \`jj git fetch\` to get the latest remote state, then check if we're already up to date by comparing the current parent with ${target}@origin - if so, just say it's already rebased and do nothing. Otherwise run \`jj rebase -d ${target}@origin\`. If there are conflicts, run \`jj status\` to see the conflicted files, edit them to resolve, then \`jj squash\` to fold the resolution into the commit. Resolving conflicts is part of the task - do not stop and ask. Then run the project's test suite (look in package.json, Makefile, etc. for the right command). Once tests pass, move the bookmark with \`jj bookmark set <bookmark> -r @\` and push with \`jj git push\`. If tests fail, do not push - report what failed.`,
     },
     {
       label: 'Fix lint errors',
