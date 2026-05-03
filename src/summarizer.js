@@ -8,6 +8,15 @@ import { getWorkspaceConversationText } from './transcripts.js';
 /** Minimum gap between summary runs for the same workspace (ms) - 5 minutes */
 const DEBOUNCE_MS = 5 * 60 * 1000;
 
+/**
+ * Skip an *incremental* summary update when the new transcript text since the
+ * last run is shorter than this. Tiny additions (a short prompt + reply) don't
+ * meaningfully shift the executive summary and aren't worth a Haiku call.
+ * Only applied when there's already a previous summary - the first-time
+ * summary always runs regardless of size.
+ */
+const MIN_NEW_TEXT_FOR_INCREMENTAL = 500;
+
 /** Track in-flight summarizations to prevent concurrent runs */
 const inFlight = new Set();
 
@@ -144,6 +153,14 @@ export async function generateSummary(workspaceId, { force = false } = {}) {
   if (!newText.trim()) {
     console.log(`[summarizer] Skipping ${workspaceId} - no transcript content found`);
     return null; // nothing new to summarize
+  }
+
+  // Skip incremental updates for trivial deltas. Initial summaries always run.
+  if (hasPrevious && !force && newText.length < MIN_NEW_TEXT_FOR_INCREMENTAL) {
+    console.log(
+      `[summarizer] Skipping ${workspaceId} - only ${newText.length} chars new (threshold ${MIN_NEW_TEXT_FOR_INCREMENTAL})`,
+    );
+    return null;
   }
 
   console.log(`[summarizer] Found ${newText.length} chars of transcript for ${workspaceId}`);

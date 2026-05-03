@@ -7,6 +7,31 @@ const RUN_ID_RE = /\/actions\/runs\/(\d+)/;
 const FAILED_JOB_CONCLUSIONS = new Set(['failure', 'error', 'timed_out']);
 
 /**
+ * Process-lifetime cache of failed-job log content. Logs for completed/failed
+ * jobs are immutable - once a job has a terminal conclusion the log doesn't
+ * change. Re-opening a PR detail view used to re-fetch megabytes per click;
+ * this turns repeats into pure DB lookups.
+ *
+ * Keyed by `${org}/${repo}/${jobId}`. Bounded with a simple FIFO so a long-
+ * lived process can't accumulate logs forever.
+ * @type {Map<string, {extracted: string, truncated: boolean}>}
+ */
+const jobLogCache = new Map();
+const JOB_LOG_CACHE_MAX_ENTRIES = 200;
+
+function getCachedJobLog(key) {
+  return jobLogCache.get(key) ?? null;
+}
+
+function setCachedJobLog(key, value) {
+  if (jobLogCache.size >= JOB_LOG_CACHE_MAX_ENTRIES) {
+    const oldest = jobLogCache.keys().next().value;
+    if (oldest !== undefined) jobLogCache.delete(oldest);
+  }
+  jobLogCache.set(key, value);
+}
+
+/**
  * Parse checks JSON from a PR row and return the failed ones.
  * Handles both CheckRun (conclusion-based) and StatusContext (status-based).
  * @param {object} row - PR database row
@@ -233,25 +258,32 @@ export function registerCheckRoutes(app) {
         // GitHub REST API uses lowercase conclusions (unlike GraphQL which uses uppercase)
         const failedJobs = (jobsData.jobs || []).filter((j) => FAILED_JOB_CONCLUSIONS.has(j.conclusion));
 
-        // Fetch logs for all failed jobs in parallel
+        // Fetch logs for all failed jobs in parallel, with a process-lifetime
+        // cache: logs for failed jobs are immutable once the run completes.
         const jobResults = await Promise.allSettled(
           failedJobs.map(async (job) => {
             const failedSteps = (job.steps || []).filter((s) => s.conclusion === 'failure').map((s) => s.name);
+            const cacheKey = `${row.org}/${row.repo}/${job.id}`;
 
-            const { stdout: logText } = await execFile(
-              'gh',
-              ['api', `repos/${row.org}/${row.repo}/actions/jobs/${job.id}/logs`],
-              { timeout: 30_000, maxBuffer: 10 * 1024 * 1024 },
-            );
+            let cached = getCachedJobLog(cacheKey);
+            if (!cached) {
+              const { stdout: logText } = await execFile(
+                'gh',
+                ['api', `repos/${row.org}/${row.repo}/actions/jobs/${job.id}/logs`],
+                { timeout: 30_000, maxBuffer: 10 * 1024 * 1024 },
+              );
+              const extracted = extractErrorContext(logText);
+              const truncated = extracted.length > 20_000;
+              cached = { extracted: truncated ? extracted.slice(0, 20_000) : extracted, truncated };
+              setCachedJobLog(cacheKey, cached);
+            }
 
-            const extracted = extractErrorContext(logText);
-            const truncated = extracted.length > 20_000;
             return {
               run_id: runId,
               job_name: job.name,
               failed_steps: failedSteps,
-              log: truncated ? extracted.slice(0, 20_000) : extracted,
-              truncated,
+              log: cached.extracted,
+              truncated: cached.truncated,
             };
           }),
         );

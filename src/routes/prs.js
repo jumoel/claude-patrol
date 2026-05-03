@@ -5,6 +5,34 @@ import { enrichWithStackInfo, formatPR } from '../pr-status.js';
 import { execFile } from '../utils.js';
 
 /**
+ * In-memory cache for /api/prs/:id/diff. Same shape as the comments cache:
+ * keyed by pr_id, invalidated when updated_at changes or after the TTL,
+ * whichever comes first. Separate maps for full vs name-only because the
+ * frontend asks for both for the same PR.
+ * @type {Map<string, {key: string, ts: number, data: object}>}
+ */
+const diffCache = new Map();
+const diffNamesCache = new Map();
+const DIFF_CACHE_TTL_MS = 60_000;
+const DIFF_CACHE_MAX_ENTRIES = 100;
+
+function lookupDiffCache(map, prId, key) {
+  const cached = map.get(prId);
+  if (!cached) return null;
+  if (cached.key !== key) return null;
+  if (Date.now() - cached.ts >= DIFF_CACHE_TTL_MS) return null;
+  return cached.data;
+}
+
+function storeDiffCache(map, prId, key, data) {
+  if (map.size >= DIFF_CACHE_MAX_ENTRIES) {
+    const oldest = map.keys().next().value;
+    if (oldest !== undefined) map.delete(oldest);
+  }
+  map.set(prId, { key, ts: Date.now(), data });
+}
+
+/**
  * Register PR-related routes.
  * @param {import('fastify').FastifyInstance} app
  */
@@ -121,12 +149,17 @@ export function registerPRRoutes(app) {
 
   app.get('/api/prs/:id/diff', async (request, reply) => {
     const db = getDb();
-    const pr = db.prepare('SELECT org, repo, number FROM prs WHERE id = ?').get(request.params.id);
+    const pr = db.prepare('SELECT org, repo, number, updated_at FROM prs WHERE id = ?').get(request.params.id);
     if (!pr) {
       return reply.code(404).send({ error: 'PR not found' });
     }
 
     const nameOnly = request.query.name_only === 'true';
+    const cacheKey = pr.updated_at || '';
+    const cacheMap = nameOnly ? diffNamesCache : diffCache;
+    const hit = lookupDiffCache(cacheMap, request.params.id, cacheKey);
+    if (hit) return hit;
+
     const args = ['pr', 'diff', String(pr.number), '-R', `${pr.org}/${pr.repo}`];
     if (nameOnly) args.push('--name-only');
 
@@ -136,21 +169,24 @@ export function registerPRRoutes(app) {
         maxBuffer: 10 * 1024 * 1024,
       });
 
+      let payload;
       if (nameOnly) {
-        return {
+        payload = {
           files: stdout.trim().split('\n').filter(Boolean),
           pr_number: pr.number,
           repo: `${pr.org}/${pr.repo}`,
         };
+      } else {
+        const truncated = stdout.length > 100_000;
+        payload = {
+          diff: truncated ? stdout.slice(0, 100_000) : stdout,
+          truncated,
+          pr_number: pr.number,
+          repo: `${pr.org}/${pr.repo}`,
+        };
       }
-
-      const truncated = stdout.length > 100_000;
-      return {
-        diff: truncated ? stdout.slice(0, 100_000) : stdout,
-        truncated,
-        pr_number: pr.number,
-        repo: `${pr.org}/${pr.repo}`,
-      };
+      storeDiffCache(cacheMap, request.params.id, cacheKey, payload);
+      return payload;
     } catch (err) {
       return reply.code(500).send({ error: `Failed to fetch diff: ${err.message}` });
     }

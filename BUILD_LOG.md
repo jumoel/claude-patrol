@@ -1,6 +1,36 @@
 # Build Log
 
+## 2026-05-03 - Cut Claude + gh spend across summary, diff, log, and prompt paths
+
+Five structural changes that reduce both Claude API and gh API costs. None of these change observable behavior in normal use; they trim work that was being repeated unnecessarily.
+
+1. **Batched PR summaries.** The poller used to fan-out one `claude --print --model haiku` process per PR with a changed body. On a fresh sync that was N spawns for N open PRs. Now `generatePRSummariesBatch` collects them into chunks of 20 and asks Haiku to emit `### <id> ###`-delimited one-line summaries in a single call. One spawn replaces N spawns; the prompt overhead amortizes across the batch. Steady-state cycles with 0-3 changed bodies still work fine through the same code path.
+
+2. **Workspace summary skips trivial deltas.** `generateSummary` already debounces 5 minutes and content-hashes the new transcript text. It now also skips *incremental* updates when the new text is shorter than 500 chars - a brief prompt + reply doesn't shift the executive summary enough to justify a Haiku call. First-time summaries still run regardless of size.
+
+3. **`/api/prs/:id/diff` cached for 60s by `updated_at`.** Same pattern as the comments cache. Detail-view click-thrash on a stable PR no longer re-pulls up to 100KB per click. Separate cache maps for full and name-only since the frontend asks for both.
+
+4. **Failed-job logs cached for the process lifetime by job id.** Logs for completed/failed CI jobs are immutable - the conclusion is final, the bytes don't change. The check-logs route now consults a 200-entry FIFO cache keyed by `${org}/${repo}/${jobId}` before paying for the multi-megabyte fetch. Re-opening a failed PR's detail panel becomes a pure DB lookup after the first fetch.
+
+5. **Patrol system prompt trimmed from 6.9KB to 2.1KB.** Roughly 70% of the prompt was duplicating what the MCP tool descriptions already say (when to call `list_prs`, what `get_pr_diff name_only` does, how `retrigger_checks` matches names, etc.) or giving Claude generic advice it already has (how to launch parallel subagents, that subagents don't see parent context). The trimmed prompt keeps only what the tool layer can't carry: jj-vs-git invariants, the bookmark-after-rebase rule, main/master protection, the "complete the rebase end-to-end" intent, the subagent permission posture (`bypassPermissions`), and the "ask before destroying workspaces" preference. Every byte saved here gets paid back on every message in every PTY-spawned Claude session, so this is the single highest-leverage Claude-cost change in this batch.
+
 ## 2026-05-03 - Cut gh API load on the poll path
+
+Five changes to the polling layer that together drop steady-state gh API usage by something like an order of magnitude for typical multi-org users:
+
+1. **Skip the cycle while rate-limited.** `pollOnce` now bails early when `getGhRateLimitState()` says we're limited and a known reset is still in the future. Without a known reset we still attempt one call per interval so we can detect recovery and re-fetch the reset window. Stops the loop from re-tripping a secondary rate limit by hammering an already-throttled token.
+
+2. **Drop `bodyHTML` from the poll query, fetch lazily.** `bodyHTML` is large and only used on the detail view. It's now omitted from the bulk search query and fetched on first detail-view open via a small per-PR query (`fetchPRBodyHtml`), then cached in the existing `body_html` column. The cache is invalidated in the poller whenever the plain `body` changes - if the description is the same the previously-rendered html is still valid.
+
+3. **`sort:updated-desc` + early termination.** The search query is now sorted newest-first, and `fetchPRs` stops paginating as soon as a page's oldest PR is older than `max(stored updated_at) - 60s`. For users with one open page of PRs this is a no-op; for users with many open PRs it turns multi-page polls into single-page polls in the steady state.
+
+4. **One search per cycle instead of one per target.** Multiple `org:` / `repo:` qualifiers are OR'd by GitHub search, so all configured targets fold into a single GraphQL call per cycle. Results are split back to per-org / per-repo buckets in JS for stale-row cleanup. For an N-org user that's N calls collapsed to 1 every 600 seconds.
+
+5. **In-memory cache for `/api/prs/:id/comments`.** Three paginated REST calls fired on every detail-view open before; now keyed by `pr_id` + `updated_at` with a 60s TTL and a 200-entry cap. Click-thrashing across PRs no longer hits the API.
+
+#3 and #4 cooperate: when an incremental cycle terminates early it didn't see all open PRs, so stale-row cleanup is skipped that cycle. A full sweep is forced at least every 30 minutes (and on target-set changes) to keep cleanup correct.
+
+## 2026-05-03 - Surface gh rate-limit state in the UI
 
 Five changes to the polling layer that together drop steady-state gh API usage by something like an order of magnitude for typical multi-org users:
 

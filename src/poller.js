@@ -8,54 +8,125 @@ import { destroyWorkspace } from './workspace.js';
 
 export const pollerEvents = new EventEmitter();
 
-/** Track in-flight PR summary generations */
+/** Track in-flight PR summary generations to avoid concurrent batches stomping on each other. */
 const prSummaryInFlight = new Set();
 
+/** PRs per batched claude invocation. Bigger = fewer spawns, but worse worst-case latency / context use. */
+const PR_SUMMARY_BATCH_SIZE = 20;
+/** Max chars of body to include per PR in the batch prompt. */
+const PR_SUMMARY_BODY_LIMIT = 2000;
+
 /**
- * Generate a 1-line executive summary for a PR from its title + description.
- * Calls `claude --print --model haiku` and stores the result in the DB.
- * @param {string} prId
- * @param {string} title
- * @param {string} body
+ * Run `claude --print --model haiku` with the given prompt piped on stdin.
+ * @param {string} prompt
+ * @param {{timeoutMs?: number}} [options]
+ * @returns {Promise<string>}
  */
-async function generatePRSummary(prId, title, body) {
-  if (prSummaryInFlight.has(prId)) return;
-  prSummaryInFlight.add(prId);
-
-  const prompt = `You are a PR summarizer. Given a PR title and description, write exactly one short sentence (under 100 characters) that captures what this PR does and why, for a busy human scanning a list. No markdown, no quotes, no preamble - just the sentence.
-
-Title: ${title}
-
-Description:
-${body.slice(0, 4000)}`;
-
-  try {
-    const summary = await new Promise((resolve, reject) => {
-      const proc = spawn('claude', ['--print', '--model', 'haiku'], {
-        stdio: ['pipe', 'pipe', 'pipe'],
-        timeout: 30_000,
-      });
-      let stdout = '';
-      let stderr = '';
-      proc.stdout.on('data', (d) => { stdout += d; });
-      proc.stderr.on('data', (d) => { stderr += d; });
-      proc.on('close', (code) => {
-        if (code === 0) resolve(stdout.trim());
-        else reject(new Error(`claude exited ${code}: ${stderr.trim()}`));
-      });
-      proc.on('error', reject);
-      proc.stdin.write(prompt);
-      proc.stdin.end();
+function runClaudePrint(prompt, { timeoutMs = 60_000 } = {}) {
+  return new Promise((resolve, reject) => {
+    const proc = spawn('claude', ['--print', '--model', 'haiku'], {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: timeoutMs,
     });
+    let stdout = '';
+    let stderr = '';
+    proc.stdout.on('data', (d) => {
+      stdout += d;
+    });
+    proc.stderr.on('data', (d) => {
+      stderr += d;
+    });
+    proc.on('close', (code) => {
+      if (code === 0) resolve(stdout.trim());
+      else reject(new Error(`claude exited ${code}: ${stderr.trim()}`));
+    });
+    proc.on('error', reject);
+    proc.stdin.write(prompt);
+    proc.stdin.end();
+  });
+}
 
-    if (summary) {
-      const db = getDb();
-      db.prepare('UPDATE prs SET pr_summary = ? WHERE id = ?').run(summary, prId);
-      emitLocalChange();
-      console.log(`[poller] PR summary for ${prId}: ${summary}`);
+/**
+ * Parse a batched summary response into an id->summary map.
+ * The model is instructed to emit `### <id> ###` delimiters followed by the
+ * one-line summary. We're lenient with surrounding whitespace and ignore any
+ * IDs the model hallucinates that weren't in the request.
+ * @param {string} text
+ * @param {Set<string>} expectedIds
+ * @returns {Map<string, string>}
+ */
+function parseBatchedSummaries(text, expectedIds) {
+  const out = new Map();
+  // Delimiter occupies its own line: "### <id> ###". PR ids contain '#'
+  // (org/repo#N), so we require explicit spaces around the inner id rather
+  // than relying on a `[^#]` class that would reject the id itself.
+  // Split result interleaves: [pre, id1, body1, id2, body2, ...].
+  const parts = text.split(/^###[ \t]+(.+?)[ \t]+###[ \t]*$/m);
+  for (let i = 1; i + 1 < parts.length; i += 2) {
+    const id = parts[i].trim();
+    if (!expectedIds.has(id)) continue;
+    const summary = parts[i + 1].trim().split('\n')[0].trim();
+    if (summary) out.set(id, summary);
+  }
+  return out;
+}
+
+/**
+ * Build a single batched prompt that asks for one-line summaries of every PR
+ * in the chunk. Bodies are clamped to keep context use bounded.
+ * @param {Array<{id: string, title: string, body: string}>} chunk
+ */
+function buildBatchSummaryPrompt(chunk) {
+  const blocks = chunk
+    .map((p) => `### ${p.id} ###\nTitle: ${p.title}\nDescription:\n${p.body.slice(0, PR_SUMMARY_BODY_LIMIT)}`)
+    .join('\n\n---\n\n');
+  return `You are a PR summarizer. For each PR below, write exactly one short sentence (under 100 characters) that captures what it does and why - for a busy human scanning a list. No markdown, no quotes, no preamble.
+
+Output format: for each PR, emit a delimiter line "### <id> ###" using the exact id given, then a newline, then the one-sentence summary on the next line. Do not summarize PRs that aren't listed below. Use the ids verbatim - they are opaque tokens.
+
+${blocks}`;
+}
+
+/**
+ * Summarize a list of PRs in one or a few batched claude calls and persist
+ * the results. Replaces the old per-PR fire-and-forget loop, which spawned
+ * one process per changed body. For initial syncs that's the difference
+ * between 1 spawn and N spawns.
+ * @param {Array<{id: string, title: string, body: string}>} prs
+ */
+async function generatePRSummariesBatch(prs) {
+  const eligible = prs.filter((p) => p.body?.trim() && !prSummaryInFlight.has(p.id));
+  if (eligible.length === 0) return;
+
+  for (let i = 0; i < eligible.length; i += PR_SUMMARY_BATCH_SIZE) {
+    const chunk = eligible.slice(i, i + PR_SUMMARY_BATCH_SIZE);
+    for (const p of chunk) prSummaryInFlight.add(p.id);
+
+    try {
+      const prompt = buildBatchSummaryPrompt(chunk);
+      const stdout = await runClaudePrint(prompt);
+      const summaries = parseBatchedSummaries(stdout, new Set(chunk.map((p) => p.id)));
+      if (summaries.size > 0) {
+        const db = getDb();
+        const update = db.prepare('UPDATE prs SET pr_summary = ? WHERE id = ?');
+        db.exec('BEGIN');
+        try {
+          for (const [id, summary] of summaries) update.run(summary, id);
+          db.exec('COMMIT');
+        } catch (err) {
+          db.exec('ROLLBACK');
+          throw err;
+        }
+        emitLocalChange();
+        console.log(`[poller] Generated ${summaries.size}/${chunk.length} PR summaries (batch of ${chunk.length})`);
+      } else {
+        console.warn(`[poller] PR summary batch returned no parseable summaries (${chunk.length} PRs)`);
+      }
+    } catch (err) {
+      console.warn(`[poller] PR summary batch failed (${chunk.length} PRs): ${err.message}`);
+    } finally {
+      for (const p of chunk) prSummaryInFlight.delete(p.id);
     }
-  } finally {
-    prSummaryInFlight.delete(prId);
   }
 }
 
@@ -628,11 +699,11 @@ function upsertPRs(prs) {
     throw err;
   }
 
-  // Fire-and-forget background summarization for PRs with new/changed bodies
-  for (const { id, title, body } of needsSummary) {
-    if (!body.trim()) continue;
-    generatePRSummary(id, title, body).catch((err) => {
-      console.warn(`[poller] PR summary failed for ${id}: ${err.message}`);
+  // Fire-and-forget batched summarization for PRs with new/changed bodies.
+  // One claude spawn per chunk replaces N per-PR spawns.
+  if (needsSummary.length > 0) {
+    generatePRSummariesBatch(needsSummary).catch((err) => {
+      console.warn(`[poller] PR summary batch failed: ${err.message}`);
     });
   }
 }
