@@ -167,10 +167,17 @@ export function registerWorkspaceRoutes(app) {
     if (!workspace) {
       return reply.code(404).send({ error: 'Workspace not found or not active' });
     }
+    if (workspace.pr_id) {
+      return reply.code(400).send({
+        error: 'Summaries are only stored for scratch workspaces. This workspace is bound to a PR.',
+      });
+    }
     try {
       const summary = await generateSummary(workspace.id, { force: true });
       if (!summary) {
-        return reply.code(404).send({ error: 'No transcript content available to summarize' });
+        return reply.code(404).send({
+          error: 'No recap found in transcripts yet. Run /recap inside the Claude session to generate one.',
+        });
       }
       return { ok: true, summary };
     } catch (err) {

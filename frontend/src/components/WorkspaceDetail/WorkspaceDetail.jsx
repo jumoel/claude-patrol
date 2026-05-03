@@ -173,8 +173,9 @@ export function WorkspaceDetail({ workspaceId, onBack }) {
         )}
       </Stack></Box>
 
-      {/* Summary */}
-      {workspace.status === 'active' && (
+      {/* Summary - scratch workspaces only. PR-bound workspaces get their
+          context from the linked PR, so no summary panel is rendered. */}
+      {workspace.status === 'active' && !workspace.pr_id && (
         <div className={shared.card}>
           <div className={styles.summaryHeader}>
             <h3 className={shared.sectionTitle}>Summary</h3>
@@ -182,9 +183,9 @@ export function WorkspaceDetail({ workspaceId, onBack }) {
               className={styles.refreshBtn}
               onClick={handleRefreshSummary}
               disabled={summarizing}
-              title="Regenerate summary from session transcripts"
+              title="Pick up the latest /recap from the session transcripts"
             >
-              {summarizing ? 'Generating...' : 'Refresh'}
+              {summarizing ? 'Refreshing...' : 'Refresh'}
             </button>
           </div>
           {workspace.summary ? (
@@ -198,7 +199,7 @@ export function WorkspaceDetail({ workspaceId, onBack }) {
             </div>
           ) : (
             <p className={styles.summaryEmpty}>
-              No summary yet. Start a session or click Refresh to generate one.
+              No recap yet. Run /recap inside the Claude session to generate one.
             </p>
           )}
         </div>

@@ -379,3 +379,75 @@ export function getWorkspaceConversationText(workspaceId, { since = null } = {})
 
   return combined;
 }
+
+/**
+ * Find the most recent Claude Code "away_summary" recap (`/recap` output)
+ * across all transcripts that belong to a workspace. We use these verbatim
+ * as the workspace summary - free, model-generated, higher quality than
+ * anything we'd produce ourselves with a follow-up Haiku call.
+ *
+ * The JSONL line looks like:
+ * `{"type":"system","subtype":"away_summary","content":"...","timestamp":"..."}`
+ * We strip the trailing `(disable recaps in /config)` cue Claude Code appends.
+ *
+ * @param {string} workspaceId
+ * @returns {{content: string, timestamp: string} | null}
+ */
+export function getLatestAwaySummary(workspaceId) {
+  const db = getDb();
+  const workspace = db.prepare('SELECT path FROM workspaces WHERE id = ?').get(workspaceId);
+  if (!workspace) return null;
+
+  const projectDir = claudeProjectDirForWorkspace(workspace.path);
+
+  let jsonlFiles;
+  try {
+    jsonlFiles = readdirSync(projectDir)
+      .filter((f) => f.endsWith('.jsonl'))
+      .map((f) => join(projectDir, f));
+  } catch {
+    jsonlFiles = [];
+  }
+
+  // Include archived transcripts from DB sessions (live outside the project dir).
+  const sessions = db.prepare('SELECT * FROM sessions WHERE workspace_id = ?').all(workspaceId);
+  const seen = new Set(jsonlFiles);
+  for (const sess of sessions) {
+    const resolved = resolveSessionJsonlPath(sess, projectDir);
+    if (resolved && !seen.has(resolved)) {
+      jsonlFiles.push(resolved);
+      seen.add(resolved);
+    }
+  }
+
+  let latest = null;
+  for (const file of jsonlFiles) {
+    let raw;
+    try {
+      raw = readFileSync(file, 'utf8');
+    } catch {
+      continue;
+    }
+    // Fast path: skip files with no recap marker rather than parsing every line.
+    if (!raw.includes('"away_summary"')) continue;
+    for (const line of raw.split('\n')) {
+      if (!line || !line.includes('"away_summary"')) continue;
+      let entry;
+      try {
+        entry = JSON.parse(line);
+      } catch {
+        continue;
+      }
+      if (entry?.type !== 'system' || entry?.subtype !== 'away_summary') continue;
+      if (typeof entry.content !== 'string' || typeof entry.timestamp !== 'string') continue;
+      if (!latest || entry.timestamp > latest.timestamp) {
+        latest = { content: entry.content, timestamp: entry.timestamp };
+      }
+    }
+  }
+
+  if (!latest) return null;
+  const cleaned = latest.content.replace(/\s*\(disable recaps in \/config\)\s*$/i, '').trim();
+  if (!cleaned) return null;
+  return { content: cleaned, timestamp: latest.timestamp };
+}
