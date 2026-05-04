@@ -96,6 +96,77 @@ Running without a subcommand defaults to `start`.
 
 Config changes are picked up automatically - no restart needed.
 
+## Rules
+
+Declarative reactions to PR-state transitions and Claude session activity. Add a `rules` array to `config.json` and patrol fires actions when the trigger matches.
+
+```json
+{
+  "rules": [
+    {
+      "id": "rebuild-on-green",
+      "on": "ci.finalized",
+      "where": {
+        "repo": "myorg/api",
+        "labels": ["needs-rebuild"],
+        "ci_status": "pass",
+        "draft": false
+      },
+      "actions": [
+        { "type": "mcp", "tool": "retrigger_checks", "args": { "pr_id": "{{pr.id}}", "check_name": "lint" } },
+        { "type": "dispatch_claude", "prompt": "PR {{pr.id}} just went green. Run the rebuild and report." }
+      ],
+      "cooldown_minutes": 10
+    }
+  ]
+}
+```
+
+### Triggers (`on`)
+
+- `ci.finalized` - all CI checks for a PR transitioned from non-final to final this poll cycle. Fires once per transition.
+- `session.idle` - a Claude session just emitted an `idle` state.
+
+### Predicates (`where`)
+
+Flat object, all keys must match (implicit AND). No nesting, no operators. For OR semantics, write multiple rules.
+
+| Field | Trigger | Match form |
+|---|---|---|
+| `repo` (`org/repo`) | ci.finalized | scalar or array |
+| `org`, `branch`, `base_branch`, `author` | ci.finalized | scalar or array |
+| `ci_status` (`pass` / `fail` / `pending`) | ci.finalized | scalar or array |
+| `mergeable` (`MERGEABLE` / `CONFLICTING` / `UNKNOWN`) | ci.finalized | scalar or array |
+| `draft` | ci.finalized | boolean |
+| `labels` | ci.finalized | array of strings, ALL must be present |
+| `workspace_repo` | session.idle | scalar or array |
+
+Invalid values (e.g. `ci_status: "success"`) are rejected at load time with a clear error.
+
+### Actions
+
+- `{ "type": "mcp", "tool": "<name>", "args": { ... } }` - calls any rule-fireable patrol tool. Read-only tools (`list_*`, `get_*`) are rejected at load time. Args support `{{pr.<field>}}` and `{{session.<field>}}` substitution before schema validation.
+- `{ "type": "dispatch_claude", "prompt": "..." }` - resolves the PR's active workspace (creates one if missing), spawns Claude (waits for first idle), then writes the prompt. If the session is already mid-turn, the run errors with `session_busy` and cooldown retries on next trigger.
+
+Actions run sequentially per rule. First failure stops the chain and marks the run `error`.
+
+### Lifecycle
+
+- `cooldown_minutes` (default 10) - per `(rule_id, pr_id|session_id|workspace_id)` bucket. Prevents flapping CI from firing the same rule multiple times.
+- Rules live-reload on `config.json` save. Invalid rules show in the Rules dropdown on the dashboard and as `WRN` lines in the TUI; valid rules keep firing.
+- `rule_runs` rows persist; on server restart, mid-flight runs are reconciled to `status='error'` with `error='server_restarted'`.
+
+### Limitations
+
+- Single-line prompts only. Multi-line through bracketed paste is not implemented.
+- `dispatch_claude` is not allowed on `session.idle` triggers (loop trap). Use an `mcp` action instead.
+- Two rules dispatching to the same workspace concurrently can interleave prompts. Cooldown bounds it.
+- No multi-step workflows (`wait_for`, `branch`, `goto`). The triggers themselves are the wait primitives.
+
+### Manual fire
+
+`POST /api/rules/:id/run` with body `{"pr_id": "..."}` (or `{"session_id": "..."}`). Add `?force=true` to bypass cooldown.
+
 ## Architecture
 
 ```
@@ -126,6 +197,8 @@ No native database dependencies - `node:sqlite` is built into Node.js.
 **Workspaces**: `POST /api/workspaces`, `GET /api/workspaces`, `GET /api/workspaces/:id`, `DELETE /api/workspaces/:id`, `POST /api/workspaces/:id/terminal`, `POST /api/workspaces/cleanup`
 
 **Sessions**: `POST /api/sessions`, `GET /api/sessions`, `DELETE /api/sessions/:id`, `POST /api/sessions/:id/popout`, `GET /api/sessions/history`, `GET /api/sessions/:id/transcript`
+
+**Rules**: `GET /api/rules`, `GET /api/rules/runs`, `POST /api/rules/:id/run`
 
 **Other**: `POST /api/sync/trigger`, `GET /api/config`, `GET /api/events` (SSE), `POST /api/checks/retrigger`
 

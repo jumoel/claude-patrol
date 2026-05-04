@@ -356,3 +356,29 @@ export async function fetchTasks() {
   if (!res.ok) throw new Error(`Failed to fetch tasks: ${res.status}`);
   return res.json();
 }
+
+/**
+ * Fetch loaded rules + per-rule load errors.
+ * @returns {Promise<{rules: Array<object>, errors: Array<{rule_id: string, error: string}>}>}
+ */
+export async function fetchRules() {
+  const res = await fetch(`${BASE}/api/rules`);
+  if (!res.ok) throw new Error(`Failed to fetch rules: ${res.status}`);
+  return res.json();
+}
+
+/**
+ * Fetch recent rule_runs rows.
+ * @param {{limit?: number, rule_id?: string, pr_id?: string}} [filters]
+ * @returns {Promise<Array<object>>}
+ */
+export async function fetchRuleRuns(filters = {}) {
+  const params = new URLSearchParams();
+  for (const [k, v] of Object.entries(filters)) {
+    if (v !== undefined && v !== null) params.set(k, String(v));
+  }
+  const qs = params.toString();
+  const res = await fetch(`${BASE}/api/rules/runs${qs ? `?${qs}` : ''}`);
+  if (!res.ok) throw new Error(`Failed to fetch rule runs: ${res.status}`);
+  return res.json();
+}

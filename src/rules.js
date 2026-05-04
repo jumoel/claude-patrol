@@ -5,6 +5,7 @@ import { appEvents } from './app-events.js';
 import { configEvents } from './config.js';
 import { getDb } from './db.js';
 import { pollerEvents } from './poller.js';
+import { formatPR } from './pr-status.js';
 import {
   BOOT_TIMEOUT_MS_DEFAULT,
   createSession,
@@ -47,6 +48,11 @@ const SESSION_WHERE_FIELDS = new Set(['workspace_repo']);
 const SCALAR_OR_ARRAY = z.union([z.string(), z.array(z.string())]);
 const BOOL_OR_ARRAY = z.union([z.boolean(), z.array(z.boolean())]);
 
+const CI_STATUS = z.enum(['pass', 'fail', 'pending']);
+const CI_STATUS_FIELD = z.union([CI_STATUS, z.array(CI_STATUS)]);
+const MERGEABLE = z.enum(['MERGEABLE', 'CONFLICTING', 'UNKNOWN']);
+const MERGEABLE_FIELD = z.union([MERGEABLE, z.array(MERGEABLE)]);
+
 const whereSchema = z
   .object({
     repo: SCALAR_OR_ARRAY.optional(),
@@ -54,8 +60,8 @@ const whereSchema = z
     branch: SCALAR_OR_ARRAY.optional(),
     base_branch: SCALAR_OR_ARRAY.optional(),
     author: SCALAR_OR_ARRAY.optional(),
-    ci_status: SCALAR_OR_ARRAY.optional(),
-    mergeable: SCALAR_OR_ARRAY.optional(),
+    ci_status: CI_STATUS_FIELD.optional(),
+    mergeable: MERGEABLE_FIELD.optional(),
     draft: BOOL_OR_ARRAY.optional(),
     labels: z.array(z.string()).optional(),
     workspace_repo: SCALAR_OR_ARRAY.optional(),
@@ -213,6 +219,12 @@ function loadRules(rulesArray) {
   }
 
   console.log(`[rules] Loaded ${rules.size} rule(s); ${loadErrors.length} error(s)`);
+  // Surface each error as a warning so the TUI status line shows it (the TUI
+  // patches console.warn to render as WRN). The /api/rules endpoint still
+  // carries the structured list for the dashboard.
+  for (const err of loadErrors) {
+    console.warn(`[rules] rule '${err.rule_id}' rejected: ${err.error}`);
+  }
 }
 
 export function getRules() {
@@ -281,7 +293,7 @@ async function handleSessionIdle(event) {
   for (const rule of rules.values()) {
     if (rule.on !== 'session.idle') continue;
     if (!matches(rule.where, predCtx)) continue;
-    const cooldownKey = sessionId || workspaceId || '*';
+    const cooldownKey = sessionId;
     if (!cooldownOk(rule, cooldownKey)) continue;
     await fireRule(rule, {
       trigger: 'session.idle',
@@ -455,6 +467,17 @@ async function runAction(action, ctx, runRow) {
  * Resolve workspace + session for a PR-context fire and write a prompt.
  * Errors with 'session_busy' if the session is mid-turn so cooldown can retry.
  */
+function updateRunRow(runRow, patch) {
+  Object.assign(runRow, patch);
+  const cols = Object.keys(patch);
+  if (cols.length === 0) return;
+  const sql = `UPDATE rule_runs SET ${cols.map((c) => `${c} = ?`).join(', ')} WHERE id = ?`;
+  getDb()
+    .prepare(sql)
+    .run(...cols.map((c) => patch[c]), runRow.id);
+  appEvents.emit('rule-run', { ...runRow });
+}
+
 async function dispatchClaude(ctx, prompt, runRow) {
   if (!ctx.pr_id) throw new Error('dispatch_claude requires a pr_id (ci.finalized trigger)');
 
@@ -464,8 +487,7 @@ async function dispatchClaude(ctx, prompt, runRow) {
     const created = await createWorkspace(ctx.pr_id, currentConfig);
     workspace = db.prepare('SELECT * FROM workspaces WHERE id = ?').get(created.id);
   }
-  runRow.workspace_id = workspace.id;
-  db.prepare('UPDATE rule_runs SET workspace_id = ? WHERE id = ?').run(workspace.id, runRow.id);
+  updateRunRow(runRow, { workspace_id: workspace.id });
 
   let session = db.prepare("SELECT * FROM sessions WHERE workspace_id = ? AND status = 'active'").get(workspace.id);
   let isFresh = false;
@@ -480,8 +502,7 @@ async function dispatchClaude(ctx, prompt, runRow) {
     isFresh = true;
   }
 
-  runRow.session_id = session.id;
-  db.prepare('UPDATE rule_runs SET session_id = ? WHERE id = ?').run(session.id, runRow.id);
+  updateRunRow(runRow, { session_id: session.id });
 
   if (isFresh) {
     await waitForFirstIdle(session.id, BOOT_TIMEOUT_MS_DEFAULT);
@@ -506,7 +527,6 @@ export async function manualRunRule(ruleId, options = {}) {
     if (!options.pr_id) throw new Error('pr_id required for ci.finalized rules');
     const row = db.prepare('SELECT * FROM prs WHERE id = ?').get(options.pr_id);
     if (!row) throw new Error(`pr not found: ${options.pr_id}`);
-    const { formatPR } = await import('./pr-status.js');
     const pr = formatPR(row);
     const cooldownKey = pr.id;
     if (!options.force && !cooldownOk(rule, cooldownKey)) {
@@ -539,7 +559,7 @@ export async function manualRunRule(ruleId, options = {}) {
         }
       }
     }
-    const cooldownKey = sess.id || sess.workspace_id || '*';
+    const cooldownKey = sess.id;
     if (!options.force && !cooldownOk(rule, cooldownKey)) {
       throw new Error('cooldown active (pass force=true to bypass)');
     }

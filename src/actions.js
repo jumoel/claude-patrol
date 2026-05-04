@@ -172,7 +172,7 @@ export const actionRegistry = {
     description: 'Trigger an immediate sync of PR data from GitHub.',
     schema: z.object({}),
     ruleFireable: true,
-    dispatch: () => ({ method: 'POST', path: '/api/sync/trigger', body: {} }),
+    dispatch: () => ({ method: 'POST', path: '/api/sync/trigger' }),
   },
 
   retrigger_checks: {
@@ -334,7 +334,7 @@ export const actionRegistry = {
       const timeout = Math.max(1, Math.min(120, timeout_minutes || 30)) * 60 * 1000;
       const deadline = Date.now() + timeout;
 
-      await inject(app, { method: 'POST', path: '/api/sync/trigger', body: {} }).catch(() => {});
+      await inject(app, { method: 'POST', path: '/api/sync/trigger' }).catch(() => {});
 
       while (Date.now() < deadline) {
         const pr = await inject(app, { method: 'GET', path: `/api/prs/${encodeURIComponent(pr_id)}` });
@@ -356,7 +356,7 @@ export const actionRegistry = {
         }
 
         await new Promise((r) => setTimeout(r, interval));
-        await inject(app, { method: 'POST', path: '/api/sync/trigger', body: {} }).catch(() => {});
+        await inject(app, { method: 'POST', path: '/api/sync/trigger' }).catch(() => {});
       }
 
       const pr = await inject(app, { method: 'GET', path: `/api/prs/${encodeURIComponent(pr_id)}` });

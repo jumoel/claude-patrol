@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useClickOutside } from '../../hooks/useClickOutside.js';
+import { useRuleRuns } from '../../hooks/useRuleRuns.js';
 import { useTasks } from '../../hooks/useTasks.js';
-import { fetchSessions, fetchWorkspaces } from '../../lib/api.js';
+import { fetchRules, fetchSessions, fetchWorkspaces } from '../../lib/api.js';
 import { getRelativeTime } from '../../lib/time.js';
 import { Badge } from '../ui/Badge/Badge.jsx';
 import { Box } from '../ui/Box/Box.jsx';
@@ -38,7 +39,10 @@ function StatDropdown({ label, items, renderItem }) {
 export function DashboardSummary({ prCount, onOpenGlobalTerminal }) {
   const [workspaces, setWorkspaces] = useState([]);
   const [sessions, setSessions] = useState([]);
+  const [ruleErrors, setRuleErrors] = useState([]);
+  const [ruleDefs, setRuleDefs] = useState([]);
   const tasks = useTasks();
+  const ruleRuns = useRuleRuns();
 
   useEffect(() => {
     fetchWorkspaces()
@@ -46,6 +50,12 @@ export function DashboardSummary({ prCount, onOpenGlobalTerminal }) {
       .catch(() => {});
     fetchSessions()
       .then(setSessions)
+      .catch(() => {});
+    fetchRules()
+      .then((data) => {
+        setRuleDefs(data.rules || []);
+        setRuleErrors(data.errors || []);
+      })
       .catch(() => {});
   }, []);
 
@@ -57,6 +67,19 @@ export function DashboardSummary({ prCount, onOpenGlobalTerminal }) {
     runningTasks > 0
       ? `${runningTasks} running ${runningTasks === 1 ? 'task' : 'tasks'}`
       : `${tasks.length} recent ${tasks.length === 1 ? 'task' : 'tasks'}`;
+
+  const runningRules = ruleRuns.filter((r) => r.status === 'running').length;
+  const totalRulesItem = ruleDefs.length + ruleErrors.length;
+  const ruleLabel = (() => {
+    if (ruleErrors.length > 0) return `${ruleDefs.length}/${totalRulesItem} rules (${ruleErrors.length} bad)`;
+    if (runningRules > 0) return `${runningRules} running ${runningRules === 1 ? 'rule' : 'rules'}`;
+    if (ruleRuns.length > 0) return `${ruleRuns.length} recent rule runs`;
+    return `${ruleDefs.length} ${ruleDefs.length === 1 ? 'rule' : 'rules'}`;
+  })();
+  const ruleItems = [
+    ...ruleErrors.map((e) => ({ kind: 'error', id: `err:${e.rule_id}`, ...e })),
+    ...ruleRuns.map((r) => ({ kind: 'run', ...r })),
+  ];
 
   return (
     <Box px={4} py={2} border rounded="lg" bg="white" className={styles.bar}>
@@ -119,6 +142,12 @@ export function DashboardSummary({ prCount, onOpenGlobalTerminal }) {
             />
           </>
         )}
+        {(ruleDefs.length > 0 || ruleErrors.length > 0 || ruleRuns.length > 0) && (
+          <>
+            <span className={styles.divider} />
+            <StatDropdown label={ruleLabel} items={ruleItems} renderItem={(item) => <RuleItem key={item.id} item={item} />} />
+          </>
+        )}
       </Stack>
     </Box>
   );
@@ -154,6 +183,54 @@ function TaskStatusBadge({ status }) {
     );
   if (status === 'success') return <Badge color="green">Done</Badge>;
   if (status === 'warning') return <Badge color="amber">Warnings</Badge>;
+  if (status === 'error') return <Badge color="red">Failed</Badge>;
+  return <Badge color="gray">{status}</Badge>;
+}
+
+function RuleItem({ item }) {
+  if (item.kind === 'error') {
+    return (
+      <div className={styles.dropdownItem}>
+        <Stack gap={2} align="center">
+          <Badge color="red">Bad rule</Badge>
+          <span className={styles.itemName}>{item.rule_id}</span>
+        </Stack>
+        <span className={styles.itemDetail}>{item.error}</span>
+      </div>
+    );
+  }
+  const time = item.ended_at ? `Finished ${getRelativeTime(item.ended_at)}` : `Started ${getRelativeTime(item.started_at)}`;
+  const target = item.pr_id || item.session_id || item.workspace_id || item.cooldown_key;
+  const href = item.session_id ? `#/session/${item.session_id}` : item.pr_id ? `#/pr/${encodeURIComponent(item.pr_id)}` : null;
+  const inner = (
+    <>
+      <Stack gap={2} align="center">
+        <RuleStatusBadge status={item.status} />
+        <span className={styles.itemName}>{item.rule_id}</span>
+        <span className={styles.itemDetail}>on {item.trigger}</span>
+      </Stack>
+      <span className={styles.itemDetail}>{time}</span>
+      {target && <span className={styles.itemDetail}>{target}</span>}
+      {item.error && <span className={styles.itemDetail}>{item.error}</span>}
+    </>
+  );
+  return href ? (
+    <a className={styles.dropdownItem} href={href}>
+      {inner}
+    </a>
+  ) : (
+    <div className={styles.dropdownItem}>{inner}</div>
+  );
+}
+
+function RuleStatusBadge({ status }) {
+  if (status === 'running')
+    return (
+      <Badge color="violet" pulse>
+        Running
+      </Badge>
+    );
+  if (status === 'success') return <Badge color="green">Done</Badge>;
   if (status === 'error') return <Badge color="red">Failed</Badge>;
   return <Badge color="gray">{status}</Badge>;
 }

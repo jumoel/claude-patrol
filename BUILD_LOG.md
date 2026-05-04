@@ -1,5 +1,27 @@
 # Build Log
 
+## 2026-05-04 - Rules engine review pass: enum constraints, mid-flight events, UI
+
+Follow-up to the rules engine commit, addressing the gaps surfaced in review.
+
+`ci_status` and `mergeable` fields in `where` predicates now constrain to enums (`pass`/`fail`/`pending` and `MERGEABLE`/`CONFLICTING`/`UNKNOWN`). A typo'd `"success"` is now rejected at rule load time with a field-path error instead of silently never matching. Same shape works as a scalar or array.
+
+`dispatchClaude` now emits `rule-run` SSE events after each in-flight update (workspace assignment, session assignment), not just at start and end. The dashboard panel can now show what the rule is actually doing while it runs. Persisted rows update in lockstep via a small `updateRunRow(runRow, patch)` helper.
+
+`cooldown_key '*'` fallback removed from both `handleSessionIdle` and `manualRunRule` for `session.idle` triggers. v1 always has a `sessionId`, so the fallback was unreachable.
+
+`trigger_sync` registry entry no longer sends a `body: {}` - matches the original tool's wire format (no body, no content-type header). Same change applied to the `/api/sync/trigger` calls inside `wait_for_checks`'s mcpHandler.
+
+`formatPR` import in `rules.js` is now static, dropping the `await import('./pr-status.js')` cargo-cult inside `manualRunRule`.
+
+UI surface landed: `frontend/src/hooks/useRuleRuns.js` mirrors `useTasks` (initial fetch + SSE `rule-run` subscription, sorted with running first, 30min completed-TTL). `DashboardSummary` gets a "Rules" dropdown next to "Tasks" - shows rule count, running count, recent runs, and bad-rule entries with their error message. Run items link to the resulting session transcript when `session_id` is set, or the PR detail view when `pr_id` is.
+
+TUI surface: each rule load error is now logged via `console.warn`, which the existing TUI patches to render as a `WRN` line in the log panel. The dashboard's bad-rule entries carry the same content for users not in the terminal.
+
+README has a new `## Rules` section: example config, trigger reference, predicate field table with valid values, action types, lifecycle (cooldown, live-reload, restart reconciliation), known limitations, and the manual-fire endpoint.
+
+End-to-end re-verified after the changes: enum rejection works (`ci_status: "success"` shows up as a `where.ci_status: Invalid input` error in `GET /api/rules` and as a `WRN` line in the server log), mid-flight `rule-run` events fire as actions progress, frontend builds cleanly with the new hook and panel, manual fire still works against a real failing PR.
+
 ## 2026-05-04 - Rules engine: declarative reactions to PR-state transitions
 
 Lands the feature the five precursors were paving the way for. Rules live in `config.json` under `"rules": [...]`, each with `id`, `on` (`'ci.finalized' | 'session.idle'`), optional flat `where` predicate, and a sequential `actions` chain. Two action types: `mcp` (any rule-fireable tool from the actions registry) and `dispatch_claude` (resolves the PR's workspace, spawns Claude if no session exists, waits for the first `'idle'` via `waitForFirstIdle`, then writes `prompt + '\r'` through `writeToSession`).
