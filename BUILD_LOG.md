@@ -1,5 +1,16 @@
 # Build Log
 
+## 2026-05-04 - Split rule activity from rule triggers in the summary bar
+
+Two dropdowns now where there was one:
+
+- **Rule activity** (existing, scoped down): shows bad rules + recent runs. Label switches between "N bad rules", "N running rules", and "N recent rule runs" based on what's most relevant. Hidden when there's no activity.
+- **Trigger rules** (new): lists every rule that's auto-fireable against PRs (PR-trigger, not manual) with a "Run for all matching" button per rule. Label is "Trigger rule(s)". Hidden when there's nothing to trigger.
+
+The previous single dropdown mixed rule definitions, errors, and runs - clicking it to "see what fired recently" surfaced rule definitions that needed scrolling past, and clicking it to "fire this rule on all PRs" surfaced runs that didn't matter. Splitting them by intent (observation vs action) keeps each dropdown short and obvious.
+
+Internal cleanup: dead `kind: 'def'` branch removed from `RuleItem`. New `TriggerableRuleItem` owns the bulk-fire UI.
+
 ## 2026-05-04 - Single source of truth for prompt-submit timing; remove per-PR bulk-fire button
 
 Two related changes.

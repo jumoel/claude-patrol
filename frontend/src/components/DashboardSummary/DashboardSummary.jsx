@@ -70,14 +70,21 @@ export function DashboardSummary({ prCount, onOpenGlobalTerminal }) {
       : `${tasks.length} recent ${tasks.length === 1 ? 'task' : 'tasks'}`;
 
   const runningRules = ruleRuns.filter((r) => r.status === 'running').length;
-  const totalRulesItem = ruleDefs.length + ruleErrors.length;
-  const ruleLabel = (() => {
-    if (ruleErrors.length > 0) return `${ruleDefs.length}/${totalRulesItem} rules (${ruleErrors.length} bad)`;
+  // Activity dropdown: bad rules + recent runs only. Rule definitions live in
+  // their own "Trigger" dropdown so the activity overview stays an activity feed.
+  const activityLabel = (() => {
+    if (ruleErrors.length > 0) return `${ruleErrors.length} bad ${ruleErrors.length === 1 ? 'rule' : 'rules'}`;
     if (runningRules > 0) return `${runningRules} running ${runningRules === 1 ? 'rule' : 'rules'}`;
-    if (ruleRuns.length > 0) return `${ruleRuns.length} recent rule runs`;
-    return `${ruleDefs.length} ${ruleDefs.length === 1 ? 'rule' : 'rules'}`;
+    if (ruleRuns.length > 0) return `${ruleRuns.length} recent rule ${ruleRuns.length === 1 ? 'run' : 'runs'}`;
+    return null;
   })();
+  const activityItems = [
+    ...ruleErrors.map((e) => ({ kind: 'error', id: `err:${e.rule_id}`, ...e })),
+    ...ruleRuns.map((r) => ({ kind: 'run', ...r })),
+  ];
+
   const PR_TRIGGERS = ['ci.finalized', 'mergeable.changed', 'labels.changed', 'draft.changed'];
+  const triggerableRules = ruleDefs.filter((r) => !r.manual && PR_TRIGGERS.includes(r.on));
 
   const handleRunForAll = useCallback(async (rule) => {
     const subscribe =
@@ -101,12 +108,6 @@ export function DashboardSummary({ prCount, onOpenGlobalTerminal }) {
       window.alert(`Failed: ${err.message}`);
     }
   }, []);
-
-  const ruleItems = [
-    ...ruleErrors.map((e) => ({ kind: 'error', id: `err:${e.rule_id}`, ...e })),
-    ...ruleDefs.map((r) => ({ kind: 'def', ...r })),
-    ...ruleRuns.map((r) => ({ kind: 'run', ...r })),
-  ];
 
   return (
     <Box px={4} py={2} border rounded="lg" bg="white" className={styles.bar}>
@@ -169,20 +170,19 @@ export function DashboardSummary({ prCount, onOpenGlobalTerminal }) {
             />
           </>
         )}
-        {(ruleDefs.length > 0 || ruleErrors.length > 0 || ruleRuns.length > 0) && (
+        {activityLabel && (
+          <>
+            <span className={styles.divider} />
+            <StatDropdown label={activityLabel} items={activityItems} renderItem={(item) => <RuleItem key={item.id} item={item} />} />
+          </>
+        )}
+        {triggerableRules.length > 0 && (
           <>
             <span className={styles.divider} />
             <StatDropdown
-              label={ruleLabel}
-              items={ruleItems}
-              renderItem={(item) => (
-                <RuleItem
-                  key={item.id}
-                  item={item}
-                  isPRTrigger={PR_TRIGGERS.includes(item.on)}
-                  onRunForAll={handleRunForAll}
-                />
-              )}
+              label={`Trigger ${triggerableRules.length === 1 ? 'rule' : 'rules'}`}
+              items={triggerableRules}
+              renderItem={(rule) => <TriggerableRuleItem key={rule.id} rule={rule} onFire={handleRunForAll} />}
             />
           </>
         )}
@@ -225,7 +225,7 @@ function TaskStatusBadge({ status }) {
   return <Badge color="gray">{status}</Badge>;
 }
 
-function RuleItem({ item, isPRTrigger, onRunForAll }) {
+function RuleItem({ item }) {
   if (item.kind === 'error') {
     return (
       <div className={styles.dropdownItem}>
@@ -238,40 +238,6 @@ function RuleItem({ item, isPRTrigger, onRunForAll }) {
     );
   }
 
-  if (item.kind === 'def') {
-    const scope = item.manual
-      ? 'Manual only'
-      : item.requires_subscription
-        ? item.one_shot
-          ? 'Subscription one-shot'
-          : 'Subscription'
-        : 'Auto on all matching';
-    return (
-      <div className={styles.dropdownItem}>
-        <Stack gap={2} align="center">
-          <Badge color="violet">Rule</Badge>
-          <span className={styles.itemName}>{item.id}</span>
-          <span className={styles.itemDetail}>on {item.on}</span>
-        </Stack>
-        <span className={styles.itemDetail}>{scope}</span>
-        {isPRTrigger && !item.manual && (
-          <Stack gap={2} className={styles.actionRow}>
-            <Button
-              size="sm"
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                onRunForAll(item);
-              }}
-              title="Fire this rule against every PR matching its where clause"
-            >
-              Run for all matching
-            </Button>
-          </Stack>
-        )}
-      </div>
-    );
-  }
   const time = item.ended_at ? `Finished ${getRelativeTime(item.ended_at)}` : `Started ${getRelativeTime(item.started_at)}`;
   const target = item.pr_id || item.session_id || item.workspace_id;
   const href = item.pr_id
@@ -310,4 +276,35 @@ function RuleStatusBadge({ status }) {
   if (status === 'success') return <Badge color="green">Done</Badge>;
   if (status === 'error') return <Badge color="red">Failed</Badge>;
   return <Badge color="gray">{status}</Badge>;
+}
+
+function TriggerableRuleItem({ rule, onFire }) {
+  const scope = rule.requires_subscription
+    ? rule.one_shot
+      ? 'Subscription one-shot'
+      : 'Subscription'
+    : 'Auto on all matching';
+  return (
+    <div className={styles.dropdownItem}>
+      <Stack gap={2} align="center">
+        <Badge color="violet">Rule</Badge>
+        <span className={styles.itemName}>{rule.id}</span>
+        <span className={styles.itemDetail}>on {rule.on}</span>
+      </Stack>
+      <span className={styles.itemDetail}>{scope}</span>
+      <Stack gap={2} className={styles.actionRow}>
+        <Button
+          size="sm"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onFire(rule);
+          }}
+          title="Fire this rule against every PR matching its where clause"
+        >
+          Run for all matching
+        </Button>
+      </Stack>
+    </div>
+  );
 }
