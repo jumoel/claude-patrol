@@ -18,6 +18,14 @@
   font-size: 0.875rem;
   color: rgb(0 0 0 / 0.55);
   margin: 0;
+  line-height: 1.45;
+}
+.empty code {
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 0.8125rem;
+  background: rgb(0 0 0 / 0.04);
+  padding: 0.05rem 0.3rem;
+  border-radius: 3px;
 }
 .error {
   font-size: 0.8125rem;

@@ -19,7 +19,8 @@ import styles from './RuleControls.module.css';
  * @param {{ prId: string }} props
  */
 export function RuleControls({ prId }) {
-  const [rules, setRules] = useState([]);
+  const [allRules, setAllRules] = useState([]);
+  const [ruleErrors, setRuleErrors] = useState([]);
   const [subscriptions, setSubscriptions] = useState(new Set());
   const [loading, setLoading] = useState(true);
   const [busyRule, setBusyRule] = useState(null);
@@ -28,7 +29,8 @@ export function RuleControls({ prId }) {
   const load = useCallback(async () => {
     try {
       const [data, subs] = await Promise.all([fetchRules(), fetchPRRuleSubscriptions(prId)]);
-      setRules((data.rules || []).filter((r) => r.on === 'ci.finalized'));
+      setAllRules(data.rules || []);
+      setRuleErrors(data.errors || []);
       setSubscriptions(new Set(subs.map((s) => s.rule_id)));
     } catch (err) {
       setError(err.message);
@@ -36,6 +38,8 @@ export function RuleControls({ prId }) {
       setLoading(false);
     }
   }, [prId]);
+
+  const rules = allRules.filter((r) => r.on === 'ci.finalized');
 
   useEffect(() => {
     load();
@@ -77,8 +81,33 @@ export function RuleControls({ prId }) {
   );
 
   if (loading) return null;
+
+  if (error) {
+    return <p className={styles.error}>Could not load rules: {error}</p>;
+  }
+
   if (rules.length === 0) {
-    return <p className={styles.empty}>No rules configured for PR triggers.</p>;
+    const sessionRuleCount = allRules.length;
+    return (
+      <Stack direction="col" gap={2}>
+        {sessionRuleCount === 0 && ruleErrors.length === 0 && (
+          <p className={styles.empty}>
+            No rules configured. Add a rule with <code>on: "ci.finalized"</code> in <code>config.json</code> to enable per-PR
+            automation - see the README for examples.
+          </p>
+        )}
+        {sessionRuleCount > 0 && (
+          <p className={styles.empty}>
+            {sessionRuleCount} rule(s) loaded, but none target PRs (none have <code>on: "ci.finalized"</code>).
+          </p>
+        )}
+        {ruleErrors.length > 0 && (
+          <p className={styles.error}>
+            {ruleErrors.length} rule(s) failed to load. See the Rules dropdown in the dashboard summary for details.
+          </p>
+        )}
+      </Stack>
+    );
   }
 
   return (
