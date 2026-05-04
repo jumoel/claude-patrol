@@ -23,7 +23,7 @@ import {
   isScheduledCheck,
   statusColorGroup,
 } from '../../lib/checks.js';
-import { sendTerminalCommand } from '../../lib/terminal.js';
+import { sendTerminalCommand, whenWsOpen } from '../../lib/terminal.js';
 import { getRelativeTime } from '../../lib/time.js';
 import shared from '../../styles/shared.module.css';
 import { CheckLogViewer } from '../CheckLogViewer/CheckLogViewer.jsx';
@@ -242,11 +242,17 @@ export function PRDetail({ prId, onBack }) {
     const result = await ensureWorkspaceAndSession();
     if (!result) return;
 
-    // Send command to the PR terminal
-    setTimeout(() => {
-      const command = `Investigate the failed CI checks on this PR (${pr.org}/${pr.repo}#${pr.number}, branch: ${pr.branch}). The following checks failed: ${failedCheckNames.join(', ')}. Look at the CI logs and determine root causes.`;
-      sendTerminalCommand(wsRef.current, command);
-    }, 500);
+    // Wait for the Terminal component to mount and finish its WS handshake
+    // before sending. Previously a hopeful 500ms setTimeout that silently
+    // dropped commands when the handshake took longer (slow tab, slow tmux).
+    const ws = await whenWsOpen(wsRef);
+    if (!ws) {
+      alert('Terminal failed to connect. Refresh and try again.');
+      return;
+    }
+
+    const command = `Investigate the failed CI checks on this PR (${pr.org}/${pr.repo}#${pr.number}, branch: ${pr.branch}). The following checks failed: ${failedCheckNames.join(', ')}. Look at the CI logs and determine root causes.`;
+    sendTerminalCommand(ws, command);
   }, [pr, ensureWorkspaceAndSession]);
 
   if (loading) {

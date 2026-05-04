@@ -1,5 +1,15 @@
 # Build Log
 
+## 2026-05-04 - Fix: WS race + silent drops (close lt#3)
+
+`handleInvestigateFailures` previously did `setTimeout(() => sendTerminalCommand(...), 500)` after creating a session. The 500ms was hopeful - it had to cover React render, Terminal mount, and WS handshake. Slow tab or slow tmux startup → command silently dropped, no log, no UI feedback. The recently-fixed parseWsMessage regression hid behind exactly this silent-drop pattern.
+
+Two changes:
+- `sendTerminalCommand` now returns boolean and `console.warn`s when called against a closed WS. Silent drops are gone.
+- New `whenWsOpen(wsRef, timeoutMs)` polls every 50ms up to a deadline (default 5s) and returns the open WS or null. `handleInvestigateFailures` uses it; if the WS doesn't come up in time, the user gets an alert telling them to refresh.
+
+QuickActions wiring through `TerminalCard.handleSendCommand` also uses `whenWsOpen` (2s) to handle the case where the user clicks a quick action while the WS is still CONNECTING (e.g. just-reattached session). No alert there - just silently waits up to 2s, falls through to the console.warn in `sendTerminalCommand` if it never comes up.
+
 ## 2026-05-04 - Refactor: WS message types own their own validation (close lt#2)
 
 Yesterday's `prompt-submit` regression came from a structural problem: `parseWsMessage` was a whitelist on one side of `pty-manager.js` and the message handler was a switch on the other. Adding a type meant updating both lists; the f2436f3 commit only updated one and the resulting silent-drop wasn't caught until a user reported it.

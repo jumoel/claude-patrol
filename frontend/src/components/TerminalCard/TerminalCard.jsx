@@ -2,7 +2,7 @@ import { useCallback, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useEscapeKey } from '../../hooks/useEscapeKey.js';
 import { useResizeHandle } from '../../hooks/useResizeHandle.js';
-import { sendTerminalCommand } from '../../lib/terminal.js';
+import { sendTerminalCommand, whenWsOpen } from '../../lib/terminal.js';
 import shared from '../../styles/shared.module.css';
 import { QuickActions } from '../QuickActions/QuickActions.jsx';
 import { Terminal } from '../Terminal/Terminal.jsx';
@@ -60,8 +60,12 @@ export function TerminalCard({ session, title, onKill, onExit, onPopOut, onReatt
   }, [onExit]);
 
   const handleSendCommand = useCallback(
-    (text) => {
-      sendTerminalCommand(wsRef.current, text);
+    async (text) => {
+      // QuickAction click can fire while the WS is still in CONNECTING (e.g.
+      // session was just reattached). Wait briefly so we don't silently drop.
+      const ws = await whenWsOpen(wsRef, 2000);
+      if (!ws) return;
+      sendTerminalCommand(ws, text);
     },
     [wsRef],
   );
