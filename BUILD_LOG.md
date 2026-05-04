@@ -1,5 +1,13 @@
 # Build Log
 
+## 2026-05-04 - Refactor SSE registration to be array-driven
+
+Precursor to plan 18 (rules engine). The `/api/events` SSE handler in `src/server.js` used to register each forwarded event by hand. Five event types meant five handler definitions, five `.on(...)` calls, and five `.removeListener(...)` calls on close. Adding a sixth (`rule-run` for the rules engine) would mean three more boilerplate sites for a one-line change in intent.
+
+A new module-level `SSE_EVENTS` array now drives registration. Each entry is `{ name, emitter, payload? }`. The `payload` transformer is optional and only `local-change` uses it, since that event emits a constant `{}` regardless of producer args. The handler loop `.map`s over the array on connect, the close handler iterates the same list to unsubscribe.
+
+Pure refactor. Same event names, same payload shapes, same replay-on-connect for `session-state` and `gh-rate-limit`. Verified by booting the server on a scratch port and confirming a fresh SSE connection still receives the `gh-rate-limit` snapshot.
+
 ## 2026-05-04 - Expose writeToSession and waitForFirstIdle from pty-manager
 
 Precursor to plan 18 (rules engine). The rules engine needs to inject prompts into a freshly-spawned Claude session from server-side code, so two PTY-state primitives move out of the WebSocket handler into named exports.

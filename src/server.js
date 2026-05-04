@@ -19,6 +19,20 @@ import { registerSyncRoutes } from './routes/sync.js';
 import { registerTaskRoutes } from './routes/tasks.js';
 import { registerWorkspaceRoutes } from './routes/workspaces.js';
 
+// Event types forwarded over the /api/events SSE stream.
+// Each entry registers a listener on connect and tears it down on close,
+// replacing per-event boilerplate. `payload` is optional - when present it
+// transforms (or ignores) the emitter's args before serialization. Today only
+// `local-change` uses it, since that event emits a constant `{}` regardless
+// of what the producer passes.
+const SSE_EVENTS = [
+  { name: 'sync', emitter: pollerEvents },
+  { name: 'local-change', emitter: appEvents, payload: () => ({}) },
+  { name: 'session-state', emitter: appEvents },
+  { name: 'task-update', emitter: appEvents },
+  { name: 'gh-rate-limit', emitter: appEvents },
+];
+
 /**
  * Create and configure the Fastify server.
  * @returns {import('fastify').FastifyInstance}
@@ -85,27 +99,14 @@ export async function createServer() {
 
     sseConnections.add(raw);
 
-    const syncHandler = (data) => {
-      raw.write(`event: sync\ndata: ${JSON.stringify(data)}\n\n`);
-    };
-    const localHandler = () => {
-      raw.write(`event: local-change\ndata: {}\n\n`);
-    };
-    const stateHandler = (data) => {
-      raw.write(`event: session-state\ndata: ${JSON.stringify(data)}\n\n`);
-    };
-    const taskHandler = (data) => {
-      raw.write(`event: task-update\ndata: ${JSON.stringify(data)}\n\n`);
-    };
-    const rateLimitHandler = (data) => {
-      raw.write(`event: gh-rate-limit\ndata: ${JSON.stringify(data)}\n\n`);
-    };
-
-    pollerEvents.on('sync', syncHandler);
-    appEvents.on('local-change', localHandler);
-    appEvents.on('session-state', stateHandler);
-    appEvents.on('task-update', taskHandler);
-    appEvents.on('gh-rate-limit', rateLimitHandler);
+    const handlers = SSE_EVENTS.map(({ name, emitter, payload }) => {
+      const handler = (data) => {
+        const body = payload ? payload(data) : data;
+        raw.write(`event: ${name}\ndata: ${JSON.stringify(body ?? {})}\n\n`);
+      };
+      emitter.on(name, handler);
+      return { name, emitter, handler };
+    });
 
     // Send current session states so the client doesn't miss events
     // that fired before it connected.
@@ -115,11 +116,9 @@ export async function createServer() {
     // Replay current gh rate-limit state so a fresh tab knows it's throttled.
     raw.write(`event: gh-rate-limit\ndata: ${JSON.stringify(getGhRateLimitState())}\n\n`);
     request.raw.on('close', () => {
-      pollerEvents.removeListener('sync', syncHandler);
-      appEvents.removeListener('local-change', localHandler);
-      appEvents.removeListener('session-state', stateHandler);
-      appEvents.removeListener('task-update', taskHandler);
-      appEvents.removeListener('gh-rate-limit', rateLimitHandler);
+      for (const { name, emitter, handler } of handlers) {
+        emitter.removeListener(name, handler);
+      }
       sseConnections.delete(raw);
     });
   });
