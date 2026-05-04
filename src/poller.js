@@ -8,6 +8,7 @@ import { makePrId } from './utils.js';
 import { destroyWorkspace } from './workspace.js';
 
 export const pollerEvents = new EventEmitter();
+pollerEvents.setMaxListeners(0);
 
 /** Track in-flight PR summary generations to avoid concurrent batches stomping on each other. */
 const prSummaryInFlight = new Set();

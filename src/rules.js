@@ -373,9 +373,8 @@ function templateValue(val, tmplCtx) {
   return val;
 }
 
-function cooldownOk(rule, cooldownKey, force = false) {
-  if (force) return true;
-  const minutes = rule.cooldown_minutes ?? 10;
+function cooldownOk(rule, cooldownKey) {
+  const minutes = rule.cooldown_minutes;
   if (minutes === 0) return true;
   const cutoff = new Date(Date.now() - minutes * 60_000).toISOString();
   const db = getDb();
@@ -428,7 +427,7 @@ export async function fireRule(rule, ctx) {
     runRow.started_at,
     runRow.ended_at,
   );
-  appEvents.emit('rule-run', runRow);
+  appEvents.emit('rule-run', toPublic(runRow));
 
   let error = null;
   try {
@@ -444,9 +443,15 @@ export async function fireRule(rule, ctx) {
   db.prepare('UPDATE rule_runs SET status = ?, error = ?, ended_at = ? WHERE id = ?').run(status, error, endedAt, id);
 
   runRow = { ...runRow, status, error, ended_at: endedAt };
-  appEvents.emit('rule-run', runRow);
+  appEvents.emit('rule-run', toPublic(runRow));
 
-  return runRow;
+  return toPublic(runRow);
+}
+
+/** Strip internal-only fields from a rule_runs row before SSE/API emission. */
+function toPublic(runRow) {
+  const { cooldown_key: _omit, ...rest } = runRow;
+  return rest;
 }
 
 async function runAction(action, ctx, runRow) {
@@ -475,7 +480,7 @@ function updateRunRow(runRow, patch) {
   getDb()
     .prepare(sql)
     .run(...cols.map((c) => patch[c]), runRow.id);
-  appEvents.emit('rule-run', { ...runRow });
+  appEvents.emit('rule-run', toPublic(runRow));
 }
 
 async function dispatchClaude(ctx, prompt, runRow) {
@@ -598,5 +603,5 @@ export function listRuleRuns(opts = {}) {
   }
   const sql = `SELECT * FROM rule_runs ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY started_at DESC LIMIT ?`;
   params.push(limit);
-  return db.prepare(sql).all(...params);
+  return db.prepare(sql).all(...params).map(toPublic);
 }

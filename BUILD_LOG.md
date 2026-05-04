@@ -1,5 +1,19 @@
 # Build Log
 
+## 2026-05-04 - Rules engine second review pass: bad link, listener cap, dead code
+
+Follow-up after a fresh review of the merged engine + UI. Four small fixes.
+
+`DashboardSummary.RuleItem` linked to `#/session/<session_id>` for runs that had a session attached, but no such hash route exists in the frontend (only `#/pr/...` and `#/workspace/...`). Clicking just appended a stale URL fragment with no view change. Replaced with `#/pr/<pr_id>` when a PR is set, else `#/workspace/<workspace_id>` - sessions are viewable nested inside those views anyway.
+
+`appEvents` and `pollerEvents` now call `setMaxListeners(0)`. Each `/api/events` SSE connection adds one listener per forwarded event type; with 6 forwarded events, the default cap of 10 starts warning around 10 dashboard tabs. The cap was preventive noise, not a real leak guard - request-close handlers still detach listeners, so memory hygiene still works.
+
+`cooldownOk` no longer takes a `force` parameter (always called from paths that already short-circuit when the user passes `force=true`) and no longer falls back via `?? 10` (the zod schema's `.default(10)` already applies, so a validated rule always has the field set).
+
+`cooldown_key` is now stripped from the public face of `rule_runs` - SSE payloads, `GET /api/rules/runs` results, and the manual-run POST response. It's an internal cooldown-bucket hash, not something dashboard consumers should see or rely on. A small `toPublic(row)` helper centralizes the projection.
+
+Verified: server boots cleanly, `/api/rules/runs` no longer carries `cooldown_key` (grep returns 0 matches in the response), frontend builds cleanly, max-listener counts read as `0` (uncapped) on both emitters.
+
 ## 2026-05-04 - Rules engine review pass: enum constraints, mid-flight events, UI
 
 Follow-up to the rules engine commit, addressing the gaps surfaced in review.

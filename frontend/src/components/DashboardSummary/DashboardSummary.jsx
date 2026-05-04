@@ -200,8 +200,12 @@ function RuleItem({ item }) {
     );
   }
   const time = item.ended_at ? `Finished ${getRelativeTime(item.ended_at)}` : `Started ${getRelativeTime(item.started_at)}`;
-  const target = item.pr_id || item.session_id || item.workspace_id || item.cooldown_key;
-  const href = item.session_id ? `#/session/${item.session_id}` : item.pr_id ? `#/pr/${encodeURIComponent(item.pr_id)}` : null;
+  const target = item.pr_id || item.session_id || item.workspace_id;
+  const href = item.pr_id
+    ? `#/pr/${encodeURIComponent(item.pr_id)}`
+    : item.workspace_id
+      ? `#/workspace/${item.workspace_id}`
+      : null;
   const inner = (
     <>
       <Stack gap={2} align="center">
