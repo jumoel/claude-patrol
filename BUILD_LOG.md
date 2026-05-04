@@ -1,5 +1,15 @@
 # Build Log
 
+## 2026-05-04 - Refactor: WS message types own their own validation (close lt#2)
+
+Yesterday's `prompt-submit` regression came from a structural problem: `parseWsMessage` was a whitelist on one side of `pty-manager.js` and the message handler was a switch on the other. Adding a type meant updating both lists; the f2436f3 commit only updated one and the resulting silent-drop wasn't caught until a user reported it.
+
+Single source of truth now: `WS_MESSAGE_HANDLERS` is a record of `{ type: { validate, handle } }`. New `dispatchWsMessage(raw, entry, ctx)` parses, looks up the entry, validates, and dispatches in one pass. Adding a message type means adding one entry - structurally impossible to add a handler without validation or vice versa. The `attachSession` WS message hook collapses to a one-liner that just calls `dispatchWsMessage`.
+
+Added `src/pty-manager.test.js` (the project's first test file) covering the dispatch + validation matrix: each documented type round-trips correctly, malformed JSON / missing fields / wrong types are rejected. Run with `pnpm test`. Future message types added without test coverage will at least force the author to look at the test file.
+
+The `parseWsMessage` export is gone. Nothing else in the codebase imported it.
+
 ## 2026-05-04 - Fix: parseWsMessage was dropping prompt-submit messages
 
 User reported "Investigate failures button doesn't work anymore." Root cause: the f2436f3 refactor that introduced the `prompt-submit` WS message type added a handler arm in `attachSession`'s message switch (`src/pty-manager.js:490`) but did not update the validator at `src/pty-manager.js:438`. `parseWsMessage` whitelists `input` and `resize`; `prompt-submit` returned `null` and the handler short-circuited at `if (!msg) return` before reaching the new arm. Every frontend `sendTerminalCommand` call (Investigate failures, every QuickActions button) was silently dropped.

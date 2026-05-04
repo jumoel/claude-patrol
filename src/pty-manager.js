@@ -431,20 +431,88 @@ export function createResumedSession(workspaceId, cwd, claudeSessionId) {
 }
 
 /**
- * Parse and validate a WebSocket message.
- * @param {string} raw
- * @returns {{ type: string, data?: string, cols?: number, rows?: number } | null}
+ * WebSocket message dispatch table. Each entry owns both validation and
+ * handling for a single message type, so adding a new type is one entry -
+ * impossible to add a handler without validation or vice versa. Previously
+ * had a separate `parseWsMessage` whitelist that drifted from the dispatcher
+ * and silently dropped `prompt-submit` messages for the duration of the
+ * f2436f3 → ebf502f window. (See `claude-patrol#2`.)
+ *
+ * Handlers receive `(entry, msg, ctx)`. `ctx` carries per-session info that
+ * isn't on the entry itself (currently just `tmuxName`).
+ *
+ * @type {Record<string, {
+ *   validate: (msg: any) => boolean,
+ *   handle: (entry: any, msg: any, ctx: { tmuxName: string }) => void,
+ * }>}
  */
-function parseWsMessage(raw) {
+const WS_MESSAGE_HANDLERS = {
+  input: {
+    validate: (msg) => typeof msg.data === 'string',
+    handle: (entry, msg, ctx) => {
+      // CSI u sequences (kitty keyboard protocol) can't go through tmux's
+      // input parser - it doesn't understand them. Route them via
+      // `tmux send-keys` which writes directly to the inner pane's PTY,
+      // bypassing tmux's own key interpretation.
+      if (msg.data.includes('\x1b[') && /\x1b\[\d+;\d+u/.test(msg.data)) {
+        const hexKeys = [];
+        for (let i = 0; i < msg.data.length; i++) {
+          hexKeys.push(msg.data.charCodeAt(i).toString(16).padStart(2, '0'));
+        }
+        execFile('tmux', ['send-keys', '-t', ctx.tmuxName, '-H', ...hexKeys], { timeout: 2000 }, () => {});
+      } else {
+        entry.proc.write(msg.data);
+      }
+    },
+  },
+  'prompt-submit': {
+    // Programmatic prompt submission: write the text, wait briefly, write
+    // Enter. Shares `submitPromptToEntry` with the server-side rules engine
+    // so the split timing lives in one place.
+    validate: (msg) => typeof msg.text === 'string',
+    handle: (entry, msg) => {
+      submitPromptToEntry(entry, msg.text).catch(() => {});
+    },
+  },
+  resize: {
+    validate: (msg) => Number.isInteger(msg.cols) && Number.isInteger(msg.rows),
+    handle: (entry, msg) => {
+      try {
+        entry.proc.resize(msg.cols, msg.rows);
+      } catch {
+        // PTY fd already closed (EBADF) - session exited but WS still open
+        return;
+      }
+      // Suppress activity detection for 500ms - the resize triggers a full
+      // tmux redraw that produces multiple onData events with printable content.
+      entry.resizeSuppressUntil = Date.now() + 500;
+    },
+  },
+};
+
+/**
+ * Dispatch a parsed WS message to its handler. Returns the handler entry that
+ * was invoked (for testing) or null if the message was rejected. Exported so
+ * tests can hit the validation + dispatch path without standing up a real
+ * WebSocket + PTY.
+ *
+ * @param {string} raw - raw WS frame text
+ * @param {any}    entry - session entry from the `sessions` map
+ * @param {{tmuxName: string}} ctx
+ * @returns {{ type: string } | null}
+ */
+export function dispatchWsMessage(raw, entry, ctx) {
+  let msg;
   try {
-    const msg = JSON.parse(raw);
-    if (msg.type === 'input' && typeof msg.data === 'string') return msg;
-    if (msg.type === 'prompt-submit' && typeof msg.text === 'string') return msg;
-    if (msg.type === 'resize' && Number.isInteger(msg.cols) && Number.isInteger(msg.rows)) return msg;
-    return null;
+    msg = JSON.parse(raw);
   } catch {
     return null;
   }
+  if (!msg || typeof msg.type !== 'string') return null;
+  const handler = WS_MESSAGE_HANDLERS[msg.type];
+  if (!handler || !handler.validate(msg)) return null;
+  handler.handle(entry, msg, ctx);
+  return { type: msg.type };
 }
 
 /**
@@ -470,41 +538,7 @@ export function attachSession(sessionId, ws) {
 
   const tmuxName = `patrol-${sessionId}`;
   ws.on('message', (raw) => {
-    const msg = parseWsMessage(raw.toString());
-    if (!msg) return;
-
-    if (msg.type === 'input') {
-      // CSI u sequences (kitty keyboard protocol) can't go through
-      // tmux's input parser - it doesn't understand them. Route them
-      // via `tmux send-keys` which writes directly to the inner pane's
-      // PTY, bypassing tmux's own key interpretation.
-      if (msg.data.includes('\x1b[') && /\x1b\[\d+;\d+u/.test(msg.data)) {
-        // Convert raw bytes to hex escape format for tmux send-keys -H
-        const hexKeys = [];
-        for (let i = 0; i < msg.data.length; i++) {
-          hexKeys.push(msg.data.charCodeAt(i).toString(16).padStart(2, '0'));
-        }
-        execFile('tmux', ['send-keys', '-t', tmuxName, '-H', ...hexKeys], { timeout: 2000 }, () => {});
-      } else {
-        entry.proc.write(msg.data);
-      }
-    } else if (msg.type === 'prompt-submit') {
-      // Programmatic prompt submission: write the text, wait briefly, write
-      // Enter. Shares `submitPromptToEntry` with the server-side rules engine
-      // so the split timing lives in one place. Frontend Quick Actions and
-      // any future programmatic submitter use this message type.
-      submitPromptToEntry(entry, String(msg.text ?? '')).catch(() => {});
-    } else if (msg.type === 'resize') {
-      try {
-        entry.proc.resize(msg.cols, msg.rows);
-      } catch {
-        // PTY fd already closed (EBADF) - session exited but WS still open
-        return;
-      }
-      // Suppress activity detection for 500ms - the resize triggers a full
-      // tmux redraw that produces multiple onData events with printable content.
-      entry.resizeSuppressUntil = Date.now() + 500;
-    }
+    dispatchWsMessage(raw.toString(), entry, { tmuxName });
   });
 
   ws.on('close', () => {
