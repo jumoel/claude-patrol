@@ -131,6 +131,24 @@ export function initDb(dbPath) {
   // older DBs from when the patrol-side summarizer was active. They're left
   // in place (sqlite drop is destructive) but no longer read or written.
 
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS rule_runs (
+      id TEXT PRIMARY KEY,
+      rule_id TEXT NOT NULL,
+      trigger TEXT NOT NULL,
+      pr_id TEXT,
+      workspace_id TEXT,
+      session_id TEXT,
+      cooldown_key TEXT NOT NULL,
+      status TEXT NOT NULL CHECK(status IN ('running', 'success', 'error')),
+      error TEXT,
+      started_at TEXT NOT NULL,
+      ended_at TEXT
+    )
+  `);
+  db.exec('CREATE INDEX IF NOT EXISTS idx_rule_runs_cooldown ON rule_runs(rule_id, cooldown_key, started_at)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_rule_runs_started ON rule_runs(started_at DESC)');
+
   return db;
 }
 

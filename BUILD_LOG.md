@@ -1,5 +1,23 @@
 # Build Log
 
+## 2026-05-04 - Rules engine: declarative reactions to PR-state transitions
+
+Lands the feature the five precursors were paving the way for. Rules live in `config.json` under `"rules": [...]`, each with `id`, `on` (`'ci.finalized' | 'session.idle'`), optional flat `where` predicate, and a sequential `actions` chain. Two action types: `mcp` (any rule-fireable tool from the actions registry) and `dispatch_claude` (resolves the PR's workspace, spawns Claude if no session exists, waits for the first `'idle'` via `waitForFirstIdle`, then writes `prompt + '\r'` through `writeToSession`).
+
+Triggers come from the precursors directly: `ci.finalized` is derived from a `pr-changed` event with `changes.ci_status.to ∈ {'pass', 'fail'}` (plan 17 emits these), and `session.idle` is just the existing `appEvents 'session-state'` filtered to `state === 'idle'`. No internal cache, no warmup pass, downtime transitions caught for free because `prev` lives in the DB.
+
+Validation is per-rule via zod with `.superRefine` for cross-field checks: rejects `dispatch_claude` on `session.idle` triggers (loop trap), rejects `mcp` actions targeting unknown tools, mcp-only tools, or `ruleFireable: false` tools. Bad rules surface in `getRuleLoadErrors()` without blocking valid ones - the existing config-reload path stays simple because `cfg.rules` is a passthrough.
+
+Persistence: new `rule_runs` table indexed by `(rule_id, cooldown_key, started_at)`. Cooldown bucket is `pr_id ?? session_id ?? workspace_id` (in v1 every trigger has at least one). On startup, stale `'running'` rows reconcile to `'error'` with `error: 'server_restarted'`. The `appEvents 'rule-run'` event piggybacks on plan 14's array-driven SSE registration as a one-line addition.
+
+API: `GET /api/rules`, `GET /api/rules/runs?limit&rule_id&pr_id`, `POST /api/rules/:id/run` with `{pr_id?, session_id?}` body and `?force=true` for cooldown bypass. The manual route synthesizes the same `predCtx`/`tmplCtx` shapes the trigger handlers produce.
+
+Verified end-to-end against the real server: a config with one valid rule + two invalid rules (`list_prs` as mcp action, `dispatch_claude` on `session.idle`) loads with 1 rule active and 2 errors visible in `GET /api/rules`. A `pr-changed` event flowing from a simulated CI transition fires the rule automatically. Manual `POST /api/rules/:id/run` works against a real PR, persists the run row, and `trigger_sync` action runs successfully end-to-end.
+
+Templating substitutes `{{pr.<field>}}` and `{{session.<field>}}` recursively over both `prompt` strings and `mcp` `args`. Substitution runs **before** zod validation of args so a missing field collapses to empty string and the schema check produces a clear error rather than passing the literal `{{...}}` through.
+
+Frontend hook + dashboard panel deferred for a follow-up - the API is the contract, the UI is a thin consumer.
+
 ## 2026-05-04 - Poller emits pr-changed events with field-level diff
 
 Precursor to plan 18 (rules engine). The poller already does `INSERT OR REPLACE` for every PR each cycle, but the only signal downstream consumers got was a coarse `'sync'` event with a count. The rules engine needs to know *which* PRs transitioned and on *what* fields. Without poller-side diffing, every consumer would have to maintain its own in-memory cache and a warmup pass to avoid spurious initial fires - and downtime transitions would still be lost.

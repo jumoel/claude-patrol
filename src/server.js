@@ -13,6 +13,7 @@ import { registerCheckRoutes } from './routes/checks.js';
 import { registerCommentRoutes } from './routes/comments.js';
 import { registerConfigRoutes } from './routes/config.js';
 import { registerPRRoutes } from './routes/prs.js';
+import { registerRuleRoutes } from './routes/rules.js';
 import { registerSessionRoutes } from './routes/sessions.js';
 import { registerSetupRoutes } from './routes/setup.js';
 import { registerSyncRoutes } from './routes/sync.js';
@@ -31,6 +32,7 @@ const SSE_EVENTS = [
   { name: 'session-state', emitter: appEvents },
   { name: 'task-update', emitter: appEvents },
   { name: 'gh-rate-limit', emitter: appEvents },
+  { name: 'rule-run', emitter: appEvents },
 ];
 
 /**
@@ -52,6 +54,7 @@ export async function createServer() {
   registerCommentRoutes(app);
   registerSetupRoutes(app);
   registerTaskRoutes(app);
+  registerRuleRoutes(app);
 
   // MCP endpoint - one in-process server shared by all Claude sessions.
   // Stateless transport: each POST creates its own transport instance, but

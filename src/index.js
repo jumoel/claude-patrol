@@ -22,6 +22,7 @@ import {
   reattachOrphanedSessions,
   updateMcpConfig,
 } from './pty-manager.js';
+import { startRulesEngine } from './rules.js';
 import { createServer } from './server.js';
 import { validateStartup } from './startup.js';
 import { destroyTui, initTui, setHeader } from './tui.js';
@@ -93,6 +94,11 @@ export async function startServer(options = {}) {
   startUpdateChecks();
 
   const server = await createServer();
+
+  // Wire the rules engine (after createServer so app.inject is available;
+  // before listen so trigger handlers attach before any pr-changed fires).
+  startRulesEngine(server, config);
+
   let port = portOverride || config.port;
   // When an explicit --port is given (e.g. on restart), the caller wants
   // exactly that port - bumping would invalidate MCP URLs in already-running
