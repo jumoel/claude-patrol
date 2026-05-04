@@ -175,6 +175,25 @@ export const actionRegistry = {
     dispatch: () => ({ method: 'POST', path: '/api/sync/trigger' }),
   },
 
+  run_rule_for_all_matching_prs: {
+    description:
+      'Fire a rule against every PR matching its `where` clause at once. Returns the list of PRs the rule was fired on (`fired`) and those it was skipped for (`skipped`, with reasons). Fires happen in parallel in the background. Use this for bulk catch-up like "auto-rebase every conflicted PR right now". `subscribe: true` auto-subscribes matching PRs first when the rule has `requires_subscription: true` (one-shot rules will also consume those subscriptions on success). `force: true` bypasses cooldown and subscription gates entirely - use sparingly.',
+    schema: z.object({
+      rule_id: z.string().describe('Rule id from list_rules'),
+      subscribe: z
+        .boolean()
+        .optional()
+        .describe('Auto-subscribe matching PRs before firing (relevant when the rule has requires_subscription)'),
+      force: z.boolean().optional().describe('Bypass cooldown and subscription gates'),
+    }),
+    ruleFireable: false,
+    dispatch: ({ rule_id, subscribe, force }) => ({
+      method: 'POST',
+      path: `/api/rules/${encodeURIComponent(rule_id)}/run-all`,
+      body: { subscribe, force },
+    }),
+  },
+
   retrigger_checks: {
     description:
       'Re-run failed CI checks for a PR. Optionally filter to specific checks by name pattern. Use require_all_final=true to only retrigger when no checks are still running or queued. If check_name matches nothing, the response includes available_failed_checks so you can retry with a valid substring.',

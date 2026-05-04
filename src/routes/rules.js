@@ -4,6 +4,7 @@ import {
   listRuleRuns,
   listSubscriptions,
   manualRunRule,
+  runRuleForAll,
   subscribeRule,
   unsubscribeRule,
 } from '../rules.js';
@@ -81,5 +82,19 @@ export function registerRuleRoutes(app) {
   app.get('/api/prs/:pr_id/rule-subscriptions', async (request) => {
     const { pr_id } = request.params;
     return listSubscriptions({ pr_id });
+  });
+
+  app.post('/api/rules/:id/run-all', async (request, reply) => {
+    const { id } = request.params;
+    const body = request.body ?? {};
+    try {
+      return runRuleForAll(id, {
+        force: body.force === true,
+        subscribe: body.subscribe === true,
+      });
+    } catch (err) {
+      reply.code(400);
+      return { error: err.message };
+    }
   });
 }

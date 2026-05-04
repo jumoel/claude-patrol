@@ -216,6 +216,19 @@ Same Arm/Subscribe flow as above. Patrol creates the workspace if needed and wai
 
 `POST /api/rules/:id/run` with body `{"pr_id": "..."}` (or `{"session_id": "..."}`). Add `?force=true` to bypass cooldown.
 
+### Bulk fire (run for all matching)
+
+`POST /api/rules/:id/run-all` with body `{"subscribe": true}` fires the rule against every PR matching its `where` clause. For rules with `requires_subscription: true`, `subscribe: true` auto-subscribes the matching PRs first; without it, unsubscribed PRs are skipped. `force: true` bypasses cooldown and the subscription gate. Fires happen in parallel server-side; the response returns immediately with `{ fired: [{pr_id, run_id}], skipped: [{pr_id, reason}] }`.
+
+Use case: "rebase every conflicted PR right now":
+```sh
+curl -X POST -H 'content-type: application/json' \
+  http://localhost:3000/api/rules/auto-rebase-on-conflict/run-all \
+  -d '{"subscribe": true}'
+```
+
+Same available from the dashboard PR detail view via "Run for all matching" next to each rule, or from inside a Claude session via the `run_rule_for_all_matching_prs` MCP tool ("ask Claude to fire X for everyone").
+
 ## Architecture
 
 ```
@@ -247,7 +260,7 @@ No native database dependencies - `node:sqlite` is built into Node.js.
 
 **Sessions**: `POST /api/sessions`, `GET /api/sessions`, `DELETE /api/sessions/:id`, `POST /api/sessions/:id/popout`, `GET /api/sessions/history`, `GET /api/sessions/:id/transcript`
 
-**Rules**: `GET /api/rules`, `GET /api/rules/runs`, `POST /api/rules/:id/run`, `GET /api/rules/:id/subscriptions`, `POST /api/rules/:id/subscribe`, `DELETE /api/rules/:id/subscribe`, `GET /api/prs/:pr_id/rule-subscriptions`
+**Rules**: `GET /api/rules`, `GET /api/rules/runs`, `POST /api/rules/:id/run`, `POST /api/rules/:id/run-all`, `GET /api/rules/:id/subscriptions`, `POST /api/rules/:id/subscribe`, `DELETE /api/rules/:id/subscribe`, `GET /api/prs/:pr_id/rule-subscriptions`
 
 **Other**: `POST /api/sync/trigger`, `GET /api/config`, `GET /api/events` (SSE), `POST /api/checks/retrigger`
 

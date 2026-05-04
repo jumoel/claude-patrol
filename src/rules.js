@@ -440,7 +440,9 @@ function cooldownOk(rule, cooldownKey) {
  */
 export async function fireRule(rule, ctx) {
   const db = getDb();
-  const id = randomUUID();
+  // Caller may pre-assign an id (e.g. bulk run-all wants to return ids before
+  // the fire completes). Fall back to a fresh UUID otherwise.
+  const id = ctx._id ?? randomUUID();
   const startedAt = new Date().toISOString();
 
   let runRow = {
@@ -696,6 +698,73 @@ export function listSubscriptions(opts = {}) {
     return db.prepare('SELECT * FROM rule_subscriptions WHERE pr_id = ? ORDER BY created_at DESC').all(opts.pr_id);
   }
   return db.prepare('SELECT * FROM rule_subscriptions ORDER BY created_at DESC').all();
+}
+
+/**
+ * Fire a rule against every PR matching its `where` clause. Used for bulk catch-up
+ * (e.g. "auto-rebase every conflicted PR right now"). Fires are kicked off in
+ * parallel and the function returns immediately with a list of fired/skipped PRs;
+ * the caller watches the `rule-run` SSE event for progress.
+ *
+ * @param {string} ruleId
+ * @param {{force?: boolean, subscribe?: boolean}} options
+ *   - force: bypass cooldown + subscription gates
+ *   - subscribe: when the rule has requires_subscription, auto-subscribe matching PRs first
+ * @returns {{fired: Array<{pr_id: string, run_id: string}>, skipped: Array<{pr_id: string, reason: string}>}}
+ */
+export function runRuleForAll(ruleId, options = {}) {
+  const rule = rules.get(ruleId);
+  if (!rule) throw new Error(`unknown rule: ${ruleId}`);
+  if (!PR_TRIGGERS.has(rule.on)) {
+    throw new Error(`run-all is only supported on PR triggers (got '${rule.on}')`);
+  }
+
+  const db = getDb();
+  const allRows = db.prepare('SELECT * FROM prs').all();
+  const fired = [];
+  const skipped = [];
+
+  for (const row of allRows) {
+    const pr = formatPR(row);
+    const predCtx = buildPrPredCtx(pr);
+    if (!matches(rule.where, predCtx)) continue;
+
+    if (rule.requires_subscription && !options.force && !isSubscribed(rule.id, pr.id)) {
+      if (options.subscribe) {
+        try {
+          subscribeRule(rule.id, pr.id);
+        } catch (err) {
+          skipped.push({ pr_id: pr.id, reason: `subscribe_failed: ${err.message}` });
+          continue;
+        }
+      } else {
+        skipped.push({ pr_id: pr.id, reason: 'not_subscribed' });
+        continue;
+      }
+    }
+
+    if (!options.force && !cooldownOk(rule, pr.id)) {
+      skipped.push({ pr_id: pr.id, reason: 'cooldown' });
+      continue;
+    }
+
+    // Fire-and-forget. The fireRule INSERT is synchronous so the run_id is
+    // already valid when this returns; the action chain runs in the background.
+    const runId = randomUUID();
+    fireRule(rule, {
+      trigger: rule.on,
+      pr_id: pr.id,
+      workspace_id: null,
+      session_id: null,
+      cooldown_key: pr.id,
+      tmplCtx: { pr, session: null },
+      _id: runId,
+    }).catch((err) => console.warn(`[rules] run-all fire error for ${pr.id}: ${err.message}`));
+    fired.push({ pr_id: pr.id, run_id: runId });
+  }
+
+  console.log(`[rules] run-all rule=${ruleId}: fired=${fired.length} skipped=${skipped.length}`);
+  return { fired, skipped };
 }
 
 /**

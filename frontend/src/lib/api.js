@@ -428,3 +428,17 @@ export async function runRuleManually(ruleId, { pr_id, session_id, force } = {})
   if (!res.ok) throw new Error((await res.json()).error || `Failed: ${res.status}`);
   return res.json();
 }
+
+/**
+ * Fire a rule against every PR matching its `where` clause. Returns a list
+ * of fired PRs and skipped PRs (with reasons). Fires happen async server-side.
+ */
+export async function runRuleForAll(ruleId, { subscribe, force } = {}) {
+  const res = await fetch(`${BASE}/api/rules/${encodeURIComponent(ruleId)}/run-all`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ subscribe: !!subscribe, force: !!force }),
+  });
+  if (!res.ok) throw new Error((await res.json()).error || `Failed: ${res.status}`);
+  return res.json();
+}

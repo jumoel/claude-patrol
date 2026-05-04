@@ -1,5 +1,24 @@
 # Build Log
 
+## 2026-05-04 - Rules: bulk fire ("run for all matching") via API, MCP, and UI
+
+The "I want auto-rebase to fire on all 12 conflicted PRs right now, without manually arming each one" use case. New `POST /api/rules/:id/run-all` endpoint scans every PR, applies the rule's `where` clause as a filter, and fires the rule against each match.
+
+Body knobs:
+- `subscribe: true` - when the rule has `requires_subscription`, auto-subscribe matching PRs first. Combined with `one_shot: true`, this becomes "one-time fire on every match"; subscriptions are consumed on success.
+- `force: true` - bypass cooldown AND the subscription gate. Use sparingly.
+
+Fires are kicked off as fire-and-forget in parallel server-side - the endpoint returns immediately with `{ fired: [{pr_id, run_id}], skipped: [{pr_id, reason}] }`. Caller watches the existing `rule-run` SSE event for progress. `fireRule` now accepts a pre-assigned `ctx._id` so the bulk path can return run ids before the runs complete.
+
+Same surface available from three places:
+- HTTP: `POST /api/rules/:id/run-all`
+- MCP: new `run_rule_for_all_matching_prs` tool (`ruleFireable: false` - admin only, no recursion)
+- UI: "Run for all matching" button alongside the per-PR "Run now" button on PR detail. For requires_subscription rules the button asks "auto-subscribe and fire?" before submitting; otherwise just confirms cooldown still applies per-PR.
+
+Refused for non-PR triggers (session.idle has no notion of "all matching") with a clear error.
+
+Verified end-to-end: 19-PR repo, two rules. Default mode skipped one PR for cooldown and one for not_subscribed. `subscribe: true` auto-armed and fired the unsubscribed one. `force: true` bypassed cooldown and fired both. Run rows landed in the DB with the exact ids the endpoint returned.
+
 ## 2026-05-04 - Rules: three new PR triggers (mergeable.changed, labels.changed, draft.changed)
 
 The poller has been emitting `pr-changed` events with `changes.mergeable`, `changes.labels`, and `changes.draft` since plan 17, but the rules engine only consumed `changes.ci_status`. This commit unlocks the rest.
