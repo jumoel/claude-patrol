@@ -1,23 +1,15 @@
 /**
- * Send a command to a Claude terminal via WebSocket, delivering the final
- * Enter keystroke as a separate message after a short delay.  This ensures
- * the PTY processes the full command text before the Enter arrives - without
- * the split, fast sends can swallow the Enter.
+ * Submit a prompt to a Claude terminal via WebSocket. Sends a single
+ * `prompt-submit` message; the server-side handler writes the text, waits
+ * briefly for the PTY to paint the input field, then writes Enter as a
+ * separate write. The split-write timing lives in `pty-manager.js` and is
+ * shared with the server-side rules engine - sending text+Enter in one
+ * write can cause Claude's TUI to swallow the Enter.
  *
  * @param {WebSocket} ws  - Open WebSocket connection to the terminal
- * @param {string}    cmd - Command text (any trailing \r is stripped automatically)
- * @param {{ delay?: number }} [opts]
+ * @param {string}    cmd - Command text (any trailing \r is stripped server-side)
  */
-export function sendTerminalCommand(ws, cmd, { delay = 100 } = {}) {
+export function sendTerminalCommand(ws, cmd) {
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
-
-  // Strip trailing carriage-return so callers don't have to remember
-  const text = cmd.replace(/\r+$/, '');
-
-  ws.send(JSON.stringify({ type: 'input', data: text }));
-  setTimeout(() => {
-    if (ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'input', data: '\r' }));
-    }
-  }, delay);
+  ws.send(JSON.stringify({ type: 'prompt-submit', text: cmd }));
 }

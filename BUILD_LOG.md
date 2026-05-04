@@ -1,5 +1,17 @@
 # Build Log
 
+## 2026-05-04 - Single source of truth for prompt-submit timing; remove per-PR bulk-fire button
+
+Two related changes.
+
+The prior fix solved the "Enter not pressed" bug by mirroring the frontend's split-write pattern in a new `sendPromptToSession` helper on the backend. That left two parallel implementations of the same pattern: frontend `sendTerminalCommand` and backend `sendPromptToSession`. Either could drift and re-introduce the bug.
+
+Structural fix: a new `prompt-submit` WebSocket message type. The frontend stops doing the split client-side and just sends `{ type: 'prompt-submit', text }`. The server-side WS handler unpacks it via the same internal `submitPromptToEntry(entry, text)` helper that `sendPromptToSession` calls. The split logic and timing constant (`PROMPT_SUBMIT_DELAY_MS = 100`) live in exactly one place. Future entry points (CLI, MCP raw-input tool, Electron) using either the WS protocol or the server-side helper get the correct behavior automatically.
+
+Side effect: `sendTerminalCommand` shrinks from a setTimeout-based two-message sender to a one-line WS dispatch. The frontend no longer carries split-timing knowledge.
+
+Second change: the "Run for all matching" button on the PR detail's Rules section is gone. Bulk-fire is a global concern - it doesn't belong attached to a specific PR. The dashboard summary's Rules dropdown is the canonical place; the per-PR view keeps only Subscribe/Unsubscribe and Run now (which scopes to that PR).
+
 ## 2026-05-04 - Rules: dispatch_claude split-write to match the frontend's submit pattern
 
 User reported that an auto-rebase fire landed the prompt in Claude's input field but never pressed Enter, leaving the rule_run in success state with nothing happening. The bug: `dispatchClaude` did `writeToSession(id, prompt + '\r')` in one write, which the TUI can swallow while it's still painting the input field.

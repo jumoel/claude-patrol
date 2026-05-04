@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   fetchPRRuleSubscriptions,
   fetchRules,
-  runRuleForAll,
   runRuleManually,
   subscribeRuleForPR,
   unsubscribeRuleForPR,
@@ -100,32 +99,6 @@ export function RuleControls({ prId }) {
     [prId],
   );
 
-  const fireForAll = useCallback(async (rule) => {
-    const subscribe =
-      rule.requires_subscription === true &&
-      window.confirm(
-        `Run "${rule.id}" for ALL matching PRs?\n\nThis rule requires subscription. Click OK to auto-subscribe and fire on every match. Cancel to abort.`,
-      );
-    if (rule.requires_subscription === true && !subscribe) return;
-    if (
-      rule.requires_subscription !== true &&
-      !window.confirm(`Run "${rule.id}" for ALL matching PRs? Cooldown still applies per-PR.`)
-    ) {
-      return;
-    }
-    setBusyRule(rule.id);
-    setError(null);
-    try {
-      const result = await runRuleForAll(rule.id, { subscribe });
-      const fired = result.fired?.length ?? 0;
-      const skipped = result.skipped?.length ?? 0;
-      window.alert(`Fired: ${fired}\nSkipped: ${skipped}\n\nWatch the dashboard Rules dropdown for results.`);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setBusyRule(null);
-    }
-  }, []);
 
   if (loading) return null;
 
@@ -185,9 +158,6 @@ export function RuleControls({ prId }) {
               )}
               <Button size="sm" variant="primary" onClick={() => fireRule(rule)} disabled={isBusy}>
                 {isBusy ? 'Running...' : 'Run now'}
-              </Button>
-              <Button size="sm" onClick={() => fireForAll(rule)} disabled={isBusy} title="Fire this rule against every PR matching its where clause">
-                Run for all matching
               </Button>
             </Stack>
           </div>

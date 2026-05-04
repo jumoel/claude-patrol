@@ -487,6 +487,12 @@ export function attachSession(sessionId, ws) {
       } else {
         entry.proc.write(msg.data);
       }
+    } else if (msg.type === 'prompt-submit') {
+      // Programmatic prompt submission: write the text, wait briefly, write
+      // Enter. Shares `submitPromptToEntry` with the server-side rules engine
+      // so the split timing lives in one place. Frontend Quick Actions and
+      // any future programmatic submitter use this message type.
+      submitPromptToEntry(entry, String(msg.text ?? '')).catch(() => {});
     } else if (msg.type === 'resize') {
       try {
         entry.proc.resize(msg.cols, msg.rows);
@@ -704,24 +710,53 @@ export function writeToSession(sessionId, text) {
 }
 
 /**
+ * Default delay between writing prompt text and writing the Enter that
+ * submits it. Single source of truth for both the WS `prompt-submit` handler
+ * and the server-side `sendPromptToSession` helper. If you find yourself
+ * defining a "delay" constant elsewhere for the same purpose, route through
+ * here instead.
+ */
+const PROMPT_SUBMIT_DELAY_MS = 100;
+
+/**
+ * Internal: write `text + Enter` to a session entry's PTY using the two-step
+ * split that Claude's TUI requires (text first, brief delay, then Enter).
+ * Sending them as a single write can cause the TUI to swallow Enter while
+ * still painting the input field.
+ *
+ * Both the WebSocket `prompt-submit` handler and `sendPromptToSession` route
+ * through here so the split lives in exactly one place.
+ *
+ * @param {object} entry - session entry from `sessions` map
+ * @param {string} text
+ * @param {number} delay
+ * @returns {Promise<void>}
+ */
+async function submitPromptToEntry(entry, text, delay = PROMPT_SUBMIT_DELAY_MS) {
+  const stripped = text.replace(/\r+$/, '');
+  entry.proc.write(stripped);
+  await new Promise((r) => setTimeout(r, delay));
+  entry.proc.write('\r');
+}
+
+/**
  * Submit a prompt to a Claude session: write the text, wait briefly so the
  * PTY can render it into the input field, then send Enter as a separate
- * write. Mirrors the frontend's `sendTerminalCommand` (lib/terminal.js) which
- * uses the same two-step pattern - sending text+Enter in one write can cause
- * Claude's TUI to swallow the Enter while the input is still being painted.
+ * write. Server-side counterpart to the WS `prompt-submit` message - both
+ * share the same `submitPromptToEntry` helper, so the split timing can't drift.
  *
  * Strips any trailing `\r` from the input. The Enter is always sent.
  *
  * @param {string} sessionId
  * @param {string} prompt
  * @param {{delay?: number}} [opts] - ms to wait between text and Enter (default 100)
- * @returns {Promise<boolean>} false if session not found, true if both writes succeeded
+ * @returns {Promise<boolean>} false if session not found
  */
-export async function sendPromptToSession(sessionId, prompt, { delay = 100 } = {}) {
-  const text = prompt.replace(/\r+$/, '');
-  if (!writeToSession(sessionId, text)) return false;
-  await new Promise((r) => setTimeout(r, delay));
-  return writeToSession(sessionId, '\r');
+export async function sendPromptToSession(sessionId, prompt, { delay = PROMPT_SUBMIT_DELAY_MS } = {}) {
+  const entry = sessions.get(sessionId);
+  if (!entry) return false;
+  await submitPromptToEntry(entry, prompt, delay);
+  return true;
 }
 
 /**
