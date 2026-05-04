@@ -1,5 +1,15 @@
 # Build Log
 
+## 2026-05-04 - Replace hand-rolled config validation with zod schema
+
+Precursor to plan 18 (rules engine). `src/config.js` had a hand-rolled `validate(cfg)` that walked a `REQUIRED_FIELDS` table, asserted types per field, and ran `OWNER_REPO_RE.test(...)` over each `poll.repos` entry. Errors were one-line strings. Adding `rules` would mean another nested validator block in the same file, which conflicts with how the rules engine wants to validate its own array per-rule.
+
+The new `configSchema` is a top-level zod object with `.passthrough()` so unknown sections survive untouched. `cfg.rules` (and any other future passthrough section) lands in the loaded config without being centrally validated, which keeps the `watchConfig` reload path tolerant: a single bad rule no longer rejects the entire config. `loadConfig` runs `configSchema.safeParse`, formats the issue list with field paths, and throws a multi-line error on failure. Defaults move into the schema; path expansion over `PATH_FIELDS` and `Object.freeze` stay where they were.
+
+The `repos` schema declares `symlinks` as `z.array(z.string()).optional()` to match how `src/workspace.js` actually consumes the field. The plan example showed `{source, target}` objects; the real code reads relative paths.
+
+Verified parity by loading the existing user config before and after. Same keys, same values, same defaults filled in. Passthrough confirmed by injecting `rules: [{ id: "x" }]` into the config and observing it round-trip through `loadConfig`. Server boots cleanly on a scratch port with the new validator.
+
 ## 2026-05-04 - Refactor SSE registration to be array-driven
 
 Precursor to plan 18 (rules engine). The `/api/events` SSE handler in `src/server.js` used to register each forwarded event by hand. Five event types meant five handler definitions, five `.on(...)` calls, and five `.removeListener(...)` calls on close. Adding a sixth (`rule-run` for the rules engine) would mean three more boilerplate sites for a one-line change in intent.

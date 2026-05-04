@@ -1,6 +1,7 @@
 import { EventEmitter } from 'node:events';
 import { existsSync, readFileSync, unwatchFile, watchFile, writeFileSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
+import { z } from 'zod';
 import { configPath, dataDir, defaultDbPath } from './paths.js';
 import { expandPath } from './utils.js';
 
@@ -8,50 +9,37 @@ const CONFIG_PATH = configPath();
 
 const PATH_FIELDS = ['db_path', 'workspace_base_path', 'work_dir', 'global_terminal_cwd'];
 
-const REQUIRED_FIELDS = {
-  port: (v) => typeof v === 'number',
-  workspace_base_path: (v) => typeof v === 'string',
-  work_dir: (v) => typeof v === 'string',
-};
-
-/**
- * Validate config object. Throws on invalid.
- * @param {Record<string, unknown>} cfg
- */
 const OWNER_REPO_RE = /^[^/]+\/[^/]+$/;
 
-function validate(cfg) {
-  for (const [field, predicate] of Object.entries(REQUIRED_FIELDS)) {
-    if (!(field in cfg)) {
-      throw new Error(`Missing required config field: ${field}`);
-    }
-    if (!predicate(cfg[field])) {
-      throw new Error(`Config field "${field}" has invalid value: ${JSON.stringify(cfg[field])}`);
-    }
-  }
-
-  if (!cfg.poll || typeof cfg.poll !== 'object') {
-    throw new Error('Missing required config field: poll (object with orgs and/or repos arrays)');
-  }
-
-  cfg.poll.orgs = cfg.poll.orgs || [];
-  cfg.poll.repos = cfg.poll.repos || [];
-
-  if (!Array.isArray(cfg.poll.orgs)) {
-    throw new Error('Config field "poll.orgs" must be an array');
-  }
-  if (!Array.isArray(cfg.poll.repos)) {
-    throw new Error('Config field "poll.repos" must be an array');
-  }
-  if (typeof cfg.poll.interval_seconds !== 'number' || cfg.poll.interval_seconds < 5) {
-    throw new Error('Config field "poll.interval_seconds" must be a number >= 5');
-  }
-  for (const repo of cfg.poll.repos) {
-    if (!OWNER_REPO_RE.test(repo)) {
-      throw new Error(`Invalid poll.repos entry "${repo}" - must be "owner/repo" format`);
-    }
-  }
-}
+export const configSchema = z
+  .object({
+    port: z.number().int().positive().default(3000),
+    db_path: z.string().optional(),
+    workspace_base_path: z.string().default('~/.claude-patrol/workspaces'),
+    work_dir: z.string().default('~/.claude-patrol/workspaces'),
+    global_terminal_cwd: z.string().optional(),
+    symlink_memory: z.boolean().default(false),
+    poll: z
+      .object({
+        interval_seconds: z.number().int().min(5).default(30),
+        orgs: z.array(z.string()).default([]),
+        repos: z
+          .array(z.string().regex(OWNER_REPO_RE, 'must be "owner/repo" format'))
+          .default([]),
+      })
+      .default({ interval_seconds: 30, orgs: [], repos: [] }),
+    repos: z
+      .record(
+        z.string(),
+        z.object({
+          symlinks: z.array(z.string()).optional(),
+          initCommands: z.array(z.string()).optional(),
+        }),
+      )
+      .optional(),
+    // pass-through for unknown keys (rules array etc.)
+  })
+  .passthrough();
 
 /**
  * Read and validate config from disk. Path fields are expanded (~ -> home).
@@ -97,14 +85,20 @@ export function getConfigPath() {
 
 export function loadConfig() {
   const raw = readFileSync(CONFIG_PATH, 'utf8');
-  const cfg = JSON.parse(raw);
+  const parsed = JSON.parse(raw);
+  const result = configSchema.safeParse(parsed);
+  if (!result.success) {
+    const issues = result.error.issues
+      .map((i) => `  ${i.path.join('.')}: ${i.message}`)
+      .join('\n');
+    throw new Error(`Invalid config:\n${issues}`);
+  }
+  const cfg = result.data;
 
   // Default db_path if not set
   if (!cfg.db_path) {
     cfg.db_path = defaultDbPath();
   }
-
-  validate(cfg);
 
   for (const field of PATH_FIELDS) {
     if (cfg[field]) {
