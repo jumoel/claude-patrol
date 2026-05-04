@@ -1,5 +1,13 @@
 # Build Log
 
+## 2026-05-04 - Fix: parseWsMessage was dropping prompt-submit messages
+
+User reported "Investigate failures button doesn't work anymore." Root cause: the f2436f3 refactor that introduced the `prompt-submit` WS message type added a handler arm in `attachSession`'s message switch (`src/pty-manager.js:490`) but did not update the validator at `src/pty-manager.js:438`. `parseWsMessage` whitelists `input` and `resize`; `prompt-submit` returned `null` and the handler short-circuited at `if (!msg) return` before reaching the new arm. Every frontend `sendTerminalCommand` call (Investigate failures, every QuickActions button) was silently dropped.
+
+One-line fix: add `if (msg.type === 'prompt-submit' && typeof msg.text === 'string') return msg;` to the validator. Verified by sending a marker prompt-submit through a real WS connection and watching the marker text echo back in the PTY output.
+
+The structural risk - validator and handler are two independently-maintained lists of message types - is captured in `claude-patrol#2` for a follow-up cleanup. The brittle 500ms `setTimeout` and silent-failure UX in `handleInvestigateFailures` (which hid this regression from earlier detection) is `claude-patrol#3`.
+
 ## 2026-05-04 - Rules: bulk subscribe ("subscribe all matching") via API, MCP, and UI
 
 Companion to the existing bulk-fire surface. New `POST /api/rules/:id/subscribe-all` opts every PR matching a subscription rule's `where` clause into that rule, without firing anything. Use case: "subscribe every conflicted PR to auto-rebase from now on" without the destructive blast radius of `run-all` with `subscribe: true`.

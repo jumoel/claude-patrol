@@ -439,6 +439,7 @@ function parseWsMessage(raw) {
   try {
     const msg = JSON.parse(raw);
     if (msg.type === 'input' && typeof msg.data === 'string') return msg;
+    if (msg.type === 'prompt-submit' && typeof msg.text === 'string') return msg;
     if (msg.type === 'resize' && Number.isInteger(msg.cols) && Number.isInteger(msg.rows)) return msg;
     return null;
   } catch {
