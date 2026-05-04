@@ -30,6 +30,9 @@ import { createWorkspace } from './workspace.js';
 
 const FINAL_CI = new Set(['pass', 'fail']);
 
+/** Triggers whose context comes from a PR (carry pr.id, support `where` PR fields). */
+const PR_TRIGGERS = new Set(['ci.finalized', 'mergeable.changed', 'labels.changed', 'draft.changed']);
+
 const PR_WHERE_FIELDS = new Set([
   'repo',
   'org',
@@ -84,7 +87,7 @@ const actionSchema = z.discriminatedUnion('type', [dispatchClaudeAction, mcpActi
 const ruleSchema = z
   .object({
     id: z.string().min(1),
-    on: z.enum(['ci.finalized', 'session.idle']),
+    on: z.enum(['ci.finalized', 'mergeable.changed', 'labels.changed', 'draft.changed', 'session.idle']),
     where: whereSchema.optional(),
     actions: z.array(actionSchema).min(1),
     cooldown_minutes: z.number().int().nonnegative().default(10),
@@ -106,11 +109,11 @@ const ruleSchema = z
     }
 
     // Subscriptions are keyed by pr_id, so they only make sense for PR triggers.
-    if (rule.requires_subscription && rule.on !== 'ci.finalized') {
+    if (rule.requires_subscription && !PR_TRIGGERS.has(rule.on)) {
       ctx.addIssue({
         code: 'custom',
         path: ['requires_subscription'],
-        message: "requires_subscription is only supported on 'ci.finalized' triggers",
+        message: `requires_subscription is only supported on PR triggers (${[...PR_TRIGGERS].join(', ')})`,
       });
     }
 
@@ -160,7 +163,7 @@ const ruleSchema = z
 
     // where keys must be valid for the trigger type.
     if (rule.where) {
-      const allowed = rule.on === 'ci.finalized' ? PR_WHERE_FIELDS : SESSION_WHERE_FIELDS;
+      const allowed = PR_TRIGGERS.has(rule.on) ? PR_WHERE_FIELDS : SESSION_WHERE_FIELDS;
       for (const key of Object.keys(rule.where)) {
         if (!allowed.has(key)) {
           ctx.addIssue({
@@ -266,26 +269,35 @@ export function getRuleLoadErrors() {
 }
 
 /**
- * Dispatch a `pr-changed` event to matching rules with `on: 'ci.finalized'`.
+ * Dispatch a `pr-changed` event to matching rules. Two triggers consume this:
+ *   - `ci.finalized`: fires when changes.ci_status.to is in {pass, fail}.
+ *   - `mergeable.changed`: fires when changes.mergeable exists.
+ * Both share the same dispatch shape (pr-context, same predCtx/tmplCtx).
  * @param {{pr: object, prev: object, changes: object}} event
  */
 async function handlePrChanged(event) {
   const { pr, changes } = event;
-  if (!changes?.ci_status) return;
-  if (!FINAL_CI.has(changes.ci_status.to)) return;
+  if (!changes) return;
+
+  const matchedTriggers = [];
+  if (changes.ci_status && FINAL_CI.has(changes.ci_status.to)) matchedTriggers.push('ci.finalized');
+  if (changes.mergeable) matchedTriggers.push('mergeable.changed');
+  if (changes.labels) matchedTriggers.push('labels.changed');
+  if (changes.draft) matchedTriggers.push('draft.changed');
+  if (matchedTriggers.length === 0) return;
 
   const predCtx = buildPrPredCtx(pr);
   const tmplCtx = { pr, session: null };
 
   for (const rule of rules.values()) {
-    if (rule.on !== 'ci.finalized') continue;
+    if (!matchedTriggers.includes(rule.on)) continue;
     if (rule.manual) continue;
     if (!matches(rule.where, predCtx)) continue;
     if (rule.requires_subscription && !isSubscribed(rule.id, pr.id)) continue;
     const cooldownKey = pr.id;
     if (!cooldownOk(rule, cooldownKey)) continue;
     await fireRule(rule, {
-      trigger: 'ci.finalized',
+      trigger: rule.on,
       pr_id: pr.id,
       workspace_id: null,
       session_id: null,
@@ -569,8 +581,8 @@ export async function manualRunRule(ruleId, options = {}) {
   if (!rule) throw new Error(`unknown rule: ${ruleId}`);
 
   const db = getDb();
-  if (rule.on === 'ci.finalized') {
-    if (!options.pr_id) throw new Error('pr_id required for ci.finalized rules');
+  if (PR_TRIGGERS.has(rule.on)) {
+    if (!options.pr_id) throw new Error(`pr_id required for ${rule.on} rules`);
     const row = db.prepare('SELECT * FROM prs WHERE id = ?').get(options.pr_id);
     if (!row) throw new Error(`pr not found: ${options.pr_id}`);
     const pr = formatPR(row);
@@ -579,7 +591,7 @@ export async function manualRunRule(ruleId, options = {}) {
       throw new Error('cooldown active (pass force=true to bypass)');
     }
     return fireRule(rule, {
-      trigger: 'ci.finalized',
+      trigger: rule.on,
       pr_id: pr.id,
       workspace_id: null,
       session_id: null,

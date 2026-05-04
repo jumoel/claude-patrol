@@ -1,5 +1,24 @@
 # Build Log
 
+## 2026-05-04 - Rules: three new PR triggers (mergeable.changed, labels.changed, draft.changed)
+
+The poller has been emitting `pr-changed` events with `changes.mergeable`, `changes.labels`, and `changes.draft` since plan 17, but the rules engine only consumed `changes.ci_status`. This commit unlocks the rest.
+
+Three new triggers in the `on` enum:
+- `mergeable.changed` - fires when a PR's mergeable status transitions (MERGEABLE / CONFLICTING / UNKNOWN). Filter via `where: { mergeable: 'CONFLICTING' }` for the typical "auto-rebase on conflict" case.
+- `labels.changed` - fires when labels are added or removed. Combine with `where: { labels: ["foo"] }` to fire only when the post-change label set still contains the target.
+- `draft.changed` - fires on draft to ready transitions and back.
+
+All three are PR triggers (carry pr.id, support the same `where` fields as `ci.finalized`). The schema is generalized via a `PR_TRIGGERS` set so adding more later is one entry. `requires_subscription`, `manual`, `one_shot`, and the cooldown machinery all work uniformly across PR triggers.
+
+`handlePrChanged` now collects matched triggers into an array and dispatches each rule whose `on` is in the set. A single `pr-changed` event with multiple changed fields can fire multiple rules in one tick.
+
+Frontend `RuleControls` shows rules for any PR trigger now, not just `ci.finalized`. Empty-state messaging updated to match.
+
+User config gets the auto-rebase-on-conflict rule alongside auto-retrigger-on-fail. Both are `requires_subscription: true, one_shot: true`.
+
+Verified end-to-end: a `mergeable.changed` rule with `requires_subscription` correctly fires only for subscribed PRs and only when the new mergeable value matches the where clause. `trigger: 'mergeable.changed'` populated correctly on the rule_run row.
+
 ## 2026-05-04 - Rules: one_shot flag consumes subscription on success
 
 Adds a `one_shot: true` rule field. When a one-shot rule auto-fires successfully, the underlying `rule_subscriptions` row is deleted automatically - the next trigger won't fire for that PR until the user clicks Arm again. Failed runs leave the subscription alone so the next trigger gets another shot.

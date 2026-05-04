@@ -39,7 +39,8 @@ export function RuleControls({ prId }) {
     }
   }, [prId]);
 
-  const rules = allRules.filter((r) => r.on === 'ci.finalized');
+  const PR_TRIGGERS = ['ci.finalized', 'mergeable.changed', 'labels.changed', 'draft.changed'];
+  const rules = allRules.filter((r) => PR_TRIGGERS.includes(r.on));
 
   useEffect(() => {
     load();
@@ -116,7 +117,7 @@ export function RuleControls({ prId }) {
         )}
         {sessionRuleCount > 0 && (
           <p className={styles.empty}>
-            {sessionRuleCount} rule(s) loaded, but none target PRs (none have <code>on: "ci.finalized"</code>).
+            {sessionRuleCount} rule(s) loaded, but none target PRs.
           </p>
         )}
         {ruleErrors.length > 0 && (

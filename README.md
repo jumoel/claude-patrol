@@ -125,6 +125,9 @@ Declarative reactions to PR-state transitions and Claude session activity. Add a
 ### Triggers (`on`)
 
 - `ci.finalized` - all CI checks for a PR transitioned from non-final to final this poll cycle. Fires once per transition.
+- `mergeable.changed` - a PR's mergeable status (`MERGEABLE` / `CONFLICTING` / `UNKNOWN`) just changed. Filter to the case you care about with `where: { mergeable: ... }`.
+- `labels.changed` - one or more labels were added or removed on a PR. Use `where: { labels: ["foo"] }` to fire only when the label set still contains specific labels (e.g. "after `auto-merge` is added").
+- `draft.changed` - a PR transitioned between draft and ready-for-review. Use `where: { draft: false }` for "ready-for-review" or `where: { draft: true }` for "moved back to draft".
 - `session.idle` - a Claude session just emitted an `idle` state.
 
 ### Predicates (`where`)
@@ -133,13 +136,15 @@ Flat object, all keys must match (implicit AND). No nesting, no operators. For O
 
 | Field | Trigger | Match form |
 |---|---|---|
-| `repo` (`org/repo`) | ci.finalized | scalar or array |
-| `org`, `branch`, `base_branch`, `author` | ci.finalized | scalar or array |
-| `ci_status` (`pass` / `fail` / `pending`) | ci.finalized | scalar or array |
-| `mergeable` (`MERGEABLE` / `CONFLICTING` / `UNKNOWN`) | ci.finalized | scalar or array |
-| `draft` | ci.finalized | boolean |
-| `labels` | ci.finalized | array of strings, ALL must be present |
+| `repo` (`org/repo`) | PR triggers | scalar or array |
+| `org`, `branch`, `base_branch`, `author` | PR triggers | scalar or array |
+| `ci_status` (`pass` / `fail` / `pending`) | PR triggers | scalar or array |
+| `mergeable` (`MERGEABLE` / `CONFLICTING` / `UNKNOWN`) | PR triggers | scalar or array |
+| `draft` | PR triggers | boolean |
+| `labels` | PR triggers | array of strings, ALL must be present |
 | `workspace_repo` | session.idle | scalar or array |
+
+"PR triggers" means `ci.finalized` and `mergeable.changed` - both carry a PR context. `session.idle` only supports `workspace_repo`.
 
 Invalid values (e.g. `ci_status: "success"`) are rejected at load time with a clear error.
 
@@ -171,6 +176,27 @@ By default a rule auto-fires for any PR that matches its `where`. Two opt-out fl
 ```
 
 With this rule, you open a PR, click "Arm" in the Rules section, and the next time that PR's CI finalizes as fail patrol retriggers the failed checks once. The button flips back to "Not subscribed" after the run completes - click Arm again if you want another retry.
+
+A second example using the `mergeable.changed` trigger to auto-rebase a branch when GitHub reports it conflicting:
+
+```json
+{
+  "id": "auto-rebase-on-conflict",
+  "on": "mergeable.changed",
+  "where": { "mergeable": "CONFLICTING", "draft": false },
+  "requires_subscription": true,
+  "one_shot": true,
+  "actions": [
+    {
+      "type": "dispatch_claude",
+      "prompt": "PR {{pr.id}} just transitioned to CONFLICTING. Run `jj git fetch`, then `jj rebase -d {{pr.base_branch}}@origin`. Resolve conflicts via `jj status` and `jj squash`. Run the project's test suite. If tests pass, `jj bookmark set {{pr.branch}} -r @` and `jj git push`. If tests fail, report what failed."
+    }
+  ],
+  "cooldown_minutes": 60
+}
+```
+
+Same Arm/Subscribe flow as above. Patrol creates the workspace if needed and waits for Claude to boot before sending the prompt.
 
 ### Lifecycle
 
