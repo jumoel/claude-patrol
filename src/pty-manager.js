@@ -4,7 +4,7 @@ import { chmodSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import pty from 'node-pty';
-import { emitSessionState } from './app-events.js';
+import { appEvents, emitSessionState } from './app-events.js';
 import { getDb } from './db.js';
 import { mcpConfigPath as getMcpConfigPath } from './paths.js';
 import { archiveTranscript } from './transcripts.js';
@@ -12,6 +12,7 @@ import { expandPath, toClaudeProjectKey } from './utils.js';
 
 const BUFFER_MAX = 50_000;
 const IDLE_THRESHOLD_MS = 5000;
+export const BOOT_TIMEOUT_MS_DEFAULT = 30_000;
 
 /**
  * Strip ANSI escape sequences and return the count of printable characters.
@@ -685,4 +686,55 @@ export function reattachSession(sessionId) {
   });
 
   return db.prepare('SELECT * FROM sessions WHERE id = ?').get(sessionId);
+}
+
+/**
+ * Write text directly into a session's PTY. Used by server-side callers
+ * (rules engine, future automation) to inject prompts. Callers append
+ * any submission key (e.g. '\r') themselves.
+ * @param {string} sessionId
+ * @param {string} text
+ * @returns {boolean} false if session not found or not active
+ */
+export function writeToSession(sessionId, text) {
+  const entry = sessions.get(sessionId);
+  if (!entry) return false;
+  entry.proc.write(text);
+  return true;
+}
+
+/**
+ * Resolve when the session emits its first 'idle' event after this call.
+ * If the session is already in 'idle' state, resolves immediately.
+ * Rejects if the session exits, is not found, or the timeout elapses.
+ * @param {string} sessionId
+ * @param {number} [timeoutMs=BOOT_TIMEOUT_MS_DEFAULT]
+ * @returns {Promise<void>}
+ */
+export function waitForFirstIdle(sessionId, timeoutMs = BOOT_TIMEOUT_MS_DEFAULT) {
+  return new Promise((resolve, reject) => {
+    const entry = sessions.get(sessionId);
+    if (!entry) return reject(new Error(`Session ${sessionId} not found`));
+    if (entry.activityState === 'idle') return resolve();
+
+    const handler = (data) => {
+      if (data.sessionId !== sessionId) return;
+      if (data.state === 'idle') {
+        cleanup();
+        resolve();
+      } else if (data.state === 'exited') {
+        cleanup();
+        reject(new Error(`Session ${sessionId} exited before reaching idle`));
+      }
+    };
+    const timer = setTimeout(() => {
+      cleanup();
+      reject(new Error(`Session ${sessionId} did not reach idle within ${timeoutMs}ms`));
+    }, timeoutMs);
+    function cleanup() {
+      appEvents.removeListener('session-state', handler);
+      clearTimeout(timer);
+    }
+    appEvents.on('session-state', handler);
+  });
 }

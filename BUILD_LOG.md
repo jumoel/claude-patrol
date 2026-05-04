@@ -1,5 +1,15 @@
 # Build Log
 
+## 2026-05-04 - Expose writeToSession and waitForFirstIdle from pty-manager
+
+Precursor to plan 18 (rules engine). The rules engine needs to inject prompts into a freshly-spawned Claude session from server-side code, so two PTY-state primitives move out of the WebSocket handler into named exports.
+
+`writeToSession(sessionId, text)` lifts the existing `entry.proc.write(...)` call out of the WS `'input'` handler so non-WS callers can write raw text to a session's PTY. Returns `false` if the session is not in the active map. The WS handler keeps its own special-case path for kitty CSI-u sequences via `tmux send-keys` - that's irrelevant for server-side prompts.
+
+`waitForFirstIdle(sessionId, timeoutMs)` subscribes to the `session-state` event on `appEvents` and resolves on the first `'idle'` payload for the given session. If the session is already idle, it resolves immediately. Rejects if the session exits, isn't found, or the timeout elapses (default `BOOT_TIMEOUT_MS_DEFAULT = 30_000`). The rules engine will use this to wait for Claude to finish booting before writing a prompt - writing too early would dump the text into the boot screen and lose it.
+
+`appEvents` is now imported alongside `emitSessionState` from `./app-events.js`.
+
 ## 2026-05-04 - Extract MCP tool dispatch into a shared registry
 
 Precursor to the rules engine. Each MCP tool used to be a hand-written `server.tool(...)` wrapper containing both the schema and the argument-to-`app.inject()` translator. The rules engine needs the same dispatch logic addressable by tool name, so the per-tool metadata moves into `src/actions.js` as `actionRegistry`. `src/mcp-server.js` becomes a thin loop over the registry.
