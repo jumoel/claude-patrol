@@ -110,9 +110,15 @@ export function DashboardSummary({ prCount, onOpenGlobalTerminal }) {
   }, []);
 
   const handleSubscribeAll = useCallback(async (rule) => {
+    const lifetimeNote =
+      rule.consume_on === 'trigger'
+        ? "Subscriptions clear on each PR's next trigger event whether or not the rule fires. Stale-subscription-safe."
+        : rule.consume_on === 'fire'
+          ? 'Subscriptions clear when the rule fires successfully on each PR. PRs that never end up matching the where clause keep the subscription - unsubscribe manually if needed.'
+          : 'Subscriptions are permanent until manually unsubscribed.';
     if (
       !window.confirm(
-        `Subscribe ALL matching PRs to "${rule.id}"?\n\nThe rule will auto-fire on each subscribed PR's next matching trigger event. No PRs are fired right now.\n\nNote: subscriptions only clear when the rule fires successfully (one_shot) or never (non one_shot). PRs whose state changes so the where clause stops matching (e.g. CI starts pending, passes, then later fails for an unrelated reason) will still fire then. Unsubscribe manually if needed.`,
+        `Subscribe ALL matching PRs to "${rule.id}"?\n\nThe rule will auto-fire on each subscribed PR's next matching trigger event. No PRs are fired right now.\n\n${lifetimeNote}`,
       )
     ) {
       return;
@@ -305,9 +311,11 @@ function RuleStatusBadge({ status }) {
 
 function TriggerableRuleItem({ rule, onFire, onSubscribeAll }) {
   const scope = rule.requires_subscription
-    ? rule.one_shot
-      ? 'Subscription one-shot'
-      : 'Subscription'
+    ? rule.consume_on === 'fire'
+      ? 'Subscription (until fire)'
+      : rule.consume_on === 'trigger'
+        ? 'Subscription (until next trigger)'
+        : 'Subscription (permanent)'
     : 'Auto on all matching';
   return (
     <div className={styles.dropdownItem}>

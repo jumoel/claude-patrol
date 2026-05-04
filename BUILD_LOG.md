@@ -1,5 +1,23 @@
 # Build Log
 
+## 2026-05-04 - Subscription lifetime: consume_on replaces one_shot (close lt#1)
+
+`one_shot: true` only consumed a subscription on a successful fire. PRs whose state moved away from the rule's `where` (e.g. CI passes after being subscribed to a fail-only rule) kept the subscription forever and would later fire on an unrelated trigger event - the gap that lt#1 captured. Bulk-subscribe made it worse: subscribe a fleet of pending-CI PRs and you guarantee a long tail of stale subscriptions.
+
+`one_shot: boolean` is gone. New `consume_on: 'fire' | 'trigger'` field, both options imply `requires_subscription: true`. Omit for permanent subscriptions.
+
+- `consume_on: 'fire'` - exact old `one_shot: true` behavior. Subscription consumed only on a successful fire. Standing watch (e.g. auto-rebase on conflict).
+- `consume_on: 'trigger'` - subscription consumed on the next `rule.on` event for the PR, whether or not `where` matched and whether or not the fire succeeded. Trial-once watch (e.g. retrigger CI on the next finalization, then stop).
+- (omitted) - permanent subscription, fires on every match.
+
+Consumption sites:
+- `'fire'`: in `fireRule`'s success path (renamed from the old one_shot branch).
+- `'trigger'`: in `handlePrChanged`, deleted before the `where` check so a fire-error doesn't preserve the subscription. The trigger event itself is what consumes it.
+
+UI labels updated: dashboard `TriggerableRuleItem` shows "Subscription (until fire)" / "Subscription (until next trigger)" / "Subscription (permanent)". `RuleControls.jsx` shows "Armed (fires once)" or "Armed (next trigger only)" badges. Bulk-subscribe confirm dialog tailors its lifetime warning per mode.
+
+User config migrated: all three rules in `~/.config/claude-patrol/config.json` (retrigger-on-fail, rebase-on-conflict, review-on-ready) now use `consume_on: "fire"`. README rule schema docs updated to match. No legacy `one_shot` field anywhere; rules referencing it would fail validation.
+
 ## 2026-05-04 - Fix: WS race + silent drops (close lt#3)
 
 `handleInvestigateFailures` previously did `setTimeout(() => sendTerminalCommand(...), 500)` after creating a session. The 500ms was hopeful - it had to cover React render, Terminal mount, and WS handshake. Slow tab or slow tmux startup → command silently dropped, no log, no UI feedback. The recently-fixed parseWsMessage regression hid behind exactly this silent-drop pattern.

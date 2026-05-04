@@ -47,7 +47,7 @@ export function RuleControls({ prId }) {
   }, [load]);
 
   // Refresh subscriptions when a rule_run completes successfully against this
-  // PR - one_shot rules consume their subscription on success and the UI needs
+  // PR - consume_on rules consume their subscription on success/trigger and the UI needs
   // to flip the badge from "Armed" back to "Not subscribed" without a manual reload.
   useEffect(() => {
     const source = new EventSource('/api/events');
@@ -137,23 +137,25 @@ export function RuleControls({ prId }) {
         const isSubscribed = subscriptions.has(rule.id);
         const isManual = rule.manual === true;
         const requiresSubscription = rule.requires_subscription === true;
-        const isOneShot = rule.one_shot === true;
+        const consumeOn = rule.consume_on; // 'fire' | 'trigger' | undefined
+        const isConsumable = consumeOn === 'fire' || consumeOn === 'trigger';
+        const armedLabel =
+          consumeOn === 'fire' ? 'Armed (fires once)' : consumeOn === 'trigger' ? 'Armed (next trigger only)' : null;
         return (
           <div key={rule.id} className={styles.row}>
             <Stack gap={2} align="center">
               <span className={styles.name}>{rule.id}</span>
               {isManual && <Badge color="gray">Manual only</Badge>}
               {requiresSubscription && isSubscribed && (
-                <Badge color="green">{isOneShot ? 'Armed (fires once)' : 'Subscribed'}</Badge>
+                <Badge color="green">{armedLabel ?? 'Subscribed'}</Badge>
               )}
               {requiresSubscription && !isSubscribed && <Badge color="amber">Not subscribed</Badge>}
               {!requiresSubscription && !isManual && <Badge color="violet">Auto on all</Badge>}
-              {isOneShot && !isSubscribed && <Badge color="gray">One-shot</Badge>}
             </Stack>
             <Stack gap={2}>
               {requiresSubscription && (
                 <Button size="sm" onClick={() => toggleSubscription(rule)} disabled={isBusy}>
-                  {isSubscribed ? 'Unsubscribe' : isOneShot ? 'Arm' : 'Subscribe'}
+                  {isSubscribed ? 'Unsubscribe' : isConsumable ? 'Arm' : 'Subscribe'}
                 </Button>
               )}
               <Button size="sm" variant="primary" onClick={() => fireRule(rule)} disabled={isBusy}>

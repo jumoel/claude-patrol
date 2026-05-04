@@ -161,7 +161,9 @@ By default a rule auto-fires for any PR that matches its `where`. Two opt-out fl
 
 - `manual: true` - the rule never auto-fires. Only fires via `POST /api/rules/:id/run` (or the "Run now" button on the PR detail view). Use for one-off templates you fire deliberately.
 - `requires_subscription: true` - auto-fires only for PRs explicitly subscribed via `POST /api/rules/:id/subscribe` `{ "pr_id": "..." }` or the toggle on the PR detail view. Subscriptions live in the local DB only - no GitHub state involved. Only valid for `ci.finalized` triggers (sessions are too ephemeral to subscribe to).
-- `one_shot: true` - after a successful auto-fire, the subscription is automatically deleted. The user has to click "Arm" again on the PR to fire the rule once more. Failed runs leave the subscription intact so the next trigger gets another chance. Requires `requires_subscription: true`.
+- `consume_on: 'fire' | 'trigger'` - subscription lifetime. Only meaningful with `requires_subscription: true`. Omit for permanent subscriptions (fire on every match until manually unsubscribed).
+  - `'fire'` - subscription consumed only on a successful fire. Standing watch (e.g. auto-rebase on conflict). Use this when the subscription is the long-lived watch and the fire is what cancels it.
+  - `'trigger'` - subscription consumed on the next `rule.on` event for the PR, whether or not `where` matched and whether or not the fire succeeded. Trial-once watch (e.g. retrigger CI checks if they fail on the next finalization, otherwise stop watching). Closes the stale-subscription gap when the PR's state diverges before `where` ever matches.
 
 ```json
 {
@@ -169,13 +171,15 @@ By default a rule auto-fires for any PR that matches its `where`. Two opt-out fl
   "on": "ci.finalized",
   "where": { "ci_status": "fail" },
   "requires_subscription": true,
-  "one_shot": true,
+  "consume_on": "fire",
   "actions": [{ "type": "mcp", "tool": "retrigger_checks", "args": { "pr_id": "{{pr.id}}" } }],
   "cooldown_minutes": 30
 }
 ```
 
 With this rule, you open a PR, click "Arm" in the Rules section, and the next time that PR's CI finalizes as fail patrol retriggers the failed checks once. The button flips back to "Not subscribed" after the run completes - click Arm again if you want another retry.
+
+If you'd rather the watch end after the next CI cycle regardless of pass/fail (so a passing PR doesn't keep a stale subscription that fires on a later, unrelated failure), use `"consume_on": "trigger"` instead of `"fire"`.
 
 A second example using the `mergeable.changed` trigger to auto-rebase a branch when GitHub reports it conflicting:
 
@@ -185,7 +189,7 @@ A second example using the `mergeable.changed` trigger to auto-rebase a branch w
   "on": "mergeable.changed",
   "where": { "mergeable": "CONFLICTING", "draft": false },
   "requires_subscription": true,
-  "one_shot": true,
+  "consume_on": "fire",
   "actions": [
     {
       "type": "dispatch_claude",

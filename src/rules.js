@@ -93,7 +93,19 @@ const ruleSchema = z
     cooldown_minutes: z.number().int().nonnegative().default(10),
     manual: z.boolean().default(false),
     requires_subscription: z.boolean().default(false),
-    one_shot: z.boolean().default(false),
+    /**
+     * Subscription consumption lifetime. Only meaningful when
+     * `requires_subscription: true`. Three states:
+     *   - omitted: permanent subscription, fires on every match until manually unsubscribed.
+     *   - 'fire': consumed on a successful fire. Standing watch (e.g. auto-rebase
+     *     on conflict). The subscription is the long-lived watch; the fire cancels it.
+     *     This is the old `one_shot: true` semantics.
+     *   - 'trigger': consumed on the next `rule.on` event for the PR, whether or
+     *     not `where` matched and whether or not the fire succeeded. Trial-once watch
+     *     (e.g. retrigger CI checks if they fail on the next finalization, otherwise
+     *     stop watching). Closes the stale-subscription gap captured in lt#1.
+     */
+    consume_on: z.enum(['fire', 'trigger']).optional(),
   })
   .superRefine((rule, ctx) => {
     // session.idle + dispatch_claude is a self-dispatch loop trap.
@@ -126,12 +138,12 @@ const ruleSchema = z
       });
     }
 
-    // one_shot consumes a subscription on success - only meaningful with requires_subscription.
-    if (rule.one_shot && !rule.requires_subscription) {
+    // consume_on names a subscription lifetime - only meaningful with requires_subscription.
+    if (rule.consume_on && !rule.requires_subscription) {
       ctx.addIssue({
         code: 'custom',
-        path: ['one_shot'],
-        message: 'one_shot requires requires_subscription: true (the subscription is what gets consumed)',
+        path: ['consume_on'],
+        message: 'consume_on requires requires_subscription: true (the subscription is what gets consumed)',
       });
     }
 
@@ -292,8 +304,20 @@ async function handlePrChanged(event) {
   for (const rule of rules.values()) {
     if (!matchedTriggers.includes(rule.on)) continue;
     if (rule.manual) continue;
+
+    const subscribed = rule.requires_subscription && isSubscribed(rule.id, pr.id);
+    if (rule.requires_subscription && !subscribed) continue;
+
+    // `consume_on === 'trigger'` means the subscription is consumed by the act
+    // of the trigger firing for this PR, regardless of where-match or fire
+    // outcome. Delete it before the fire so a fire-error doesn't preserve the
+    // subscription (which would contradict until-next-trigger semantics).
+    if (subscribed && rule.consume_on === 'trigger') {
+      getDb().prepare('DELETE FROM rule_subscriptions WHERE rule_id = ? AND pr_id = ?').run(rule.id, pr.id);
+      console.log(`[rules] consume_on=trigger consumed subscription: rule=${rule.id} pr=${pr.id}`);
+    }
+
     if (!matches(rule.where, predCtx)) continue;
-    if (rule.requires_subscription && !isSubscribed(rule.id, pr.id)) continue;
     const cooldownKey = pr.id;
     if (!cooldownOk(rule, cooldownKey)) continue;
     await fireRule(rule, {
@@ -489,12 +513,13 @@ export async function fireRule(rule, ctx) {
   const status = error ? 'error' : 'success';
   db.prepare('UPDATE rule_runs SET status = ?, error = ?, ended_at = ? WHERE id = ?').run(status, error, endedAt, id);
 
-  // one_shot rules consume their subscription on successful auto-fire so the
-  // user has to re-subscribe to arm another run. Errors leave the subscription
-  // intact so the next trigger gets another shot at it.
-  if (status === 'success' && rule.one_shot && rule.requires_subscription && runRow.pr_id) {
+  // consume_on=fire rules consume their subscription on successful auto-fire so
+  // the user has to re-subscribe to arm another run. Errors leave the
+  // subscription intact so the next trigger gets another shot at it.
+  // (consume_on=trigger is consumed at trigger evaluation time, not here.)
+  if (status === 'success' && rule.consume_on === 'fire' && rule.requires_subscription && runRow.pr_id) {
     db.prepare('DELETE FROM rule_subscriptions WHERE rule_id = ? AND pr_id = ?').run(rule.id, runRow.pr_id);
-    console.log(`[rules] one_shot consumed subscription: rule=${rule.id} pr=${runRow.pr_id}`);
+    console.log(`[rules] consume_on=fire consumed subscription: rule=${rule.id} pr=${runRow.pr_id}`);
   }
 
   runRow = { ...runRow, status, error, ended_at: endedAt };
