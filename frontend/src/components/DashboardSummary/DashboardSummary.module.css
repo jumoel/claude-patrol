@@ -39,3 +39,7 @@
 .itemDetail {
   @apply text-xs text-gray-400 font-mono truncate;
 }
+
+.actionRow {
+  @apply mt-1;
+}

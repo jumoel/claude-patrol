@@ -2,10 +2,11 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useClickOutside } from '../../hooks/useClickOutside.js';
 import { useRuleRuns } from '../../hooks/useRuleRuns.js';
 import { useTasks } from '../../hooks/useTasks.js';
-import { fetchRules, fetchSessions, fetchWorkspaces } from '../../lib/api.js';
+import { fetchRules, fetchSessions, fetchWorkspaces, runRuleForAll } from '../../lib/api.js';
 import { getRelativeTime } from '../../lib/time.js';
 import { Badge } from '../ui/Badge/Badge.jsx';
 import { Box } from '../ui/Box/Box.jsx';
+import { Button } from '../ui/Button/Button.jsx';
 import { Stack } from '../ui/Stack/Stack.jsx';
 import styles from './DashboardSummary.module.css';
 
@@ -76,8 +77,34 @@ export function DashboardSummary({ prCount, onOpenGlobalTerminal }) {
     if (ruleRuns.length > 0) return `${ruleRuns.length} recent rule runs`;
     return `${ruleDefs.length} ${ruleDefs.length === 1 ? 'rule' : 'rules'}`;
   })();
+  const PR_TRIGGERS = ['ci.finalized', 'mergeable.changed', 'labels.changed', 'draft.changed'];
+
+  const handleRunForAll = useCallback(async (rule) => {
+    const subscribe =
+      rule.requires_subscription === true &&
+      window.confirm(
+        `Run "${rule.id}" for ALL matching PRs?\n\nThis rule requires subscription. Click OK to auto-subscribe and fire on every match. Cancel to abort.`,
+      );
+    if (rule.requires_subscription === true && !subscribe) return;
+    if (
+      rule.requires_subscription !== true &&
+      !window.confirm(`Run "${rule.id}" for ALL matching PRs? Cooldown still applies per-PR.`)
+    ) {
+      return;
+    }
+    try {
+      const result = await runRuleForAll(rule.id, { subscribe });
+      window.alert(
+        `Fired: ${result.fired?.length ?? 0}\nSkipped: ${result.skipped?.length ?? 0}\n\nWatch the Rules dropdown for run progress.`,
+      );
+    } catch (err) {
+      window.alert(`Failed: ${err.message}`);
+    }
+  }, []);
+
   const ruleItems = [
     ...ruleErrors.map((e) => ({ kind: 'error', id: `err:${e.rule_id}`, ...e })),
+    ...ruleDefs.map((r) => ({ kind: 'def', ...r })),
     ...ruleRuns.map((r) => ({ kind: 'run', ...r })),
   ];
 
@@ -145,7 +172,18 @@ export function DashboardSummary({ prCount, onOpenGlobalTerminal }) {
         {(ruleDefs.length > 0 || ruleErrors.length > 0 || ruleRuns.length > 0) && (
           <>
             <span className={styles.divider} />
-            <StatDropdown label={ruleLabel} items={ruleItems} renderItem={(item) => <RuleItem key={item.id} item={item} />} />
+            <StatDropdown
+              label={ruleLabel}
+              items={ruleItems}
+              renderItem={(item) => (
+                <RuleItem
+                  key={item.id}
+                  item={item}
+                  isPRTrigger={PR_TRIGGERS.includes(item.on)}
+                  onRunForAll={handleRunForAll}
+                />
+              )}
+            />
           </>
         )}
       </Stack>
@@ -187,7 +225,7 @@ function TaskStatusBadge({ status }) {
   return <Badge color="gray">{status}</Badge>;
 }
 
-function RuleItem({ item }) {
+function RuleItem({ item, isPRTrigger, onRunForAll }) {
   if (item.kind === 'error') {
     return (
       <div className={styles.dropdownItem}>
@@ -196,6 +234,41 @@ function RuleItem({ item }) {
           <span className={styles.itemName}>{item.rule_id}</span>
         </Stack>
         <span className={styles.itemDetail}>{item.error}</span>
+      </div>
+    );
+  }
+
+  if (item.kind === 'def') {
+    const scope = item.manual
+      ? 'Manual only'
+      : item.requires_subscription
+        ? item.one_shot
+          ? 'Subscription one-shot'
+          : 'Subscription'
+        : 'Auto on all matching';
+    return (
+      <div className={styles.dropdownItem}>
+        <Stack gap={2} align="center">
+          <Badge color="violet">Rule</Badge>
+          <span className={styles.itemName}>{item.id}</span>
+          <span className={styles.itemDetail}>on {item.on}</span>
+        </Stack>
+        <span className={styles.itemDetail}>{scope}</span>
+        {isPRTrigger && !item.manual && (
+          <Stack gap={2} className={styles.actionRow}>
+            <Button
+              size="sm"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onRunForAll(item);
+              }}
+              title="Fire this rule against every PR matching its where clause"
+            >
+              Run for all matching
+            </Button>
+          </Stack>
+        )}
       </div>
     );
   }
