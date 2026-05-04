@@ -1,5 +1,17 @@
 # Build Log
 
+## 2026-05-04 - Poller emits pr-changed events with field-level diff
+
+Precursor to plan 18 (rules engine). The poller already does `INSERT OR REPLACE` for every PR each cycle, but the only signal downstream consumers got was a coarse `'sync'` event with a count. The rules engine needs to know *which* PRs transitioned and on *what* fields. Without poller-side diffing, every consumer would have to maintain its own in-memory cache and a warmup pass to avoid spurious initial fires - and downtime transitions would still be lost.
+
+`upsertPRs` now SELECTs the prev row inside the transaction, runs the upsert, computes a diff against a fixed watched set (`ci_status` derived via `deriveCIStatus`, `mergeable`, `labels` as added/removed sets, `draft`), and buffers a `{ id, prev, changes }` entry per changed PR. After the transaction commits, each entry is re-read via a new `getPrById` prepared statement and run through `formatPR` before emitting `pollerEvents.emit('pr-changed', { pr, prev, changes })`. New PRs (no prev row) emit nothing - that's initial state, not a transition.
+
+Two correctness rules: SELECT inside the transaction (no race between read and write), emit only after COMMIT (a rolled-back upsert must not fire events for changes that didn't persist).
+
+The rules engine becomes a stateless consumer: no cache, no warmup. Downtime transitions are caught for free because `prev` comes from the DB, which retains pre-shutdown state. Verified end-to-end by mutating a known-pass PR's `checks` JSON to non-final and triggering a sync - exactly one `pr-changed` fired with `{ci_status: {from: 'pending', to: 'pass'}}`.
+
+`'sync'` event keeps firing as before. `pr-changed` is internal-only; no SSE bridge in v1.
+
 ## 2026-05-04 - Replace hand-rolled config validation with zod schema
 
 Precursor to plan 18 (rules engine). `src/config.js` had a hand-rolled `validate(cfg)` that walked a `REQUIRED_FIELDS` table, asserted types per field, and ran `OWNER_REPO_RE.test(...)` over each `poll.repos` entry. Errors were one-line strings. Adding `rules` would mean another nested validator block in the same file, which conflicts with how the rules engine wants to validate its own array per-rule.

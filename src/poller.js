@@ -3,6 +3,7 @@ import { EventEmitter } from 'node:events';
 import { unlinkSync } from 'node:fs';
 import { emitGhRateLimit, emitLocalChange } from './app-events.js';
 import { getDb } from './db.js';
+import { deriveCIStatus, formatPR } from './pr-status.js';
 import { makePrId } from './utils.js';
 import { destroyWorkspace } from './workspace.js';
 
@@ -565,6 +566,10 @@ let findStaleByOrgStmt = null;
 let findStaleByRepoStmt = null;
 /** @type {import('node:sqlite').StatementSync | null} */
 let getExistingBodyStmt = null;
+/** @type {import('node:sqlite').StatementSync | null} */
+let getExistingPrevStmt = null;
+/** @type {import('node:sqlite').StatementSync | null} */
+let getPrByIdStmt = null;
 
 /**
  * Get or create cached prepared statements.
@@ -596,6 +601,12 @@ function getStatements() {
   if (!getExistingBodyStmt) {
     getExistingBodyStmt = db.prepare('SELECT body, body_html FROM prs WHERE id = ?');
   }
+  if (!getExistingPrevStmt) {
+    getExistingPrevStmt = db.prepare('SELECT checks, mergeable, labels, draft FROM prs WHERE id = ?');
+  }
+  if (!getPrByIdStmt) {
+    getPrByIdStmt = db.prepare('SELECT * FROM prs WHERE id = ?');
+  }
   return {
     upsert: upsertStmt,
     deleteStaleByOrg: deleteStaleByOrgStmt,
@@ -603,7 +614,40 @@ function getStatements() {
     findStaleByOrg: findStaleByOrgStmt,
     findStaleByRepo: findStaleByRepoStmt,
     getExistingBody: getExistingBodyStmt,
+    getExistingPrev: getExistingPrevStmt,
+    getPrById: getPrByIdStmt,
   };
+}
+
+/**
+ * Compute the diff between a previous DB row and the new GraphQL PR node for
+ * the watched fields. Returns `null` if nothing in the watched set changed or
+ * if there is no previous row (a brand-new PR is initial state, not a transition).
+ * @param {object | undefined} prev - raw row from `prs` (with `checks`, `mergeable`, `labels`, `draft`) or undefined
+ * @param {object} next - GraphQL PR node
+ * @returns {object | null}
+ */
+function computeChanges(prev, next) {
+  if (!prev) return null;
+  const changes = {};
+
+  const prevCi = deriveCIStatus(JSON.parse(prev.checks));
+  const nextCi = deriveCIStatus(extractChecks(next));
+  if (prevCi !== nextCi) changes.ci_status = { from: prevCi, to: nextCi };
+
+  const nextMergeable = next.mergeable || 'UNKNOWN';
+  if (prev.mergeable !== nextMergeable) changes.mergeable = { from: prev.mergeable, to: nextMergeable };
+
+  const nextDraft = next.isDraft ? 1 : 0;
+  if (prev.draft !== nextDraft) changes.draft = { from: !!prev.draft, to: !!next.isDraft };
+
+  const prevLabels = new Set(JSON.parse(prev.labels).map((l) => l.name));
+  const nextLabels = new Set(extractLabels(next).map((l) => l.name));
+  const added = [...nextLabels].filter((l) => !prevLabels.has(l));
+  const removed = [...prevLabels].filter((l) => !nextLabels.has(l));
+  if (added.length || removed.length) changes.labels = { added, removed };
+
+  return Object.keys(changes).length ? changes : null;
 }
 
 /**
@@ -647,8 +691,10 @@ async function cleanupStalePR(prId, config) {
 function upsertPRs(prs) {
   const db = getDb();
   const now = new Date().toISOString();
-  const { upsert, getExistingBody } = getStatements();
+  const { upsert, getExistingBody, getExistingPrev, getPrById } = getStatements();
   const needsSummary = [];
+  /** @type {Array<{id: string, prev: object, changes: object}>} */
+  const pendingDiffs = [];
 
   db.exec('BEGIN');
   try {
@@ -664,6 +710,11 @@ function upsertPRs(prs) {
       if (bodyChanged) {
         needsSummary.push({ id, title: pr.title, body: newBody });
       }
+
+      // Capture prev row for transition detection. SELECT inside the
+      // transaction to avoid any concurrent-write race (poller is
+      // single-threaded today, but the cost is negligible).
+      const prev = getExistingPrev.get(id);
 
       // body_html isn't fetched in the poll cycle (it's heavy and only used on
       // the detail view). Reuse any cached html as long as the body hasn't
@@ -692,11 +743,25 @@ function upsertPRs(prs) {
         pr.updatedAt,
         now,
       );
+
+      const changes = computeChanges(prev, pr);
+      if (changes) pendingDiffs.push({ id, prev, changes });
     }
     db.exec('COMMIT');
   } catch (err) {
     db.exec('ROLLBACK');
     throw err;
+  }
+
+  // Emit pr-changed events only after the transaction has committed - if the
+  // upsert rolled back, downstream consumers must not see transitions for
+  // changes that didn't persist. Re-read each changed row and run it through
+  // formatPR so consumers (notably the rules engine) get derived fields and
+  // a flat label-name array directly.
+  for (const { id, prev, changes } of pendingDiffs) {
+    const row = getPrById.get(id);
+    if (!row) continue;
+    pollerEvents.emit('pr-changed', { pr: formatPR(row), prev, changes });
   }
 
   // Fire-and-forget batched summarization for PRs with new/changed bodies.
