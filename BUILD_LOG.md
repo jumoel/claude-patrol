@@ -1,5 +1,13 @@
 # Build Log
 
+## 2026-05-04 - Extract MCP tool dispatch into a shared registry
+
+Precursor to the rules engine. Each MCP tool used to be a hand-written `server.tool(...)` wrapper containing both the schema and the argument-to-`app.inject()` translator. The rules engine needs the same dispatch logic addressable by tool name, so the per-tool metadata moves into `src/actions.js` as `actionRegistry`. `src/mcp-server.js` becomes a thin loop over the registry.
+
+Each entry has either a simple `dispatch(args) -> { method, path, body? }` (the rules-callable path) or an `mcpHandler(app, args) -> result` (for tools that need pre-call validation, multi-call composition, or filesystem reads). `retrigger_checks` carries both: rules see the simple POST, MCP runs the `require_all_final` pre-check first. Tools without a `dispatch` (`get_session_history`, `get_session_transcript`, `wait_for_checks`) are MCP-only by design.
+
+`ruleFireable` flag rejects read-only tools (`list_*`, `get_*`) at the rule layer; `invokeAction` enforces it. `summarizePR` moves to `actions.js` next to the `list_prs` entry that uses it via `transform`. Behavior preserved end-to-end: all 15 tools still register, every tool I spot-checked through the MCP transport returns the same shape as before.
+
 ## 2026-05-03 - Remove the workspace summarizer entirely
 
 The recap-based summarizer from earlier today was already a thin wrapper, but even that's gone now. No more workspace-level summary panel anywhere - users who want a recap can run /recap inside their session and read it in the terminal directly. Eliminating the feature also retires the SSE event, the MCP tools, the route, the pty-manager idle timer, and a fair amount of dead transcript-parsing code that had been left in place pending exactly this decision.
