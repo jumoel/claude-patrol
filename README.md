@@ -156,6 +156,7 @@ By default a rule auto-fires for any PR that matches its `where`. Two opt-out fl
 
 - `manual: true` - the rule never auto-fires. Only fires via `POST /api/rules/:id/run` (or the "Run now" button on the PR detail view). Use for one-off templates you fire deliberately.
 - `requires_subscription: true` - auto-fires only for PRs explicitly subscribed via `POST /api/rules/:id/subscribe` `{ "pr_id": "..." }` or the toggle on the PR detail view. Subscriptions live in the local DB only - no GitHub state involved. Only valid for `ci.finalized` triggers (sessions are too ephemeral to subscribe to).
+- `one_shot: true` - after a successful auto-fire, the subscription is automatically deleted. The user has to click "Arm" again on the PR to fire the rule once more. Failed runs leave the subscription intact so the next trigger gets another chance. Requires `requires_subscription: true`.
 
 ```json
 {
@@ -163,12 +164,13 @@ By default a rule auto-fires for any PR that matches its `where`. Two opt-out fl
   "on": "ci.finalized",
   "where": { "ci_status": "fail" },
   "requires_subscription": true,
+  "one_shot": true,
   "actions": [{ "type": "mcp", "tool": "retrigger_checks", "args": { "pr_id": "{{pr.id}}" } }],
   "cooldown_minutes": 30
 }
 ```
 
-With this rule, you open a PR, click "Subscribe" in the Rules section, and from then on whenever that PR's CI finalizes as fail the rule retriggers the failed checks (max once per 30 minutes per PR).
+With this rule, you open a PR, click "Arm" in the Rules section, and the next time that PR's CI finalizes as fail patrol retriggers the failed checks once. The button flips back to "Not subscribed" after the run completes - click Arm again if you want another retry.
 
 ### Lifecycle
 

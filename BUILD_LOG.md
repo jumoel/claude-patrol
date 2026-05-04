@@ -1,5 +1,15 @@
 # Build Log
 
+## 2026-05-04 - Rules: one_shot flag consumes subscription on success
+
+Adds a `one_shot: true` rule field. When a one-shot rule auto-fires successfully, the underlying `rule_subscriptions` row is deleted automatically - the next trigger won't fire for that PR until the user clicks Arm again. Failed runs leave the subscription alone so the next trigger gets another shot.
+
+Schema rejects `one_shot` without `requires_subscription` (the subscription is what gets consumed) and surfaces it via a clear field-path error at load time.
+
+UI tweaks: when a one-shot rule is currently armed, the badge reads `"Armed (fires once)"` and the button reads `"Arm"` instead of `"Subscribe"`. After the rule fires and the subscription is consumed, the panel live-refreshes via the `rule-run` SSE event - the badge flips to `"Not subscribed"` without the user needing to reload.
+
+Verified end-to-end: a one-shot rule with a subscribed PR fires once on the next matching transition (rule_run row goes from `running` to `success`), the subscription disappears (`/api/rules/:id/subscriptions` returns `[]`), and the dashboard log carries `[rules] one_shot consumed subscription: rule=... pr=...`.
+
 ## 2026-05-04 - Per-PR rule scoping: manual flag and local subscriptions
 
 Two opt-out paths for rules so they don't fire on every matching PR by default. Both stay local to patrol's DB - no GitHub state involved.

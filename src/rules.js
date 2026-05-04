@@ -90,6 +90,7 @@ const ruleSchema = z
     cooldown_minutes: z.number().int().nonnegative().default(10),
     manual: z.boolean().default(false),
     requires_subscription: z.boolean().default(false),
+    one_shot: z.boolean().default(false),
   })
   .superRefine((rule, ctx) => {
     // session.idle + dispatch_claude is a self-dispatch loop trap.
@@ -119,6 +120,15 @@ const ruleSchema = z
         code: 'custom',
         path: ['requires_subscription'],
         message: "requires_subscription has no effect when manual: true (manual already disables auto-fire)",
+      });
+    }
+
+    // one_shot consumes a subscription on success - only meaningful with requires_subscription.
+    if (rule.one_shot && !rule.requires_subscription) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['one_shot'],
+        message: 'one_shot requires requires_subscription: true (the subscription is what gets consumed)',
       });
     }
 
@@ -464,6 +474,14 @@ export async function fireRule(rule, ctx) {
   const endedAt = new Date().toISOString();
   const status = error ? 'error' : 'success';
   db.prepare('UPDATE rule_runs SET status = ?, error = ?, ended_at = ? WHERE id = ?').run(status, error, endedAt, id);
+
+  // one_shot rules consume their subscription on successful auto-fire so the
+  // user has to re-subscribe to arm another run. Errors leave the subscription
+  // intact so the next trigger gets another shot at it.
+  if (status === 'success' && rule.one_shot && rule.requires_subscription && runRow.pr_id) {
+    db.prepare('DELETE FROM rule_subscriptions WHERE rule_id = ? AND pr_id = ?').run(rule.id, runRow.pr_id);
+    console.log(`[rules] one_shot consumed subscription: rule=${rule.id} pr=${runRow.pr_id}`);
+  }
 
   runRow = { ...runRow, status, error, ended_at: endedAt };
   appEvents.emit('rule-run', toPublic(runRow));

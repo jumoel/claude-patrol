@@ -45,6 +45,24 @@ export function RuleControls({ prId }) {
     load();
   }, [load]);
 
+  // Refresh subscriptions when a rule_run completes successfully against this
+  // PR - one_shot rules consume their subscription on success and the UI needs
+  // to flip the badge from "Armed" back to "Not subscribed" without a manual reload.
+  useEffect(() => {
+    const source = new EventSource('/api/events');
+    source.addEventListener('rule-run', (e) => {
+      try {
+        const run = JSON.parse(e.data);
+        if (run?.pr_id === prId && run.status === 'success' && run.ended_at) {
+          load();
+        }
+      } catch {
+        /* ignore */
+      }
+    });
+    return () => source.close();
+  }, [prId, load]);
+
   const toggleSubscription = useCallback(
     async (rule) => {
       setBusyRule(rule.id);
@@ -117,19 +135,23 @@ export function RuleControls({ prId }) {
         const isSubscribed = subscriptions.has(rule.id);
         const isManual = rule.manual === true;
         const requiresSubscription = rule.requires_subscription === true;
+        const isOneShot = rule.one_shot === true;
         return (
           <div key={rule.id} className={styles.row}>
             <Stack gap={2} align="center">
               <span className={styles.name}>{rule.id}</span>
               {isManual && <Badge color="gray">Manual only</Badge>}
-              {requiresSubscription && isSubscribed && <Badge color="green">Subscribed</Badge>}
+              {requiresSubscription && isSubscribed && (
+                <Badge color="green">{isOneShot ? 'Armed (fires once)' : 'Subscribed'}</Badge>
+              )}
               {requiresSubscription && !isSubscribed && <Badge color="amber">Not subscribed</Badge>}
               {!requiresSubscription && !isManual && <Badge color="violet">Auto on all</Badge>}
+              {isOneShot && !isSubscribed && <Badge color="gray">One-shot</Badge>}
             </Stack>
             <Stack gap={2}>
               {requiresSubscription && (
                 <Button size="sm" onClick={() => toggleSubscription(rule)} disabled={isBusy}>
-                  {isSubscribed ? 'Unsubscribe' : 'Subscribe'}
+                  {isSubscribed ? 'Unsubscribe' : isOneShot ? 'Arm' : 'Subscribe'}
                 </Button>
               )}
               <Button size="sm" variant="primary" onClick={() => fireRule(rule)} disabled={isBusy}>
