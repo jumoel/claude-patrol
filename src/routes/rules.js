@@ -6,6 +6,7 @@ import {
   manualRunRule,
   runRuleForAll,
   subscribeRule,
+  subscribeRuleForAll,
   unsubscribeRule,
 } from '../rules.js';
 
@@ -92,6 +93,16 @@ export function registerRuleRoutes(app) {
         force: body.force === true,
         subscribe: body.subscribe === true,
       });
+    } catch (err) {
+      reply.code(400);
+      return { error: err.message };
+    }
+  });
+
+  app.post('/api/rules/:id/subscribe-all', async (request, reply) => {
+    const { id } = request.params;
+    try {
+      return subscribeRuleForAll(id);
     } catch (err) {
       reply.code(400);
       return { error: err.message };

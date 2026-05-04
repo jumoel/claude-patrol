@@ -657,8 +657,10 @@ function isSubscribed(ruleId, prId) {
 /**
  * Opt a PR into a rule's auto-fire. Idempotent.
  * Throws if the rule doesn't exist or doesn't support subscription.
+ * `created` is true when this call inserted a new row, false when one already existed.
  * @param {string} ruleId
  * @param {string} prId
+ * @returns {{rule_id: string, pr_id: string, created: boolean}}
  */
 export function subscribeRule(ruleId, prId) {
   const rule = rules.get(ruleId);
@@ -667,10 +669,10 @@ export function subscribeRule(ruleId, prId) {
   const db = getDb();
   const pr = db.prepare('SELECT 1 FROM prs WHERE id = ?').get(prId);
   if (!pr) throw new Error(`pr not found: ${prId}`);
-  db.prepare(
-    'INSERT INTO rule_subscriptions (rule_id, pr_id, created_at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING',
-  ).run(ruleId, prId, new Date().toISOString());
-  return { rule_id: ruleId, pr_id: prId };
+  const info = db
+    .prepare('INSERT INTO rule_subscriptions (rule_id, pr_id, created_at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING')
+    .run(ruleId, prId, new Date().toISOString());
+  return { rule_id: ruleId, pr_id: prId, created: info.changes > 0 };
 }
 
 /**
@@ -768,6 +770,51 @@ export function runRuleForAll(ruleId, options = {}) {
 
   console.log(`[rules] run-all rule=${ruleId}: fired=${fired.length} skipped=${skipped.length}`);
   return { fired, skipped };
+}
+
+/**
+ * Subscribe every PR matching a rule's `where` clause. Bulk version of
+ * `subscribeRule` for "opt every matching PR in" use cases. Idempotent: PRs
+ * already subscribed are reported under `already_subscribed`.
+ *
+ * Only valid for rules with `requires_subscription: true`. Since the rule
+ * loader (`validateRule`) already requires PR triggers for subscription rules,
+ * iterating PRs is sound here.
+ *
+ * @param {string} ruleId
+ * @returns {{subscribed: Array<{pr_id: string}>, already_subscribed: Array<{pr_id: string}>, skipped: Array<{pr_id: string, reason: string}>}}
+ */
+export function subscribeRuleForAll(ruleId) {
+  const rule = rules.get(ruleId);
+  if (!rule) throw new Error(`unknown rule: ${ruleId}`);
+  if (!rule.requires_subscription) {
+    throw new Error(`rule '${ruleId}' does not require subscription`);
+  }
+
+  const db = getDb();
+  const allRows = db.prepare('SELECT * FROM prs').all();
+  const subscribed = [];
+  const already = [];
+  const skipped = [];
+
+  for (const row of allRows) {
+    const pr = formatPR(row);
+    const predCtx = buildPrPredCtx(pr);
+    if (!matches(rule.where, predCtx)) continue;
+
+    try {
+      const result = subscribeRule(rule.id, pr.id);
+      if (result.created) subscribed.push({ pr_id: pr.id });
+      else already.push({ pr_id: pr.id });
+    } catch (err) {
+      skipped.push({ pr_id: pr.id, reason: err.message });
+    }
+  }
+
+  console.log(
+    `[rules] subscribe-all rule=${ruleId}: subscribed=${subscribed.length} already=${already.length} skipped=${skipped.length}`,
+  );
+  return { subscribed, already_subscribed: already, skipped };
 }
 
 /**

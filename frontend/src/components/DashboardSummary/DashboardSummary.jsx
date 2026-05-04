@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useClickOutside } from '../../hooks/useClickOutside.js';
 import { useRuleRuns } from '../../hooks/useRuleRuns.js';
 import { useTasks } from '../../hooks/useTasks.js';
-import { fetchRules, fetchSessions, fetchWorkspaces, runRuleForAll } from '../../lib/api.js';
+import { fetchRules, fetchSessions, fetchWorkspaces, runRuleForAll, subscribeRuleForAll } from '../../lib/api.js';
 import { getRelativeTime } from '../../lib/time.js';
 import { Badge } from '../ui/Badge/Badge.jsx';
 import { Box } from '../ui/Box/Box.jsx';
@@ -109,6 +109,24 @@ export function DashboardSummary({ prCount, onOpenGlobalTerminal }) {
     }
   }, []);
 
+  const handleSubscribeAll = useCallback(async (rule) => {
+    if (
+      !window.confirm(
+        `Subscribe ALL matching PRs to "${rule.id}"?\n\nThe rule will auto-fire on each subscribed PR's next matching trigger event. No PRs are fired right now.\n\nNote: subscriptions only clear when the rule fires successfully (one_shot) or never (non one_shot). PRs whose state changes so the where clause stops matching (e.g. CI starts pending, passes, then later fails for an unrelated reason) will still fire then. Unsubscribe manually if needed.`,
+      )
+    ) {
+      return;
+    }
+    try {
+      const result = await subscribeRuleForAll(rule.id);
+      window.alert(
+        `Subscribed: ${result.subscribed?.length ?? 0}\nAlready subscribed: ${result.already_subscribed?.length ?? 0}\nSkipped: ${result.skipped?.length ?? 0}`,
+      );
+    } catch (err) {
+      window.alert(`Failed: ${err.message}`);
+    }
+  }, []);
+
   return (
     <Box px={4} py={2} border rounded="lg" bg="white" className={styles.bar}>
       <Stack gap={3}>
@@ -182,7 +200,14 @@ export function DashboardSummary({ prCount, onOpenGlobalTerminal }) {
             <StatDropdown
               label={`Trigger ${triggerableRules.length === 1 ? 'rule' : 'rules'}`}
               items={triggerableRules}
-              renderItem={(rule) => <TriggerableRuleItem key={rule.id} rule={rule} onFire={handleRunForAll} />}
+              renderItem={(rule) => (
+                <TriggerableRuleItem
+                  key={rule.id}
+                  rule={rule}
+                  onFire={handleRunForAll}
+                  onSubscribeAll={handleSubscribeAll}
+                />
+              )}
             />
           </>
         )}
@@ -278,7 +303,7 @@ function RuleStatusBadge({ status }) {
   return <Badge color="gray">{status}</Badge>;
 }
 
-function TriggerableRuleItem({ rule, onFire }) {
+function TriggerableRuleItem({ rule, onFire, onSubscribeAll }) {
   const scope = rule.requires_subscription
     ? rule.one_shot
       ? 'Subscription one-shot'
@@ -304,6 +329,19 @@ function TriggerableRuleItem({ rule, onFire }) {
         >
           Run for all matching
         </Button>
+        {rule.requires_subscription && (
+          <Button
+            size="sm"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onSubscribeAll(rule);
+            }}
+            title="Subscribe every matching PR; the rule auto-fires on each PR's next matching trigger"
+          >
+            Subscribe all matching
+          </Button>
+        )}
       </Stack>
     </div>
   );

@@ -442,3 +442,15 @@ export async function runRuleForAll(ruleId, { subscribe, force } = {}) {
   if (!res.ok) throw new Error((await res.json()).error || `Failed: ${res.status}`);
   return res.json();
 }
+
+/**
+ * Subscribe every PR matching a rule's `where` clause. Only valid for rules
+ * with `requires_subscription: true`. Returns subscribed/already/skipped lists.
+ */
+export async function subscribeRuleForAll(ruleId) {
+  const res = await fetch(`${BASE}/api/rules/${encodeURIComponent(ruleId)}/subscribe-all`, {
+    method: 'POST',
+  });
+  if (!res.ok) throw new Error((await res.json()).error || `Failed: ${res.status}`);
+  return res.json();
+}

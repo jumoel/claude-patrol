@@ -1,5 +1,20 @@
 # Build Log
 
+## 2026-05-04 - Rules: bulk subscribe ("subscribe all matching") via API, MCP, and UI
+
+Companion to the existing bulk-fire surface. New `POST /api/rules/:id/subscribe-all` opts every PR matching a subscription rule's `where` clause into that rule, without firing anything. Use case: "subscribe every conflicted PR to auto-rebase from now on" without the destructive blast radius of `run-all` with `subscribe: true`.
+
+Same three surfaces as bulk-fire:
+- HTTP: `POST /api/rules/:id/subscribe-all` (no body).
+- MCP: `subscribe_rule_for_all_matching_prs` (`ruleFireable: false`).
+- UI: a second button "Subscribe all matching" appears next to "Run for all matching" in the dashboard's Trigger dropdown, but only for rules with `requires_subscription: true`.
+
+Response shape: `{ subscribed: [{pr_id}], already_subscribed: [{pr_id}], skipped: [{pr_id, reason}] }`. Counts are race-safe because `subscribeRule` now returns a `created` boolean from the `INSERT ... ON CONFLICT DO NOTHING` row count, so concurrent calls don't double-count newly-inserted vs already-existing rows.
+
+Validation: rejects unknown rules and rules without `requires_subscription`. The redundant PR-trigger check from the first draft is gone since the rule loader already gates `requires_subscription` to PR triggers.
+
+Known gap (filed as `claude-patrol#1` in the local ticket store): subscriptions only clear on a successful fire (`one_shot`). PRs whose state diverges so the `where` clause stops matching keep the subscription forever and may fire on a later trigger event. Bulk-subscribe makes this more pronounced. The confirm dialog warns users until the planned `until_fire` / `until_trigger` lifetime modes land.
+
 ## 2026-05-04 - Split rule activity from rule triggers in the summary bar
 
 Two dropdowns now where there was one:

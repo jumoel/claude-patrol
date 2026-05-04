@@ -194,6 +194,19 @@ export const actionRegistry = {
     }),
   },
 
+  subscribe_rule_for_all_matching_prs: {
+    description:
+      'Subscribe every PR matching a rule\'s `where` clause to that rule. Only valid for rules with `requires_subscription: true`. Returns `subscribed` (newly opted in), `already_subscribed` (no-op), and `skipped` (with reasons). Does not fire the rule - subscriptions take effect on the next matching trigger event for each PR.',
+    schema: z.object({
+      rule_id: z.string().describe('Rule id from list_rules; must have requires_subscription: true'),
+    }),
+    ruleFireable: false,
+    dispatch: ({ rule_id }) => ({
+      method: 'POST',
+      path: `/api/rules/${encodeURIComponent(rule_id)}/subscribe-all`,
+    }),
+  },
+
   retrigger_checks: {
     description:
       'Re-run failed CI checks for a PR. Optionally filter to specific checks by name pattern. Use require_all_final=true to only retrigger when no checks are still running or queued. If check_name matches nothing, the response includes available_failed_checks so you can retry with a valid substring.',
