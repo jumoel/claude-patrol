@@ -88,6 +88,8 @@ const ruleSchema = z
     where: whereSchema.optional(),
     actions: z.array(actionSchema).min(1),
     cooldown_minutes: z.number().int().nonnegative().default(10),
+    manual: z.boolean().default(false),
+    requires_subscription: z.boolean().default(false),
   })
   .superRefine((rule, ctx) => {
     // session.idle + dispatch_claude is a self-dispatch loop trap.
@@ -100,6 +102,24 @@ const ruleSchema = z
           message: "dispatch_claude is not allowed on session.idle triggers (self-dispatch loop)",
         });
       }
+    }
+
+    // Subscriptions are keyed by pr_id, so they only make sense for PR triggers.
+    if (rule.requires_subscription && rule.on !== 'ci.finalized') {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['requires_subscription'],
+        message: "requires_subscription is only supported on 'ci.finalized' triggers",
+      });
+    }
+
+    // manual + requires_subscription is contradictory - manual already disables auto-fire.
+    if (rule.manual && rule.requires_subscription) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['requires_subscription'],
+        message: "requires_subscription has no effect when manual: true (manual already disables auto-fire)",
+      });
     }
 
     // mcp actions must reference a tool that exists, is rule-fireable, and
@@ -249,7 +269,9 @@ async function handlePrChanged(event) {
 
   for (const rule of rules.values()) {
     if (rule.on !== 'ci.finalized') continue;
+    if (rule.manual) continue;
     if (!matches(rule.where, predCtx)) continue;
+    if (rule.requires_subscription && !isSubscribed(rule.id, pr.id)) continue;
     const cooldownKey = pr.id;
     if (!cooldownOk(rule, cooldownKey)) continue;
     await fireRule(rule, {
@@ -292,6 +314,7 @@ async function handleSessionIdle(event) {
 
   for (const rule of rules.values()) {
     if (rule.on !== 'session.idle') continue;
+    if (rule.manual) continue;
     if (!matches(rule.where, predCtx)) continue;
     const cooldownKey = sessionId;
     if (!cooldownOk(rule, cooldownKey)) continue;
@@ -582,6 +605,67 @@ export async function manualRunRule(ruleId, options = {}) {
   }
 
   throw new Error(`unknown trigger: ${rule.on}`);
+}
+
+/**
+ * Check whether a (rule, pr) pair is opted into auto-fire.
+ * @param {string} ruleId
+ * @param {string} prId
+ * @returns {boolean}
+ */
+function isSubscribed(ruleId, prId) {
+  return !!getDb()
+    .prepare('SELECT 1 FROM rule_subscriptions WHERE rule_id = ? AND pr_id = ? LIMIT 1')
+    .get(ruleId, prId);
+}
+
+/**
+ * Opt a PR into a rule's auto-fire. Idempotent.
+ * Throws if the rule doesn't exist or doesn't support subscription.
+ * @param {string} ruleId
+ * @param {string} prId
+ */
+export function subscribeRule(ruleId, prId) {
+  const rule = rules.get(ruleId);
+  if (!rule) throw new Error(`unknown rule: ${ruleId}`);
+  if (!rule.requires_subscription) throw new Error(`rule '${ruleId}' does not require subscription`);
+  const db = getDb();
+  const pr = db.prepare('SELECT 1 FROM prs WHERE id = ?').get(prId);
+  if (!pr) throw new Error(`pr not found: ${prId}`);
+  db.prepare(
+    'INSERT INTO rule_subscriptions (rule_id, pr_id, created_at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING',
+  ).run(ruleId, prId, new Date().toISOString());
+  return { rule_id: ruleId, pr_id: prId };
+}
+
+/**
+ * Remove a (rule, pr) subscription. Idempotent.
+ * @param {string} ruleId
+ * @param {string} prId
+ */
+export function unsubscribeRule(ruleId, prId) {
+  getDb().prepare('DELETE FROM rule_subscriptions WHERE rule_id = ? AND pr_id = ?').run(ruleId, prId);
+  return { rule_id: ruleId, pr_id: prId };
+}
+
+/**
+ * List rule subscriptions for a PR or for a rule.
+ * @param {{rule_id?: string, pr_id?: string}} opts
+ */
+export function listSubscriptions(opts = {}) {
+  const db = getDb();
+  if (opts.rule_id && opts.pr_id) {
+    return db
+      .prepare('SELECT * FROM rule_subscriptions WHERE rule_id = ? AND pr_id = ?')
+      .all(opts.rule_id, opts.pr_id);
+  }
+  if (opts.rule_id) {
+    return db.prepare('SELECT * FROM rule_subscriptions WHERE rule_id = ? ORDER BY created_at DESC').all(opts.rule_id);
+  }
+  if (opts.pr_id) {
+    return db.prepare('SELECT * FROM rule_subscriptions WHERE pr_id = ? ORDER BY created_at DESC').all(opts.pr_id);
+  }
+  return db.prepare('SELECT * FROM rule_subscriptions ORDER BY created_at DESC').all();
 }
 
 /**

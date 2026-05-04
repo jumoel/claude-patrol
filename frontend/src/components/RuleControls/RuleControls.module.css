@@ -1,0 +1,26 @@
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid rgb(0 0 0 / 0.05);
+}
+.row:last-child {
+  border-bottom: none;
+}
+.name {
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 0.875rem;
+  color: rgb(0 0 0 / 0.85);
+}
+.empty {
+  font-size: 0.875rem;
+  color: rgb(0 0 0 / 0.55);
+  margin: 0;
+}
+.error {
+  font-size: 0.8125rem;
+  color: rgb(220 38 38);
+  margin: 0;
+}

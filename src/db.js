@@ -149,6 +149,19 @@ export function initDb(dbPath) {
   db.exec('CREATE INDEX IF NOT EXISTS idx_rule_runs_cooldown ON rule_runs(rule_id, cooldown_key, started_at)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_rule_runs_started ON rule_runs(started_at DESC)');
 
+  // Per-(rule, pr) opt-in subscriptions for rules with `requires_subscription: true`.
+  // No FK to prs - if a PR is purged, the orphan row is harmless (the auto-fire path
+  // looks up the PR fresh and short-circuits if it's gone).
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS rule_subscriptions (
+      rule_id TEXT NOT NULL,
+      pr_id TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (rule_id, pr_id)
+    )
+  `);
+  db.exec('CREATE INDEX IF NOT EXISTS idx_rule_subscriptions_pr ON rule_subscriptions(pr_id)');
+
   return db;
 }
 

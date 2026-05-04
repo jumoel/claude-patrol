@@ -28,6 +28,7 @@ import { getRelativeTime } from '../../lib/time.js';
 import shared from '../../styles/shared.module.css';
 import { CheckLogViewer } from '../CheckLogViewer/CheckLogViewer.jsx';
 import { CommentsList } from '../CommentsList/CommentsList.jsx';
+import { RuleControls } from '../RuleControls/RuleControls.jsx';
 import { StatusBadge } from '../StatusBadge/StatusBadge.jsx';
 import { TerminalCard } from '../TerminalCard/TerminalCard.jsx';
 import { TranscriptViewer } from '../TranscriptViewer/TranscriptViewer.jsx';
@@ -435,6 +436,13 @@ export function PRDetail({ prId, onBack }) {
                 {openingClaude ? openingStep : 'Open in Claude'}
               </Button>
             )}
+          </Stack>
+        </Box>
+
+        <Box p={5} border rounded="lg" bg="white">
+          <Stack direction="col" gap={3}>
+            <h3 className={shared.sectionTitle}>Rules</h3>
+            <RuleControls prId={prId} />
           </Stack>
         </Box>
 

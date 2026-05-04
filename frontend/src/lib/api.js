@@ -382,3 +382,49 @@ export async function fetchRuleRuns(filters = {}) {
   if (!res.ok) throw new Error(`Failed to fetch rule runs: ${res.status}`);
   return res.json();
 }
+
+/**
+ * Fetch rule subscriptions for a PR.
+ * @param {string} prId
+ * @returns {Promise<Array<{rule_id: string, pr_id: string, created_at: string}>>}
+ */
+export async function fetchPRRuleSubscriptions(prId) {
+  const res = await fetch(`${BASE}/api/prs/${encodeURIComponent(prId)}/rule-subscriptions`);
+  if (!res.ok) throw new Error(`Failed to fetch subscriptions: ${res.status}`);
+  return res.json();
+}
+
+/** Subscribe a PR to a rule (only valid for `requires_subscription: true` rules). */
+export async function subscribeRuleForPR(ruleId, prId) {
+  const res = await fetch(`${BASE}/api/rules/${encodeURIComponent(ruleId)}/subscribe`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ pr_id: prId }),
+  });
+  if (!res.ok) throw new Error((await res.json()).error || `Failed: ${res.status}`);
+  return res.json();
+}
+
+/** Unsubscribe a PR from a rule. */
+export async function unsubscribeRuleForPR(ruleId, prId) {
+  const res = await fetch(`${BASE}/api/rules/${encodeURIComponent(ruleId)}/subscribe`, {
+    method: 'DELETE',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ pr_id: prId }),
+  });
+  if (!res.ok) throw new Error((await res.json()).error || `Failed: ${res.status}`);
+  return res.json();
+}
+
+/** Fire a rule manually against a PR or session. */
+export async function runRuleManually(ruleId, { pr_id, session_id, force } = {}) {
+  const url = new URL(`${BASE}/api/rules/${encodeURIComponent(ruleId)}/run`, window.location.origin);
+  if (force) url.searchParams.set('force', 'true');
+  const res = await fetch(url.pathname + url.search, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ pr_id, session_id }),
+  });
+  if (!res.ok) throw new Error((await res.json()).error || `Failed: ${res.status}`);
+  return res.json();
+}

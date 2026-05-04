@@ -150,11 +150,32 @@ Invalid values (e.g. `ci_status: "success"`) are rejected at load time with a cl
 
 Actions run sequentially per rule. First failure stops the chain and marks the run `error`.
 
+### Scoping
+
+By default a rule auto-fires for any PR that matches its `where`. Two opt-out flags narrow the scope:
+
+- `manual: true` - the rule never auto-fires. Only fires via `POST /api/rules/:id/run` (or the "Run now" button on the PR detail view). Use for one-off templates you fire deliberately.
+- `requires_subscription: true` - auto-fires only for PRs explicitly subscribed via `POST /api/rules/:id/subscribe` `{ "pr_id": "..." }` or the toggle on the PR detail view. Subscriptions live in the local DB only - no GitHub state involved. Only valid for `ci.finalized` triggers (sessions are too ephemeral to subscribe to).
+
+```json
+{
+  "id": "auto-retrigger-on-fail",
+  "on": "ci.finalized",
+  "where": { "ci_status": "fail" },
+  "requires_subscription": true,
+  "actions": [{ "type": "mcp", "tool": "retrigger_checks", "args": { "pr_id": "{{pr.id}}" } }],
+  "cooldown_minutes": 30
+}
+```
+
+With this rule, you open a PR, click "Subscribe" in the Rules section, and from then on whenever that PR's CI finalizes as fail the rule retriggers the failed checks (max once per 30 minutes per PR).
+
 ### Lifecycle
 
 - `cooldown_minutes` (default 10) - per `(rule_id, pr_id|session_id|workspace_id)` bucket. Prevents flapping CI from firing the same rule multiple times.
 - Rules live-reload on `config.json` save. Invalid rules show in the Rules dropdown on the dashboard and as `WRN` lines in the TUI; valid rules keep firing.
 - `rule_runs` rows persist; on server restart, mid-flight runs are reconciled to `status='error'` with `error='server_restarted'`.
+- `rule_subscriptions` rows persist across restarts. If a subscribed PR is purged from the DB, the orphan row is harmless - the auto-fire path looks up the PR fresh and short-circuits if it's gone.
 
 ### Limitations
 
@@ -198,7 +219,7 @@ No native database dependencies - `node:sqlite` is built into Node.js.
 
 **Sessions**: `POST /api/sessions`, `GET /api/sessions`, `DELETE /api/sessions/:id`, `POST /api/sessions/:id/popout`, `GET /api/sessions/history`, `GET /api/sessions/:id/transcript`
 
-**Rules**: `GET /api/rules`, `GET /api/rules/runs`, `POST /api/rules/:id/run`
+**Rules**: `GET /api/rules`, `GET /api/rules/runs`, `POST /api/rules/:id/run`, `GET /api/rules/:id/subscriptions`, `POST /api/rules/:id/subscribe`, `DELETE /api/rules/:id/subscribe`, `GET /api/prs/:pr_id/rule-subscriptions`
 
 **Other**: `POST /api/sync/trigger`, `GET /api/config`, `GET /api/events` (SSE), `POST /api/checks/retrigger`
 

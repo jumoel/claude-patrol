@@ -1,5 +1,21 @@
 # Build Log
 
+## 2026-05-04 - Per-PR rule scoping: manual flag and local subscriptions
+
+Two opt-out paths for rules so they don't fire on every matching PR by default. Both stay local to patrol's DB - no GitHub state involved.
+
+`manual: true` (rule field) disables auto-fire entirely. The rule still loads, validates, and shows up in `GET /api/rules`, but the only path to fire it is `POST /api/rules/:id/run`. Used for templates you fire deliberately.
+
+`requires_subscription: true` (rule field) gates auto-fire on a per-PR opt-in. New `rule_subscriptions(rule_id, pr_id, created_at)` table stores the subscriptions. The auto-fire path checks `isSubscribed(rule.id, pr.id)` between the where match and the cooldown check. Schema rejects `requires_subscription` on `session.idle` triggers (sessions are ephemeral, no stable key to subscribe by) and rejects the `manual + requires_subscription` combo as redundant.
+
+Three new API endpoints: `POST/DELETE /api/rules/:id/subscribe` with `{pr_id}` body, `GET /api/rules/:id/subscriptions`, plus `GET /api/prs/:pr_id/rule-subscriptions` for the cross-lookup the PR detail UI needs. Subscribe checks that the rule exists and has `requires_subscription: true`, that the PR exists in the DB, and uses `INSERT ... ON CONFLICT DO NOTHING` so it's idempotent.
+
+UI: a new `RuleControls` component shows up on the PR detail view between the Workspace section and the terminal. Lists every `ci.finalized` rule with its scope status (Subscribed / Not subscribed / Auto on all / Manual only). For `requires_subscription` rules, a Subscribe/Unsubscribe button toggles the row. For all of them, a "Run now" button fires the rule manually with `force=true` (bypass cooldown). Five frontend API helpers wired through the existing pattern.
+
+Verified end-to-end: a `requires_subscription` rule does NOT fire when its PR is unsubscribed (count of rule_runs stays 0 after a simulated CI transition), and DOES fire after subscribing (count goes to 1, status `success`). Schema correctly rejects the bad combinations. Frontend builds clean.
+
+This closes the "I don't want these to run willy-nilly" gap from the open-ended discussion. Combined with the `auto-retrigger-on-fail` example rule in the README, the typical workflow is: write the rule once, subscribe specific PRs from the dashboard, the rule retriggers their failed checks automatically.
+
 ## 2026-05-04 - Rules engine second review pass: bad link, listener cap, dead code
 
 Follow-up after a fresh review of the merged engine + UI. Four small fixes.

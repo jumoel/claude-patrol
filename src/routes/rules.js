@@ -1,4 +1,12 @@
-import { getRuleLoadErrors, getRules, listRuleRuns, manualRunRule } from '../rules.js';
+import {
+  getRuleLoadErrors,
+  getRules,
+  listRuleRuns,
+  listSubscriptions,
+  manualRunRule,
+  subscribeRule,
+  unsubscribeRule,
+} from '../rules.js';
 
 /**
  * Routes for the rules engine. Read-only listing of definitions and runs,
@@ -38,5 +46,40 @@ export function registerRuleRoutes(app) {
       reply.code(400);
       return { error: err.message };
     }
+  });
+
+  app.get('/api/rules/:id/subscriptions', async (request) => {
+    const { id } = request.params;
+    return listSubscriptions({ rule_id: id });
+  });
+
+  app.post('/api/rules/:id/subscribe', async (request, reply) => {
+    const { id } = request.params;
+    const body = request.body ?? {};
+    if (!body.pr_id) {
+      reply.code(400);
+      return { error: 'pr_id is required' };
+    }
+    try {
+      return subscribeRule(id, body.pr_id);
+    } catch (err) {
+      reply.code(400);
+      return { error: err.message };
+    }
+  });
+
+  app.delete('/api/rules/:id/subscribe', async (request, reply) => {
+    const { id } = request.params;
+    const body = request.body ?? {};
+    if (!body.pr_id) {
+      reply.code(400);
+      return { error: 'pr_id is required' };
+    }
+    return unsubscribeRule(id, body.pr_id);
+  });
+
+  app.get('/api/prs/:pr_id/rule-subscriptions', async (request) => {
+    const { pr_id } = request.params;
+    return listSubscriptions({ pr_id });
   });
 }
