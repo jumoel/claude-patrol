@@ -1,5 +1,15 @@
 # Build Log
 
+## 2026-05-04 - Rules: dispatch_claude split-write to match the frontend's submit pattern
+
+User reported that an auto-rebase fire landed the prompt in Claude's input field but never pressed Enter, leaving the rule_run in success state with nothing happening. The bug: `dispatchClaude` did `writeToSession(id, prompt + '\r')` in one write, which the TUI can swallow while it's still painting the input field.
+
+The frontend's `sendTerminalCommand` already does this correctly: write the text, wait 100ms, then write `\r` as a separate message. Mirroring that on the backend.
+
+New `sendPromptToSession(sessionId, prompt, { delay = 100 })` in `pty-manager.js`. Strips trailing `\r` from input, writes the text, awaits the delay, writes `\r`. Returns false if the session went away between the two writes. `dispatchClaude` now calls this instead of doing the concatenated single write.
+
+`writeToSession` stays unchanged - it's still the raw byte writer. Anything that needs the "send a prompt to Claude" semantic should use `sendPromptToSession`.
+
 ## 2026-05-04 - Rules: bulk fire ("run for all matching") via API, MCP, and UI
 
 The "I want auto-rebase to fire on all 12 conflicted PRs right now, without manually arming each one" use case. New `POST /api/rules/:id/run-all` endpoint scans every PR, applies the rule's `where` clause as a filter, and fires the rule against each match.

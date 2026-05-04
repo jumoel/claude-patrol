@@ -10,8 +10,8 @@ import {
   BOOT_TIMEOUT_MS_DEFAULT,
   createSession,
   getSessionStates,
+  sendPromptToSession,
   waitForFirstIdle,
-  writeToSession,
 } from './pty-manager.js';
 import { createWorkspace } from './workspace.js';
 
@@ -568,8 +568,11 @@ async function dispatchClaude(ctx, prompt, runRow) {
     await waitForFirstIdle(session.id, BOOT_TIMEOUT_MS_DEFAULT);
   }
 
-  const ok = writeToSession(session.id, `${prompt}\r`);
-  if (!ok) throw new Error(`writeToSession failed for ${session.id}`);
+  // Use the same two-step write pattern as the frontend's sendTerminalCommand:
+  // write the text, wait briefly, then send Enter. Sending text+Enter in one
+  // write can leave the prompt sitting in the input field with no submission.
+  const ok = await sendPromptToSession(session.id, prompt);
+  if (!ok) throw new Error(`sendPromptToSession failed for ${session.id}`);
 }
 
 /**

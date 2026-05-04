@@ -704,6 +704,27 @@ export function writeToSession(sessionId, text) {
 }
 
 /**
+ * Submit a prompt to a Claude session: write the text, wait briefly so the
+ * PTY can render it into the input field, then send Enter as a separate
+ * write. Mirrors the frontend's `sendTerminalCommand` (lib/terminal.js) which
+ * uses the same two-step pattern - sending text+Enter in one write can cause
+ * Claude's TUI to swallow the Enter while the input is still being painted.
+ *
+ * Strips any trailing `\r` from the input. The Enter is always sent.
+ *
+ * @param {string} sessionId
+ * @param {string} prompt
+ * @param {{delay?: number}} [opts] - ms to wait between text and Enter (default 100)
+ * @returns {Promise<boolean>} false if session not found, true if both writes succeeded
+ */
+export async function sendPromptToSession(sessionId, prompt, { delay = 100 } = {}) {
+  const text = prompt.replace(/\r+$/, '');
+  if (!writeToSession(sessionId, text)) return false;
+  await new Promise((r) => setTimeout(r, delay));
+  return writeToSession(sessionId, '\r');
+}
+
+/**
  * Resolve when the session emits its first 'idle' event after this call.
  * If the session is already in 'idle' state, resolves immediately.
  * Rejects if the session exits, is not found, or the timeout elapses.
