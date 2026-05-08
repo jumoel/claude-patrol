@@ -454,7 +454,7 @@ export const actionRegistry = {
         };
       }
 
-      return await new Promise((resolve) => {
+      return new Promise((resolve) => {
         const handler = (data) => {
           if (data.sessionId !== sessionId) return;
           if (data.state === 'exited') {

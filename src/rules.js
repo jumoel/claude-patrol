@@ -577,6 +577,13 @@ async function dispatchClaude(ctx, prompt, runRow) {
     });
     updateRunRow(runRow, { workspace_id: result.workspace_id, session_id: result.session_id });
   } catch (e) {
+    // Best-effort observability: if the dispatcher created a workspace
+    // before failing (e.g. session creation crashed mid-flight), pick it
+    // up so the rule_run row reflects the partial state.
+    if (!runRow.workspace_id) {
+      const ws = db.prepare("SELECT id FROM workspaces WHERE pr_id = ? AND status = 'active'").get(ctx.pr_id);
+      if (ws) updateRunRow(runRow, { workspace_id: ws.id });
+    }
     // Preserve the original `session_busy` contract for the cooldown/retry
     // path. Other error codes propagate as-is and surface in the run row.
     if (e.code === 'session_busy') throw new Error('session_busy');

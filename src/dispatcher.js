@@ -4,6 +4,7 @@ import {
   BOOT_TIMEOUT_MS_DEFAULT,
   createSession,
   dispatchToSession,
+  getSessionSnapshot,
   taggedError,
   waitForFirstIdle,
 } from './pty-manager.js';
@@ -128,7 +129,16 @@ export async function ensureSessionAndSend({
     throw taggedError('self_target', 'cannot send prompt to your own session');
   }
 
-  if (isFresh) {
+  // Wait for first idle when the session has no activity signal yet:
+  // either we just created it (isFresh) or it exists in memory but has
+  // never tripped the activity detector (state === null, e.g. brand-new
+  // session that hasn't finished booting). Without this, bytes can land
+  // in a Claude TUI that's still painting boot output and get eaten.
+  // For sessions already in 'idle' state, waitForFirstIdle resolves
+  // immediately. For 'working' state we don't wait here; the busy check
+  // in dispatchToSession will throw session_busy.
+  const snap = isFresh ? null : getSessionSnapshot(resolvedSessionId);
+  if (isFresh || snap?.activityState === null) {
     await waitForFirstIdle(resolvedSessionId, BOOT_TIMEOUT_MS_DEFAULT);
   }
 
