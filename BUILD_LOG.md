@@ -1,5 +1,15 @@
 # Build Log
 
+## 2026-05-08 - send_prompt_to_session MCP tool (lt#14)
+
+The actual feature: a running Claude can send a prompt to another Claude session. New `send_prompt_to_session` MCP tool. The handler is a thin adapter: it forwards the four target modes (`session_id`, `pr_id`, `workspace_id`, `global`), `prompt`, `create_if_missing` (default true), and the caller's identity from `ctx.callerSessionId` to `ensureSessionAndSend` from lt#12. The dispatcher owns targeting validation, resolution, the self-target check, the busy check, and the send.
+
+Errors are returned as `{ ok: false, error: <code>, message }` (codes from the dispatcher: `no_target`, `multiple_targets`, `no_session`, `no_workspace`, `session_detached`, `self_target`, `session_busy`). Successes return `{ ok: true, session_id, workspace_id, dispatched_at }`. `dispatched_at` is the input to `wait_for_idle.since`.
+
+`ruleFireable: false`: rules have `dispatch_claude` for this; the MCP tool is for Claude callers.
+
+Verified: `pnpm test` passes (8/8). Syntax-checked. Live verification waits until lt#15 lands so the busy-retry pattern is testable end-to-end.
+
 ## 2026-05-08 - list_sessions MCP tool (lt#13)
 
 A calling Claude needs to know what sessions exist before it can target one with `send_prompt_to_session`. New `list_sessions` MCP tool returns active sessions with workspace context (pr_id, repo, bookmark, path), activity state from `getSessionStates()`, and started_at. Detached sessions are excluded because the dispatcher rejects them as targets (lt#4 design lock); listing them would invite the caller to pick something it cannot then send to. `is_global` is a derived convenience field (workspace_id === null) so callers don't have to special-case the null check.

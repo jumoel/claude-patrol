@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { z } from 'zod';
 import { getDb } from './db.js';
+import { ensureSessionAndSend } from './dispatcher.js';
 import { getSessionStates } from './pty-manager.js';
 
 /**
@@ -402,6 +403,40 @@ export const actionRegistry = {
         message: `Timed out after ${timeout_minutes || 30} minutes. ${stillRunning.length} check(s) still running.`,
         still_running: stillRunning.map((c) => ({ name: c.name, status: c.status })),
       };
+    },
+  },
+
+  send_prompt_to_session: {
+    description:
+      "Send a prompt to another Claude session. Target with exactly one of: session_id (direct), pr_id (the PR's workspace session), workspace_id (workspace session), or global: true (the global terminal session). Auto-creates the target session (and workspace, for pr_id) if missing and create_if_missing is true. Returns dispatched_at; pass it to wait_for_idle to wait for the response. Cannot target your own session (errors with self_target). Errors with session_busy if the target is currently working. Single-line prompts only: newlines in `prompt` are stripped at write time.",
+    schema: z.object({
+      session_id: z.string().optional().describe('Direct session id from list_sessions'),
+      pr_id: z.string().optional().describe('PR database id (e.g. "org/repo#42")'),
+      workspace_id: z.string().optional().describe('Workspace id'),
+      global: z.boolean().optional().describe('Target the global terminal session'),
+      prompt: z.string().min(1).describe('Prompt text. Single-line; newlines are stripped.'),
+      create_if_missing: z
+        .boolean()
+        .optional()
+        .describe('If the target has no active session (or pr_id has no workspace), create one. Default true.'),
+    }),
+    ruleFireable: false,
+    mcpHandler: async (_app, args, ctx) => {
+      try {
+        const result = await ensureSessionAndSend({
+          session_id: args.session_id,
+          pr_id: args.pr_id,
+          workspace_id: args.workspace_id,
+          global: args.global,
+          prompt: args.prompt,
+          autoCreate: args.create_if_missing ?? true,
+          callerSessionId: ctx?.callerSessionId ?? null,
+        });
+        return { ok: true, ...result };
+      } catch (e) {
+        if (e.code) return { ok: false, error: e.code, message: e.message };
+        throw e;
+      }
     },
   },
 
