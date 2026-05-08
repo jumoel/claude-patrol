@@ -1,5 +1,21 @@
 # Build Log
 
+## 2026-05-08 - Extract dispatcher + activity timestamps + 10s idle threshold (lt#12)
+
+The "ensure workspace + ensure session + wait first idle + write prompt" flow was tangled inside `rules.js` `dispatchClaude`. The upcoming `send_prompt_to_session` MCP tool (lt#14) needs the same flow. Extracted into `src/dispatcher.js` with one entry point: `ensureSessionAndSend({ session_id?, pr_id?, workspace_id?, global?, prompt, autoCreate?, callerSessionId? })`. Resolves any of the four target modes, runs the busy check, force-sets working state for the deterministic `wait_for_idle.since` anchor, writes the prompt, returns `{ session_id, workspace_id, dispatched_at }`.
+
+Self-target check lives in the dispatcher: if `callerSessionId` matches the resolved target, it throws `self_target`. Detached sessions are rejected with `session_detached` per the lt#4 design lock. All errors carry `.code` for stable machine-readable branching.
+
+Rules engine `dispatchClaude` is now a thin caller. `session_busy` is preserved as a plain `Error` so the existing cooldown/retry path keeps working. Workspace id is pre-resolved into the rule_run row when an active workspace already exists (so a `session_busy` failure still records workspace_id for diagnosis); when autoCreate has to make one, the row gets the id from the dispatcher's return value.
+
+Activity timestamps land on the session entry: `lastWorkingAt`, `lastIdleAt`. Set inside `attachPtyToTmux`'s closure by a unified `transitionTo(state)` helper (timestamp first, then state, then emit, locked order so listeners observing the `session-state` event always see consistent fields). New `entry.markWorking()` lets the dispatcher force-set working at dispatch time. Empirically (lt#17) the TUI echo on prompt write is structurally a LARGE_OUTPUT so the natural detector trips working anyway, but the deterministic anchor is worth a few lines.
+
+`IDLE_THRESHOLD_MS` bumped from 5s to 10s. Probe data (lt#17) shows max mid-turn gap of 1.36s during a 15s silent tool call. 10s gives 7x safety margin against false-positive idle. Side effects: `session.idle` rule trigger fires later (no production rules use it), `waitForFirstIdle` boot path takes slightly longer to fire on real idle but still has 3x headroom against its 30s timeout, UI activity badges flap less.
+
+Cleanup: removed `sendPromptToSession` and `writeToSession` exports from `pty-manager.js`. The first is no longer called (rules engine routes through the dispatcher now). The second was already dead. Both were public exports but nothing in the codebase referenced them.
+
+Verified: `pnpm test` passes (8/8). Syntax-checked.
+
 ## 2026-05-08 - Per-session MCP URLs + caller identity plumbing (lt#11)
 
 The MCP endpoint was a single shared `POST /mcp`. Tool handlers had no way to know which Claude session was calling, so any caller-aware tool would have to trust the calling Claude to pass its own session id as a tool arg. Brittle in principle and a blocker for the inter-session messaging work in lt#4.

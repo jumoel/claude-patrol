@@ -10,7 +10,10 @@ import { archiveTranscript } from './transcripts.js';
 import { expandPath, toClaudeProjectKey } from './utils.js';
 
 const BUFFER_MAX = 50_000;
-const IDLE_THRESHOLD_MS = 5000;
+// Bumped from 5s to 10s on 2026-05-08. Empirical max mid-turn gap was 1.36s
+// during a 15s silent tool call; 10s gives 7x safety margin against
+// false-positive idle while a turn is still in flight (lt#17).
+const IDLE_THRESHOLD_MS = 10_000;
 export const BOOT_TIMEOUT_MS_DEFAULT = 30_000;
 
 /**
@@ -153,9 +156,26 @@ function attachPtyToTmux(sessionId, meta = {}) {
   // Untracked sessions show "Session" badge in the UI.
   let state = null;
   let idleTimer = null;
-  function setState(s) {
+  // Transition order is locked: write the timestamp (lastWorkingAt or
+  // lastIdleAt), then update state, then emit the session-state event. Any
+  // listener observing the event is guaranteed to see consistent fields.
+  // wait_for_idle (lt#15) reads lastIdleAt > lastWorkingAt > since to anchor
+  // on a specific dispatch.
+  function transitionTo(s) {
+    if (s === 'working') entry.lastWorkingAt = Date.now();
+    else if (s === 'idle') entry.lastIdleAt = Date.now();
     state = s;
     entry.activityState = s;
+    emitSessionState(sessionId, workspaceId, s);
+  }
+  // Force-set state to working at dispatch time. Used by the dispatcher
+  // (lt#12) so wait_for_idle.since has a deterministic anchor regardless of
+  // when the natural detector trips on the TUI echo. Also resets the idle
+  // countdown so a session that's already idle gets a fresh window.
+  function markWorking() {
+    if (idleTimer) clearTimeout(idleTimer);
+    transitionTo('working');
+    idleTimer = setTimeout(() => transitionTo('idle'), IDLE_THRESHOLD_MS);
   }
 
   // Activity detection: count distinct "moments" of printable output.
@@ -179,6 +199,9 @@ function attachPtyToTmux(sessionId, meta = {}) {
     resizeSuppressUntil: Date.now() + 500,
     activityState: state, // exposed for getSessionStates()
     workspaceId, // exposed for getSessionStates()
+    lastWorkingAt: null, // ms timestamp of most recent null|idle -> working transition
+    lastIdleAt: null, // ms timestamp of most recent working -> idle transition
+    markWorking, // dispatcher's deterministic anchor for wait_for_idle (lt#12)
   };
 
   proc.onData((data) => {
@@ -199,10 +222,7 @@ function attachPtyToTmux(sessionId, meta = {}) {
     if (state === 'working') {
       // Already working - any output resets the idle countdown.
       if (idleTimer) clearTimeout(idleTimer);
-      idleTimer = setTimeout(() => {
-        setState('idle');
-        emitSessionState(sessionId, workspaceId, 'idle');
-      }, IDLE_THRESHOLD_MS);
+      idleTimer = setTimeout(() => transitionTo('idle'), IDLE_THRESHOLD_MS);
     } else {
       // State is null or 'idle'. Count distinct output moments.
       // The moment debounce (MOMENT_GAP) handles tmux batching.
@@ -217,14 +237,10 @@ function attachPtyToTmux(sessionId, meta = {}) {
       }
 
       if (momentCount >= MOMENT_THRESHOLD || data.length >= LARGE_OUTPUT) {
-        setState('working');
         momentCount = 0;
-        emitSessionState(sessionId, workspaceId, 'working');
+        transitionTo('working');
         if (idleTimer) clearTimeout(idleTimer);
-        idleTimer = setTimeout(() => {
-          setState('idle');
-          emitSessionState(sessionId, workspaceId, 'idle');
-        }, IDLE_THRESHOLD_MS);
+        idleTimer = setTimeout(() => transitionTo('idle'), IDLE_THRESHOLD_MS);
       }
     }
   });
@@ -752,26 +768,9 @@ export function reattachSession(sessionId) {
 }
 
 /**
- * Write text directly into a session's PTY. Used by server-side callers
- * (rules engine, future automation) to inject prompts. Callers append
- * any submission key (e.g. '\r') themselves.
- * @param {string} sessionId
- * @param {string} text
- * @returns {boolean} false if session not found or not active
- */
-export function writeToSession(sessionId, text) {
-  const entry = sessions.get(sessionId);
-  if (!entry) return false;
-  entry.proc.write(text);
-  return true;
-}
-
-/**
  * Default delay between writing prompt text and writing the Enter that
- * submits it. Single source of truth for both the WS `prompt-submit` handler
- * and the server-side `sendPromptToSession` helper. If you find yourself
- * defining a "delay" constant elsewhere for the same purpose, route through
- * here instead.
+ * submits it. Single source of truth for the WS `prompt-submit` handler and
+ * server-side dispatchers.
  */
 const PROMPT_SUBMIT_DELAY_MS = 100;
 
@@ -781,7 +780,7 @@ const PROMPT_SUBMIT_DELAY_MS = 100;
  * Sending them as a single write can cause the TUI to swallow Enter while
  * still painting the input field.
  *
- * Both the WebSocket `prompt-submit` handler and `sendPromptToSession` route
+ * Both the WebSocket `prompt-submit` handler and `dispatchToSession` route
  * through here so the split lives in exactly one place.
  *
  * @param {object} entry - session entry from `sessions` map
@@ -797,23 +796,35 @@ async function submitPromptToEntry(entry, text, delay = PROMPT_SUBMIT_DELAY_MS) 
 }
 
 /**
- * Submit a prompt to a Claude session: write the text, wait briefly so the
- * PTY can render it into the input field, then send Enter as a separate
- * write. Server-side counterpart to the WS `prompt-submit` message - both
- * share the same `submitPromptToEntry` helper, so the split timing can't drift.
+ * Throw a tagged Error. The `code` property is what the dispatcher and MCP
+ * handlers branch on; the message is for human-readable logging.
+ */
+function tagged(code, msg) {
+  const e = new Error(msg);
+  e.code = code;
+  return e;
+}
+
+/**
+ * Dispatch a prompt to an in-memory session: busy check, force-set working
+ * (anchors `wait_for_idle.since` deterministically per lt#12), then write.
+ * Returns the dispatch timestamp (`entry.lastWorkingAt`).
  *
- * Strips any trailing `\r` from the input. The Enter is always sent.
+ * Throws `Error` with `.code` in {`no_session`, `session_busy`}.
  *
  * @param {string} sessionId
  * @param {string} prompt
- * @param {{delay?: number}} [opts] - ms to wait between text and Enter (default 100)
- * @returns {Promise<boolean>} false if session not found
+ * @returns {Promise<number>} dispatch timestamp (ms)
  */
-export async function sendPromptToSession(sessionId, prompt, { delay = PROMPT_SUBMIT_DELAY_MS } = {}) {
+export async function dispatchToSession(sessionId, prompt) {
   const entry = sessions.get(sessionId);
-  if (!entry) return false;
-  await submitPromptToEntry(entry, prompt, delay);
-  return true;
+  if (!entry) throw tagged('no_session', `session ${sessionId} not in memory`);
+  if (entry.activityState === 'working') {
+    throw tagged('session_busy', `session ${sessionId} is currently working`);
+  }
+  entry.markWorking();
+  await submitPromptToEntry(entry, prompt);
+  return entry.lastWorkingAt;
 }
 
 /**

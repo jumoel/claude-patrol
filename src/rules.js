@@ -4,16 +4,9 @@ import { actionRegistry, invokeAction } from './actions.js';
 import { appEvents } from './app-events.js';
 import { configEvents } from './config.js';
 import { getDb } from './db.js';
+import { ensureSessionAndSend } from './dispatcher.js';
 import { pollerEvents } from './poller.js';
 import { formatPR } from './pr-status.js';
-import {
-  BOOT_TIMEOUT_MS_DEFAULT,
-  createSession,
-  getSessionStates,
-  sendPromptToSession,
-  waitForFirstIdle,
-} from './pty-manager.js';
-import { createWorkspace } from './workspace.js';
 
 /**
  * Rules engine. Subscribes to:
@@ -566,38 +559,29 @@ function updateRunRow(runRow, patch) {
 async function dispatchClaude(ctx, prompt, runRow) {
   if (!ctx.pr_id) throw new Error('dispatch_claude requires a pr_id (ci.finalized trigger)');
 
+  // Stream resolution back to the run row as it becomes known so a partial
+  // failure (e.g. session_busy) still records workspace_id for diagnosis.
+  // ensureSessionAndSend creates the workspace before the session, but it
+  // doesn't expose the intermediate state. Pre-resolve workspace_id ourselves
+  // when it already exists; if autoCreate has to make one, the rule_run row
+  // will pick it up from the dispatcher's return value.
   const db = getDb();
-  let workspace = db.prepare("SELECT * FROM workspaces WHERE pr_id = ? AND status = 'active'").get(ctx.pr_id);
-  if (!workspace) {
-    const created = await createWorkspace(ctx.pr_id, currentConfig);
-    workspace = db.prepare('SELECT * FROM workspaces WHERE id = ?').get(created.id);
+  const existing = db.prepare("SELECT id FROM workspaces WHERE pr_id = ? AND status = 'active'").get(ctx.pr_id);
+  if (existing) updateRunRow(runRow, { workspace_id: existing.id });
+
+  try {
+    const result = await ensureSessionAndSend({
+      pr_id: ctx.pr_id,
+      prompt,
+      autoCreate: true,
+    });
+    updateRunRow(runRow, { workspace_id: result.workspace_id, session_id: result.session_id });
+  } catch (e) {
+    // Preserve the original `session_busy` contract for the cooldown/retry
+    // path. Other error codes propagate as-is and surface in the run row.
+    if (e.code === 'session_busy') throw new Error('session_busy');
+    throw e;
   }
-  updateRunRow(runRow, { workspace_id: workspace.id });
-
-  let session = db.prepare("SELECT * FROM sessions WHERE workspace_id = ? AND status = 'active'").get(workspace.id);
-  let isFresh = false;
-  if (session) {
-    const states = getSessionStates();
-    const live = states.find((s) => s.sessionId === session.id);
-    if (live && live.state === 'working') {
-      throw new Error('session_busy');
-    }
-  } else {
-    session = createSession(workspace.id, workspace.path);
-    isFresh = true;
-  }
-
-  updateRunRow(runRow, { session_id: session.id });
-
-  if (isFresh) {
-    await waitForFirstIdle(session.id, BOOT_TIMEOUT_MS_DEFAULT);
-  }
-
-  // Use the same two-step write pattern as the frontend's sendTerminalCommand:
-  // write the text, wait briefly, then send Enter. Sending text+Enter in one
-  // write can leave the prompt sitting in the input field with no submission.
-  const ok = await sendPromptToSession(session.id, prompt);
-  if (!ok) throw new Error(`sendPromptToSession failed for ${session.id}`);
 }
 
 /**

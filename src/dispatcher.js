@@ -1,0 +1,148 @@
+import { getCurrentConfig } from './config.js';
+import { getDb } from './db.js';
+import {
+  BOOT_TIMEOUT_MS_DEFAULT,
+  createSession,
+  dispatchToSession,
+  waitForFirstIdle,
+} from './pty-manager.js';
+import { createWorkspace } from './workspace.js';
+
+/**
+ * Resolve a target session and write a prompt into it. Used by the rules
+ * engine's `dispatch_claude` action and by the upcoming
+ * `send_prompt_to_session` MCP tool.
+ *
+ * Exactly one of `session_id`, `pr_id`, `workspace_id`, or `global: true`
+ * must be provided.
+ *
+ * Resolution rules:
+ *  - `session_id` selects a specific session row. Detached sessions are
+ *    rejected (lt#4 design lock); killed/missing rows error `no_session`.
+ *    `autoCreate` does not apply: a session id implies a specific session.
+ *  - `pr_id` resolves to the PR's active workspace's session. With
+ *    `autoCreate`, missing workspace and missing session are both created.
+ *  - `workspace_id` resolves to the workspace's session. The workspace
+ *    itself must already exist (we don't create workspaces from raw ids).
+ *  - `global: true` resolves to the global session (workspace_id IS NULL).
+ *    `autoCreate` spawns one in `global_terminal_cwd` if missing.
+ *
+ * After resolution, if `callerSessionId` matches the resolved target,
+ * throws `self_target`. If the target is currently `working`, throws
+ * `session_busy`. Otherwise force-sets working state, writes the prompt,
+ * and returns the dispatch timestamp.
+ *
+ * Newlines in `prompt` are stripped (the TUI submits on Enter, so embedded
+ * newlines would split the prompt mid-stream).
+ *
+ * Errors thrown carry `.code` in:
+ *   `no_target`, `multiple_targets`, `no_session`, `no_workspace`,
+ *   `session_detached`, `self_target`, `session_busy`.
+ *
+ * @param {object} args
+ * @param {string} [args.session_id]
+ * @param {string} [args.pr_id]
+ * @param {string} [args.workspace_id]
+ * @param {boolean} [args.global]
+ * @param {string} args.prompt
+ * @param {boolean} [args.autoCreate=false]
+ * @param {string|null} [args.callerSessionId=null]
+ * @returns {Promise<{session_id: string, workspace_id: string|null, dispatched_at: number}>}
+ */
+export async function ensureSessionAndSend({
+  session_id,
+  pr_id,
+  workspace_id,
+  global: isGlobal,
+  prompt,
+  autoCreate = false,
+  callerSessionId = null,
+}) {
+  const targetCount =
+    (session_id ? 1 : 0) + (pr_id ? 1 : 0) + (workspace_id ? 1 : 0) + (isGlobal ? 1 : 0);
+  if (targetCount === 0) {
+    throw err('no_target', 'one of session_id, pr_id, workspace_id, global is required');
+  }
+  if (targetCount > 1) {
+    throw err('multiple_targets', 'only one of session_id, pr_id, workspace_id, global may be set');
+  }
+  if (typeof prompt !== 'string' || prompt.length === 0) {
+    throw err('no_target', 'prompt is required');
+  }
+
+  const db = getDb();
+  let resolvedSessionId;
+  let resolvedWorkspaceId = null;
+  let isFresh = false;
+
+  if (session_id) {
+    const row = db.prepare('SELECT * FROM sessions WHERE id = ?').get(session_id);
+    if (!row || row.status === 'killed') throw err('no_session', `session ${session_id} not found`);
+    if (row.status === 'detached') throw err('session_detached', `session ${session_id} is detached`);
+    resolvedSessionId = row.id;
+    resolvedWorkspaceId = row.workspace_id;
+  } else {
+    let workspace = null;
+    if (pr_id) {
+      workspace = db.prepare("SELECT * FROM workspaces WHERE pr_id = ? AND status = 'active'").get(pr_id);
+      if (!workspace) {
+        if (!autoCreate) throw err('no_workspace', `no active workspace for pr ${pr_id}`);
+        const created = await createWorkspace(pr_id, getCurrentConfig());
+        workspace = db.prepare('SELECT * FROM workspaces WHERE id = ?').get(created.id);
+      }
+    } else if (workspace_id) {
+      workspace = db.prepare("SELECT * FROM workspaces WHERE id = ? AND status = 'active'").get(workspace_id);
+      if (!workspace) throw err('no_workspace', `workspace ${workspace_id} not found or not active`);
+    }
+    // workspace stays null for the global path
+
+    let sessionRow;
+    if (workspace) {
+      sessionRow = db
+        .prepare("SELECT * FROM sessions WHERE workspace_id = ? AND status IN ('active', 'detached')")
+        .get(workspace.id);
+      resolvedWorkspaceId = workspace.id;
+    } else {
+      sessionRow = db
+        .prepare("SELECT * FROM sessions WHERE workspace_id IS NULL AND status IN ('active', 'detached')")
+        .get();
+    }
+
+    if (sessionRow?.status === 'detached') {
+      throw err('session_detached', `target session ${sessionRow.id} is detached`);
+    }
+
+    if (!sessionRow) {
+      if (!autoCreate) throw err('no_session', 'no active session at target');
+      const cwd = workspace ? workspace.path : getCurrentConfig().global_terminal_cwd || process.cwd();
+      const created = createSession(workspace ? workspace.id : null, cwd);
+      resolvedSessionId = created.id;
+      isFresh = true;
+    } else {
+      resolvedSessionId = sessionRow.id;
+    }
+  }
+
+  if (callerSessionId && callerSessionId === resolvedSessionId) {
+    throw err('self_target', 'cannot send prompt to your own session');
+  }
+
+  if (isFresh) {
+    await waitForFirstIdle(resolvedSessionId, BOOT_TIMEOUT_MS_DEFAULT);
+  }
+
+  const cleaned = prompt.replace(/[\r\n]+/g, ' ');
+  const dispatched_at = await dispatchToSession(resolvedSessionId, cleaned);
+
+  return {
+    session_id: resolvedSessionId,
+    workspace_id: resolvedWorkspaceId,
+    dispatched_at,
+  };
+}
+
+function err(code, msg) {
+  const e = new Error(msg);
+  e.code = code;
+  return e;
+}
