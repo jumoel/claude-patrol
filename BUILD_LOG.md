@@ -1,5 +1,21 @@
 # Build Log
 
+## 2026-05-08 - wait_for_idle MCP tool (lt#15)
+
+Companion to `send_prompt_to_session`. Blocks until the target session's current TUI turn quiesces. The `since` anchor (typically `dispatched_at` from a recent send) makes the check race-safe: predicate is `lastWorkingAt >= since && lastIdleAt > lastWorkingAt && activityState === 'idle'`. Combined with the lt#12 setState ordering lock, listeners observing the `session-state idle` event always see consistent fields, so the snapshot taken inside the event handler reflects the transition that just fired.
+
+Snapshot fast-path: if the predicate is already satisfied at handler entry, returns immediately with the existing timestamps. Otherwise subscribes to `appEvents` `session-state`, resolves on the first `idle` event that satisfies the predicate, rejects on `exited`, rejects on timeout. Listeners are removed on every exit path.
+
+Defaults: timeout 30 minutes, min 1, max 120. Returns `{ ok: true, idle_at: ISO, working_duration_ms }` on success or `{ ok: false, error: <code>, message }` on `no_session` / `session_detached` / `session_exited` / `timeout`.
+
+Detached and killed sessions are rejected immediately. The dispatcher already refuses to send to detached targets, so anything `wait_for_idle` is asked to watch should be either active in memory or genuinely gone.
+
+The contract is "current turn", not "all spawned work done." Background subagents, `run_in_background: true` Bash, and autonomous loops continue past the parent's turn end. Documented in the tool description; the system-prompt update in lt#16 will reinforce.
+
+Verified: `pnpm test` passes (8/8). End-to-end live verification (busy-retry pattern, real send-then-wait round trips) requires the system prompt to land first so a fresh Claude session knows to use the tool; that's lt#16.
+
+Added a small read-only getter `getSessionSnapshot(sessionId)` to `pty-manager.js` so the handler can sample current state without touching the private `sessions` map.
+
 ## 2026-05-08 - send_prompt_to_session MCP tool (lt#14)
 
 The actual feature: a running Claude can send a prompt to another Claude session. New `send_prompt_to_session` MCP tool. The handler is a thin adapter: it forwards the four target modes (`session_id`, `pr_id`, `workspace_id`, `global`), `prompt`, `create_if_missing` (default true), and the caller's identity from `ctx.callerSessionId` to `ensureSessionAndSend` from lt#12. The dispatcher owns targeting validation, resolution, the self-target check, the busy check, and the send.

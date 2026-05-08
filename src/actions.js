@@ -1,8 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { z } from 'zod';
+import { appEvents } from './app-events.js';
 import { getDb } from './db.js';
 import { ensureSessionAndSend } from './dispatcher.js';
-import { getSessionStates } from './pty-manager.js';
+import { getSessionSnapshot, getSessionStates } from './pty-manager.js';
 
 /**
  * Strip verbose fields from a PR for compact list responses.
@@ -403,6 +404,85 @@ export const actionRegistry = {
         message: `Timed out after ${timeout_minutes || 30} minutes. ${stillRunning.length} check(s) still running.`,
         still_running: stillRunning.map((c) => ({ name: c.name, status: c.status })),
       };
+    },
+  },
+
+  wait_for_idle: {
+    description:
+      'Wait until a Claude session reaches idle. After send_prompt_to_session, pass the dispatched_at you received as `since` to anchor on that specific dispatch. Resolves when the session has gone through working then idle after `since` and is currently idle. Default timeout 30 minutes, max 120. This waits for the current TUI turn to quiesce, not for any background work the dispatched prompt may have spawned (run_in_background Bash, background subagents, autonomous loops).',
+    schema: z.object({
+      session_id: z.string().describe('Session id to watch'),
+      since: z
+        .number()
+        .optional()
+        .describe('ms epoch anchor; resolves only after a working->idle cycle that lands after `since`. Default: now.'),
+      timeout_minutes: z.number().optional().describe('Give up after this many minutes (default 30, min 1, max 120)'),
+    }),
+    ruleFireable: false,
+    mcpHandler: async (_app, args) => {
+      const sessionId = args.session_id;
+      const since = typeof args.since === 'number' ? args.since : Date.now();
+      const timeoutMs = Math.max(1, Math.min(120, args.timeout_minutes ?? 30)) * 60 * 1000;
+
+      const row = getDb().prepare('SELECT id, status FROM sessions WHERE id = ?').get(sessionId);
+      if (!row || row.status === 'killed') {
+        return { ok: false, error: 'no_session', message: `session ${sessionId} not found` };
+      }
+      if (row.status === 'detached') {
+        return { ok: false, error: 'session_detached', message: `session ${sessionId} is detached` };
+      }
+
+      // Predicate: a working->idle cycle has landed after `since`, and the
+      // session is currently idle.
+      const satisfied = (snap) =>
+        snap !== null &&
+        snap.activityState === 'idle' &&
+        snap.lastWorkingAt !== null &&
+        snap.lastWorkingAt >= since &&
+        snap.lastIdleAt !== null &&
+        snap.lastIdleAt > snap.lastWorkingAt;
+
+      const initial = getSessionSnapshot(sessionId);
+      if (initial === null) {
+        return { ok: false, error: 'no_session', message: `session ${sessionId} not in memory` };
+      }
+      if (satisfied(initial)) {
+        return {
+          ok: true,
+          idle_at: new Date(initial.lastIdleAt).toISOString(),
+          working_duration_ms: initial.lastIdleAt - initial.lastWorkingAt,
+        };
+      }
+
+      return await new Promise((resolve) => {
+        const handler = (data) => {
+          if (data.sessionId !== sessionId) return;
+          if (data.state === 'exited') {
+            cleanup();
+            resolve({ ok: false, error: 'session_exited', message: `session ${sessionId} exited` });
+            return;
+          }
+          if (data.state !== 'idle') return;
+          const snap = getSessionSnapshot(sessionId);
+          if (satisfied(snap)) {
+            cleanup();
+            resolve({
+              ok: true,
+              idle_at: new Date(snap.lastIdleAt).toISOString(),
+              working_duration_ms: snap.lastIdleAt - snap.lastWorkingAt,
+            });
+          }
+        };
+        const timer = setTimeout(() => {
+          cleanup();
+          resolve({ ok: false, error: 'timeout', message: `did not reach idle within ${args.timeout_minutes ?? 30} minute(s)` });
+        }, timeoutMs);
+        function cleanup() {
+          appEvents.removeListener('session-state', handler);
+          clearTimeout(timer);
+        }
+        appEvents.on('session-state', handler);
+      });
     },
   },
 

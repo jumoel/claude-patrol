@@ -625,6 +625,24 @@ export function activeSessionCount() {
 }
 
 /**
+ * Read-only snapshot of a single session's activity state and transition
+ * timestamps. Returns null if the session isn't in memory. Used by
+ * wait_for_idle (lt#15) to evaluate the since-anchored idle predicate.
+ *
+ * @param {string} sessionId
+ * @returns {{ activityState: 'working' | 'idle' | null, lastWorkingAt: number | null, lastIdleAt: number | null } | null}
+ */
+export function getSessionSnapshot(sessionId) {
+  const entry = sessions.get(sessionId);
+  if (!entry) return null;
+  return {
+    activityState: entry.activityState ?? null,
+    lastWorkingAt: entry.lastWorkingAt ?? null,
+    lastIdleAt: entry.lastIdleAt ?? null,
+  };
+}
+
+/**
  * Get the current activity state for all tracked sessions.
  * Used to seed new SSE clients with the current state.
  * @returns {Array<{ sessionId: string, workspaceId: string | null, state: 'working' | 'idle' }>}
