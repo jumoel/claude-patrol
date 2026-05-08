@@ -814,10 +814,11 @@ async function submitPromptToEntry(entry, text, delay = PROMPT_SUBMIT_DELAY_MS) 
 }
 
 /**
- * Throw a tagged Error. The `code` property is what the dispatcher and MCP
- * handlers branch on; the message is for human-readable logging.
+ * Build a tagged Error. The `code` property is what the dispatcher and MCP
+ * handlers branch on; the message is for human-readable logging. Exported
+ * so the dispatcher can produce the same shape of error.
  */
-function tagged(code, msg) {
+export function taggedError(code, msg) {
   const e = new Error(msg);
   e.code = code;
   return e;
@@ -836,9 +837,9 @@ function tagged(code, msg) {
  */
 export async function dispatchToSession(sessionId, prompt) {
   const entry = sessions.get(sessionId);
-  if (!entry) throw tagged('no_session', `session ${sessionId} not in memory`);
+  if (!entry) throw taggedError('no_session', `session ${sessionId} not in memory`);
   if (entry.activityState === 'working') {
-    throw tagged('session_busy', `session ${sessionId} is currently working`);
+    throw taggedError('session_busy', `session ${sessionId} is currently working`);
   }
   entry.markWorking();
   await submitPromptToEntry(entry, prompt);

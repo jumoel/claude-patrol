@@ -4,6 +4,7 @@ import {
   BOOT_TIMEOUT_MS_DEFAULT,
   createSession,
   dispatchToSession,
+  taggedError,
   waitForFirstIdle,
 } from './pty-manager.js';
 import { createWorkspace } from './workspace.js';
@@ -61,14 +62,14 @@ export async function ensureSessionAndSend({
   const targetCount =
     (session_id ? 1 : 0) + (pr_id ? 1 : 0) + (workspace_id ? 1 : 0) + (isGlobal ? 1 : 0);
   if (targetCount === 0) {
-    throw err('no_target', 'one of session_id, pr_id, workspace_id, global is required');
+    throw taggedError('no_target', 'one of session_id, pr_id, workspace_id, global is required');
   }
   if (targetCount > 1) {
-    throw err('multiple_targets', 'only one of session_id, pr_id, workspace_id, global may be set');
+    throw taggedError('multiple_targets', 'only one of session_id, pr_id, workspace_id, global may be set');
   }
-  if (typeof prompt !== 'string' || prompt.length === 0) {
-    throw err('no_target', 'prompt is required');
-  }
+
+  // Prompt validation lives upstream: the MCP zod schema enforces min(1) and
+  // the rules engine config loader does the same. Trust the caller here.
 
   const db = getDb();
   let resolvedSessionId;
@@ -77,8 +78,8 @@ export async function ensureSessionAndSend({
 
   if (session_id) {
     const row = db.prepare('SELECT * FROM sessions WHERE id = ?').get(session_id);
-    if (!row || row.status === 'killed') throw err('no_session', `session ${session_id} not found`);
-    if (row.status === 'detached') throw err('session_detached', `session ${session_id} is detached`);
+    if (!row || row.status === 'killed') throw taggedError('no_session', `session ${session_id} not found`);
+    if (row.status === 'detached') throw taggedError('session_detached', `session ${session_id} is detached`);
     resolvedSessionId = row.id;
     resolvedWorkspaceId = row.workspace_id;
   } else {
@@ -86,13 +87,13 @@ export async function ensureSessionAndSend({
     if (pr_id) {
       workspace = db.prepare("SELECT * FROM workspaces WHERE pr_id = ? AND status = 'active'").get(pr_id);
       if (!workspace) {
-        if (!autoCreate) throw err('no_workspace', `no active workspace for pr ${pr_id}`);
+        if (!autoCreate) throw taggedError('no_workspace', `no active workspace for pr ${pr_id}`);
         const created = await createWorkspace(pr_id, getCurrentConfig());
         workspace = db.prepare('SELECT * FROM workspaces WHERE id = ?').get(created.id);
       }
     } else if (workspace_id) {
       workspace = db.prepare("SELECT * FROM workspaces WHERE id = ? AND status = 'active'").get(workspace_id);
-      if (!workspace) throw err('no_workspace', `workspace ${workspace_id} not found or not active`);
+      if (!workspace) throw taggedError('no_workspace', `workspace ${workspace_id} not found or not active`);
     }
     // workspace stays null for the global path
 
@@ -109,11 +110,11 @@ export async function ensureSessionAndSend({
     }
 
     if (sessionRow?.status === 'detached') {
-      throw err('session_detached', `target session ${sessionRow.id} is detached`);
+      throw taggedError('session_detached', `target session ${sessionRow.id} is detached`);
     }
 
     if (!sessionRow) {
-      if (!autoCreate) throw err('no_session', 'no active session at target');
+      if (!autoCreate) throw taggedError('no_session', 'no active session at target');
       const cwd = workspace ? workspace.path : getCurrentConfig().global_terminal_cwd || process.cwd();
       const created = createSession(workspace ? workspace.id : null, cwd);
       resolvedSessionId = created.id;
@@ -124,7 +125,7 @@ export async function ensureSessionAndSend({
   }
 
   if (callerSessionId && callerSessionId === resolvedSessionId) {
-    throw err('self_target', 'cannot send prompt to your own session');
+    throw taggedError('self_target', 'cannot send prompt to your own session');
   }
 
   if (isFresh) {
@@ -141,8 +142,3 @@ export async function ensureSessionAndSend({
   };
 }
 
-function err(code, msg) {
-  const e = new Error(msg);
-  e.code = code;
-  return e;
-}
