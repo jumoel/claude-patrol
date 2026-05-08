@@ -1,5 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { z } from 'zod';
+import { getDb } from './db.js';
+import { getSessionStates } from './pty-manager.js';
 
 /**
  * Strip verbose fields from a PR for compact list responses.
@@ -400,6 +402,43 @@ export const actionRegistry = {
         message: `Timed out after ${timeout_minutes || 30} minutes. ${stillRunning.length} check(s) still running.`,
         still_running: stillRunning.map((c) => ({ name: c.name, status: c.status })),
       };
+    },
+  },
+
+  list_sessions: {
+    description:
+      'List active Claude sessions known to Patrol. Returns each session id, workspace context (PR id, repo, branch, workspace path), activity state (working, idle, or null when untracked), and started_at. Use this before send_prompt_to_session to pick a target. Detached sessions are not listed because send_prompt_to_session cannot target them.',
+    schema: z.object({}),
+    ruleFireable: false,
+    mcpHandler: async () => {
+      const db = getDb();
+      const rows = db
+        .prepare(
+          `SELECT s.id            AS session_id,
+                  s.workspace_id  AS workspace_id,
+                  s.started_at    AS started_at,
+                  w.pr_id         AS pr_id,
+                  w.repo          AS repo,
+                  w.bookmark      AS bookmark,
+                  w.path          AS workspace_path
+             FROM sessions s
+             LEFT JOIN workspaces w ON w.id = s.workspace_id
+            WHERE s.status = 'active'
+            ORDER BY s.started_at DESC`,
+        )
+        .all();
+      const states = new Map(getSessionStates().map((s) => [s.sessionId, s.state]));
+      return rows.map((r) => ({
+        session_id: r.session_id,
+        workspace_id: r.workspace_id,
+        pr_id: r.pr_id,
+        repo: r.repo,
+        bookmark: r.bookmark,
+        workspace_path: r.workspace_path,
+        activity_state: states.get(r.session_id) ?? null,
+        started_at: r.started_at,
+        is_global: r.workspace_id === null,
+      }));
     },
   },
 };

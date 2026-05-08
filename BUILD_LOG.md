@@ -1,5 +1,15 @@
 # Build Log
 
+## 2026-05-08 - list_sessions MCP tool (lt#13)
+
+A calling Claude needs to know what sessions exist before it can target one with `send_prompt_to_session`. New `list_sessions` MCP tool returns active sessions with workspace context (pr_id, repo, bookmark, path), activity state from `getSessionStates()`, and started_at. Detached sessions are excluded because the dispatcher rejects them as targets (lt#4 design lock); listing them would invite the caller to pick something it cannot then send to. `is_global` is a derived convenience field (workspace_id === null) so callers don't have to special-case the null check.
+
+Single SELECT with a LEFT JOIN against workspaces. Activity state is layered in via `Map(getSessionStates())`. `ruleFireable: false`: read-only inspection has no business firing from rules.
+
+The `branch` field is named `bookmark` because that's what Patrol's workspaces table calls the jj bookmark; for git-bookmarked workspaces the two are equivalent.
+
+Verified: `pnpm test` passes (8/8). Syntax-checked.
+
 ## 2026-05-08 - Extract dispatcher + activity timestamps + 10s idle threshold (lt#12)
 
 The "ensure workspace + ensure session + wait first idle + write prompt" flow was tangled inside `rules.js` `dispatchClaude`. The upcoming `send_prompt_to_session` MCP tool (lt#14) needs the same flow. Extracted into `src/dispatcher.js` with one entry point: `ensureSessionAndSend({ session_id?, pr_id?, workspace_id?, global?, prompt, autoCreate?, callerSessionId? })`. Resolves any of the four target modes, runs the busy check, force-sets working state for the deterministic `wait_for_idle.since` anchor, writes the prompt, returns `{ session_id, workspace_id, dispatched_at }`.
