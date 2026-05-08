@@ -433,13 +433,14 @@ export const actionRegistry = {
       }
 
       // Predicate: a working->idle cycle has landed after `since`, and the
-      // session is currently idle.
+      // session is currently idle. Null timestamps coerce to 0 in numeric
+      // comparison; for any plausible `since` (Date.now()-ish), `0 >= since`
+      // and `0 > number` are both false, so explicit null guards aren't
+      // needed beyond the snap-null check.
       const satisfied = (snap) =>
         snap !== null &&
         snap.activityState === 'idle' &&
-        snap.lastWorkingAt !== null &&
         snap.lastWorkingAt >= since &&
-        snap.lastIdleAt !== null &&
         snap.lastIdleAt > snap.lastWorkingAt;
 
       const initial = getSessionSnapshot(sessionId);

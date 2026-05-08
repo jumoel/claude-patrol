@@ -38,8 +38,9 @@ import { createWorkspace } from './workspace.js';
  * newlines would split the prompt mid-stream).
  *
  * Errors thrown carry `.code` in:
- *   `no_target`, `multiple_targets`, `no_session`, `no_workspace`,
- *   `session_detached`, `self_target`, `session_busy`.
+ *   `no_target`, `multiple_targets`, `invalid_prompt`, `no_session`,
+ *   `no_workspace`, `session_detached`, `self_target`, `session_busy`,
+ *   `boot_timeout`, `session_exited`.
  *
  * @param {object} args
  * @param {string} [args.session_id]
@@ -142,7 +143,13 @@ export async function ensureSessionAndSend({
     await waitForFirstIdle(resolvedSessionId, BOOT_TIMEOUT_MS_DEFAULT);
   }
 
+  // Strip newlines (TUI submits on Enter, embedded newlines split the prompt
+  // mid-stream) and reject prompts that are empty after stripping. Zod's
+  // .min(1) catches the literal "" case but lets "\n\n\n" or "   " through.
   const cleaned = prompt.replace(/[\r\n]+/g, ' ');
+  if (cleaned.trim().length === 0) {
+    throw taggedError('invalid_prompt', 'prompt is empty after stripping whitespace');
+  }
   const dispatched_at = await dispatchToSession(resolvedSessionId, cleaned);
 
   return {

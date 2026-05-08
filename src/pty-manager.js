@@ -849,7 +849,13 @@ export async function dispatchToSession(sessionId, prompt) {
 /**
  * Resolve when the session emits its first 'idle' event after this call.
  * If the session is already in 'idle' state, resolves immediately.
- * Rejects if the session exits, is not found, or the timeout elapses.
+ *
+ * Rejections carry a `.code` so callers (the dispatcher, ultimately the MCP
+ * handler) can branch on the failure mode without parsing messages:
+ *  - `no_session`: session id not in memory.
+ *  - `session_exited`: session exited before reaching idle.
+ *  - `boot_timeout`: deadline elapsed without an idle event.
+ *
  * @param {string} sessionId
  * @param {number} [timeoutMs=BOOT_TIMEOUT_MS_DEFAULT]
  * @returns {Promise<void>}
@@ -857,7 +863,7 @@ export async function dispatchToSession(sessionId, prompt) {
 export function waitForFirstIdle(sessionId, timeoutMs = BOOT_TIMEOUT_MS_DEFAULT) {
   return new Promise((resolve, reject) => {
     const entry = sessions.get(sessionId);
-    if (!entry) return reject(new Error(`Session ${sessionId} not found`));
+    if (!entry) return reject(taggedError('no_session', `session ${sessionId} not found`));
     if (entry.activityState === 'idle') return resolve();
 
     const handler = (data) => {
@@ -867,12 +873,12 @@ export function waitForFirstIdle(sessionId, timeoutMs = BOOT_TIMEOUT_MS_DEFAULT)
         resolve();
       } else if (data.state === 'exited') {
         cleanup();
-        reject(new Error(`Session ${sessionId} exited before reaching idle`));
+        reject(taggedError('session_exited', `session ${sessionId} exited before reaching idle`));
       }
     };
     const timer = setTimeout(() => {
       cleanup();
-      reject(new Error(`Session ${sessionId} did not reach idle within ${timeoutMs}ms`));
+      reject(taggedError('boot_timeout', `session ${sessionId} did not reach idle within ${timeoutMs}ms`));
     }, timeoutMs);
     function cleanup() {
       appEvents.removeListener('session-state', handler);
