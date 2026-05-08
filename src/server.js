@@ -6,6 +6,7 @@ import fastifyWebsocket from '@fastify/websocket';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import Fastify from 'fastify';
 import { appEvents } from './app-events.js';
+import { getDb } from './db.js';
 import { createMcpServer } from './mcp-server.js';
 import { getGhRateLimitState, pollerEvents } from './poller.js';
 import { getSessionStates } from './pty-manager.js';
@@ -56,16 +57,25 @@ export async function createServer() {
   registerTaskRoutes(app);
   registerRuleRoutes(app);
 
-  // MCP endpoint - one in-process server shared by all Claude sessions.
-  // Stateless transport: each POST creates its own transport instance, but
-  // the server itself (and all tool handlers) lives once inside this Fastify
-  // app. Tools call routes via app.inject(), so there is no port to capture
-  // and no separate child process to babysit.
-  app.post('/mcp', async (request, reply) => {
+  // MCP endpoint, scoped per session. The session id in the URL is the
+  // server's only trustworthy source of caller identity. Tool handlers that
+  // need to know who is calling (self-target checks, etc.) receive it via
+  // the McpServer's per-request ctx. The handler is otherwise the same
+  // stateless transport pattern: each POST creates its own transport, the
+  // server is built per-request, tools call routes via app.inject().
+  app.post('/mcp/:sessionId', async (request, reply) => {
+    const callerSessionId = request.params.sessionId;
+    const session = getDb()
+      .prepare("SELECT id FROM sessions WHERE id = ? AND status IN ('active', 'detached')")
+      .get(callerSessionId);
+    if (!session) {
+      return reply.code(404).send({ error: 'unknown session' });
+    }
+
     reply.hijack();
-    const mcp = createMcpServer(app);
+    const mcp = createMcpServer(app, { callerSessionId });
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
-    // Tear down on response close (client disconnect), not request close -
+    // Tear down on response close (client disconnect), not request close.
     // Fastify drains request.raw before we get here, so 'close' fires
     // immediately on the request stream.
     reply.raw.on('close', () => {

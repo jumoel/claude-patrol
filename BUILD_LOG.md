@@ -1,5 +1,21 @@
 # Build Log
 
+## 2026-05-08 - Per-session MCP URLs + caller identity plumbing (lt#11)
+
+The MCP endpoint was a single shared `POST /mcp`. Tool handlers had no way to know which Claude session was calling, so any caller-aware tool would have to trust the calling Claude to pass its own session id as a tool arg. Brittle in principle and a blocker for the inter-session messaging work in lt#4.
+
+Now: `POST /mcp/:sessionId`. Each session writes its own MCP config file at session-spawn time (`tmpdir()/patrol-mcp-${id}.json`) pointing at its own URL. The route handler validates the session id against the sessions table (404 if no row, or no `active`/`detached` row), and passes `callerSessionId` into `createMcpServer(app, ctx)`. Per-tool handlers receive `ctx` as a third arg (`mcpHandler(app, args, ctx)`, `dispatch(args, ctx)`). No tool uses it yet; existing handlers ignore it.
+
+Pure plumbing. No tool semantics change.
+
+`paths.mcpConfigPath()` is gone, along with the shared `~/.local/share/claude-patrol/.patrol-mcp.json` file. The `clean` command no longer touches it. Per-session files in tmpdir leak on session exit; matches existing `patrol-prompt-${id}.txt` behavior. If cleanup ever matters, do it as a startup tidy pass, not on `proc.onExit` (that fires on graceful preserve-sessions shutdown too, and would delete configs for sessions still alive in tmux).
+
+Reattach behavior: `reattachOrphanedSessions` doesn't touch per-session configs. The files in tmpdir survive across restarts, and `--reattach` pins the port to the previous instance, so the configs remain valid for the live claude processes inside tmux. No code change needed there.
+
+Live-session impact: clean break. Claude CLI reads `--mcp-config` once at spawn. Sessions started before this commit have `--mcp-config` pointing at the old shared file with URL `/mcp`, but the server now responds only at `/mcp/:sessionId`. Those live sessions lose MCP tools until they're killed and restarted. Consistent with prior pty/WS shape changes (`fcb99ce`, `ebf502f`).
+
+Verified: `pnpm test` passes (8/8). Module imports cleanly. Syntax-checked all edited files.
+
 ## 2026-05-04 - Subscription lifetime: consume_on replaces one_shot (close lt#1)
 
 `one_shot: true` only consumed a subscription on a successful fire. PRs whose state moved away from the rule's `where` (e.g. CI passes after being subscribed to a fail-only rule) kept the subscription forever and would later fire on an unrelated trigger event - the gap that lt#1 captured. Bulk-subscribe made it worse: subscribe a fleet of pending-CI PRs and you guarantee a long tail of stale subscriptions.

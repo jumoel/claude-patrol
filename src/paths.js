@@ -36,11 +36,6 @@ export function defaultDbPath() {
   return join(dataDir(), 'claude-patrol.db');
 }
 
-/** Path to MCP config JSON */
-export function mcpConfigPath() {
-  return join(dataDir(), '.patrol-mcp.json');
-}
-
 /** Path to PID file */
 export function pidPath() {
   return join(stateDir(), 'claude-patrol.pid');

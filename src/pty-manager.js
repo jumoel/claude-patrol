@@ -6,7 +6,6 @@ import { resolve } from 'node:path';
 import pty from 'node-pty';
 import { appEvents, emitSessionState } from './app-events.js';
 import { getDb } from './db.js';
-import { mcpConfigPath as getMcpConfigPath } from './paths.js';
 import { archiveTranscript } from './transcripts.js';
 import { expandPath, toClaudeProjectKey } from './utils.js';
 
@@ -33,31 +32,52 @@ function printableLength(data) {
 
 const PATROL_SYSTEM_PROMPT = readFileSync(resolve(import.meta.dirname, 'patrol-system-prompt.md'), 'utf8');
 
-/** @type {string | null} */
-let mcpConfigPathCached = null;
+/**
+ * Port the Patrol server is currently listening on. Used to construct
+ * per-session MCP URLs at session-spawn time. Set by initMcpConfig from
+ * startup and from the config-change handler.
+ * @type {number | null}
+ */
+let currentPort = null;
 
 /**
- * Write the MCP config JSON for the patrol server. Called once at startup,
- * and again whenever the listening port changes. Spawned Claude sessions
- * point at the in-process HTTP MCP endpoint inside the running Patrol
- * server, so there is no per-session subprocess.
- * @param {object} config
+ * Record the current listening port. Per-session MCP config files are
+ * written at session-spawn time (see writeMcpConfigForSession) using this
+ * port. The per-session URL embeds the session id so MCP tool handlers can
+ * identify their caller without trusting it.
+ * @param {{port: number}} config
  */
 export function initMcpConfig(config) {
+  currentPort = config.port;
+}
+
+/** Alias for config-change handler. Live port changes do not rewrite
+ * existing per-session config files; new sessions pick up the updated port. */
+export const updateMcpConfig = initMcpConfig;
+
+/**
+ * Write a per-session MCP config file pointing at /mcp/<sessionId>. Each
+ * Claude session gets its own URL so tool handlers can read caller identity
+ * from the request path.
+ * @param {string} sessionId
+ * @returns {string} path to the written config file
+ */
+function writeMcpConfigForSession(sessionId) {
+  if (currentPort === null) {
+    throw new Error('writeMcpConfigForSession called before initMcpConfig');
+  }
+  const path = resolve(tmpdir(), `patrol-mcp-${sessionId}.json`);
   const configJson = {
     mcpServers: {
       patrol: {
         type: 'http',
-        url: `http://127.0.0.1:${config.port}/mcp`,
+        url: `http://127.0.0.1:${currentPort}/mcp/${sessionId}`,
       },
     },
   };
-  mcpConfigPathCached = getMcpConfigPath();
-  writeFileSync(mcpConfigPathCached, JSON.stringify(configJson, null, 2));
+  writeFileSync(path, JSON.stringify(configJson, null, 2));
+  return path;
 }
-
-/** Alias for config change handler - re-writes MCP config with new port. */
-export const updateMcpConfig = initMcpConfig;
 
 /**
  * Fixed-size ring buffer that avoids allocations on append.
@@ -354,8 +374,9 @@ export function createSession(workspaceId, cwd) {
 
   // Build the claude command with args
   const claudeArgs = ['claude'];
-  if (mcpConfigPathCached) {
-    claudeArgs.push('--mcp-config', mcpConfigPathCached);
+  if (currentPort !== null) {
+    const mcpConfigPath = writeMcpConfigForSession(id);
+    claudeArgs.push('--mcp-config', mcpConfigPath);
 
     // Write system prompt to a temp file to avoid shell escaping issues
     const promptFile = resolve(tmpdir(), `patrol-prompt-${id}.txt`);
@@ -402,8 +423,9 @@ export function createResumedSession(workspaceId, cwd, claudeSessionId) {
   const tmuxName = `patrol-${id}`;
 
   const claudeArgs = ['claude', '--resume', claudeSessionId];
-  if (mcpConfigPathCached) {
-    claudeArgs.push('--mcp-config', mcpConfigPathCached);
+  if (currentPort !== null) {
+    const mcpConfigPath = writeMcpConfigForSession(id);
+    claudeArgs.push('--mcp-config', mcpConfigPath);
 
     const promptFile = resolve(tmpdir(), `patrol-prompt-${id}.txt`);
     writeFileSync(promptFile, PATROL_SYSTEM_PROMPT);

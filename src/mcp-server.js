@@ -11,10 +11,16 @@ import { actionRegistry } from './actions.js';
  * its `mcpHandler` if present, otherwise the simple `dispatch` + optional
  * `transform` path.
  *
+ * `ctx` carries per-request information not on the args themselves. Today it
+ * holds `callerSessionId`, captured by the route handler from the URL. Tools
+ * that need to know who is calling (e.g. self-target checks for inter-session
+ * messaging) read it from there. Tools that don't care can ignore it.
+ *
  * @param {import('fastify').FastifyInstance} app
+ * @param {{ callerSessionId: string | null }} [ctx]
  * @returns {McpServer}
  */
-export function createMcpServer(app) {
+export function createMcpServer(app, ctx = { callerSessionId: null }) {
   const server = new McpServer({
     name: 'patrol',
     version: '1.0.0',
@@ -24,9 +30,9 @@ export function createMcpServer(app) {
     server.tool(tool, entry.description, entry.schema.shape, async (args) => {
       let result;
       if (entry.mcpHandler) {
-        result = await entry.mcpHandler(app, args);
+        result = await entry.mcpHandler(app, args, ctx);
       } else {
-        result = await invokeForMcp(app, entry, args);
+        result = await invokeForMcp(app, entry, args, ctx);
       }
       // Some handlers return raw text via `__text` (transcript summaries).
       if (result && typeof result === 'object' && '__text' in result) {
@@ -43,8 +49,8 @@ export function createMcpServer(app) {
  * MCP-only call path: dispatch + optional transform. Bypasses ruleFireable
  * because MCP tools always work from a Claude session.
  */
-async function invokeForMcp(app, entry, args) {
-  const { method, path, body } = entry.dispatch(args);
+async function invokeForMcp(app, entry, args, ctx) {
+  const { method, path, body } = entry.dispatch(args, ctx);
   const res = await app.inject({
     method,
     url: path,

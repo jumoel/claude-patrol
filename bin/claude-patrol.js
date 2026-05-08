@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { isRunning, readPid, removePid } from '../src/pid.js';
-import { pidPath, stateDir, dataDir, configDir, configPath, defaultDbPath, mcpConfigPath } from '../src/paths.js';
+import { pidPath, stateDir, dataDir, configDir, configPath, defaultDbPath } from '../src/paths.js';
 import { unlinkSync, rmSync, existsSync } from 'node:fs';
 import { execSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -102,7 +102,6 @@ switch (command) {
 
     const files = [
       { path: pidPath(), label: 'PID file' },
-      { path: mcpConfigPath(), label: 'MCP config' },
     ];
 
     // Try to read actual db_path from config, fall back to default
