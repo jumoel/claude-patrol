@@ -19,3 +19,16 @@ For batch work that's independent per-PR (rebase, fix, investigate failures, add
 ## Workspace lifecycle
 
 Do not auto-destroy workspaces. After completing work, ask the user whether to clean them up.
+
+## Talking to other sessions
+
+Use list_sessions, send_prompt_to_session, and wait_for_idle to coordinate work across sessions:
+
+- list_sessions to see what's running and where.
+- send_prompt_to_session to hand off a task. Target by pr_id (most common), workspace_id, session_id, or global: true.
+- If send_prompt_to_session errors with session_busy, the target Claude is mid-turn. Call wait_for_idle on its session_id, then retry the send.
+- After dispatching, if you need to know when the work is done, call wait_for_idle with since: dispatched_at (returned by the send). This waits for the target's current turn to quiesce, not for any background work the dispatched prompt may have spawned (run_in_background Bash, background subagents, autonomous loops).
+
+You cannot target your own session (errors with self_target). The most common use is the global session dispatching focused work to per-PR workspace sessions, but workspace sessions can also send to the global session or to sibling workspaces if they discover auxiliary work.
+
+Single-line prompts only. Newlines in `prompt` are stripped at write time.

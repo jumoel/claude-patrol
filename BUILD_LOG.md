@@ -1,5 +1,13 @@
 # Build Log
 
+## 2026-05-08 - System prompt: inter-session messaging workflow (lt#16)
+
+Appended a "Talking to other sessions" section to `src/patrol-system-prompt.md` so spawned Claudes know the new tools exist and the patterns to use them. Documents the dispatch-then-wait flow, the busy-retry pattern, the self-target restriction, and the "current turn" semantics of `wait_for_idle` (it doesn't wait for background subagents, `run_in_background` Bash, or autonomous loops).
+
+Hyphens only, no em-dashes (per global writing-style preference). Tone matches the existing prompt: brief and project-specific.
+
+Closes the lt#4 umbrella. Six commits, one per step. The full chain works end-to-end: spawn a session and Claude can list other sessions, send a prompt to one of them, and wait for the response.
+
 ## 2026-05-08 - wait_for_idle MCP tool (lt#15)
 
 Companion to `send_prompt_to_session`. Blocks until the target session's current TUI turn quiesces. The `since` anchor (typically `dispatched_at` from a recent send) makes the check race-safe: predicate is `lastWorkingAt >= since && lastIdleAt > lastWorkingAt && activityState === 'idle'`. Combined with the lt#12 setState ordering lock, listeners observing the `session-state idle` event always see consistent fields, so the snapshot taken inside the event handler reflects the transition that just fired.
