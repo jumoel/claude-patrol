@@ -187,7 +187,6 @@ const rules = new Map();
 let loadErrors = [];
 
 let app = null;
-let currentConfig = null;
 let started = false;
 
 /**
@@ -198,7 +197,6 @@ let started = false;
 export function startRulesEngine(fastifyApp, initialConfig) {
   if (started) return;
   app = fastifyApp;
-  currentConfig = initialConfig;
   started = true;
 
   // Reconcile any rule_runs that were left as 'running' when the server died.
@@ -207,7 +205,6 @@ export function startRulesEngine(fastifyApp, initialConfig) {
   loadRules(initialConfig?.rules);
 
   configEvents.on('change', (cfg) => {
-    currentConfig = cfg;
     loadRules(cfg?.rules);
   });
 
