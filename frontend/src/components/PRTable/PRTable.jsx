@@ -1,7 +1,7 @@
 import { flexRender, getCoreRowModel, getSortedRowModel, useReactTable } from '@tanstack/react-table';
 import { Fragment, useEffect, useMemo } from 'react';
 import { isMergeReady } from '../../lib/checks.js';
-import { getRelativeTime } from '../../lib/time.js';
+import { formatDuration, getRelativeTime, timeToFirstInteraction } from '../../lib/time.js';
 import { StatusBadge } from '../StatusBadge/StatusBadge.jsx';
 import { Badge } from '../ui/Badge/Badge.jsx';
 import { Stack } from '../ui/Stack/Stack.jsx';
@@ -157,6 +157,35 @@ export function PRTable({ prs, onRowClick, sorting, onSortingChange, workspaceSt
         cell: ({ getValue }) => getRelativeTime(getValue()),
         meta: { alignRight: true },
       },
+      {
+        id: 'time_to_first_interaction',
+        header: 'First reaction',
+        accessorFn: (row) => {
+          const t = timeToFirstInteraction(row);
+          return t ? t.ms : null;
+        },
+        sortUndefined: 'last',
+        sortingFn: 'basic',
+        cell: ({ row }) => {
+          const t = timeToFirstInteraction(row.original);
+          if (!t) return '-';
+          const label = formatDuration(t.ms) || '<1m';
+          return (
+            <span
+              className={t.pending ? styles.cellPending : undefined}
+              title={
+                t.pending
+                  ? 'No human review or comment yet; counting from PR creation (weekday hours only)'
+                  : 'Weekday hours from PR creation to first non-author, non-bot review or comment'
+              }
+            >
+              {label}
+              {t.pending ? '+' : ''}
+            </span>
+          );
+        },
+        meta: { alignRight: true },
+      },
     ],
     [workspaceStates, dismissedIdle, stackView],
   );
@@ -188,6 +217,7 @@ export function PRTable({ prs, onRowClick, sorting, onSortingChange, workspaceSt
         <col className={styles.colReview} />
         <col className={styles.colMerge} />
         <col className={styles.colUpdated} />
+        <col className={styles.colFirstReview} />
       </colgroup>
       <thead>
         {table.getHeaderGroups().map((headerGroup) => (

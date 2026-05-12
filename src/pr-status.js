@@ -46,6 +46,7 @@ export function formatPR(row) {
     checks,
     reviews,
     labels: JSON.parse(row.labels),
+    comments: row.comments ? JSON.parse(row.comments) : [],
     ci_status: deriveCIStatus(checks),
     review_status: deriveReviewStatus(reviews),
     base_branch: row.base_branch || 'main',

@@ -1,5 +1,15 @@
 # Build Log
 
+## 2026-05-12 - "First reaction" column on the PR table
+
+Adds a column next to "Updated" showing the weekday hours from PR creation to the first non-author, non-bot review or comment. Greyed out with a `+` suffix while still pending. Drafts show `-` (clock doesn't start).
+
+Backend was previously only fetching reviews. The GraphQL query now also pulls `comments(first: 50)`, and both `reviews` and `comments` carry the author's `__typename` so bot filtering doesn't rely on the `[bot]` suffix convention alone. A new `comments` JSON column on `prs` stores them; `formatPR` parses them and the poller upsert writes them.
+
+Frontend computes the metric from the existing PR payload, so no extra round trip. Weekend hours don't accrue, matching the analytics script.
+
+Related side-effect: the reviews query went from `reviews(last: 10)` to `reviews(first: 50)`. The "last in iteration wins" loop in `deriveReviewStatus` still picks the latest state per reviewer for any PR with ≤50 total reviews (essentially all of them); PRs with more than 50 reviews could in theory have stale state pickup, but it hasn't happened in practice and the dual-field complexity isn't worth it yet.
+
 ## 2026-05-12 - pr-first-interaction-trend analytics script
 
 Standalone Python script at `scripts/pr-first-interaction-trend.py` that pulls every PR you've authored in a given GitHub org or repo and plots the rolling time-to-first-human-interaction. Uses `gh api graphql` so auth is whatever `gh` already has.

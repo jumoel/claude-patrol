@@ -153,7 +153,8 @@ query($q: String!, $cursor: String) {
         author { login }
         repository { name owner { login } }
         labels(first: 10) { nodes { name color } }
-        reviews(last: 10) { nodes { author { login } state submittedAt } }
+        reviews(first: 50) { nodes { author { login __typename } state submittedAt } }
+        comments(first: 50) { nodes { author { login __typename } createdAt } }
         commits(last: 1) {
           nodes {
             commit {
@@ -541,8 +542,22 @@ function extractChecks(pr) {
 function extractReviews(pr) {
   return (pr.reviews?.nodes ?? []).map((r) => ({
     reviewer: r.author?.login ?? 'unknown',
+    reviewer_type: r.author?.__typename ?? 'User',
     state: r.state,
     submitted_at: r.submittedAt,
+  }));
+}
+
+/**
+ * Extract issue comments from a PR node.
+ * @param {object} pr
+ * @returns {Array<{author: string, author_type: string, created_at: string}>}
+ */
+function extractComments(pr) {
+  return (pr.comments?.nodes ?? []).map((c) => ({
+    author: c.author?.login ?? 'unknown',
+    author_type: c.author?.__typename ?? 'User',
+    created_at: c.createdAt,
   }));
 }
 
@@ -579,8 +594,8 @@ function getStatements() {
   const db = getDb();
   if (!upsertStmt) {
     upsertStmt = db.prepare(`
-      INSERT OR REPLACE INTO prs (id, number, title, body, body_html, repo, org, author, url, branch, base_branch, is_fork, draft, mergeable, checks, reviews, labels, created_at, updated_at, synced_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT OR REPLACE INTO prs (id, number, title, body, body_html, repo, org, author, url, branch, base_branch, is_fork, draft, mergeable, checks, reviews, labels, comments, created_at, updated_at, synced_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
   }
   if (!deleteStaleByOrgStmt) {
@@ -740,6 +755,7 @@ function upsertPRs(prs) {
         JSON.stringify(extractChecks(pr)),
         JSON.stringify(extractReviews(pr)),
         JSON.stringify(extractLabels(pr)),
+        JSON.stringify(extractComments(pr)),
         pr.createdAt,
         pr.updatedAt,
         now,

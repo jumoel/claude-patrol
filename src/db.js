@@ -58,7 +58,8 @@ export function initDb(dbPath) {
   addColumn('prs', "body TEXT NOT NULL DEFAULT ''");
   addColumn('prs', "body_html TEXT NOT NULL DEFAULT ''");
   addColumn('prs', "pr_summary TEXT NOT NULL DEFAULT ''");
-  addColumn('prs', 'is_fork INTEGER NOT NULL DEFAULT 0')
+  addColumn('prs', 'is_fork INTEGER NOT NULL DEFAULT 0');
+  addColumn('prs', "comments JSON NOT NULL DEFAULT '[]'");
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS workspaces (
