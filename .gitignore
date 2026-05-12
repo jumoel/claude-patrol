@@ -9,3 +9,5 @@ frontend/node_modules/
 *.db-journal
 *.db-wal
 vendor/
+scripts/__pycache__/
+pr-*-trend.png

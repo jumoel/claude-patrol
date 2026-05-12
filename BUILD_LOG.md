@@ -1,5 +1,23 @@
 # Build Log
 
+## 2026-05-12 - pr-first-interaction-trend analytics script
+
+Standalone Python script at `scripts/pr-first-interaction-trend.py` that pulls every PR you've authored in a given GitHub org or repo and plots the rolling time-to-first-human-interaction. Uses `gh api graphql` so auth is whatever `gh` already has.
+
+Run-time shape:
+
+- `uv run --script` with PEP 723 inline deps (matplotlib only) so nothing leaks into system Python.
+- Required scope: exactly one of `--org` or `--repo`. No hardcoded org name in the source.
+- `--since YYYY-MM-DD` filters the display window but keeps earlier history loaded as a smoother baseline.
+- Drafts are skipped. PRs that were drafts before becoming reviewable start the clock at the latest ready-for-review event, not at PR creation.
+- Weekend hours don't accrue (Sat/Sun count as zero) so the metric reflects actual workdays.
+- Currently-open PRs with no human interaction count as if reviewed now (blue triangles), so they grow over time.
+- Closed/merged PRs with no human interaction are excluded.
+- Visible activity gaps (>`--gap-days` calendar days between consecutive PRs) are shaded grey and break the rolling line.
+- The smoothed trend is a single-pass forward+backward EWMA. `--smoothing 0.10` is the default; outliers create visible bumps that decay back into the data instead of permanently lifting the line. `--outlier-power N` (default 1) optionally biases the aggregation upward.
+
+The script generates a single PNG; nothing about the plot defaults references the user.
+
 ## 2026-05-08 - System prompt: inter-session messaging workflow (lt#16)
 
 Appended a "Talking to other sessions" section to `src/patrol-system-prompt.md` so spawned Claudes know the new tools exist and the patterns to use them. Documents the dispatch-then-wait flow, the busy-retry pattern, the self-target restriction, and the "current turn" semantics of `wait_for_idle` (it doesn't wait for background subagents, `run_in_background` Bash, or autonomous loops).
