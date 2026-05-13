@@ -459,24 +459,14 @@ async function fetchRemainingChecks(nodeId, startCursor) {
  * Fetch all open PRs for a search qualifier, handling pagination.
  * Also paginates check contexts for PRs that exceed 100 checks.
  *
- * Results are sorted by updatedAt descending; if `since` is provided, the
- * pagination loop stops as soon as a page's oldest PR is already older than
- * `since`. Any later page would only contain even older entries that we
- * already have in the DB, so skipping them is safe for upsert but means we
- * didn't see the full open-PR set - the caller must skip stale-row cleanup
- * when `complete` is false.
- *
  * @param {string} qualifier - e.g. "org:foo" or "repo:owner/repo" or
  *   "org:a org:b repo:c/d" (multiple qualifiers are OR'd by GitHub search).
- * @param {{since?: string | null}} [options]
- * @returns {Promise<{prs: object[], complete: boolean}>}
+ * @returns {Promise<{prs: object[]}>}
  */
-async function fetchPRs(qualifier, options = {}) {
-  const { since } = options;
+async function fetchPRs(qualifier) {
   const allPRs = [];
   let cursor = null;
   let hasNext = true;
-  let complete = true;
 
   while (hasNext) {
     const vars = { q: `${qualifier} is:pr is:open author:@me sort:updated-desc` };
@@ -488,16 +478,6 @@ async function fetchPRs(qualifier, options = {}) {
       break;
     }
     allPRs.push(...search.nodes);
-
-    // Early terminate when the oldest PR on this page is already older than
-    // anything we'd find on later pages.
-    if (since && search.nodes.length > 0) {
-      const oldestOnPage = search.nodes[search.nodes.length - 1].updatedAt;
-      if (oldestOnPage && oldestOnPage <= since) {
-        complete = false;
-        break;
-      }
-    }
 
     hasNext = search.pageInfo.hasNextPage;
     cursor = search.pageInfo.endCursor;
@@ -513,7 +493,7 @@ async function fetchPRs(qualifier, options = {}) {
     }
   }
 
-  return { prs: allPRs, complete };
+  return { prs: allPRs };
 }
 
 /**
@@ -818,21 +798,12 @@ async function cleanupStale(scope, org, repo, seenIds, config) {
 }
 
 /**
- * Force a full (non-incremental) sweep at least this often, so stale-row
- * cleanup still runs even when steady-state cycles terminate early on the
- * first page.
- */
-const FULL_SYNC_INTERVAL_MS = 30 * 60 * 1000;
-/** Margin subtracted from the stored max(updated_at) to absorb clock skew. */
-const SINCE_MARGIN_MS = 60 * 1000;
-let lastFullSyncAt = 0;
-
-/**
  * Run a single poll cycle across all configured targets.
+ * Every cycle does a full sweep so merged/closed PRs (which fall out of the
+ * `is:open` result set) get cleaned up promptly.
  * @param {object} config
- * @param {{ forceFull?: boolean }} [options]
  */
-async function pollOnce(config, options = {}) {
+async function pollOnce(config) {
   // Skip the cycle entirely if gh is rate-limited and we know when it resets.
   // Without a known reset time we still try, so we can detect recovery and
   // re-fetch the reset window. The first failed call will re-flag us as limited.
@@ -856,63 +827,48 @@ async function pollOnce(config, options = {}) {
   // multiple `org:` / `repo:` qualifiers, so one call covers everything.
   const qualifier = [...orgs.map((o) => `org:${o}`), ...repos.map((r) => `repo:${r}`)].join(' ');
 
-  // Force a full sweep periodically so stale-row cleanup actually runs.
-  const forceFull = options.forceFull || Date.now() - lastFullSyncAt > FULL_SYNC_INTERVAL_MS;
-  let since = null;
-  if (!forceFull) {
-    const row = getDb().prepare('SELECT MAX(updated_at) AS m FROM prs').get();
-    if (row?.m) {
-      since = new Date(Date.parse(row.m) - SINCE_MARGIN_MS).toISOString();
-    }
-  }
-
   let result;
   try {
-    result = await fetchPRs(qualifier, { since });
+    result = await fetchPRs(qualifier);
   } catch (err) {
     console.error(`[poller] Poll failed: ${err.message}`);
     return;
   }
-  const { prs, complete } = result;
+  const { prs } = result;
   upsertPRs(prs);
 
-  if (complete) {
-    lastFullSyncAt = Date.now();
-    // Group seen IDs back to per-scope buckets for stale cleanup.
-    const seenByOrg = new Map();
-    const seenByRepo = new Map();
-    for (const pr of prs) {
-      const o = pr.repository.owner.login;
-      const r = pr.repository.name;
-      const id = makePrId(o, r, pr.number);
-      if (orgSet.has(o)) {
-        if (!seenByOrg.has(o)) seenByOrg.set(o, []);
-        seenByOrg.get(o).push(id);
-      } else {
-        const key = `${o}/${r}`;
-        if (!seenByRepo.has(key)) seenByRepo.set(key, []);
-        seenByRepo.get(key).push(id);
-      }
+  // Group seen IDs back to per-scope buckets for stale cleanup.
+  const seenByOrg = new Map();
+  const seenByRepo = new Map();
+  for (const pr of prs) {
+    const o = pr.repository.owner.login;
+    const r = pr.repository.name;
+    const id = makePrId(o, r, pr.number);
+    if (orgSet.has(o)) {
+      if (!seenByOrg.has(o)) seenByOrg.set(o, []);
+      seenByOrg.get(o).push(id);
+    } else {
+      const key = `${o}/${r}`;
+      if (!seenByRepo.has(key)) seenByRepo.set(key, []);
+      seenByRepo.get(key).push(id);
     }
-    for (const org of orgs) {
-      try {
-        await cleanupStale('org', org, null, seenByOrg.get(org) || [], config);
-      } catch (err) {
-        console.error(`[poller] Cleanup failed for org:${org}: ${err.message}`);
-      }
-    }
-    for (const ownerRepo of repos) {
-      const [owner, repo] = ownerRepo.split('/');
-      try {
-        await cleanupStale('repo', owner, repo, seenByRepo.get(ownerRepo) || [], config);
-      } catch (err) {
-        console.error(`[poller] Cleanup failed for repo:${ownerRepo}: ${err.message}`);
-      }
-    }
-    console.log(`[poller] Full sync complete - ${prs.length} PRs across ${qualifier}`);
-  } else {
-    console.log(`[poller] Incremental sync - ${prs.length} updated PRs (since=${since}); skipping stale cleanup`);
   }
+  for (const org of orgs) {
+    try {
+      await cleanupStale('org', org, null, seenByOrg.get(org) || [], config);
+    } catch (err) {
+      console.error(`[poller] Cleanup failed for org:${org}: ${err.message}`);
+    }
+  }
+  for (const ownerRepo of repos) {
+    const [owner, repo] = ownerRepo.split('/');
+    try {
+      await cleanupStale('repo', owner, repo, seenByRepo.get(ownerRepo) || [], config);
+    } catch (err) {
+      console.error(`[poller] Cleanup failed for repo:${ownerRepo}: ${err.message}`);
+    }
+  }
+  console.log(`[poller] Sync complete - ${prs.length} PRs across ${qualifier}`);
 
   // Adopt scratch workspaces whose branch matches a newly-synced PR
   adoptScratchWorkspaces();
@@ -1012,9 +968,6 @@ export function startPoller(config) {
   const targetsChanged = targetsKey !== lastTargetsKey;
   lastTargetsKey = targetsKey;
   if (targetsChanged) {
-    // Force the next pollOnce to do a full sweep so cleanup runs against the
-    // new target set instead of relying on stale incremental state.
-    lastFullSyncAt = 0;
     cleanupRemovedTargets(config).catch((err) => console.error(`[poller] Cleanup failed: ${err.message}`));
     pollOnce(config).catch((err) => console.error(`[poller] Poll failed: ${err.message}`));
   }
@@ -1035,14 +988,12 @@ export function stopPoller() {
 }
 
 /**
- * Trigger an immediate poll with the given config. Forces a full sweep so
- * stale-row cleanup (merged/closed PR removal) runs, regardless of how
- * recently the last full sync completed.
+ * Trigger an immediate poll with the given config.
  * @param {object} config
  * @returns {Promise<void>}
  */
 export function triggerPoll(config) {
-  return pollOnce(config, { forceFull: true });
+  return pollOnce(config);
 }
 
 /**

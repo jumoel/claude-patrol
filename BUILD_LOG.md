@@ -1,5 +1,11 @@
 # Build Log
 
+## 2026-05-13 - Every poll cycle does a full sweep + stale cleanup
+
+Followup on the earlier merged-PR fix: scheduled polls also need to drop merged/closed rows, not just the manual sync button. The earlier change only fixed `triggerPoll`; scheduled polls were still incremental and only ran cleanup every 30 minutes.
+
+Removed the incremental fetch path entirely (`since` filtering, `FULL_SYNC_INTERVAL_MS`, `lastFullSyncAt`, the `complete` flag). `author:@me` keeps the result set small enough that pagination rarely matters, and the incremental optimization is what created the cleanup-skip bug class. Every `pollOnce` now fetches all open PRs for the configured targets and runs stale cleanup against that seen-set.
+
 ## 2026-05-13 - Manual sync forces full sweep so merged PRs disappear
 
 `POST /api/sync/trigger` was running an incremental poll, and stale-row cleanup only runs at the end of a full sweep (`complete=true`). If the user hit "sync" within 30 minutes of the previous full sync, the incremental fetch would early-terminate, `complete` would be `false`, and merged/closed PRs would stay on the dashboard until the next periodic full sync.
