@@ -1,5 +1,11 @@
 # Build Log
 
+## 2026-05-13 - Manual sync forces full sweep so merged PRs disappear
+
+`POST /api/sync/trigger` was running an incremental poll, and stale-row cleanup only runs at the end of a full sweep (`complete=true`). If the user hit "sync" within 30 minutes of the previous full sync, the incremental fetch would early-terminate, `complete` would be `false`, and merged/closed PRs would stay on the dashboard until the next periodic full sync.
+
+`triggerPoll` now passes `{ forceFull: true }` to `pollOnce`, which bypasses the `since` filter and guarantees the cleanup branch runs. Scheduled polls still use the periodic full-sync cadence; only the manual button is affected.
+
 ## 2026-05-12 - "First reaction" column on the PR table
 
 Adds a column next to "Updated" showing the weekday hours from PR creation to the first non-author, non-bot review or comment. Greyed out with a `+` suffix while still pending. Drafts show `-` (clock doesn't start).

@@ -830,8 +830,9 @@ let lastFullSyncAt = 0;
 /**
  * Run a single poll cycle across all configured targets.
  * @param {object} config
+ * @param {{ forceFull?: boolean }} [options]
  */
-async function pollOnce(config) {
+async function pollOnce(config, options = {}) {
   // Skip the cycle entirely if gh is rate-limited and we know when it resets.
   // Without a known reset time we still try, so we can detect recovery and
   // re-fetch the reset window. The first failed call will re-flag us as limited.
@@ -856,7 +857,7 @@ async function pollOnce(config) {
   const qualifier = [...orgs.map((o) => `org:${o}`), ...repos.map((r) => `repo:${r}`)].join(' ');
 
   // Force a full sweep periodically so stale-row cleanup actually runs.
-  const forceFull = Date.now() - lastFullSyncAt > FULL_SYNC_INTERVAL_MS;
+  const forceFull = options.forceFull || Date.now() - lastFullSyncAt > FULL_SYNC_INTERVAL_MS;
   let since = null;
   if (!forceFull) {
     const row = getDb().prepare('SELECT MAX(updated_at) AS m FROM prs').get();
@@ -1034,12 +1035,14 @@ export function stopPoller() {
 }
 
 /**
- * Trigger an immediate poll with the given config.
+ * Trigger an immediate poll with the given config. Forces a full sweep so
+ * stale-row cleanup (merged/closed PR removal) runs, regardless of how
+ * recently the last full sync completed.
  * @param {object} config
  * @returns {Promise<void>}
  */
 export function triggerPoll(config) {
-  return pollOnce(config);
+  return pollOnce(config, { forceFull: true });
 }
 
 /**
