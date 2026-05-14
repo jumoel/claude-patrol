@@ -1,5 +1,6 @@
 .claude/
 node_modules/
+.pnpm-store/
 data/
 config.json
 frontend/dist/

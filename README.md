@@ -30,7 +30,10 @@ You'll need these installed and on your PATH:
 ```sh
 $ git clone <repo-url> && cd claude-patrol
 $ pnpm install
+$ pnpm run setup
 ```
+
+`pnpm run setup` is the one command for everything `pnpm install` does not do on its own: it clones and builds the vendored `xterm.js`, installs the `frontend/` package's deps, and fixes the node-pty spawn-helper permissions on macOS. It is idempotent — safe to re-run any time (e.g. after pulling changes that touch the vendored xterm.js commit). We deliberately do **not** use `preinstall`/`postinstall` hooks; setup happens only when you explicitly ask for it.
 
 Create a `config.json` in the project root:
 

@@ -24,6 +24,17 @@ cd "$XTERM_DIR"
 # Disable corepack strict mode - the root project uses pnpm but xterm.js uses npm
 export COREPACK_ENABLE_STRICT=0
 
+# Defense against npm supply-chain attacks (shai-hulud, packagegate, etc).
+# This project uses pnpm; the only place we shell out to npm is here, on the
+# vendored xterm.js clone. Disable lifecycle scripts and pin the shell/git
+# binaries so a malicious dependency cannot run arbitrary code during install.
+# The explicit `npm run setup` below is still executed - that's a deliberate
+# script invocation, not a lifecycle hook.
+export npm_config_ignore_scripts=true
+export npm_config_git=/usr/bin/git
+export npm_config_shell=/bin/sh
+export npm_config_script_shell=/bin/sh
+
 echo "Installing dependencies..."
 npm install
 
