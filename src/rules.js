@@ -774,6 +774,14 @@ export function runRuleForAll(ruleId, options = {}) {
       continue;
     }
 
+    // Same hard-trigger consumption as manualRunRule: a run-all fire should
+    // leave the same state behind as the natural trigger. consume_on=fire is
+    // handled in fireRule on success.
+    if (rule.requires_subscription && rule.consume_on === 'trigger' && isSubscribed(rule.id, pr.id)) {
+      db.prepare('DELETE FROM rule_subscriptions WHERE rule_id = ? AND pr_id = ?').run(rule.id, pr.id);
+      console.log(`[rules] run-all consumed subscription (consume_on=trigger): rule=${rule.id} pr=${pr.id}`);
+    }
+
     // Fire-and-forget. The fireRule INSERT is synchronous so the run_id is
     // already valid when this returns; the action chain runs in the background.
     const runId = randomUUID();

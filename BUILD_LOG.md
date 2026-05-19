@@ -6,7 +6,7 @@ A manual rule run is a hard trigger - the user clicking "Run Now" should leave t
 
 `manualRunRule` now mirrors the same delete: if `requires_subscription` and `consume_on === 'trigger'` and a subscription exists for this `(rule, pr)`, drop it before the fire. `consume_on: fire` was already correct - `fireRule` consumes on success regardless of how it was invoked. Permanent subscriptions (no `consume_on`) are deliberately left in place; they're meant to stand.
 
-Run-all (`runRuleForAll`) has the same gap but is out of scope here - it's the bulk surface, not the per-PR "Run Now" the user described.
+Same fix applied to `runRuleForAll` (the bulk surface behind `/api/rules/:id/run-all`). Same reasoning: a bulk hard trigger should consume what a natural trigger would consume, otherwise every PR it fires against keeps its subscription armed for the next real event.
 
 ## 2026-05-13 - Explicit `pnpm run setup` for new contributors
 
