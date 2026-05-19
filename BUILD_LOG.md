@@ -1,5 +1,13 @@
 # Build Log
 
+## 2026-05-19 - Manual "Run Now" consumes `consume_on: trigger` subscriptions
+
+A manual rule run is a hard trigger - the user clicking "Run Now" should leave the same state behind as the natural event firing. The natural path in `handlePrChanged` consumes `consume_on: trigger` subscriptions before firing (so until-next-trigger semantics hold even when `where` doesn't match), but `manualRunRule` skipped that step. Result: subscribing a PR to a `consume_on: trigger` rule and then running it manually would leave the subscription armed, so the next natural trigger would fire the rule again.
+
+`manualRunRule` now mirrors the same delete: if `requires_subscription` and `consume_on === 'trigger'` and a subscription exists for this `(rule, pr)`, drop it before the fire. `consume_on: fire` was already correct - `fireRule` consumes on success regardless of how it was invoked. Permanent subscriptions (no `consume_on`) are deliberately left in place; they're meant to stand.
+
+Run-all (`runRuleForAll`) has the same gap but is out of scope here - it's the bulk surface, not the per-PR "Run Now" the user described.
+
 ## 2026-05-13 - Explicit `pnpm run setup` for new contributors
 
 New contributors hit a wall: after `pnpm install` at the root, `pnpm start` failed with `sh: vite: command not found` because `frontend/node_modules` was never installed and `vendor/xterm.js` was never cloned. There was also no obvious single command to drive the rest of setup — users had to read the script list and discover `setup:xterm` themselves.

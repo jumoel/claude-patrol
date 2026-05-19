@@ -608,6 +608,14 @@ export async function manualRunRule(ruleId, options = {}) {
     if (!options.force && !cooldownOk(rule, cooldownKey)) {
       throw new Error('cooldown active (pass force=true to bypass)');
     }
+    // Manual run is a hard trigger: mirror the natural-trigger path's
+    // subscription consumption so a Run Now leaves the same state behind as
+    // the event firing on its own. consume_on=fire is handled in fireRule on
+    // success; permanent (no consume_on) subscriptions stay put.
+    if (rule.requires_subscription && rule.consume_on === 'trigger' && isSubscribed(rule.id, pr.id)) {
+      db.prepare('DELETE FROM rule_subscriptions WHERE rule_id = ? AND pr_id = ?').run(rule.id, pr.id);
+      console.log(`[rules] manual run consumed subscription (consume_on=trigger): rule=${rule.id} pr=${pr.id}`);
+    }
     return fireRule(rule, {
       trigger: rule.on,
       pr_id: pr.id,
