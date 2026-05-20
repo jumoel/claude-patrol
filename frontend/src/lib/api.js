@@ -426,7 +426,11 @@ export async function runRuleManually(ruleId, { pr_id, session_id, force } = {})
     body: JSON.stringify({ pr_id, session_id }),
   });
   if (!res.ok) throw new Error((await res.json()).error || `Failed: ${res.status}`);
-  return res.json();
+  const run = await res.json();
+  // The route returns 200 with the run row even when the action chain errored
+  // (e.g. session_busy). Surface that so the UI doesn't swallow the failure.
+  if (run.status === 'error') throw new Error(run.error || 'rule run failed');
+  return run;
 }
 
 /**

@@ -571,6 +571,7 @@ async function dispatchClaude(ctx, prompt, runRow) {
       pr_id: ctx.pr_id,
       prompt,
       autoCreate: true,
+      waitForBusy: !!ctx.waitForBusy,
     });
     updateRunRow(runRow, { workspace_id: result.workspace_id, session_id: result.session_id });
   } catch (e) {
@@ -580,6 +581,11 @@ async function dispatchClaude(ctx, prompt, runRow) {
     if (!runRow.workspace_id) {
       const ws = db.prepare("SELECT id FROM workspaces WHERE pr_id = ? AND status = 'active'").get(ctx.pr_id);
       if (ws) updateRunRow(runRow, { workspace_id: ws.id });
+    }
+    // If the dispatcher resolved a session before failing (e.g. session_busy
+    // or boot_timeout), record it so the error row names the blocker.
+    if (e.session_id && !runRow.session_id) {
+      updateRunRow(runRow, { session_id: e.session_id });
     }
     // Preserve the original `session_busy` contract for the cooldown/retry
     // path. Other error codes propagate as-is and surface in the run row.
@@ -623,6 +629,9 @@ export async function manualRunRule(ruleId, options = {}) {
       session_id: null,
       cooldown_key: cooldownKey,
       tmplCtx: { pr, session: null },
+      // Manual Run Now queues behind an in-flight turn instead of failing
+      // fast with session_busy. See dispatcher.js BUSY_WAIT_TIMEOUT_MS.
+      waitForBusy: true,
     });
   }
 

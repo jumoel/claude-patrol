@@ -1,5 +1,17 @@
 # Build Log
 
+## 2026-05-20 - Run Now queues behind a busy session, surfaces errors in the UI
+
+Clicking Run Now on a PR whose session was mid-turn looked silently broken: the rule fired, dispatch threw `session_busy`, `fireRule` recorded `status: 'error'` on the run row, the route returned that row with HTTP 200, and the frontend's `runRuleManually` (which only throws on `!res.ok`) returned cleanly. No feedback, no prompt sent.
+
+Two changes:
+
+1. `ensureSessionAndSend` takes a `waitForBusy` flag. When set and the resolved session is in `working` state, it awaits `waitForFirstIdle` (capped at 15 min) instead of letting `dispatchToSession` throw. `manualRunRule`'s PR-trigger path passes `waitForBusy: true`; the natural-trigger path leaves it off so the busy-as-cooldown-retry contract is preserved. Run-all stays fail-fast too - it's parallel fire-and-forget and waiting per PR would serialize it.
+
+2. The frontend `runRuleManually` now treats a returned `run.status === 'error'` as a thrown error so `RuleControls` surfaces it next to the button.
+
+Diagnostic improvement folded in: when dispatch throws, the dispatcher attaches the resolved `session_id` to the error and `dispatchClaude` records it on the run row. Before, a `session_busy` error left `rule_runs.session_id` NULL even though we knew exactly which session was busy.
+
 ## 2026-05-19 - Manual "Run Now" consumes `consume_on: trigger` subscriptions
 
 A manual rule run is a hard trigger - the user clicking "Run Now" should leave the same state behind as the natural event firing. The natural path in `handlePrChanged` consumes `consume_on: trigger` subscriptions before firing (so until-next-trigger semantics hold even when `where` doesn't match), but `manualRunRule` skipped that step. Result: subscribing a PR to a `consume_on: trigger` rule and then running it manually would leave the subscription armed, so the next natural trigger would fire the rule again.

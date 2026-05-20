@@ -50,8 +50,14 @@ import { createWorkspace } from './workspace.js';
  * @param {string} args.prompt
  * @param {boolean} [args.autoCreate=false]
  * @param {string|null} [args.callerSessionId=null]
+ * @param {boolean} [args.waitForBusy=false] - if the resolved session is mid-turn,
+ *   wait for it to go idle (up to BUSY_WAIT_TIMEOUT_MS) instead of throwing
+ *   session_busy. Used by the manual "Run Now" path; natural triggers leave
+ *   this off so they retain the busy-as-cooldown-retry contract.
  * @returns {Promise<{session_id: string, workspace_id: string|null, dispatched_at: number}>}
  */
+const BUSY_WAIT_TIMEOUT_MS = 15 * 60_000;
+
 export async function ensureSessionAndSend({
   session_id,
   pr_id,
@@ -60,6 +66,7 @@ export async function ensureSessionAndSend({
   prompt,
   autoCreate = false,
   callerSessionId = null,
+  waitForBusy = false,
 }) {
   const targetCount =
     (session_id ? 1 : 0) + (pr_id ? 1 : 0) + (workspace_id ? 1 : 0) + (isGlobal ? 1 : 0);
@@ -141,6 +148,11 @@ export async function ensureSessionAndSend({
   const snap = isFresh ? null : getSessionSnapshot(resolvedSessionId);
   if (isFresh || snap?.activityState === null) {
     await waitForFirstIdle(resolvedSessionId, BOOT_TIMEOUT_MS_DEFAULT);
+  } else if (snap?.activityState === 'working' && waitForBusy) {
+    // Manual Run Now opts into queueing: rather than failing fast, wait for
+    // the current turn to finish before writing the prompt. Capped so a stuck
+    // session can't hang the caller forever.
+    await waitForFirstIdle(resolvedSessionId, BUSY_WAIT_TIMEOUT_MS);
   }
 
   // Strip newlines (TUI submits on Enter, embedded newlines split the prompt
@@ -150,7 +162,16 @@ export async function ensureSessionAndSend({
   if (cleaned.trim().length === 0) {
     throw taggedError('invalid_prompt', 'prompt is empty after stripping whitespace');
   }
-  const dispatched_at = await dispatchToSession(resolvedSessionId, cleaned);
+
+  let dispatched_at;
+  try {
+    dispatched_at = await dispatchToSession(resolvedSessionId, cleaned);
+  } catch (e) {
+    // Attach the resolved session id so callers can record which session
+    // blocked (e.g. rule_runs.session_id for a session_busy error row).
+    if (!e.session_id) e.session_id = resolvedSessionId;
+    throw e;
+  }
 
   return {
     session_id: resolvedSessionId,
