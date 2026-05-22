@@ -1,5 +1,9 @@
 # Build Log
 
+## 2026-05-22 - Fix `pnpm start` under macOS bash 3.2
+
+`scripts/start-loop.sh` runs under `set -u` and expands `"${args[@]}"` on the first iteration. macOS ships bash 3.2.57, which treats an empty array under nounset as unbound and aborts before node ever starts. Guarded the expansion with a length check so the empty case calls node with no extra args.
+
 ## 2026-05-22 - destroyWorkspace tears down nested compose stacks + startup sweep for orphans
 
 `dockerComposeDown` only matched `docker-compose.yml`/`compose.yml` at workspace root, so repos with nested compose files (e.g. ecosystems-rebuilder.js at `infra/local/docker-compose.yaml`) silently skipped teardown and accumulated volumes/networks across every destroy. Replaced the root check with a walker that finds all four canonical filenames anywhere in the tree (skipping node_modules, .git, .jj, .next, dist, build) and tears down each from its own directory. Dropped the basename-fallback for missing compose files because the basename was almost never the real compose project name.

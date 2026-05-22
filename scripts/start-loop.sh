@@ -12,7 +12,13 @@ set -uo pipefail
 
 args=("$@")
 while true; do
-  node src/index.js "${args[@]}"
+  # macOS bash 3.2 throws "unbound variable" on "${args[@]}" when the array is
+  # empty, so guard the expansion.
+  if [ "${#args[@]}" -gt 0 ]; then
+    node src/index.js "${args[@]}"
+  else
+    node src/index.js
+  fi
   code=$?
   if [ "$code" -ne 42 ]; then
     exit "$code"
