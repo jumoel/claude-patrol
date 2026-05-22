@@ -1,5 +1,11 @@
 # Build Log
 
+## 2026-05-22 - destroyWorkspace tears down nested compose stacks + startup sweep for orphans
+
+`dockerComposeDown` only matched `docker-compose.yml`/`compose.yml` at workspace root, so repos with nested compose files (e.g. ecosystems-rebuilder.js at `infra/local/docker-compose.yaml`) silently skipped teardown and accumulated volumes/networks across every destroy. Replaced the root check with a walker that finds all four canonical filenames anywhere in the tree (skipping node_modules, .git, .jj, .next, dist, build) and tears down each from its own directory. Dropped the basename-fallback for missing compose files because the basename was almost never the real compose project name.
+
+Added `detectStaleComposeStacks` + `pruneStaleComposeStacks` and a fire-and-forget call on server startup. Lists `docker compose ls -a --format json`, flags stacks whose first ConfigFiles path lives under `workspace_base_path` but no longer exists, and tears each down via `docker compose -p <name> down -v --remove-orphans` (works without the original compose file since compose finds resources by project label).
+
 ## 2026-05-20 - Run Now queues behind a busy session, surfaces errors in the UI
 
 Clicking Run Now on a PR whose session was mid-turn looked silently broken: the rule fired, dispatch threw `session_busy`, `fireRule` recorded `status: 'error'` on the run row, the route returned that row with HTTP 200, and the frontend's `runRuleManually` (which only throws on `!res.ok`) returned cleanly. No feedback, no prompt sent.

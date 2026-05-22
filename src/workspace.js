@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, rmSync, symlinkSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, rmSync, symlinkSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { emitLocalChange } from './app-events.js';
@@ -169,41 +169,124 @@ export async function createScratchWorkspace(repo, branch, config, { startRevisi
   return { id, pr_id: null, repo, name, path: workspacePath, bookmark: branch, status: 'active', created_at: now };
 }
 
+const COMPOSE_FILENAMES = new Set(['docker-compose.yml', 'docker-compose.yaml', 'compose.yml', 'compose.yaml']);
+const COMPOSE_SKIP_DIRS = new Set(['node_modules', '.git', '.jj', '.next', 'dist', 'build']);
+
 /**
- * Tear down any Docker Compose stack associated with a workspace.
- * First tries file-based teardown (cwd in workspace dir), then falls back to
- * project-name-based cleanup for cases where the compose file is missing but
- * containers still exist (Docker tracks projects independently of files).
- * @param {string} workspacePath - absolute path to workspace
+ * Recursively find docker compose files under a workspace, skipping heavy or
+ * irrelevant directories. Returns absolute paths.
+ * @param {string} root
+ * @returns {string[]}
+ */
+function findComposeFiles(root) {
+  const found = [];
+  /** @param {string} dir */
+  function walk(dir) {
+    let entries;
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        if (!COMPOSE_SKIP_DIRS.has(entry.name)) {
+          walk(resolve(dir, entry.name));
+        }
+      } else if (entry.isFile() && COMPOSE_FILENAMES.has(entry.name)) {
+        found.push(resolve(dir, entry.name));
+      }
+    }
+  }
+  walk(root);
+  return found;
+}
+
+/**
+ * Tear down docker compose stacks associated with a workspace. Walks the
+ * workspace tree so it catches stacks nested under e.g. `infra/local/` and
+ * with either `.yml` or `.yaml`. Stacks whose compose file is already gone
+ * are handled by pruneStaleComposeStacks at server startup, so we don't
+ * fall back to guessing project names from path components.
+ * @param {string} workspacePath
  * @returns {Promise<string|null>} warning message if cleanup failed, null if ok or no stack found
  */
 async function dockerComposeDown(workspacePath) {
-  const hasComposeFile =
-    existsSync(resolve(workspacePath, 'docker-compose.yml')) || existsSync(resolve(workspacePath, 'compose.yml'));
-
-  if (hasComposeFile) {
+  const composeFiles = findComposeFiles(workspacePath);
+  if (composeFiles.length === 0) return null;
+  const warnings = [];
+  for (const composeFile of composeFiles) {
     try {
       await execFile('docker', ['compose', 'down', '-v', '--remove-orphans'], {
-        cwd: workspacePath,
-        timeout: 30_000,
+        cwd: dirname(composeFile),
+        timeout: 60_000,
       });
-      return null;
     } catch (err) {
-      return `Docker compose down failed: ${err.message}`;
+      warnings.push(`${composeFile}: ${err.message}`);
     }
   }
+  return warnings.length > 0 ? `Docker compose down failed for: ${warnings.join('; ')}` : null;
+}
 
-  // Fallback: try by project name (directory basename). Docker Compose derives
-  // the default project name from the directory, so this catches stacks whose
-  // compose file was deleted or moved.
-  const projectName = workspacePath.split('/').pop();
+/**
+ * Find docker compose stacks whose config file lives under the patrol workspace
+ * base path but no longer exists on disk. These are orphans left behind when a
+ * workspace was destroyed before its compose stack was torn down.
+ * @param {string} workspaceBasePath
+ * @returns {Promise<Array<{name: string, configFile: string}>>}
+ */
+export async function detectStaleComposeStacks(workspaceBasePath) {
+  let stdout;
   try {
-    await execFile('docker', ['compose', '-p', projectName, 'down', '-v', '--remove-orphans'], { timeout: 30_000 });
-    return null;
+    ({ stdout } = await execFile('docker', ['compose', 'ls', '-a', '--format', 'json']));
   } catch {
-    // No matching project - expected for workspaces that never used Docker
-    return null;
+    return [];
   }
+  let stacks;
+  try {
+    stacks = JSON.parse(stdout);
+  } catch {
+    return [];
+  }
+  const base = resolve(expandPath(workspaceBasePath));
+  const prefix = base.endsWith('/') ? base : `${base}/`;
+  const stale = [];
+  for (const stack of stacks) {
+    const configFiles = String(stack.ConfigFiles || '')
+      .split(',')
+      .filter(Boolean);
+    if (configFiles.length === 0) continue;
+    const first = configFiles[0];
+    if (!first.startsWith(prefix)) continue;
+    if (existsSync(first)) continue;
+    stale.push({ name: stack.Name, configFile: first });
+  }
+  return stale;
+}
+
+/**
+ * Tear down stale compose stacks identified by detectStaleComposeStacks.
+ * Uses `docker compose -p <name> down -v --remove-orphans` which finds
+ * containers, networks, and volumes via compose project labels, so it works
+ * even when the original compose file is gone.
+ * @param {string} workspaceBasePath
+ * @returns {Promise<{torn: string[], warnings: string[]}>}
+ */
+export async function pruneStaleComposeStacks(workspaceBasePath) {
+  const stale = await detectStaleComposeStacks(workspaceBasePath);
+  const torn = [];
+  const warnings = [];
+  for (const { name } of stale) {
+    try {
+      await execFile('docker', ['compose', '-p', name, 'down', '-v', '--remove-orphans'], {
+        timeout: 60_000,
+      });
+      torn.push(name);
+    } catch (err) {
+      warnings.push(`Stale compose tear-down failed for ${name}: ${err.message}`);
+    }
+  }
+  return { torn, warnings };
 }
 
 /**

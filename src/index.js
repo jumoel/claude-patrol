@@ -27,6 +27,7 @@ import { createServer } from './server.js';
 import { validateStartup } from './startup.js';
 import { destroyTui, initTui, setHeader } from './tui.js';
 import { startUpdateChecks, stopUpdateChecks } from './update-check.js';
+import { pruneStaleComposeStacks } from './workspace.js';
 
 /**
  * Start the claude-patrol server.
@@ -82,6 +83,17 @@ export async function startServer(options = {}) {
     const count = reattachOrphanedSessions();
     if (count > 0) console.log(`[claude-patrol] Reattached ${count} surviving session(s)`);
   }
+
+  // Tear down compose stacks orphaned by past workspace destroys. Runs in the
+  // background so a slow docker daemon doesn't delay startup.
+  pruneStaleComposeStacks(config.workspace_base_path)
+    .then(({ torn, warnings }) => {
+      if (torn.length > 0) {
+        console.log(`[claude-patrol] Pruned ${torn.length} stale compose stack(s): ${torn.join(', ')}`);
+      }
+      for (const w of warnings) console.warn(`[claude-patrol] ${w}`);
+    })
+    .catch((err) => console.warn(`[claude-patrol] Stale compose prune failed: ${err.message}`));
 
   let pollerRunning = false;
   if (isConfigured(config)) {
