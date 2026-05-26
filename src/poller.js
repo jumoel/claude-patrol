@@ -461,15 +461,16 @@ async function fetchRemainingChecks(nodeId, startCursor) {
  *
  * @param {string} qualifier - e.g. "org:foo" or "repo:owner/repo" or
  *   "org:a org:b repo:c/d" (multiple qualifiers are OR'd by GitHub search).
+ * @param {string} roleQualifier - one of "author:@me", "review-requested:@me".
  * @returns {Promise<{prs: object[]}>}
  */
-async function fetchPRs(qualifier) {
+async function fetchPRs(qualifier, roleQualifier) {
   const allPRs = [];
   let cursor = null;
   let hasNext = true;
 
   while (hasNext) {
-    const vars = { q: `${qualifier} is:pr is:open author:@me sort:updated-desc` };
+    const vars = { q: `${qualifier} is:pr is:open ${roleQualifier} sort:updated-desc` };
     if (cursor) vars.cursor = cursor;
     const result = await ghGraphql(GRAPHQL_QUERY, vars);
     const search = result.data?.search;
@@ -553,13 +554,17 @@ function extractLabels(pr) {
 /** @type {import('node:sqlite').StatementSync | null} */
 let upsertStmt = null;
 /** @type {import('node:sqlite').StatementSync | null} */
-let deleteStaleByOrgStmt = null;
+let clearRoleByOrgStmt = null;
 /** @type {import('node:sqlite').StatementSync | null} */
-let deleteStaleByRepoStmt = null;
+let clearRoleByRepoStmt = null;
 /** @type {import('node:sqlite').StatementSync | null} */
-let findStaleByOrgStmt = null;
+let clearReviewerRoleByOrgStmt = null;
 /** @type {import('node:sqlite').StatementSync | null} */
-let findStaleByRepoStmt = null;
+let clearReviewerRoleByRepoStmt = null;
+/** @type {import('node:sqlite').StatementSync | null} */
+let findOrphanRowsStmt = null;
+/** @type {import('node:sqlite').StatementSync | null} */
+let deleteOrphanRowStmt = null;
 /** @type {import('node:sqlite').StatementSync | null} */
 let getExistingBodyStmt = null;
 /** @type {import('node:sqlite').StatementSync | null} */
@@ -573,26 +578,39 @@ let getPrByIdStmt = null;
 function getStatements() {
   const db = getDb();
   if (!upsertStmt) {
+    // Per-role flags are written here so a PR's role(s) reflect the most
+    // recent poll. Anything not in the explicit column list resets to its
+    // DEFAULT on REPLACE, by design - we want a fresh role tag per cycle.
     upsertStmt = db.prepare(`
-      INSERT OR REPLACE INTO prs (id, number, title, body, body_html, repo, org, author, url, branch, base_branch, is_fork, draft, mergeable, checks, reviews, labels, comments, created_at, updated_at, synced_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT OR REPLACE INTO prs (id, number, title, body, body_html, repo, org, author, url, branch, base_branch, is_fork, draft, mergeable, checks, reviews, labels, comments, created_at, updated_at, synced_at, is_authored, is_review_requested)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
   }
-  if (!deleteStaleByOrgStmt) {
-    deleteStaleByOrgStmt = db.prepare('DELETE FROM prs WHERE org = ? AND id NOT IN (SELECT value FROM json_each(?))');
-  }
-  if (!deleteStaleByRepoStmt) {
-    deleteStaleByRepoStmt = db.prepare(
-      'DELETE FROM prs WHERE org = ? AND repo = ? AND id NOT IN (SELECT value FROM json_each(?))',
+  if (!clearRoleByOrgStmt) {
+    clearRoleByOrgStmt = db.prepare(
+      'UPDATE prs SET is_authored = 0 WHERE org = ? AND is_authored = 1 AND id NOT IN (SELECT value FROM json_each(?))',
     );
   }
-  if (!findStaleByOrgStmt) {
-    findStaleByOrgStmt = db.prepare('SELECT id FROM prs WHERE org = ? AND id NOT IN (SELECT value FROM json_each(?))');
-  }
-  if (!findStaleByRepoStmt) {
-    findStaleByRepoStmt = db.prepare(
-      'SELECT id FROM prs WHERE org = ? AND repo = ? AND id NOT IN (SELECT value FROM json_each(?))',
+  if (!clearRoleByRepoStmt) {
+    clearRoleByRepoStmt = db.prepare(
+      'UPDATE prs SET is_authored = 0 WHERE org = ? AND repo = ? AND is_authored = 1 AND id NOT IN (SELECT value FROM json_each(?))',
     );
+  }
+  if (!clearReviewerRoleByOrgStmt) {
+    clearReviewerRoleByOrgStmt = db.prepare(
+      'UPDATE prs SET is_review_requested = 0 WHERE org = ? AND is_review_requested = 1 AND id NOT IN (SELECT value FROM json_each(?))',
+    );
+  }
+  if (!clearReviewerRoleByRepoStmt) {
+    clearReviewerRoleByRepoStmt = db.prepare(
+      'UPDATE prs SET is_review_requested = 0 WHERE org = ? AND repo = ? AND is_review_requested = 1 AND id NOT IN (SELECT value FROM json_each(?))',
+    );
+  }
+  if (!findOrphanRowsStmt) {
+    findOrphanRowsStmt = db.prepare('SELECT id FROM prs WHERE is_authored = 0 AND is_review_requested = 0');
+  }
+  if (!deleteOrphanRowStmt) {
+    deleteOrphanRowStmt = db.prepare('DELETE FROM prs WHERE id = ?');
   }
   if (!getExistingBodyStmt) {
     getExistingBodyStmt = db.prepare('SELECT body, body_html FROM prs WHERE id = ?');
@@ -605,10 +623,12 @@ function getStatements() {
   }
   return {
     upsert: upsertStmt,
-    deleteStaleByOrg: deleteStaleByOrgStmt,
-    deleteStaleByRepo: deleteStaleByRepoStmt,
-    findStaleByOrg: findStaleByOrgStmt,
-    findStaleByRepo: findStaleByRepoStmt,
+    clearRoleByOrg: clearRoleByOrgStmt,
+    clearRoleByRepo: clearRoleByRepoStmt,
+    clearReviewerRoleByOrg: clearReviewerRoleByOrgStmt,
+    clearReviewerRoleByRepo: clearReviewerRoleByRepoStmt,
+    findOrphanRows: findOrphanRowsStmt,
+    deleteOrphanRow: deleteOrphanRowStmt,
     getExistingBody: getExistingBodyStmt,
     getExistingPrev: getExistingPrevStmt,
     getPrById: getPrByIdStmt,
@@ -681,10 +701,10 @@ async function cleanupStalePR(prId, config) {
 }
 
 /**
- * Upsert PRs into the database for a given scope.
- * @param {object[]} prs - raw PR nodes from GraphQL
+ * Upsert PRs into the database with their per-role flags.
+ * @param {Array<{pr: object, roles: Set<string>}>} entries - raw PR nodes from GraphQL plus the role set we saw them in
  */
-function upsertPRs(prs) {
+function upsertPRs(entries) {
   const db = getDb();
   const now = new Date().toISOString();
   const { upsert, getExistingBody, getExistingPrev, getPrById } = getStatements();
@@ -694,7 +714,7 @@ function upsertPRs(prs) {
 
   db.exec('BEGIN');
   try {
-    for (const pr of prs) {
+    for (const { pr, roles } of entries) {
       const prOrg = pr.repository.owner.login;
       const repo = pr.repository.name;
       const id = makePrId(prOrg, repo, pr.number);
@@ -739,6 +759,8 @@ function upsertPRs(prs) {
         pr.createdAt,
         pr.updatedAt,
         now,
+        roles.has('author') ? 1 : 0,
+        roles.has('reviewer') ? 1 : 0,
       );
 
       const changes = computeChanges(prev, pr);
@@ -771,29 +793,39 @@ function upsertPRs(prs) {
 }
 
 /**
- * Find stale PR IDs and clean them up (destroy workspaces, delete rows).
+ * Clear a single role flag on rows in the given scope that weren't seen this cycle.
+ * Doesn't destroy workspaces or delete rows - that happens later in `cleanupOrphans`
+ * once we know a PR is gone from BOTH roles.
+ * @param {'author' | 'reviewer'} role
  * @param {'org' | 'repo'} scope
  * @param {string} org
  * @param {string | null} repo
  * @param {string[]} seenIds
+ */
+function clearStaleRoleFlag(role, scope, org, repo, seenIds) {
+  const { clearRoleByOrg, clearRoleByRepo, clearReviewerRoleByOrg, clearReviewerRoleByRepo } = getStatements();
+  const seenJson = JSON.stringify(seenIds);
+  if (role === 'author') {
+    if (scope === 'org') clearRoleByOrg.run(org, seenJson);
+    else clearRoleByRepo.run(org, repo, seenJson);
+  } else {
+    if (scope === 'org') clearReviewerRoleByOrg.run(org, seenJson);
+    else clearReviewerRoleByRepo.run(org, repo, seenJson);
+  }
+}
+
+/**
+ * Destroy workspaces and delete PR rows that have no role flags set
+ * (i.e. they no longer appear in any tab). Runs once per poll cycle after
+ * both role searches have updated the flags.
  * @param {object} config
  */
-async function cleanupStale(scope, org, repo, seenIds, config) {
-  const { findStaleByOrg, findStaleByRepo, deleteStaleByOrg, deleteStaleByRepo } = getStatements();
-  const seenJson = JSON.stringify(seenIds);
-
-  const staleRows = scope === 'org' ? findStaleByOrg.all(org, seenJson) : findStaleByRepo.all(org, repo, seenJson);
-
-  // Destroy workspaces for stale PRs (async operations)
-  for (const row of staleRows) {
+async function cleanupOrphans(config) {
+  const { findOrphanRows, deleteOrphanRow } = getStatements();
+  const orphans = findOrphanRows.all();
+  for (const row of orphans) {
     await cleanupStalePR(row.id, config);
-  }
-
-  // Delete the stale PR rows
-  if (scope === 'org') {
-    deleteStaleByOrg.run(org, seenJson);
-  } else {
-    deleteStaleByRepo.run(org, repo, seenJson);
+    deleteOrphanRow.run(row.id);
   }
 }
 
@@ -827,53 +859,97 @@ async function pollOnce(config) {
   // multiple `org:` / `repo:` qualifiers, so one call covers everything.
   const qualifier = [...orgs.map((o) => `org:${o}`), ...repos.map((r) => `repo:${r}`)].join(' ');
 
-  let result;
+  // Two searches per cycle: one for PRs the user authored, one for PRs they've
+  // been asked to review. GitHub search doesn't support boolean OR on
+  // qualifiers, so we run them in parallel and merge results by PR id.
+  let authoredResult;
+  let reviewerResult;
   try {
-    result = await fetchPRs(qualifier);
+    [authoredResult, reviewerResult] = await Promise.all([
+      fetchPRs(qualifier, 'author:@me'),
+      fetchPRs(qualifier, 'review-requested:@me'),
+    ]);
   } catch (err) {
     console.error(`[poller] Poll failed: ${err.message}`);
     return;
   }
-  const { prs } = result;
-  upsertPRs(prs);
 
-  // Group seen IDs back to per-scope buckets for stale cleanup.
-  const seenByOrg = new Map();
-  const seenByRepo = new Map();
-  for (const pr of prs) {
+  // Merge into one entry per PR id, tracking which roles found it.
+  /** @type {Map<string, {pr: object, roles: Set<string>}>} */
+  const byId = new Map();
+  for (const pr of authoredResult.prs) {
+    const id = makePrId(pr.repository.owner.login, pr.repository.name, pr.number);
+    byId.set(id, { pr, roles: new Set(['author']) });
+  }
+  for (const pr of reviewerResult.prs) {
+    const id = makePrId(pr.repository.owner.login, pr.repository.name, pr.number);
+    const existing = byId.get(id);
+    if (existing) existing.roles.add('reviewer');
+    else byId.set(id, { pr, roles: new Set(['reviewer']) });
+  }
+
+  const entries = [...byId.values()];
+  upsertPRs(entries);
+
+  // Group seen ids per role so each role's stale-cleanup ignores PRs that
+  // happen to be in the other role's list. A PR in the authored list that's
+  // missing from the reviewer list shouldn't have its is_review_requested
+  // flag cleared - it was never flagged in the first place. This loop builds
+  // four buckets: (role, scope) -> [ids].
+  const seenAuthorByOrg = new Map();
+  const seenAuthorByRepo = new Map();
+  const seenReviewerByOrg = new Map();
+  const seenReviewerByRepo = new Map();
+  for (const { pr, roles } of entries) {
     const o = pr.repository.owner.login;
     const r = pr.repository.name;
     const id = makePrId(o, r, pr.number);
-    if (orgSet.has(o)) {
-      if (!seenByOrg.has(o)) seenByOrg.set(o, []);
-      seenByOrg.get(o).push(id);
-    } else {
-      const key = `${o}/${r}`;
-      if (!seenByRepo.has(key)) seenByRepo.set(key, []);
-      seenByRepo.get(key).push(id);
+    const inOrg = orgSet.has(o);
+    const key = `${o}/${r}`;
+    if (roles.has('author')) {
+      if (inOrg) {
+        if (!seenAuthorByOrg.has(o)) seenAuthorByOrg.set(o, []);
+        seenAuthorByOrg.get(o).push(id);
+      } else {
+        if (!seenAuthorByRepo.has(key)) seenAuthorByRepo.set(key, []);
+        seenAuthorByRepo.get(key).push(id);
+      }
+    }
+    if (roles.has('reviewer')) {
+      if (inOrg) {
+        if (!seenReviewerByOrg.has(o)) seenReviewerByOrg.set(o, []);
+        seenReviewerByOrg.get(o).push(id);
+      } else {
+        if (!seenReviewerByRepo.has(key)) seenReviewerByRepo.set(key, []);
+        seenReviewerByRepo.get(key).push(id);
+      }
     }
   }
   for (const org of orgs) {
-    try {
-      await cleanupStale('org', org, null, seenByOrg.get(org) || [], config);
-    } catch (err) {
-      console.error(`[poller] Cleanup failed for org:${org}: ${err.message}`);
-    }
+    clearStaleRoleFlag('author', 'org', org, null, seenAuthorByOrg.get(org) || []);
+    clearStaleRoleFlag('reviewer', 'org', org, null, seenReviewerByOrg.get(org) || []);
   }
   for (const ownerRepo of repos) {
     const [owner, repo] = ownerRepo.split('/');
-    try {
-      await cleanupStale('repo', owner, repo, seenByRepo.get(ownerRepo) || [], config);
-    } catch (err) {
-      console.error(`[poller] Cleanup failed for repo:${ownerRepo}: ${err.message}`);
-    }
+    clearStaleRoleFlag('author', 'repo', owner, repo, seenAuthorByRepo.get(ownerRepo) || []);
+    clearStaleRoleFlag('reviewer', 'repo', owner, repo, seenReviewerByRepo.get(ownerRepo) || []);
   }
-  console.log(`[poller] Sync complete - ${prs.length} PRs across ${qualifier}`);
+
+  // Finally delete rows where both role flags are now 0 (workspace + DB cleanup).
+  try {
+    await cleanupOrphans(config);
+  } catch (err) {
+    console.error(`[poller] Orphan cleanup failed: ${err.message}`);
+  }
+
+  console.log(
+    `[poller] Sync complete - ${entries.length} PRs (${authoredResult.prs.length} authored, ${reviewerResult.prs.length} review-requested) across ${qualifier}`,
+  );
 
   // Adopt scratch workspaces whose branch matches a newly-synced PR
   adoptScratchWorkspaces();
 
-  pollerEvents.emit('sync', { synced_at: new Date().toISOString(), pr_count: prs.length });
+  pollerEvents.emit('sync', { synced_at: new Date().toISOString(), pr_count: entries.length });
 }
 
 /** @type {import('node:sqlite').StatementSync | null} */
@@ -1001,11 +1077,17 @@ export function triggerPoll(config) {
  */
 export function resetStatements() {
   upsertStmt = null;
-  deleteStaleByOrgStmt = null;
-  deleteStaleByRepoStmt = null;
-  findStaleByOrgStmt = null;
-  findStaleByRepoStmt = null;
+  clearRoleByOrgStmt = null;
+  clearRoleByRepoStmt = null;
+  clearReviewerRoleByOrgStmt = null;
+  clearReviewerRoleByRepoStmt = null;
+  findOrphanRowsStmt = null;
+  deleteOrphanRowStmt = null;
+  getExistingBodyStmt = null;
+  getExistingPrevStmt = null;
+  getPrByIdStmt = null;
   findScratchesStmt = null;
   findPrByBranchStmt = null;
+  findPrByBranchSuffixStmt = null;
   adoptWorkspaceStmt = null;
 }

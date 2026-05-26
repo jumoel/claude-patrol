@@ -60,6 +60,21 @@ export function initDb(dbPath) {
   addColumn('prs', "pr_summary TEXT NOT NULL DEFAULT ''");
   addColumn('prs', 'is_fork INTEGER NOT NULL DEFAULT 0');
   addColumn('prs', "comments JSON NOT NULL DEFAULT '[]'");
+  // Role flags: a PR can appear in the authored list, the review-requested
+  // list, or both. Existing rows were all authored (the only role we polled
+  // before), so the first time these columns appear we backfill is_authored=1.
+  {
+    const cols = db.prepare("PRAGMA table_info('prs')").all();
+    const hasAuthored = cols.some((c) => c.name === 'is_authored');
+    addColumn('prs', 'is_authored INTEGER NOT NULL DEFAULT 0');
+    addColumn('prs', 'is_review_requested INTEGER NOT NULL DEFAULT 0');
+    if (!hasAuthored) {
+      db.exec('UPDATE prs SET is_authored = 1');
+      console.log('[db] Migration: backfilled prs.is_authored=1 on existing rows');
+    }
+  }
+  db.exec('CREATE INDEX IF NOT EXISTS idx_prs_is_authored ON prs(is_authored)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_prs_is_review_requested ON prs(is_review_requested)');
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS workspaces (

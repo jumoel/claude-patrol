@@ -1,5 +1,17 @@
 # Build Log
 
+## 2026-05-26 - Add a "Review requests" tab alongside the authored PR dashboard
+
+Patrol previously only surfaced PRs that the signed-in user authored (`author:@me`). To make patrol a place to do review work too, the dashboard now has two tabs: "My PRs" and "Review requests". They're visually distinct (blue accent vs amber accent, with PR counts in each tab) so the two surfaces don't visually blur even though the table underneath has the same shape.
+
+Each PR row tracks two role flags (`is_authored`, `is_review_requested`) and a single row can carry both. The poller runs two GraphQL searches per cycle (one per role) in parallel and merges results by PR id; stale cleanup clears the per-role flag, and a row only gets deleted (with workspace teardown) once both flags are 0. That keeps the data model honest about a PR that you authored AND were requested to review on, it appears in both tabs from the same row.
+
+`GET /api/prs?role=author|reviewer` filters per tab. No role defaults to `author`, which preserves the existing MCP `list_prs` behaviour without any tool changes. The migration backfills `is_authored=1` on every existing row so nothing disappears on first start after the upgrade.
+
+Tab state lives in the URL hash (`#/` vs `#/reviews`) and switching tabs resets the in-page filters and sort, which is the simplest behaviour that doesn't carry surprising state across tabs. Scratch workspaces (which are author-side artefacts) only show on the authored tab.
+
+Out of scope for this slice: review actions (approve, request changes, comment), team-requested reviews, and any review-specific MCP tools. Those come in follow-up changes once the data surface proves itself.
+
 ## 2026-05-22 - Make `frontend/` a pnpm workspace so root install covers both packages
 
 A returning contributor ran `pnpm install` then `pnpm start` and got `sh: vite: command not found` because `frontend/` was a sibling package, not a workspace, so root install never populated `frontend/node_modules`. Setup docs assumed you'd remember to run `pnpm run setup` (which did the separate `pnpm --filter` install), but plain `pnpm install` looks like it should be enough and silently isn't.

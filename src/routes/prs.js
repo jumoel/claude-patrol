@@ -39,10 +39,19 @@ function storeDiffCache(map, prId, key, data) {
 export function registerPRRoutes(app) {
   app.get('/api/prs', (request) => {
     const db = getDb();
-    const { org, repo, draft, ci, review, mergeable } = request.query;
+    const { org, repo, draft, ci, review, mergeable, role } = request.query;
 
     let sql = 'SELECT * FROM prs WHERE 1=1';
     const params = [];
+
+    // role scopes the result to one tab. Default to authored so existing
+    // callers (MCP, old links) keep their current behavior.
+    const roleFilter = role === 'reviewer' || role === 'author' ? role : 'author';
+    if (roleFilter === 'reviewer') {
+      sql += ' AND is_review_requested = 1';
+    } else {
+      sql += ' AND is_authored = 1';
+    }
 
     if (org) {
       sql += ' AND org = ?';
