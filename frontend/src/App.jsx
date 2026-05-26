@@ -388,11 +388,13 @@ export default function App() {
             authoredCount={authored.prs.length}
             reviewCount={reviews.prs.length}
           />
-          <DashboardSummary
-            prCount={filteredPRs.length}
-            syncedAt={syncedAt}
-            onOpenGlobalTerminal={openGlobalTerminal}
-          />
+          {activeTab === 'authored' && (
+            <DashboardSummary
+              prCount={filteredPRs.length}
+              syncedAt={syncedAt}
+              onOpenGlobalTerminal={openGlobalTerminal}
+            />
+          )}
           <FilterBar
             prs={allPRs}
             filters={filters}
