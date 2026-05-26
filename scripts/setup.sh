@@ -6,10 +6,10 @@ set -euo pipefail
 # Does what we deliberately do NOT do via npm/pnpm lifecycle hooks
 # (preinstall/postinstall are a supply-chain footgun):
 #   1. Clones and builds the vendored xterm.js (frontend depends on it via file:)
-#   2. Installs root deps
-#   3. Installs frontend/ deps (separate package, not a pnpm workspace)
-#   4. Fixes node-pty's spawn-helper executable bit on macOS
-#   5. Verifies the postconditions — fails loudly if any step left the tree broken
+#   2. Installs deps for root + frontend in one `pnpm install` (frontend/ is a
+#      pnpm workspace package; see pnpm-workspace.yaml)
+#   3. Fixes node-pty's spawn-helper executable bit on macOS
+#   4. Verifies the postconditions — fails loudly if any step left the tree broken
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT_DIR"
@@ -83,11 +83,8 @@ else
   echo "==> xterm.js already built (skipping)"
 fi
 
-echo "==> Installing root dependencies"
+echo "==> Installing dependencies (root + frontend workspace)"
 pnpm install
-
-echo "==> Installing frontend dependencies"
-pnpm --filter claude-patrol-frontend install
 
 echo "==> Fixing node-pty spawn-helper permissions"
 shopt -s nullglob

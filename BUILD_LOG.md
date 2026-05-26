@@ -1,5 +1,15 @@
 # Build Log
 
+## 2026-05-22 - Make `frontend/` a pnpm workspace so root install covers both packages
+
+A returning contributor ran `pnpm install` then `pnpm start` and got `sh: vite: command not found` because `frontend/` was a sibling package, not a workspace, so root install never populated `frontend/node_modules`. Setup docs assumed you'd remember to run `pnpm run setup` (which did the separate `pnpm --filter` install), but plain `pnpm install` looks like it should be enough and silently isn't.
+
+Added `pnpm-workspace.yaml` listing `frontend`, dropped the explicit `pnpm --filter claude-patrol-frontend install` from `scripts/setup.sh` (root install now does both via the workspace), and updated CLAUDE.md + README to reflect that routine `pnpm install` covers both packages once xterm.js is vendored.
+
+We still can't make `pnpm install` do everything on a fresh clone without violating the no-install-hooks policy: the vendored xterm.js is a git clone + npm build (not a pnpm dep), and pnpm install on a fresh tree would fail anyway because `frontend/`'s `file:../vendor/xterm.js` paths don't exist yet. So `pnpm run setup` stays as the first-time bootstrap. After that, `pnpm install` is enough.
+
+Also added an early guard in `scripts/build-if-stale.sh`: if `frontend/node_modules` is missing when `pnpm start` runs, bail with a clear message pointing at `pnpm install` or `pnpm run setup` instead of letting vite fail with `command not found`.
+
 ## 2026-05-22 - Fix `pnpm start` under macOS bash 3.2
 
 `scripts/start-loop.sh` runs under `set -u` and expands `"${args[@]}"` on the first iteration. macOS ships bash 3.2.57, which treats an empty array under nounset as unbound and aborts before node ever starts. Guarded the expansion with a length check so the empty case calls node with no extra args.

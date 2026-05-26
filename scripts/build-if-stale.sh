@@ -12,6 +12,18 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT_DIR"
 
+# Catch the common "I forgot to install deps" failure early with a clear hint
+# instead of letting vite fail with `sh: vite: command not found`.
+if [ ! -d frontend/node_modules ]; then
+  echo "ERROR: frontend/node_modules is missing." >&2
+  if [ ! -d vendor/xterm.js/lib ]; then
+    echo "       Vendored xterm.js is also missing — run \`pnpm run setup\` to bootstrap it, then deps." >&2
+  else
+    echo "       Run \`pnpm install\` (frontend/ is a pnpm workspace and is covered by the root install)." >&2
+  fi
+  exit 1
+fi
+
 OUT=frontend/dist/index.html
 WATCH_PATHS=(frontend/src frontend/index.html frontend/vite.config.js frontend/vite.config.ts frontend/package.json)
 
