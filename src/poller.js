@@ -132,9 +132,14 @@ async function generatePRSummariesBatch(prs) {
   }
 }
 
+// Page size 50 with 30 inline check contexts. Larger inline payloads (100/100)
+// 504 from GitHub's gateway once a search returns enough heavy PRs - the
+// review-requested queue in a busy mono-repo can easily hit that, while the
+// author queue almost never does. Pagination picks up the rest for PRs that
+// exceed 30 checks (see CHECKS_PAGE_QUERY).
 const GRAPHQL_QUERY = `
 query($q: String!, $cursor: String) {
-  search(query: $q, type: ISSUE, first: 100, after: $cursor) {
+  search(query: $q, type: ISSUE, first: 50, after: $cursor) {
     pageInfo { hasNextPage endCursor }
     nodes {
       ... on PullRequest {
@@ -159,7 +164,7 @@ query($q: String!, $cursor: String) {
           nodes {
             commit {
               statusCheckRollup {
-                contexts(first: 100) {
+                contexts(first: 30) {
                   pageInfo { hasNextPage endCursor }
                   nodes {
                     ... on CheckRun { name status conclusion detailsUrl checkSuite { workflowRun { workflow { name } } } }
