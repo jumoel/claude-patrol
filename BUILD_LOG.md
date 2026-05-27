@@ -1,5 +1,13 @@
 # Build Log
 
+## 2026-05-27 - Skip the review-requested GitHub search when nobody is on the reviews tab
+
+The review-requested queue in a busy org has way more PRs than the authored queue, and each poll cycle was running both searches every time. On the authored tab that's wasted work, the user only sees authored data, and the cycle still has to wait for the slow review-requested search to finish before declaring sync complete.
+
+Each browser tab now generates a stable `clientId` (kept in sessionStorage) and POSTs `{clientId, tab}` to `/api/active-tab` on mount, on tab change, and on a 60s heartbeat. The server tracks one entry per client with a 5-minute TTL, so closed browser tabs eventually stop counting. The poller checks `hasReviewsViewer()` before each cycle, and when nobody is on the reviews tab it skips both the GraphQL search and the per-role stale-flag cleanup. Orphan deletion is also skipped on those cycles, since an authored PR that's still review-requested but happens to fall out of the authored search shouldn't get its workspace torn down based on a half-refreshed picture.
+
+Switching into the reviews tab posts the new tab and then fires `/api/sync/trigger`, so the data refreshes immediately instead of waiting for the next interval tick. Multiple browser tabs are tracked independently, so one window on authored and one on reviews still pulls both searches.
+
 ## 2026-05-26 - Add a "Review requests" tab alongside the authored PR dashboard
 
 Patrol previously only surfaced PRs that the signed-in user authored (`author:@me`). To make patrol a place to do review work too, the dashboard now has two tabs: "My PRs" and "Review requests". They're visually distinct (blue accent vs amber accent, with PR counts in each tab) so the two surfaces don't visually blur even though the table underneath has the same shape.

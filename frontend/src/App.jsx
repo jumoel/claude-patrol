@@ -12,7 +12,7 @@ import { TabBar } from './components/TabBar/TabBar.jsx';
 import { WorkspaceDetail } from './components/WorkspaceDetail/WorkspaceDetail.jsx';
 import { useIdleNotification } from './hooks/useIdleNotification.js';
 import { usePRs } from './hooks/usePRs.js';
-import { fetchConfig, fetchScratchWorkspaces } from './lib/api.js';
+import { triggerSync as apiTriggerSync, fetchConfig, fetchScratchWorkspaces, reportActiveTab } from './lib/api.js';
 
 function formatCountdown(seconds) {
   const m = Math.floor(seconds / 60);
@@ -202,6 +202,24 @@ export default function App() {
       .catch(() => {});
   }, [localChangeCount]);
 
+  // Tell the server which tab this browser is on so it can skip the slow
+  // review-requested GitHub query when nobody is on the reviews tab. The
+  // clientId is per-browser-tab (sessionStorage), so multiple windows are
+  // tracked independently and a closed tab eventually expires server-side.
+  // Re-posts on tab change and on a heartbeat (server TTL is 5 minutes).
+  useEffect(() => {
+    let clientId = sessionStorage.getItem('patrol-client-id');
+    if (!clientId) {
+      clientId = crypto.randomUUID();
+      sessionStorage.setItem('patrol-client-id', clientId);
+    }
+    reportActiveTab(clientId, activeTab).catch(() => {});
+    const id = setInterval(() => {
+      reportActiveTab(clientId, activeTab).catch(() => {});
+    }, 60_000);
+    return () => clearInterval(id);
+  }, [activeTab]);
+
   // Sync filters + sorting to URL hash
   const handleFilterChange = useCallback(
     (newFilters) => {
@@ -262,13 +280,25 @@ export default function App() {
   }, [filteredPRs, stackView]);
 
   // Switching tabs: drop filters/sorting that don't carry over, then update URL.
-  const handleTabChange = useCallback((tab) => {
-    setActiveTab(tab);
-    setFilters({});
-    setSorting([]);
-    setStackView(true);
-    window.location.hash = tab === 'reviews' ? '/reviews' : '/';
-  }, []);
+  // Switching INTO reviews kicks off an immediate sync because the poller
+  // skips the review-requested query while nobody is on this tab, so the
+  // cached data could be arbitrarily stale.
+  const handleTabChange = useCallback(
+    (tab) => {
+      const wasOnReviews = activeTab === 'reviews';
+      setActiveTab(tab);
+      setFilters({});
+      setSorting([]);
+      setStackView(true);
+      window.location.hash = tab === 'reviews' ? '/reviews' : '/';
+      if (tab === 'reviews' && !wasOnReviews) {
+        const clientId = sessionStorage.getItem('patrol-client-id');
+        const refresh = clientId ? reportActiveTab(clientId, 'reviews').then(() => apiTriggerSync()) : apiTriggerSync();
+        refresh.catch(() => {});
+      }
+    },
+    [activeTab],
+  );
 
   // Simple hash-based routing
   useEffect(() => {

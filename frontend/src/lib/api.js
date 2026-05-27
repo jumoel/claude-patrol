@@ -40,6 +40,23 @@ export async function triggerSync() {
 }
 
 /**
+ * Report which tab the user is viewing. The server skips the slow
+ * review-requested GitHub query on poll cycles when nobody is on the
+ * reviews tab.
+ * @param {string} clientId
+ * @param {'authored' | 'reviews'} tab
+ */
+export async function reportActiveTab(clientId, tab) {
+  const res = await fetch(`${BASE}/api/active-tab`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ clientId, tab }),
+  });
+  if (!res.ok) throw new Error(`active-tab failed: ${res.status}`);
+  return res.json();
+}
+
+/**
  * Fetch public config.
  * @returns {Promise<{poll: {orgs: string[], repos: string[], interval_seconds: number}}>}
  */

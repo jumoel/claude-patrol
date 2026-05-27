@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { unlinkSync } from 'node:fs';
+import { hasReviewsViewer } from './active-tabs.js';
 import { emitGhRateLimit, emitLocalChange } from './app-events.js';
 import { getDb } from './db.js';
 import { deriveCIStatus, formatPR } from './pr-status.js';
@@ -867,12 +868,16 @@ async function pollOnce(config) {
   // Two searches per cycle: one for PRs the user authored, one for PRs they've
   // been asked to review. GitHub search doesn't support boolean OR on
   // qualifiers, so we run them in parallel and merge results by PR id.
+  // The reviewer search is skipped when no client is viewing the reviews tab
+  // (it's the slow one in busy orgs); existing is_review_requested flags
+  // stay put so the data simply ages until someone opens the tab.
+  const includeReviewer = hasReviewsViewer();
   let authoredResult;
   let reviewerResult;
   try {
     [authoredResult, reviewerResult] = await Promise.all([
       fetchPRs(qualifier, 'author:@me'),
-      fetchPRs(qualifier, 'review-requested:@me'),
+      includeReviewer ? fetchPRs(qualifier, 'review-requested:@me') : Promise.resolve({ prs: [] }),
     ]);
   } catch (err) {
     console.error(`[poller] Poll failed: ${err.message}`);
@@ -932,23 +937,32 @@ async function pollOnce(config) {
   }
   for (const org of orgs) {
     clearStaleRoleFlag('author', 'org', org, null, seenAuthorByOrg.get(org) || []);
-    clearStaleRoleFlag('reviewer', 'org', org, null, seenReviewerByOrg.get(org) || []);
+    if (includeReviewer) {
+      clearStaleRoleFlag('reviewer', 'org', org, null, seenReviewerByOrg.get(org) || []);
+    }
   }
   for (const ownerRepo of repos) {
     const [owner, repo] = ownerRepo.split('/');
     clearStaleRoleFlag('author', 'repo', owner, repo, seenAuthorByRepo.get(ownerRepo) || []);
-    clearStaleRoleFlag('reviewer', 'repo', owner, repo, seenReviewerByRepo.get(ownerRepo) || []);
+    if (includeReviewer) {
+      clearStaleRoleFlag('reviewer', 'repo', owner, repo, seenReviewerByRepo.get(ownerRepo) || []);
+    }
   }
 
   // Finally delete rows where both role flags are now 0 (workspace + DB cleanup).
-  try {
-    await cleanupOrphans(config);
-  } catch (err) {
-    console.error(`[poller] Orphan cleanup failed: ${err.message}`);
+  // Skip when the reviewer query was skipped: an authored PR that's also still
+  // review-requested could look orphaned after a cycle where authorship dropped
+  // but we didn't refresh the reviewer flag.
+  if (includeReviewer) {
+    try {
+      await cleanupOrphans(config);
+    } catch (err) {
+      console.error(`[poller] Orphan cleanup failed: ${err.message}`);
+    }
   }
 
   console.log(
-    `[poller] Sync complete - ${entries.length} PRs (${authoredResult.prs.length} authored, ${reviewerResult.prs.length} review-requested) across ${qualifier}`,
+    `[poller] Sync complete - ${entries.length} PRs (${authoredResult.prs.length} authored, ${includeReviewer ? `${reviewerResult.prs.length} review-requested` : 'review-requested skipped'}) across ${qualifier}`,
   );
 
   // Adopt scratch workspaces whose branch matches a newly-synced PR
