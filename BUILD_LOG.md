@@ -1,5 +1,15 @@
 # Build Log
 
+## 2026-05-27 - Incremental polling so most cycles only fetch recently-updated PRs
+
+Even with the reviewer search gated behind the reviews tab, each poll cycle still re-fetched every open PR in the configured orgs. In a busy mono-org that's hundreds of PRs every five minutes, each with up to 50 reviews, 50 comments, and 30 inline check contexts. GraphQL points pile up fast and the rate limit shows up.
+
+Each poll cycle now decides per role whether to do a full sweep or an incremental one. Incremental cycles append `updated:>=<lastSweep - 10min>` to the GitHub search, so the query only returns PRs that actually changed since we last looked. The 10 minute overlap is a buffer for clock skew and in-flight time so we don't drop a PR that updated right at the boundary. Full sweeps still run every 30 minutes per role so PRs that fell out of `is:open` (merged, closed, archived) get the role-flag and orphan cleanup that only a complete enumeration can do safely.
+
+Per-role timestamps live in module-level `lastSweepAt` and `lastFullSweepAt` maps, advanced only after the fetch succeeds so a failed cycle replays its window on the next attempt instead of silently dropping updates. Stale role-flag cleanup is gated on `authorFull` / `reviewerFull` because the incremental result set only contains updated PRs - clearing flags on everything else would mark the rest of the org as no-longer-authored. Orphan deletion still runs, but only when the included roles all did full sweeps in this cycle, since otherwise the flags can't be trusted to reflect the current GitHub state.
+
+Switching into the reviews tab when reviewer data is older than 30 minutes still triggers a full reviewer sweep on the manual sync, since `lastFullSweepAt.reviewer` will be either null or stale. Adding or removing a target via the dashboard also forces the next cycle to be a full sweep so the new org's open PRs land immediately instead of waiting for the next half hour.
+
 ## 2026-05-27 - Skip the review-requested GitHub search when nobody is on the reviews tab
 
 The review-requested queue in a busy org has way more PRs than the authored queue, and each poll cycle was running both searches every time. On the authored tab that's wasted work, the user only sees authored data, and the cycle still has to wait for the slow review-requested search to finish before declaring sync complete.

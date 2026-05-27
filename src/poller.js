@@ -468,15 +468,19 @@ async function fetchRemainingChecks(nodeId, startCursor) {
  * @param {string} qualifier - e.g. "org:foo" or "repo:owner/repo" or
  *   "org:a org:b repo:c/d" (multiple qualifiers are OR'd by GitHub search).
  * @param {string} roleQualifier - one of "author:@me", "review-requested:@me".
+ * @param {string | null} [sinceIso] - if set, restricts the search to PRs
+ *   updated at or after this ISO timestamp via `updated:>=`. Used by
+ *   incremental polls to avoid refetching unchanged PRs.
  * @returns {Promise<{prs: object[]}>}
  */
-async function fetchPRs(qualifier, roleQualifier) {
+async function fetchPRs(qualifier, roleQualifier, sinceIso = null) {
   const allPRs = [];
   let cursor = null;
   let hasNext = true;
 
+  const sinceClause = sinceIso ? ` updated:>=${sinceIso}` : '';
   while (hasNext) {
-    const vars = { q: `${qualifier} is:pr is:open ${roleQualifier} sort:updated-desc` };
+    const vars = { q: `${qualifier} is:pr is:open ${roleQualifier}${sinceClause} sort:updated-desc` };
     if (cursor) vars.cursor = cursor;
     const result = await ghGraphql(GRAPHQL_QUERY, vars);
     const search = result.data?.search;
@@ -835,10 +839,50 @@ async function cleanupOrphans(config) {
   }
 }
 
+// Each cycle does an incremental fetch (`updated:>=<since>`) and only
+// promotes to a full enumeration every FULL_SWEEP_INTERVAL_MS. Incremental
+// fetches are usually 0-1 search pages instead of many, which is the
+// single biggest knob we have on GraphQL point usage. Full sweeps still
+// happen periodically so PRs that fell out of `is:open` (merged, closed)
+// get the role-flag and orphan cleanup that only a complete enumeration
+// can do safely.
+const FULL_SWEEP_INTERVAL_MS = 30 * 60 * 1000;
+// Overlap window so a PR updated right before/after the previous fetch
+// boundary doesn't get skipped because of clock skew or in-flight time.
+const INCREMENTAL_BUFFER_MS = 10 * 60 * 1000;
+/** @type {{ author: number | null, reviewer: number | null }} */
+const lastFullSweepAt = { author: null, reviewer: null };
+/** @type {{ author: number | null, reviewer: number | null }} */
+const lastSweepAt = { author: null, reviewer: null };
+
+/**
+ * Decide whether this cycle should do a full sweep for a given role.
+ * @param {'author' | 'reviewer'} role
+ */
+function shouldFullSweep(role) {
+  const last = lastFullSweepAt[role];
+  return last === null || Date.now() - last >= FULL_SWEEP_INTERVAL_MS;
+}
+
+/**
+ * Build the `updated:>=<iso>` filter for an incremental fetch. Returns null
+ * when the caller is doing a full sweep, or when we've never swept this
+ * role before (first cycle has to fetch everything).
+ * @param {'author' | 'reviewer'} role
+ * @param {boolean} fullSweep
+ */
+function buildSinceFilter(role, fullSweep) {
+  if (fullSweep) return null;
+  const last = lastSweepAt[role];
+  if (last === null) return null;
+  return new Date(last - INCREMENTAL_BUFFER_MS).toISOString();
+}
+
 /**
  * Run a single poll cycle across all configured targets.
- * Every cycle does a full sweep so merged/closed PRs (which fall out of the
- * `is:open` result set) get cleaned up promptly.
+ * Most cycles are incremental (only PRs updated since the last sweep). A
+ * full sweep runs every FULL_SWEEP_INTERVAL_MS to enumerate everything so
+ * merged/closed PRs get cleaned up.
  * @param {object} config
  */
 async function pollOnce(config) {
@@ -872,16 +916,31 @@ async function pollOnce(config) {
   // (it's the slow one in busy orgs); existing is_review_requested flags
   // stay put so the data simply ages until someone opens the tab.
   const includeReviewer = hasReviewsViewer();
+  const authorFull = shouldFullSweep('author');
+  const reviewerFull = includeReviewer && shouldFullSweep('reviewer');
+  const authorSince = buildSinceFilter('author', authorFull);
+  const reviewerSince = includeReviewer ? buildSinceFilter('reviewer', reviewerFull) : null;
+  const sweepStartedAt = Date.now();
   let authoredResult;
   let reviewerResult;
   try {
     [authoredResult, reviewerResult] = await Promise.all([
-      fetchPRs(qualifier, 'author:@me'),
-      includeReviewer ? fetchPRs(qualifier, 'review-requested:@me') : Promise.resolve({ prs: [] }),
+      fetchPRs(qualifier, 'author:@me', authorSince),
+      includeReviewer ? fetchPRs(qualifier, 'review-requested:@me', reviewerSince) : Promise.resolve({ prs: [] }),
     ]);
   } catch (err) {
     console.error(`[poller] Poll failed: ${err.message}`);
     return;
+  }
+
+  // Record sweep timestamps only after the fetches succeed. A failed fetch
+  // doesn't advance the incremental cursor, so the next cycle replays the
+  // same window rather than silently dropping the PRs from this one.
+  lastSweepAt.author = sweepStartedAt;
+  if (authorFull) lastFullSweepAt.author = sweepStartedAt;
+  if (includeReviewer) {
+    lastSweepAt.reviewer = sweepStartedAt;
+    if (reviewerFull) lastFullSweepAt.reviewer = sweepStartedAt;
   }
 
   // Merge into one entry per PR id, tracking which roles found it.
@@ -935,25 +994,32 @@ async function pollOnce(config) {
       }
     }
   }
+  // Stale-flag cleanup is only safe after a full sweep - on incremental
+  // cycles `seenAuthorByOrg` etc. only list recently-updated PRs, so we'd
+  // wrongly clear flags on every other PR in the org.
   for (const org of orgs) {
-    clearStaleRoleFlag('author', 'org', org, null, seenAuthorByOrg.get(org) || []);
-    if (includeReviewer) {
+    if (authorFull) {
+      clearStaleRoleFlag('author', 'org', org, null, seenAuthorByOrg.get(org) || []);
+    }
+    if (reviewerFull) {
       clearStaleRoleFlag('reviewer', 'org', org, null, seenReviewerByOrg.get(org) || []);
     }
   }
   for (const ownerRepo of repos) {
     const [owner, repo] = ownerRepo.split('/');
-    clearStaleRoleFlag('author', 'repo', owner, repo, seenAuthorByRepo.get(ownerRepo) || []);
-    if (includeReviewer) {
+    if (authorFull) {
+      clearStaleRoleFlag('author', 'repo', owner, repo, seenAuthorByRepo.get(ownerRepo) || []);
+    }
+    if (reviewerFull) {
       clearStaleRoleFlag('reviewer', 'repo', owner, repo, seenReviewerByRepo.get(ownerRepo) || []);
     }
   }
 
-  // Finally delete rows where both role flags are now 0 (workspace + DB cleanup).
-  // Skip when the reviewer query was skipped: an authored PR that's also still
-  // review-requested could look orphaned after a cycle where authorship dropped
-  // but we didn't refresh the reviewer flag.
-  if (includeReviewer) {
+  // Orphan cleanup deletes rows where both flags are 0. That's idempotent
+  // and harmless to call on incremental cycles (no flags get cleared then),
+  // but we still skip it when reviewer wasn't included this cycle to avoid
+  // tearing down a workspace whose review-requested flag we haven't verified.
+  if (authorFull && (includeReviewer ? reviewerFull : true)) {
     try {
       await cleanupOrphans(config);
     } catch (err) {
@@ -961,8 +1027,10 @@ async function pollOnce(config) {
     }
   }
 
+  const authorMode = authorFull ? 'full' : 'incremental';
+  const reviewerMode = includeReviewer ? (reviewerFull ? 'full' : 'incremental') : 'skipped';
   console.log(
-    `[poller] Sync complete - ${entries.length} PRs (${authoredResult.prs.length} authored, ${includeReviewer ? `${reviewerResult.prs.length} review-requested` : 'review-requested skipped'}) across ${qualifier}`,
+    `[poller] Sync complete - ${entries.length} PRs (${authoredResult.prs.length} authored [${authorMode}], ${includeReviewer ? `${reviewerResult.prs.length} review-requested [${reviewerMode}]` : 'review-requested skipped'}) across ${qualifier}`,
   );
 
   // Adopt scratch workspaces whose branch matches a newly-synced PR
@@ -1059,10 +1127,17 @@ export function startPoller(config) {
   const targets = targetsKey.replace(/,/g, ', ');
   console.log(`[poller] Starting - polling ${targets} every ${config.poll.interval_seconds}s`);
 
-  // Only poll immediately if the targets changed (or first start)
+  // Only poll immediately if the targets changed (or first start).
+  // Force the next cycle to be a full sweep so a newly-added org/repo
+  // pulls in all its open PRs instead of just the last few minutes of
+  // updates.
   const targetsChanged = targetsKey !== lastTargetsKey;
   lastTargetsKey = targetsKey;
   if (targetsChanged) {
+    lastFullSweepAt.author = null;
+    lastFullSweepAt.reviewer = null;
+    lastSweepAt.author = null;
+    lastSweepAt.reviewer = null;
     cleanupRemovedTargets(config).catch((err) => console.error(`[poller] Cleanup failed: ${err.message}`));
     pollOnce(config).catch((err) => console.error(`[poller] Poll failed: ${err.message}`));
   }
