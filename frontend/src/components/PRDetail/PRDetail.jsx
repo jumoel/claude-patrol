@@ -228,6 +228,13 @@ export function PRDetail({ prId, onBack }) {
     setRefreshing(true);
     try {
       const fresh = await refreshPR(prId);
+      // Server tore down the row because the PR is merged/closed. Surface
+      // that and go back to the dashboard - there's nothing left to view.
+      if (fresh?.removed) {
+        alert(`This PR is ${fresh.state.toLowerCase()}; it's been removed from the dashboard.`);
+        onBack();
+        return;
+      }
       setPR(fresh);
     } catch (err) {
       console.error('Failed to refresh PR:', err);
@@ -235,7 +242,7 @@ export function PRDetail({ prId, onBack }) {
     } finally {
       setRefreshing(false);
     }
-  }, [prId, refreshing]);
+  }, [prId, refreshing, onBack]);
 
   const handleToggleDraft = useCallback(async () => {
     if (!pr) return;

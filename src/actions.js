@@ -111,7 +111,7 @@ export const actionRegistry = {
 
   refresh_pr: {
     description:
-      'Force-refresh a single PR from GitHub right now, bypassing the incremental poll cadence. Use this when you need the freshest possible view of one PR (e.g. after pushing a commit, dismissing a review, retriggering checks) instead of waiting for the next poll cycle. Returns the updated PR row.',
+      'Force-refresh a single PR from GitHub right now, bypassing the incremental poll cadence. Use this when you need the freshest possible view of one PR (e.g. after pushing a commit, dismissing a review, retriggering checks) instead of waiting for the next poll cycle. Returns the updated PR row, OR `{removed: true, state: "MERGED" | "CLOSED"}` when the PR is no longer open - in that case the row and any active workspaces have been cleaned up.',
     schema: z.object({
       id: z.string().describe('PR database ID (e.g. "org/repo#42")'),
     }),

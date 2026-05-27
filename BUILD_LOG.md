@@ -1,5 +1,11 @@
 # Build Log
 
+## 2026-05-27 - Force-refresh handles merged/closed PRs by cleaning up and navigating back
+
+The first cut of the Refresh button always upserted whatever GitHub returned, which meant clicking Refresh on a PR that had been merged between polls would silently re-create the row in the dashboard and leave its workspaces dangling. The direct `repository.pullRequest` query doesn't filter by `is:open`, so a merged PR comes back like any other open one.
+
+The single-PR query now selects `state`, and `refreshSinglePR` short-circuits when it's `MERGED` or `CLOSED` - it runs the same `cleanupStalePR` path the poller's orphan cleanup uses (destroy active workspaces, drop sessions and their transcripts, delete the row), and returns `{removed: true, state}`. The route surfaces that to the frontend, which alerts the user and calls `onBack()` to return to the dashboard. MCP callers get the same shape so a rule that refreshes a PR after acting on it sees the terminal state instead of an orphaned-looking row.
+
 ## 2026-05-27 - Force-refresh a single PR on demand (button + MCP tool)
 
 With incremental polling, the dashboard is mostly fresh on the things that changed recently, but a single PR you're staring at can still lag behind GitHub by up to 30 minutes if nothing else touched it. The PR detail page now has a Refresh button that pulls live state for that one PR, and the same path is exposed as the `refresh_pr` MCP tool.

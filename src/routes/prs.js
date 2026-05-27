@@ -1,4 +1,5 @@
 import { emitLocalChange } from '../app-events.js';
+import { getCurrentConfig } from '../config.js';
 import { getDb } from '../db.js';
 import { fetchPRBodyHtml, refreshSinglePR } from '../poller.js';
 import { enrichWithStackInfo, formatPR } from '../pr-status.js';
@@ -139,10 +140,16 @@ export function registerPRRoutes(app) {
     if (!exists) {
       return reply.code(404).send({ error: 'PR not found' });
     }
+    let result;
     try {
-      await refreshSinglePR(request.params.id);
+      result = await refreshSinglePR(request.params.id, getCurrentConfig());
     } catch (err) {
       return reply.code(502).send({ error: `Failed to refresh PR: ${err.message}` });
+    }
+    // PR was merged/closed - row is gone, workspaces are torn down. Tell the
+    // caller so the UI can navigate away and MCP callers see the final state.
+    if (result.removed) {
+      return { removed: true, state: result.state };
     }
     const row = db.prepare('SELECT * FROM prs WHERE id = ?').get(request.params.id);
     if (!row) return reply.code(404).send({ error: 'PR not found after refresh' });

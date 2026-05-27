@@ -205,6 +205,7 @@ query($owner: String!, $name: String!, $number: Int!) {
       body
       bodyHTML
       url
+      state
       isDraft
       headRefName
       baseRefName
@@ -390,14 +391,18 @@ export async function fetchPRBodyHtml(owner, name, number) {
  * the incremental-polling cadence: the next time you ask for this PR, every
  * field reflects the live GitHub state. Preserves the PR's existing role
  * flags (is_authored, is_review_requested) - this is a refresh, not a role
- * re-evaluation. Throws if the PR isn't in the DB (we don't know its roles
- * from a refresh request alone) or if the PR has been closed/merged (the
- * `is:open`-shaped queries won't see it; closed PRs are a cleanup case).
+ * re-evaluation.
+ *
+ * If the PR has been MERGED or CLOSED, this short-circuits to the same
+ * cleanup the poller's orphan path runs: destroy active workspaces, delete
+ * the row, and return `{ removed: true, state }` so the caller can react
+ * (the dashboard navigates back, the MCP caller sees the terminal state).
  *
  * @param {string} prId - "org/repo#number"
- * @returns {Promise<void>}
+ * @param {object} config - current app config, needed for workspace teardown
+ * @returns {Promise<{ removed: boolean, state: 'OPEN' | 'CLOSED' | 'MERGED' }>}
  */
-export async function refreshSinglePR(prId) {
+export async function refreshSinglePR(prId, config) {
   const match = /^(.+)\/(.+)#(\d+)$/.exec(prId);
   if (!match) throw new Error(`Invalid PR id: ${prId}`);
   const [, owner, name, numStr] = match;
@@ -410,6 +415,14 @@ export async function refreshSinglePR(prId) {
   const result = await ghGraphql(SINGLE_PR_QUERY, { owner, name, number });
   const pr = result?.data?.repository?.pullRequest;
   if (!pr) throw new Error(`GitHub returned no pull request for ${prId}`);
+
+  const state = pr.state || 'OPEN';
+  if (state === 'MERGED' || state === 'CLOSED') {
+    await cleanupStalePR(prId, config);
+    db.prepare('DELETE FROM prs WHERE id = ?').run(prId);
+    emitLocalChange();
+    return { removed: true, state };
+  }
 
   // Paginate the rest of the check contexts if there are more than the inline
   // page covered. Same handling as the bulk search path.
@@ -433,6 +446,7 @@ export async function refreshSinglePR(prId) {
   }
 
   emitLocalChange();
+  return { removed: false, state };
 }
 
 /**
