@@ -30,6 +30,20 @@ export async function fetchPR(id) {
 }
 
 /**
+ * Force-refresh a single PR from GitHub right now. Returns the updated PR row.
+ * @param {string} id
+ * @returns {Promise<object>}
+ */
+export async function refreshPR(id) {
+  const res = await fetch(`${BASE}/api/prs/${encodeURIComponent(id)}/refresh`, { method: 'POST' });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || `Failed to refresh PR: ${res.status}`);
+  }
+  return res.json();
+}
+
+/**
  * Trigger an immediate sync.
  * @returns {Promise<{ok: boolean}>}
  */

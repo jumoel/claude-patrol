@@ -12,6 +12,7 @@ import {
   fetchSessions,
   fetchSessionTranscript,
   fetchWorkspaces,
+  refreshPR,
   setPRDraft,
 } from '../../lib/api.js';
 import {
@@ -78,6 +79,7 @@ export function PRDetail({ prId, onBack }) {
   const [retriggering, setRetriggering] = useState(false);
   const [copiedBranch, setCopiedBranch] = useState(false);
   const [togglingDraft, setTogglingDraft] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const wsRef = useRef(null);
 
   /** Deduped workspace creation promise so both buttons share a single in-flight request. */
@@ -221,6 +223,20 @@ export function PRDetail({ prId, onBack }) {
     }
   }, [workspace]);
 
+  const handleRefresh = useCallback(async () => {
+    if (refreshing) return;
+    setRefreshing(true);
+    try {
+      const fresh = await refreshPR(prId);
+      setPR(fresh);
+    } catch (err) {
+      console.error('Failed to refresh PR:', err);
+      alert(`Failed to refresh PR: ${err.message}`);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [prId, refreshing]);
+
   const handleToggleDraft = useCallback(async () => {
     if (!pr) return;
     setTogglingDraft(true);
@@ -315,6 +331,15 @@ export function PRDetail({ prId, onBack }) {
                   type="button"
                 >
                   {togglingDraft ? '...' : pr.draft ? 'Mark ready' : 'Mark draft'}
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={handleRefresh}
+                  disabled={refreshing}
+                  type="button"
+                  title="Refetch this PR from GitHub now"
+                >
+                  {refreshing ? 'Refreshing...' : 'Refresh'}
                 </Button>
                 <Button as="a" size="sm" href={`${pr.url}/files`} target="_blank" rel="noopener noreferrer">
                   View diff

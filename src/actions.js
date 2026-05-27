@@ -109,6 +109,16 @@ export const actionRegistry = {
     dispatch: ({ id }) => ({ method: 'GET', path: `/api/prs/${encodeURIComponent(id)}` }),
   },
 
+  refresh_pr: {
+    description:
+      'Force-refresh a single PR from GitHub right now, bypassing the incremental poll cadence. Use this when you need the freshest possible view of one PR (e.g. after pushing a commit, dismissing a review, retriggering checks) instead of waiting for the next poll cycle. Returns the updated PR row.',
+    schema: z.object({
+      id: z.string().describe('PR database ID (e.g. "org/repo#42")'),
+    }),
+    ruleFireable: true,
+    dispatch: ({ id }) => ({ method: 'POST', path: `/api/prs/${encodeURIComponent(id)}/refresh` }),
+  },
+
   create_workspace: {
     description: 'Create a jj workspace (colocated worktree) for a PR. Returns the workspace path you should cd into.',
     schema: z.object({

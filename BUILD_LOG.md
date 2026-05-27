@@ -1,5 +1,13 @@
 # Build Log
 
+## 2026-05-27 - Force-refresh a single PR on demand (button + MCP tool)
+
+With incremental polling, the dashboard is mostly fresh on the things that changed recently, but a single PR you're staring at can still lag behind GitHub by up to 30 minutes if nothing else touched it. The PR detail page now has a Refresh button that pulls live state for that one PR, and the same path is exposed as the `refresh_pr` MCP tool.
+
+`POST /api/prs/:id/refresh` runs a direct `repository.pullRequest` GraphQL query (not a search) so it costs roughly one PR's worth of points regardless of org size. The fetch covers the same field set as the bulk search query plus `bodyHTML`, so the cached rendered description on the detail view also updates. Existing role flags (`is_authored`, `is_review_requested`) are preserved - this is a refresh, not a role re-evaluation. After upserting, the route returns the same shape as `GET /api/prs/:id` so the frontend can replace its local state in one step.
+
+The MCP tool is `ruleFireable: true` because there's a real use case for rules to refresh a PR right after they act on it (e.g. after retriggering checks the rule wants to see the new status without waiting for the next poll). Same dispatch shape as the existing PR-scoped tools, just a POST instead of a GET.
+
 ## 2026-05-27 - Incremental polling so most cycles only fetch recently-updated PRs
 
 Even with the reviewer search gated behind the reviews tab, each poll cycle still re-fetched every open PR in the configured orgs. In a busy mono-org that's hundreds of PRs every five minutes, each with up to 50 reviews, 50 comments, and 30 inline check contexts. GraphQL points pile up fast and the rate limit shows up.

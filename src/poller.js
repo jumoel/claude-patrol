@@ -192,6 +192,51 @@ query($owner: String!, $name: String!, $number: Int!) {
 }
 `;
 
+// Single-PR query used by the "force refresh" path. Mirrors the inline PR
+// fragment in GRAPHQL_QUERY plus bodyHTML, so the cached html on the detail
+// view stays consistent with the rest of the refreshed fields.
+const SINGLE_PR_QUERY = `
+query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      id
+      number
+      title
+      body
+      bodyHTML
+      url
+      isDraft
+      headRefName
+      baseRefName
+      isCrossRepository
+      mergeable
+      createdAt
+      updatedAt
+      author { login }
+      repository { name owner { login } }
+      labels(first: 10) { nodes { name color } }
+      reviews(first: 50) { nodes { author { login __typename } state submittedAt } }
+      comments(first: 50) { nodes { author { login __typename } createdAt } }
+      commits(last: 1) {
+        nodes {
+          commit {
+            statusCheckRollup {
+              contexts(first: 30) {
+                pageInfo { hasNextPage endCursor }
+                nodes {
+                  ... on CheckRun { name status conclusion detailsUrl checkSuite { workflowRun { workflow { name } } } }
+                  ... on StatusContext { context state targetUrl }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+`;
+
 const CHECKS_PAGE_QUERY = `
 query($id: ID!, $cursor: String!) {
   node(id: $id) {
@@ -338,6 +383,56 @@ export async function fetchPRBodyHtml(owner, name, number) {
     console.warn(`[poller] body_html fetch failed for ${owner}/${name}#${number}: ${err.message}`);
     return null;
   }
+}
+
+/**
+ * Force-refresh a single PR from GitHub and upsert it into the DB. Bypasses
+ * the incremental-polling cadence: the next time you ask for this PR, every
+ * field reflects the live GitHub state. Preserves the PR's existing role
+ * flags (is_authored, is_review_requested) - this is a refresh, not a role
+ * re-evaluation. Throws if the PR isn't in the DB (we don't know its roles
+ * from a refresh request alone) or if the PR has been closed/merged (the
+ * `is:open`-shaped queries won't see it; closed PRs are a cleanup case).
+ *
+ * @param {string} prId - "org/repo#number"
+ * @returns {Promise<void>}
+ */
+export async function refreshSinglePR(prId) {
+  const match = /^(.+)\/(.+)#(\d+)$/.exec(prId);
+  if (!match) throw new Error(`Invalid PR id: ${prId}`);
+  const [, owner, name, numStr] = match;
+  const number = Number(numStr);
+
+  const db = getDb();
+  const existing = db.prepare('SELECT id, is_authored, is_review_requested FROM prs WHERE id = ?').get(prId);
+  if (!existing) throw new Error(`PR not tracked: ${prId}`);
+
+  const result = await ghGraphql(SINGLE_PR_QUERY, { owner, name, number });
+  const pr = result?.data?.repository?.pullRequest;
+  if (!pr) throw new Error(`GitHub returned no pull request for ${prId}`);
+
+  // Paginate the rest of the check contexts if there are more than the inline
+  // page covered. Same handling as the bulk search path.
+  const contextsConn = pr.commits?.nodes?.[0]?.commit?.statusCheckRollup?.contexts;
+  if (contextsConn?.pageInfo?.hasNextPage) {
+    const extra = await fetchRemainingChecks(pr.id, contextsConn.pageInfo.endCursor);
+    contextsConn.nodes.push(...extra);
+    contextsConn.pageInfo.hasNextPage = false;
+  }
+
+  const roles = new Set();
+  if (existing.is_authored) roles.add('author');
+  if (existing.is_review_requested) roles.add('reviewer');
+  upsertPRs([{ pr, roles }]);
+
+  // Overwrite body_html unconditionally - upsertPRs blanks it only when the
+  // body text changes, but a force-refresh should also pick up rendering
+  // changes (autolink updates, embedded images, etc.).
+  if (pr.bodyHTML != null) {
+    db.prepare('UPDATE prs SET body_html = ? WHERE id = ?').run(pr.bodyHTML, prId);
+  }
+
+  emitLocalChange();
 }
 
 /**

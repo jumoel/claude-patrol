@@ -1,6 +1,6 @@
 import { emitLocalChange } from '../app-events.js';
 import { getDb } from '../db.js';
-import { fetchPRBodyHtml } from '../poller.js';
+import { fetchPRBodyHtml, refreshSinglePR } from '../poller.js';
 import { enrichWithStackInfo, formatPR } from '../pr-status.js';
 import { execFile } from '../utils.js';
 
@@ -130,6 +130,26 @@ export function registerPRRoutes(app) {
     const target = siblings.find((p) => p.id === request.params.id);
     // siblings re-read from DB above, so override with the freshly-fetched html
     if (target && row.body_html) target.body_html = row.body_html;
+    return target;
+  });
+
+  app.post('/api/prs/:id/refresh', async (request, reply) => {
+    const db = getDb();
+    const exists = db.prepare('SELECT 1 FROM prs WHERE id = ?').get(request.params.id);
+    if (!exists) {
+      return reply.code(404).send({ error: 'PR not found' });
+    }
+    try {
+      await refreshSinglePR(request.params.id);
+    } catch (err) {
+      return reply.code(502).send({ error: `Failed to refresh PR: ${err.message}` });
+    }
+    const row = db.prepare('SELECT * FROM prs WHERE id = ?').get(request.params.id);
+    if (!row) return reply.code(404).send({ error: 'PR not found after refresh' });
+    const siblingRows = db.prepare('SELECT * FROM prs WHERE org = ? AND repo = ?').all(row.org, row.repo);
+    const siblings = siblingRows.map(formatPR);
+    enrichWithStackInfo(siblings);
+    const target = siblings.find((p) => p.id === request.params.id);
     return target;
   });
 
