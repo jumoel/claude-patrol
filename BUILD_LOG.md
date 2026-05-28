@@ -1,5 +1,11 @@
 # Build Log
 
+## 2026-05-28 - Serialize workspace create/destroy on the same id
+
+A destroy fired while a create was still mid-flight could mark the DB row destroyed and run `jj workspace forget` before `jj workspace add` had finished. jj then ended up owning an orphan workspace the DB no longer tracked, and the next create attempt for the same PR failed with `Workspace named ... already exists`. We hit this on `chainguard-dev/ecosystems-rebuilder.js#1267`: a destroy landed 15 ms after the create's row insert (likely a double-click while the row was visible in the listing) and the retry 34 s later collided on the jj name.
+
+`workspace.js` now keeps a per-id promise lock. `createWorkspace`, `createScratchWorkspace`, and `destroyWorkspace` all queue through it, including the initial `INSERT` and the destroyed-status `UPDATE`. The row only becomes visible once the create holds the lock, so any destroy issued against it queues behind the create instead of racing with it. The unique-active index still handles concurrent creates for the same PR.
+
 ## 2026-05-27 - Force-refresh handles merged/closed PRs by cleaning up and navigating back
 
 The first cut of the Refresh button always upserted whatever GitHub returned, which meant clicking Refresh on a PR that had been merged between polls would silently re-create the row in the dashboard and leave its workspaces dangling. The direct `repository.pullRequest` query doesn't filter by `is:open`, so a merged PR comes back like any other open one.

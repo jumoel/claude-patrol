@@ -32,6 +32,43 @@ async function ensureJjInit(repoPath) {
   }
 }
 
+/** @type {Map<string, Promise<unknown>>} */
+const workspaceLocks = new Map();
+
+/**
+ * Serialize operations on a single workspace id. Without this, a destroy can
+ * fire against a create that is still mid-flight: it marks the DB row
+ * destroyed and runs `jj workspace forget` before `jj workspace add` has
+ * finished, so jj ends up owning an orphan workspace the DB no longer
+ * tracks. Subsequent creates then fail with `Workspace named ... already
+ * exists`.
+ * @template T
+ * @param {string} id
+ * @param {() => Promise<T>} fn
+ * @returns {Promise<T>}
+ */
+async function withWorkspaceLock(id, fn) {
+  const prev = workspaceLocks.get(id);
+  const current = (async () => {
+    if (prev) {
+      try {
+        await prev;
+      } catch {
+        /* prior holder's failure is its own to report */
+      }
+    }
+    return fn();
+  })();
+  workspaceLocks.set(id, current);
+  try {
+    return await current;
+  } finally {
+    if (workspaceLocks.get(id) === current) {
+      workspaceLocks.delete(id);
+    }
+  }
+}
+
 /**
  * Create a jj workspace for a PR.
  * Uses a transaction with unique constraint to prevent concurrent creation.
@@ -55,39 +92,42 @@ export async function createWorkspace(prId, config) {
   const mainRepoPath = resolve(expandPath(config.work_dir), pr.org, pr.repo);
   const now = new Date().toISOString();
 
-  // Insert first to claim the slot (unique constraint on pr_id+active prevents races)
-  try {
-    db.prepare(
-      'INSERT INTO workspaces (id, pr_id, name, path, bookmark, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-    ).run(id, prId, name, workspacePath, pr.branch, 'active', now);
-  } catch (err) {
-    if (err.message.includes('UNIQUE')) {
-      throw new Error(`Active workspace already exists for ${prId}`);
+  return withWorkspaceLock(id, async () => {
+    // Insert inside the lock so the row only becomes visible after we hold it.
+    // Unique index on (pr_id) WHERE status='active' still guards against
+    // concurrent creates for the same PR.
+    try {
+      db.prepare(
+        'INSERT INTO workspaces (id, pr_id, name, path, bookmark, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      ).run(id, prId, name, workspacePath, pr.branch, 'active', now);
+    } catch (err) {
+      if (err.message.includes('UNIQUE')) {
+        throw new Error(`Active workspace already exists for ${prId}`);
+      }
+      throw err;
     }
-    throw err;
-  }
 
-  // Everything after DB insert gets full rollback on failure
-  try {
-    await runTask(
-      {
-        kind: 'workspace.create',
-        label: `Create ${name}`,
-        context: { workspaceId: id, prId, repo: `${pr.org}/${pr.repo}` },
-      },
-      async () => {
-        await ensureJjInit(mainRepoPath);
-        mkdirSync(dirname(workspacePath), { recursive: true });
-        await execFile('jj', ['workspace', 'add', workspacePath, '--name', name, '-r', pr.branch, '-R', mainRepoPath]);
-        await runPostCreateSetup(workspacePath, mainRepoPath, name, config, `${pr.org}/${pr.repo}`);
-      },
-    );
-  } catch (err) {
-    await rollbackWorkspace({ id, name, workspacePath, mainRepoPath });
-    throw new Error(`Workspace creation failed: ${err.message}`);
-  }
+    try {
+      await runTask(
+        {
+          kind: 'workspace.create',
+          label: `Create ${name}`,
+          context: { workspaceId: id, prId, repo: `${pr.org}/${pr.repo}` },
+        },
+        async () => {
+          await ensureJjInit(mainRepoPath);
+          mkdirSync(dirname(workspacePath), { recursive: true });
+          await execFile('jj', ['workspace', 'add', workspacePath, '--name', name, '-r', pr.branch, '-R', mainRepoPath]);
+          await runPostCreateSetup(workspacePath, mainRepoPath, name, config, `${pr.org}/${pr.repo}`);
+        },
+      );
+    } catch (err) {
+      await rollbackWorkspace({ id, name, workspacePath, mainRepoPath });
+      throw new Error(`Workspace creation failed: ${err.message}`);
+    }
 
-  return { id, pr_id: prId, name, path: workspacePath, bookmark: pr.branch, status: 'active', created_at: now };
+    return { id, pr_id: prId, name, path: workspacePath, bookmark: pr.branch, status: 'active', created_at: now };
+  });
 }
 
 /**
@@ -116,57 +156,57 @@ export async function createScratchWorkspace(repo, branch, config, { startRevisi
     throw new Error(`Main repo does not exist: ${mainRepoPath}`);
   }
 
-  // Insert with pr_id = NULL, repo set
-  try {
-    db.prepare(
-      'INSERT INTO workspaces (id, pr_id, name, path, bookmark, repo, status, created_at) VALUES (?, NULL, ?, ?, ?, ?, ?, ?)',
-    ).run(id, name, workspacePath, branch, repo, 'active', now);
-  } catch (err) {
-    if (err.message.includes('UNIQUE')) {
-      throw new Error(`Active scratch workspace already exists for ${branch}`);
+  return withWorkspaceLock(id, async () => {
+    try {
+      db.prepare(
+        'INSERT INTO workspaces (id, pr_id, name, path, bookmark, repo, status, created_at) VALUES (?, NULL, ?, ?, ?, ?, ?, ?)',
+      ).run(id, name, workspacePath, branch, repo, 'active', now);
+    } catch (err) {
+      if (err.message.includes('UNIQUE')) {
+        throw new Error(`Active scratch workspace already exists for ${branch}`);
+      }
+      throw err;
     }
-    throw err;
-  }
 
-  // Everything after DB insert gets full rollback on failure
-  try {
-    await runTask(
-      {
-        kind: 'workspace.create',
-        label: `Create ${name}`,
-        context: { workspaceId: id, repo, branch },
-      },
-      async () => {
-        await ensureJjInit(mainRepoPath);
-        mkdirSync(dirname(workspacePath), { recursive: true });
-        await execFile('jj', [
-          'workspace',
-          'add',
-          workspacePath,
-          '--name',
-          name,
-          '-r',
-          startRevision,
-          '-R',
-          mainRepoPath,
-        ]);
+    try {
+      await runTask(
+        {
+          kind: 'workspace.create',
+          label: `Create ${name}`,
+          context: { workspaceId: id, repo, branch },
+        },
+        async () => {
+          await ensureJjInit(mainRepoPath);
+          mkdirSync(dirname(workspacePath), { recursive: true });
+          await execFile('jj', [
+            'workspace',
+            'add',
+            workspacePath,
+            '--name',
+            name,
+            '-r',
+            startRevision,
+            '-R',
+            mainRepoPath,
+          ]);
 
-        // Create bookmark for the branch (non-fatal - may already exist)
-        try {
-          await execFile('jj', ['bookmark', 'create', branch, '-R', workspacePath]);
-        } catch (err) {
-          console.warn(`[workspace] Bookmark create failed (may already exist): ${err.message}`);
-        }
+          // Create bookmark for the branch (non-fatal - may already exist)
+          try {
+            await execFile('jj', ['bookmark', 'create', branch, '-R', workspacePath]);
+          } catch (err) {
+            console.warn(`[workspace] Bookmark create failed (may already exist): ${err.message}`);
+          }
 
-        await runPostCreateSetup(workspacePath, mainRepoPath, name, config, repo);
-      },
-    );
-  } catch (err) {
-    await rollbackWorkspace({ id, name, workspacePath, mainRepoPath });
-    throw new Error(`Workspace creation failed: ${err.message}`);
-  }
+          await runPostCreateSetup(workspacePath, mainRepoPath, name, config, repo);
+        },
+      );
+    } catch (err) {
+      await rollbackWorkspace({ id, name, workspacePath, mainRepoPath });
+      throw new Error(`Workspace creation failed: ${err.message}`);
+    }
 
-  return { id, pr_id: null, repo, name, path: workspacePath, bookmark: branch, status: 'active', created_at: now };
+    return { id, pr_id: null, repo, name, path: workspacePath, bookmark: branch, status: 'active', created_at: now };
+  });
 }
 
 const COMPOSE_FILENAMES = new Set(['docker-compose.yml', 'docker-compose.yaml', 'compose.yml', 'compose.yaml']);
@@ -409,6 +449,10 @@ function symlinkMemory(workspacePath, mainRepoPath) {
  * @returns {Promise<{ok: boolean, warnings: string[]}>}
  */
 export async function destroyWorkspace(workspaceId, config) {
+  return withWorkspaceLock(workspaceId, () => destroyWorkspaceLocked(workspaceId, config));
+}
+
+async function destroyWorkspaceLocked(workspaceId, config) {
   const db = getDb();
   const workspace = db.prepare('SELECT * FROM workspaces WHERE id = ?').get(workspaceId);
   if (!workspace) {
