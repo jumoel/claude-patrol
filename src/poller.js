@@ -262,6 +262,26 @@ query($id: ID!, $cursor: String!) {
 }
 `;
 
+// Id-only enumeration of every open PR for a role. Deliberately pulls no
+// reviews/comments/checks - those heavy connections are what made a full
+// search expensive, and cleanup only needs to know which tracked PRs are
+// still open. Cheap enough to run every cycle so merged/closed PRs (and
+// their workspaces) get torn down promptly instead of waiting for the next
+// 30-minute full sweep.
+const OPEN_IDS_QUERY = `
+query($q: String!, $cursor: String) {
+  search(query: $q, type: ISSUE, first: 100, after: $cursor) {
+    pageInfo { hasNextPage endCursor }
+    nodes {
+      ... on PullRequest {
+        number
+        repository { name owner { login } }
+      }
+    }
+  }
+}
+`;
+
 const MAX_RETRIES = 3;
 const RETRY_BASE_MS = 1000;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -617,6 +637,37 @@ async function fetchPRs(qualifier, roleQualifier, sinceIso = null) {
 }
 
 /**
+ * Enumerate the ids of every open PR for a role, ids only. Used to drive
+ * stale-flag clearing and orphan cleanup on incremental cycles, where the
+ * heavy `updated:>=` search returns only recently-changed PRs and so can't
+ * tell "merged/closed" apart from "not updated lately".
+ * @param {string} qualifier
+ * @param {string} roleQualifier - "author:@me" or "review-requested:@me"
+ * @returns {Promise<Array<{id: string, org: string, repo: string}>>}
+ */
+async function fetchOpenPRIds(qualifier, roleQualifier) {
+  const out = [];
+  let cursor = null;
+  let hasNext = true;
+  while (hasNext) {
+    const vars = { q: `${qualifier} is:pr is:open ${roleQualifier}` };
+    if (cursor) vars.cursor = cursor;
+    const result = await ghGraphql(OPEN_IDS_QUERY, vars);
+    const search = result.data?.search;
+    if (!search) break;
+    for (const n of search.nodes) {
+      if (n?.number == null) continue;
+      const org = n.repository.owner.login;
+      const repo = n.repository.name;
+      out.push({ id: makePrId(org, repo, n.number), org, repo });
+    }
+    hasNext = search.pageInfo.hasNextPage;
+    cursor = search.pageInfo.endCursor;
+  }
+  return out;
+}
+
+/**
  * Extract check runs from a PR node.
  * @param {object} pr
  * @returns {Array<{name: string, status: string, conclusion: string | null, url: string | null}>}
@@ -948,13 +999,14 @@ async function cleanupOrphans(config) {
   }
 }
 
-// Each cycle does an incremental fetch (`updated:>=<since>`) and only
-// promotes to a full enumeration every FULL_SWEEP_INTERVAL_MS. Incremental
-// fetches are usually 0-1 search pages instead of many, which is the
-// single biggest knob we have on GraphQL point usage. Full sweeps still
-// happen periodically so PRs that fell out of `is:open` (merged, closed)
-// get the role-flag and orphan cleanup that only a complete enumeration
-// can do safely.
+// The heavy data fetch (`updated:>=<since>`, with reviews/comments/checks)
+// is incremental most cycles and only promotes to a full enumeration every
+// FULL_SWEEP_INTERVAL_MS. That incremental fetch is the single biggest knob
+// on GraphQL point usage. Cleanup of merged/closed PRs no longer waits for
+// that full sweep: every cycle also runs the cheap id-only OPEN_IDS_QUERY
+// enumeration, which gives a complete open-set to clear stale role flags
+// and orphan dead rows against. So a heavy full sweep is only about
+// refreshing data on PRs whose `updatedAt` didn't move (e.g. CI finishing).
 const FULL_SWEEP_INTERVAL_MS = 30 * 60 * 1000;
 // Overlap window so a PR updated right before/after the previous fetch
 // boundary doesn't get skipped because of clock skew or in-flight time.
@@ -989,12 +1041,16 @@ function buildSinceFilter(role, fullSweep) {
 
 /**
  * Run a single poll cycle across all configured targets.
- * Most cycles are incremental (only PRs updated since the last sweep). A
- * full sweep runs every FULL_SWEEP_INTERVAL_MS to enumerate everything so
- * merged/closed PRs get cleaned up.
+ * The heavy data fetch is incremental most cycles; a full sweep runs every
+ * FULL_SWEEP_INTERVAL_MS. Cleanup of merged/closed PRs runs every cycle off
+ * a cheap id-only enumeration regardless of full-sweep cadence.
  * @param {object} config
+ * @param {{force?: boolean}} [options] - `force` makes this a full sweep of
+ *   both roles (reviewer included regardless of who's viewing). Used by the
+ *   manual "Sync now" button so it always returns authoritative, fully
+ *   cleaned-up state.
  */
-async function pollOnce(config) {
+async function pollOnce(config, { force = false } = {}) {
   // Skip the cycle entirely if gh is rate-limited and we know when it resets.
   // Without a known reset time we still try, so we can detect recovery and
   // re-fetch the reset window. The first failed call will re-flag us as limited.
@@ -1023,19 +1079,30 @@ async function pollOnce(config) {
   // qualifiers, so we run them in parallel and merge results by PR id.
   // The reviewer search is skipped when no client is viewing the reviews tab
   // (it's the slow one in busy orgs); existing is_review_requested flags
-  // stay put so the data simply ages until someone opens the tab.
-  const includeReviewer = hasReviewsViewer();
-  const authorFull = shouldFullSweep('author');
-  const reviewerFull = includeReviewer && shouldFullSweep('reviewer');
+  // stay put so the data simply ages until someone opens the tab. A manual
+  // sync (`force`) always includes it and always sweeps fully.
+  const includeReviewer = force || hasReviewsViewer();
+  const authorFull = force || shouldFullSweep('author');
+  const reviewerFull = includeReviewer && (force || shouldFullSweep('reviewer'));
   const authorSince = buildSinceFilter('author', authorFull);
   const reviewerSince = includeReviewer ? buildSinceFilter('reviewer', reviewerFull) : null;
+  // On incremental cycles the heavy fetch only sees recently-updated PRs, so
+  // we need a separate complete open-set to clean up against. On full cycles
+  // the heavy fetch already enumerates everything, so we reuse it and skip
+  // the extra request.
+  const needAuthorLight = !authorFull;
+  const needReviewerLight = includeReviewer && !reviewerFull;
   const sweepStartedAt = Date.now();
   let authoredResult;
   let reviewerResult;
+  let authorLightIds;
+  let reviewerLightIds;
   try {
-    [authoredResult, reviewerResult] = await Promise.all([
+    [authoredResult, reviewerResult, authorLightIds, reviewerLightIds] = await Promise.all([
       fetchPRs(qualifier, 'author:@me', authorSince),
       includeReviewer ? fetchPRs(qualifier, 'review-requested:@me', reviewerSince) : Promise.resolve({ prs: [] }),
+      needAuthorLight ? fetchOpenPRIds(qualifier, 'author:@me') : Promise.resolve(null),
+      needReviewerLight ? fetchOpenPRIds(qualifier, 'review-requested:@me') : Promise.resolve(null),
     ]);
   } catch (err) {
     console.error(`[poller] Poll failed: ${err.message}`);
@@ -1069,71 +1136,72 @@ async function pollOnce(config) {
   const entries = [...byId.values()];
   upsertPRs(entries);
 
-  // Group seen ids per role so each role's stale-cleanup ignores PRs that
-  // happen to be in the other role's list. A PR in the authored list that's
-  // missing from the reviewer list shouldn't have its is_review_requested
-  // flag cleared - it was never flagged in the first place. This loop builds
-  // four buckets: (role, scope) -> [ids].
-  const seenAuthorByOrg = new Map();
-  const seenAuthorByRepo = new Map();
-  const seenReviewerByOrg = new Map();
-  const seenReviewerByRepo = new Map();
-  for (const { pr, roles } of entries) {
-    const o = pr.repository.owner.login;
-    const r = pr.repository.name;
-    const id = makePrId(o, r, pr.number);
-    const inOrg = orgSet.has(o);
-    const key = `${o}/${r}`;
-    if (roles.has('author')) {
-      if (inOrg) {
-        if (!seenAuthorByOrg.has(o)) seenAuthorByOrg.set(o, []);
-        seenAuthorByOrg.get(o).push(id);
+  // Build the complete open-set per role for stale-flag clearing. On full
+  // cycles the heavy result already lists every open PR; on incremental
+  // cycles we use the cheap id-only enumeration fetched above. Either way
+  // these sets are authoritative, so cleanup can run every cycle.
+  const authorOpen = authorFull
+    ? authoredResult.prs.map((pr) => ({
+        id: makePrId(pr.repository.owner.login, pr.repository.name, pr.number),
+        org: pr.repository.owner.login,
+        repo: pr.repository.name,
+      }))
+    : authorLightIds || [];
+  const reviewerOpen = !includeReviewer
+    ? null
+    : reviewerFull
+      ? reviewerResult.prs.map((pr) => ({
+          id: makePrId(pr.repository.owner.login, pr.repository.name, pr.number),
+          org: pr.repository.owner.login,
+          repo: pr.repository.name,
+        }))
+      : reviewerLightIds || [];
+
+  // Group seen ids per (role, scope) so each role's stale-cleanup ignores
+  // PRs in the other role's list. A PR in the authored set that's missing
+  // from the reviewer set shouldn't have its is_review_requested flag
+  // cleared - it was never flagged in the first place.
+  const bucketize = (openList) => {
+    const byOrg = new Map();
+    const byRepo = new Map();
+    for (const { id, org, repo } of openList) {
+      if (orgSet.has(org)) {
+        if (!byOrg.has(org)) byOrg.set(org, []);
+        byOrg.get(org).push(id);
       } else {
-        if (!seenAuthorByRepo.has(key)) seenAuthorByRepo.set(key, []);
-        seenAuthorByRepo.get(key).push(id);
+        const key = `${org}/${repo}`;
+        if (!byRepo.has(key)) byRepo.set(key, []);
+        byRepo.get(key).push(id);
       }
     }
-    if (roles.has('reviewer')) {
-      if (inOrg) {
-        if (!seenReviewerByOrg.has(o)) seenReviewerByOrg.set(o, []);
-        seenReviewerByOrg.get(o).push(id);
-      } else {
-        if (!seenReviewerByRepo.has(key)) seenReviewerByRepo.set(key, []);
-        seenReviewerByRepo.get(key).push(id);
-      }
-    }
-  }
-  // Stale-flag cleanup is only safe after a full sweep - on incremental
-  // cycles `seenAuthorByOrg` etc. only list recently-updated PRs, so we'd
-  // wrongly clear flags on every other PR in the org.
+    return { byOrg, byRepo };
+  };
+  const authorSeen = bucketize(authorOpen);
+  const reviewerSeen = reviewerOpen ? bucketize(reviewerOpen) : null;
+
   for (const org of orgs) {
-    if (authorFull) {
-      clearStaleRoleFlag('author', 'org', org, null, seenAuthorByOrg.get(org) || []);
-    }
-    if (reviewerFull) {
-      clearStaleRoleFlag('reviewer', 'org', org, null, seenReviewerByOrg.get(org) || []);
+    clearStaleRoleFlag('author', 'org', org, null, authorSeen.byOrg.get(org) || []);
+    if (reviewerSeen) {
+      clearStaleRoleFlag('reviewer', 'org', org, null, reviewerSeen.byOrg.get(org) || []);
     }
   }
   for (const ownerRepo of repos) {
     const [owner, repo] = ownerRepo.split('/');
-    if (authorFull) {
-      clearStaleRoleFlag('author', 'repo', owner, repo, seenAuthorByRepo.get(ownerRepo) || []);
-    }
-    if (reviewerFull) {
-      clearStaleRoleFlag('reviewer', 'repo', owner, repo, seenReviewerByRepo.get(ownerRepo) || []);
+    clearStaleRoleFlag('author', 'repo', owner, repo, authorSeen.byRepo.get(ownerRepo) || []);
+    if (reviewerSeen) {
+      clearStaleRoleFlag('reviewer', 'repo', owner, repo, reviewerSeen.byRepo.get(ownerRepo) || []);
     }
   }
 
-  // Orphan cleanup deletes rows where both flags are 0. That's idempotent
-  // and harmless to call on incremental cycles (no flags get cleared then),
-  // but we still skip it when reviewer wasn't included this cycle to avoid
-  // tearing down a workspace whose review-requested flag we haven't verified.
-  if (authorFull && (includeReviewer ? reviewerFull : true)) {
-    try {
-      await cleanupOrphans(config);
-    } catch (err) {
-      console.error(`[poller] Orphan cleanup failed: ${err.message}`);
-    }
+  // Orphan cleanup deletes rows where both flags are 0, and tears down their
+  // workspaces. The authored open-set is always complete now, so this runs
+  // every cycle. When the reviewer search was skipped we don't clear reviewer
+  // flags, so a still-review-requested PR keeps its flag and survives - only
+  // genuinely dead rows (both flags already 0) get removed.
+  try {
+    await cleanupOrphans(config);
+  } catch (err) {
+    console.error(`[poller] Orphan cleanup failed: ${err.message}`);
   }
 
   const authorMode = authorFull ? 'full' : 'incremental';
@@ -1267,12 +1335,15 @@ export function stopPoller() {
 }
 
 /**
- * Trigger an immediate poll with the given config.
+ * Trigger an immediate poll with the given config. This is the manual
+ * "Sync now" path, so it forces a full sweep of both roles (reviewer
+ * included regardless of the active tab) and runs cleanup - the user
+ * expects authoritative state, with merged/closed PRs gone.
  * @param {object} config
  * @returns {Promise<void>}
  */
 export function triggerPoll(config) {
-  return pollOnce(config);
+  return pollOnce(config, { force: true });
 }
 
 /**

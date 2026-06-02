@@ -1,5 +1,13 @@
 # Build Log
 
+## 2026-06-02 - Cleanup of merged/closed PRs runs every cycle again
+
+The 2026-05-27 incremental-polling rewrite reintroduced the exact bug the 2026-05-13 changes had fixed: merged/closed PRs and their workspaces only got torn down on the 30-minute full sweep, and the manual "Sync now" button had quietly lost its forced full sweep, so it ran an ordinary incremental cycle that couldn't clean up at all. An `updated:>=` search can't distinguish "merged" from "not updated lately", which is why orphan cleanup was gated behind the full sweep.
+
+Two fixes. `triggerPoll` (the Sync now path) now passes `{ force: true }`, which forces a full sweep of both roles with the reviewer search included regardless of the active tab, so the button always returns authoritative, cleaned-up state. And every cycle now runs a cheap id-only enumeration (`OPEN_IDS_QUERY`, no reviews/comments/checks) to get a complete open-set per role. Stale role-flag clearing and orphan cleanup run off that set every cycle, so merged/closed PRs disappear within one poll interval instead of waiting up to half an hour.
+
+The heavy incremental fetch, which is where the GraphQL point savings actually live, is untouched: it still only pulls full data for recently-updated PRs. The light enumeration only fires on incremental cycles (full sweeps reuse their own complete result) and costs one to a few scalar-only requests, so the cleanup fix doesn't claw back the load reduction. The 30-minute full sweep now only exists to refresh data on PRs whose `updatedAt` didn't move, e.g. CI finishing.
+
 ## 2026-05-28 - Serialize workspace create/destroy on the same id
 
 A destroy fired while a create was still mid-flight could mark the DB row destroyed and run `jj workspace forget` before `jj workspace add` had finished. jj then ended up owning an orphan workspace the DB no longer tracked, and the next create attempt for the same PR failed with `Workspace named ... already exists`. We hit this on `chainguard-dev/ecosystems-rebuilder.js#1267`: a destroy landed 15 ms after the create's row insert (likely a double-click while the row was visible in the listing) and the retry 34 s later collided on the jj name.
