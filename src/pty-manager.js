@@ -1,8 +1,9 @@
 import { execFile, execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { chmodSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import { accessSync, chmodSync, constants, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import pty from 'node-pty';
 import { appEvents, emitSessionState } from './app-events.js';
 import { getDb } from './db.js';
@@ -15,6 +16,32 @@ const BUFFER_MAX = 50_000;
 // false-positive idle while a turn is still in flight (lt#17).
 const IDLE_THRESHOLD_MS = 10_000;
 export const BOOT_TIMEOUT_MS_DEFAULT = 30_000;
+// The nested Codex tool may use its full 30 minute budget. Claude's outer
+// Patrol MCP call also includes range setup and process startup.
+export const PATROL_MCP_TIMEOUT_MS = 35 * 60 * 1000;
+
+const DEFAULT_SESSION_RUNTIME = {
+  randomUUID,
+  execFileSync,
+  spawnPty(file, args, options) {
+    if (process.platform === 'darwin') {
+      const nodePtyEntry = fileURLToPath(import.meta.resolve('node-pty'));
+      const helperPath = resolve(dirname(nodePtyEntry), '..', 'prebuilds', `darwin-${process.arch}`, 'spawn-helper');
+      try {
+        accessSync(helperPath, constants.X_OK);
+      } catch {
+        try {
+          chmodSync(helperPath, 0o755);
+        } catch (error) {
+          throw new Error(`node-pty spawn helper is not executable at ${helperPath}: ${error.message}`, {
+            cause: error,
+          });
+        }
+      }
+    }
+    return pty.spawn(file, args, options);
+  },
+};
 
 /**
  * Strip ANSI escape sequences and return the count of printable characters.
@@ -66,21 +93,48 @@ export const updateMcpConfig = initMcpConfig;
  * @param {string} sessionId
  * @returns {string} path to the written config file
  */
+function mcpConfigPathForSession(sessionId) {
+  return resolve(tmpdir(), `patrol-mcp-${sessionId}.json`);
+}
+
 function writeMcpConfigForSession(sessionId) {
   if (currentPort === null) {
     throw new Error('writeMcpConfigForSession called before initMcpConfig');
   }
-  const path = resolve(tmpdir(), `patrol-mcp-${sessionId}.json`);
+  const path = mcpConfigPathForSession(sessionId);
   const configJson = {
     mcpServers: {
       patrol: {
         type: 'http',
         url: `http://127.0.0.1:${currentPort}/mcp/${sessionId}`,
+        timeout: PATROL_MCP_TIMEOUT_MS,
       },
     },
   };
   writeFileSync(path, JSON.stringify(configJson, null, 2));
   return path;
+}
+
+/**
+ * Preserved Claude sessions keep the MCP config written when they started.
+ * An omitted timeout inherits Claude Code's longer default and is safe. Only
+ * an explicit timeout below the review budget requires a restart.
+ */
+export function getSessionCodexReviewReadiness(sessionId) {
+  try {
+    const config = JSON.parse(readFileSync(mcpConfigPathForSession(sessionId), 'utf8'));
+    const patrol = config?.mcpServers?.patrol;
+    if (patrol && (patrol.timeout === undefined || patrol.timeout >= PATROL_MCP_TIMEOUT_MS)) {
+      return { ready: true, reason: null };
+    }
+  } catch {
+    // Missing or malformed config means the running Claude session cannot be
+    // trusted to keep this MCP call open for the review duration.
+  }
+  return {
+    ready: false,
+    reason: 'session_restart_required',
+  };
 }
 
 /**
@@ -131,12 +185,13 @@ const sessions = new Map();
  * output buffering, WebSocket broadcast, and exit handling.
  * @param {string} sessionId
  * @param {{ claudeProjectDir?: string, startedAt?: string }} meta
+ * @param {typeof DEFAULT_SESSION_RUNTIME} runtime
  * @returns {SessionEntry}
  */
-function attachPtyToTmux(sessionId, meta = {}) {
+function attachPtyToTmux(sessionId, meta = {}, runtime = DEFAULT_SESSION_RUNTIME) {
   const db = getDb();
   const tmuxName = `patrol-${sessionId}`;
-  const proc = pty.spawn('tmux', ['attach-session', '-t', tmuxName], {
+  const proc = runtime.spawnPty('tmux', ['attach-session', '-t', tmuxName], {
     name: 'xterm-256color',
     cols: 120,
     rows: 30,
@@ -349,83 +404,156 @@ export function reattachOrphanedSessions() {
 }
 
 /**
- * Spawn a new PTY session. Spawns the process first, then inserts into DB.
+ * Remove a failed session start from tmux, memory, the database, and temp files.
+ * The tmux name is a fresh UUID, so killing it is safe even when new-session
+ * returned an error after creating the process.
+ * @param {string} sessionId
+ * @param {typeof DEFAULT_SESSION_RUNTIME} runtime
+ * @param {string[]} tempPaths
+ */
+function rollbackFailedSessionStart(sessionId, runtime, tempPaths) {
+  const tmuxName = `patrol-${sessionId}`;
+  try {
+    runtime.execFileSync('tmux', ['kill-session', '-t', tmuxName], { timeout: 5000 });
+  } catch {
+    // The tmux process may not have been created yet.
+  }
+
+  const entry = sessions.get(sessionId);
+  sessions.delete(sessionId);
+  if (entry) {
+    try {
+      entry.proc.kill();
+    } catch {
+      // The PTY may already have exited with tmux.
+    }
+  }
+
+  getDb().prepare('DELETE FROM sessions WHERE id = ?').run(sessionId);
+  for (const path of tempPaths) {
+    try {
+      unlinkSync(path);
+    } catch {
+      // The file may not have been written yet.
+    }
+  }
+}
+
+/**
+ * Mark active database rows without a live in-memory PTY as killed before a
+ * replacement is created. This prevents a partial start from being returned
+ * to the terminal UI on the next sync.
+ * @param {string | null} workspaceId
+ * @param {typeof DEFAULT_SESSION_RUNTIME} runtime
+ * @returns {object | null}
+ */
+function findReusableSession(workspaceId, runtime) {
+  const db = getDb();
+  const existingRows = workspaceId
+    ? db.prepare("SELECT * FROM sessions WHERE workspace_id = ? AND status = 'active'").all(workspaceId)
+    : db.prepare("SELECT * FROM sessions WHERE workspace_id IS NULL AND status = 'active'").all();
+
+  for (const existing of existingRows) {
+    if (sessions.has(existing.id) && isTmuxSessionAlive(existing.id)) {
+      return existing;
+    }
+
+    const entry = sessions.get(existing.id);
+    sessions.delete(existing.id);
+    try {
+      runtime.execFileSync('tmux', ['kill-session', '-t', `patrol-${existing.id}`], { timeout: 5000 });
+    } catch {
+      try {
+        entry?.proc.kill();
+      } catch {
+        // The stale PTY and tmux process are already gone.
+      }
+    }
+    db.prepare("UPDATE sessions SET status = 'killed', ended_at = ? WHERE id = ?").run(
+      new Date().toISOString(),
+      existing.id,
+    );
+  }
+
+  return null;
+}
+
+/**
+ * Start a tmux-backed Claude session as one transaction. Runtime injection is
+ * used by the regression test to force PTY failure without starting processes.
+ * @param {string | null} workspaceId
+ * @param {string} cwd
+ * @param {{claudeSessionId?: string | null, runtime?: typeof DEFAULT_SESSION_RUNTIME}} options
+ * @returns {object} session record
+ */
+export function createSessionWithRuntime(workspaceId, cwd, options = {}) {
+  const { claudeSessionId = null, runtime = DEFAULT_SESSION_RUNTIME } = options;
+  const db = getDb();
+
+  if (!claudeSessionId) {
+    const existing = findReusableSession(workspaceId, runtime);
+    if (existing) return existing;
+  }
+
+  const id = runtime.randomUUID();
+  const tmuxName = `patrol-${id}`;
+  const tempPaths = [];
+
+  // Build the claude command with args
+  const claudeArgs = claudeSessionId ? ['claude', '--resume', claudeSessionId] : ['claude'];
+  try {
+    if (currentPort !== null) {
+      const mcpConfigPath = writeMcpConfigForSession(id);
+      tempPaths.push(mcpConfigPath);
+      claudeArgs.push('--mcp-config', mcpConfigPath);
+
+      // Write system prompt to a temp file to avoid shell escaping issues
+      const promptFile = resolve(tmpdir(), `patrol-prompt-${id}.txt`);
+      tempPaths.push(promptFile);
+      writeFileSync(promptFile, PATROL_SYSTEM_PROMPT);
+      claudeArgs.push('--append-system-prompt-file', promptFile);
+
+      claudeArgs.push('--allowedTools', 'mcp__patrol__*', 'Bash', 'Read', 'Edit', 'Write', 'Glob', 'Grep', 'Agent');
+    }
+
+    // Patrol owns a color terminal, so a NO_COLOR value inherited by the
+    // server must not silently disable Claude's ANSI palette. tmux new-session
+    // takes one shell-command string, so shell-escape the complete env command.
+    const launchArgs = ['env', '-u', 'NO_COLOR', ...claudeArgs];
+    const shellCmd = launchArgs.map((a) => `'${a.replace(/'/g, "'\\''")}'`).join(' ');
+    runtime.execFileSync('tmux', ['new-session', '-d', '-s', tmuxName, '-x', '120', '-y', '30', '-c', cwd, shellCmd], {
+      timeout: 10_000,
+    });
+    runtime.execFileSync('tmux', ['set-option', '-t', tmuxName, 'status', 'off'], { timeout: 5_000 });
+
+    const now = new Date().toISOString();
+    const claudeProjectDir = resolve(expandPath('~/.claude/projects'), toClaudeProjectKey(cwd));
+    db.prepare(
+      'INSERT INTO sessions (id, workspace_id, pid, status, started_at, claude_project_dir) VALUES (?, ?, ?, ?, ?, ?)',
+    ).run(id, workspaceId, 0, 'active', now, claudeProjectDir);
+
+    attachPtyToTmux(id, { claudeProjectDir, startedAt: now }, runtime);
+    return {
+      id,
+      workspace_id: workspaceId,
+      status: 'active',
+      started_at: now,
+      claude_project_dir: claudeProjectDir,
+    };
+  } catch (error) {
+    rollbackFailedSessionStart(id, runtime, tempPaths);
+    throw error;
+  }
+}
+
+/**
+ * Spawn a new PTY session.
  * @param {string | null} workspaceId - null for global session
  * @param {string} cwd - working directory
  * @returns {object} session record
  */
 export function createSession(workspaceId, cwd) {
-  const db = getDb();
-
-  // For global sessions, return existing if alive
-  if (!workspaceId) {
-    const existing = db.prepare("SELECT * FROM sessions WHERE workspace_id IS NULL AND status = 'active'").get();
-    if (existing && sessions.has(existing.id)) {
-      if (isTmuxSessionAlive(existing.id)) {
-        return existing;
-      }
-      // tmux session is dead but map entry is stale - clean up
-      sessions.delete(existing.id);
-      db.prepare("UPDATE sessions SET status = 'killed', ended_at = ? WHERE id = ?").run(
-        new Date().toISOString(),
-        existing.id,
-      );
-    }
-  }
-
-  // For workspace sessions, return existing if alive (prevent concurrent edits)
-  if (workspaceId) {
-    const existing = db.prepare("SELECT * FROM sessions WHERE workspace_id = ? AND status = 'active'").get(workspaceId);
-    if (existing && sessions.has(existing.id)) {
-      if (isTmuxSessionAlive(existing.id)) {
-        return existing;
-      }
-      sessions.delete(existing.id);
-      db.prepare("UPDATE sessions SET status = 'killed', ended_at = ? WHERE id = ?").run(
-        new Date().toISOString(),
-        existing.id,
-      );
-    }
-  }
-
-  const id = randomUUID();
-  const tmuxName = `patrol-${id}`;
-
-  // Build the claude command with args
-  const claudeArgs = ['claude'];
-  if (currentPort !== null) {
-    const mcpConfigPath = writeMcpConfigForSession(id);
-    claudeArgs.push('--mcp-config', mcpConfigPath);
-
-    // Write system prompt to a temp file to avoid shell escaping issues
-    const promptFile = resolve(tmpdir(), `patrol-prompt-${id}.txt`);
-    writeFileSync(promptFile, PATROL_SYSTEM_PROMPT);
-    claudeArgs.push('--append-system-prompt-file', promptFile);
-
-    claudeArgs.push('--allowedTools', 'mcp__patrol__*', 'Bash', 'Read', 'Edit', 'Write', 'Glob', 'Grep', 'Agent');
-  }
-  // 1. Create detached tmux session running claude.
-  // tmux new-session takes a single shell-command string, so we must
-  // shell-escape each arg and join them into one string.
-  const shellCmd = claudeArgs.map((a) => `'${a.replace(/'/g, "'\\''")}'`).join(' ');
-  execFileSync('tmux', ['new-session', '-d', '-s', tmuxName, '-x', '120', '-y', '30', '-c', cwd, shellCmd], {
-    timeout: 10_000,
-  });
-  // Disable tmux chrome (status bar) so its periodic redraws don't
-  // produce terminal output that triggers false activity detection.
-  execFileSync('tmux', ['set-option', '-t', tmuxName, 'status', 'off'], { timeout: 5_000 });
-
-  // 2. Attach node-pty to the tmux session (for WebSocket I/O)
-  const now = new Date().toISOString();
-  const claudeProjectDir = resolve(expandPath('~/.claude/projects'), toClaudeProjectKey(cwd));
-
-  db.prepare(
-    'INSERT INTO sessions (id, workspace_id, pid, status, started_at, claude_project_dir) VALUES (?, ?, ?, ?, ?, ?)',
-  ).run(id, workspaceId, 0, 'active', now, claudeProjectDir);
-
-  attachPtyToTmux(id, { claudeProjectDir, startedAt: now });
-
-  return { id, workspace_id: workspaceId, status: 'active', started_at: now, claude_project_dir: claudeProjectDir };
+  return createSessionWithRuntime(workspaceId, cwd);
 }
 
 /**
@@ -437,38 +565,7 @@ export function createSession(workspaceId, cwd) {
  * @returns {object} session record
  */
 export function createResumedSession(workspaceId, cwd, claudeSessionId) {
-  const db = getDb();
-  const id = randomUUID();
-  const tmuxName = `patrol-${id}`;
-
-  const claudeArgs = ['claude', '--resume', claudeSessionId];
-  if (currentPort !== null) {
-    const mcpConfigPath = writeMcpConfigForSession(id);
-    claudeArgs.push('--mcp-config', mcpConfigPath);
-
-    const promptFile = resolve(tmpdir(), `patrol-prompt-${id}.txt`);
-    writeFileSync(promptFile, PATROL_SYSTEM_PROMPT);
-    claudeArgs.push('--append-system-prompt-file', promptFile);
-
-    claudeArgs.push('--allowedTools', 'mcp__patrol__*', 'Bash', 'Read', 'Edit', 'Write', 'Glob', 'Grep', 'Agent');
-  }
-
-  const shellCmd = claudeArgs.map((a) => `'${a.replace(/'/g, "'\\''")}'`).join(' ');
-  execFileSync('tmux', ['new-session', '-d', '-s', tmuxName, '-x', '120', '-y', '30', '-c', cwd, shellCmd], {
-    timeout: 10_000,
-  });
-  execFileSync('tmux', ['set-option', '-t', tmuxName, 'status', 'off'], { timeout: 5_000 });
-
-  const now = new Date().toISOString();
-  const claudeProjectDir = resolve(expandPath('~/.claude/projects'), toClaudeProjectKey(cwd));
-
-  db.prepare(
-    'INSERT INTO sessions (id, workspace_id, pid, status, started_at, claude_project_dir) VALUES (?, ?, ?, ?, ?, ?)',
-  ).run(id, workspaceId, 0, 'active', now, claudeProjectDir);
-
-  attachPtyToTmux(id, { claudeProjectDir, startedAt: now });
-
-  return { id, workspace_id: workspaceId, status: 'active', started_at: now, claude_project_dir: claudeProjectDir };
+  return createSessionWithRuntime(workspaceId, cwd, { claudeSessionId });
 }
 
 /**

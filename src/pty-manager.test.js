@@ -1,6 +1,80 @@
 import assert from 'node:assert/strict';
-import { describe, it } from 'node:test';
-import { dispatchWsMessage } from './pty-manager.js';
+import { randomUUID } from 'node:crypto';
+import { unlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { resolve } from 'node:path';
+import { afterEach, describe, it } from 'node:test';
+import { CODEX_REVIEW_TIMEOUT_MS } from './codex-review.js';
+import { closeDb, getDb, initDb } from './db.js';
+import {
+  createSessionWithRuntime,
+  dispatchWsMessage,
+  getSessionCodexReviewReadiness,
+  PATROL_MCP_TIMEOUT_MS,
+} from './pty-manager.js';
+
+afterEach(() => closeDb());
+
+it('keeps the outer Claude MCP timeout above the nested Codex review timeout', () => {
+  assert.ok(PATROL_MCP_TIMEOUT_MS > CODEX_REVIEW_TIMEOUT_MS);
+});
+
+it('accepts legacy MCP configs unless they explicitly set a short tool timeout', () => {
+  const sessionId = randomUUID();
+  const path = resolve(tmpdir(), `patrol-mcp-${sessionId}.json`);
+  try {
+    writeFileSync(path, JSON.stringify({ mcpServers: { patrol: { type: 'http', url: 'http://localhost/mcp' } } }));
+    assert.deepEqual(getSessionCodexReviewReadiness(sessionId), { ready: true, reason: null });
+
+    writeFileSync(
+      path,
+      JSON.stringify({ mcpServers: { patrol: { type: 'http', url: 'http://localhost/mcp', timeout: 1000 } } }),
+    );
+    assert.deepEqual(getSessionCodexReviewReadiness(sessionId), {
+      ready: false,
+      reason: 'session_restart_required',
+    });
+  } finally {
+    unlinkSync(path);
+  }
+});
+
+it('rolls back tmux and database state when PTY attachment fails', () => {
+  initDb(':memory:');
+  const sessionId = 'failed-session';
+  const commands = [];
+  const runtime = {
+    randomUUID: () => sessionId,
+    execFileSync(command, args) {
+      commands.push([command, ...args]);
+    },
+    spawnPty() {
+      throw new Error('simulated PTY attach failure');
+    },
+  };
+
+  assert.throws(() => createSessionWithRuntime(null, process.cwd(), { runtime }), /simulated PTY attach failure/);
+  assert.deepEqual(commands.at(-1), ['tmux', 'kill-session', '-t', `patrol-${sessionId}`]);
+  assert.equal(getDb().prepare('SELECT COUNT(*) AS count FROM sessions WHERE id = ?').get(sessionId).count, 0);
+});
+
+it('removes an inherited NO_COLOR setting from the Claude process', () => {
+  initDb(':memory:');
+  const commands = [];
+  const runtime = {
+    randomUUID: () => 'color-session',
+    execFileSync(command, args) {
+      commands.push([command, ...args]);
+    },
+    spawnPty() {
+      throw new Error('stop after command capture');
+    },
+  };
+
+  assert.throws(() => createSessionWithRuntime(null, process.cwd(), { runtime }), /stop after command capture/);
+  const newSession = commands.find(([command, subcommand]) => command === 'tmux' && subcommand === 'new-session');
+  assert.match(newSession.at(-1), /^'env' '-u' 'NO_COLOR' 'claude'/);
+});
 
 /**
  * Defense against the regression class that produced `claude-patrol#2`: the

@@ -23,6 +23,10 @@ import { Stack } from '../ui/Stack/Stack.jsx';
  *   onReattach?: () => Promise<void>,
  *   wsRef?: { current: WebSocket | null },
  *   baseBranch?: string,
+ *   workspaceId?: string,
+ *   prId?: string,
+ *   sessionState?: 'working' | 'idle',
+ *   codexReviewCapability?: import('../../types').CodexReviewCapability,
  * }} props
  */
 export function TerminalCard({
@@ -34,6 +38,10 @@ export function TerminalCard({
   onReattach,
   wsRef: externalWsRef,
   baseBranch,
+  workspaceId,
+  prId,
+  sessionState,
+  codexReviewCapability,
 }) {
   const [maximized, setMaximized] = useState(false);
   const [terminalOpen, setTerminalOpen] = useState(true);
@@ -158,7 +166,14 @@ export function TerminalCard({
             borderless
           />
         </div>
-        <QuickActions onSend={handleSendCommand} baseBranch={baseBranch} />
+        <QuickActions
+          onSend={handleSendCommand}
+          baseBranch={baseBranch}
+          workspaceId={workspaceId}
+          prId={prId}
+          sessionState={sessionState}
+          codexReviewCapability={codexReviewCapability}
+        />
       </div>,
       document.body,
     );
@@ -215,7 +230,14 @@ export function TerminalCard({
           </Button>
         </Stack>
       </Stack>
-      <QuickActions onSend={handleSendCommand} baseBranch={baseBranch} />
+      <QuickActions
+        onSend={handleSendCommand}
+        baseBranch={baseBranch}
+        workspaceId={workspaceId}
+        prId={prId}
+        sessionState={sessionState}
+        codexReviewCapability={codexReviewCapability}
+      />
       <div style={{ height: termHeight }}>
         <Terminal
           wsUrl={`/ws/sessions/${session.id}`}

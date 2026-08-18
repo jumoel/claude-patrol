@@ -79,7 +79,7 @@ function buildQuery(args) {
  * @property {boolean} ruleFireable
  * @property {(args: object) => { method: string, path: string, body?: object }} [dispatch]
  * @property {(result: any) => any} [transform]
- * @property {(app: import('fastify').FastifyInstance, args: object) => Promise<any>} [mcpHandler]
+ * @property {(app: import('fastify').FastifyInstance, args: object, ctx?: {callerSessionId?: string | null, signal?: AbortSignal}) => Promise<any>} [mcpHandler]
  */
 
 /** @type {Record<string, ActionEntry>} */
@@ -531,6 +531,78 @@ export const actionRegistry = {
       } catch (e) {
         if (e.code) return { ok: false, error: e.code, message: e.message };
         throw e;
+      }
+    },
+  },
+
+  review_with_codex: {
+    description:
+      "Run the user-requested Codex review for this Claude session's full effective PR diff. This tool is reservation-gated and works only after the user clicks Review with Codex in Patrol. It waits for Codex and returns the complete review. Do not edit files while handling this request.",
+    schema: z.object({}),
+    ruleFireable: false,
+    mcpHandler: async (app, _args, ctx) => {
+      const callerSessionId = ctx?.callerSessionId;
+      if (!callerSessionId) {
+        return { ok: false, error: 'unknown_session', message: 'The calling Claude session is unknown' };
+      }
+
+      const { getDb, codexReviewCoordinator, codexReviewService } = app.appContext;
+      const row = getDb()
+        .prepare(
+          `SELECT s.id AS session_id,
+                  w.id AS workspace_id,
+                  w.path AS workspace_path,
+                  w.pr_id AS pr_id,
+                  p.number,
+                  p.org,
+                  p.repo,
+                  p.base_branch
+             FROM sessions s
+             JOIN workspaces w ON w.id = s.workspace_id
+             JOIN prs p ON p.id = w.pr_id
+            WHERE s.id = ?
+              AND s.status = 'active'
+              AND w.status = 'active'
+              AND w.operation_state = 'ready'`,
+        )
+        .get(callerSessionId);
+      if (!row) {
+        return {
+          ok: false,
+          error: 'review_not_ready',
+          message: 'A ready PR workspace with an attached Claude session is required',
+        };
+      }
+
+      let review;
+      try {
+        review = codexReviewCoordinator.claim({ workspaceId: row.workspace_id, sessionId: row.session_id });
+        const response = await codexReviewService.run({
+          reviewId: review.id,
+          workspace: { id: row.workspace_id, path: row.workspace_path },
+          pr: {
+            id: row.pr_id,
+            number: row.number,
+            org: row.org,
+            repo: row.repo,
+            base_branch: row.base_branch,
+          },
+          signal: ctx?.signal,
+        });
+        codexReviewCoordinator.markDelivering(review.id);
+        return {
+          ok: true,
+          review: response.result,
+          no_changes: response.noChanges,
+          range: { fork: response.range.fork, head: response.range.head },
+        };
+      } catch (error) {
+        if (review) codexReviewCoordinator.fail(review.id, error);
+        return {
+          ok: false,
+          error: error.code || 'codex_review_failed',
+          message: error.message,
+        };
       }
     },
   },

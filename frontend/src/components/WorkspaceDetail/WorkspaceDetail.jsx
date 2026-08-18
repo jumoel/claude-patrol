@@ -10,6 +10,7 @@ import {
   fetchSessionTranscript,
   fetchWorkspace,
 } from '../../lib/api.js';
+import { getErrorMessage } from '../../lib/errors.js';
 import { getRelativeTime } from '../../lib/time.js';
 import shared from '../../styles/shared.module.css';
 import { TerminalCard } from '../TerminalCard/TerminalCard.jsx';
@@ -22,13 +23,19 @@ import styles from './WorkspaceDetail.module.css';
 
 /**
  * Scratch workspace detail view.
- * @param {{ workspaceId: string, onBack: () => void }} props
+ * @param {{
+ *   workspaceId: string,
+ *   onBack: () => void,
+ *   workspaceStates: Map<string, 'working' | 'idle'>,
+ *   codexReviewCapability: import('../../types').CodexReviewCapability,
+ * }} props
  */
-export function WorkspaceDetail({ workspaceId, onBack }) {
+export function WorkspaceDetail({ workspaceId, onBack, workspaceStates, codexReviewCapability }) {
   const [workspace, setWorkspace] = useState(/** @type {import('../../types').Workspace | null} */ (null));
   const [session, setSession] = useState(/** @type {import('../../types').Session | null} */ (null));
   const [loading, setLoading] = useState(true);
   const [openingSession, setOpeningSession] = useState(false);
+  const [openingError, setOpeningError] = useState('');
 
   const loadData = useCallback(async () => {
     try {
@@ -55,11 +62,13 @@ export function WorkspaceDetail({ workspaceId, onBack }) {
   const handleStartSession = useCallback(async () => {
     if (!workspace) return;
     setOpeningSession(true);
+    setOpeningError('');
     try {
       const sess = await apiCreateSession(workspace.id);
       setSession(sess);
     } catch (err) {
       console.error('Failed to create session:', err);
+      setOpeningError(getErrorMessage(err, 'Failed to start Claude'));
     } finally {
       setOpeningSession(false);
     }
@@ -156,6 +165,10 @@ export function WorkspaceDetail({ workspaceId, onBack }) {
               onKill={handleKillSession}
               onExit={handleSessionExit}
               onReattach={handleReattach}
+              workspaceId={workspace.id}
+              prId={workspace.pr_id || undefined}
+              sessionState={workspaceStates.get(workspace.id)}
+              codexReviewCapability={codexReviewCapability}
             />
           ) : (
             <Box p={5} border rounded="lg" bg="white">
@@ -163,9 +176,21 @@ export function WorkspaceDetail({ workspaceId, onBack }) {
                 <Stack justify="between">
                   <h3 className={shared.sectionTitle}>Terminal</h3>
                 </Stack>
-                <Button variant="primary" size="lg" onClick={handleStartSession} disabled={openingSession}>
+                <Button
+                  variant="primary"
+                  size="lg"
+                  onClick={handleStartSession}
+                  disabled={openingSession}
+                  aria-busy={openingSession}
+                >
+                  {openingSession && <span className={styles.spinner} aria-hidden="true" />}
                   {openingSession ? 'Starting session...' : 'Start Terminal Session'}
                 </Button>
+                {openingError && (
+                  <p className={styles.launchError} role="alert">
+                    {openingError}
+                  </p>
+                )}
               </Stack>
             </Box>
           ))}

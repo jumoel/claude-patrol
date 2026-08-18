@@ -30,6 +30,21 @@
   @apply mt-2;
 }
 
+.spinner {
+  @apply inline-block h-4 w-4 shrink-0 rounded-full border-2 border-white/40 border-t-white;
+  animation: spin 0.8s linear infinite;
+}
+
+.launchError {
+  @apply text-sm text-red-600;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 
 /* Checks */
 

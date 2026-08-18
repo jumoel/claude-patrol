@@ -67,9 +67,14 @@ const CHECK_STATUS_LABELS = {
 
 /**
  * PR detail view with workspace and terminal management.
- * @param {{ prId: string, onBack: () => void }} props
+ * @param {{
+ *   prId: string,
+ *   onBack: () => void,
+ *   workspaceStates: Map<string, 'working' | 'idle'>,
+ *   codexReviewCapability: import('../../types').CodexReviewCapability,
+ * }} props
  */
-export function PRDetail({ prId, onBack }) {
+export function PRDetail({ prId, onBack, workspaceStates, codexReviewCapability }) {
   const [pr, setPR] = useState(/** @type {import('../../types').PullRequest | null} */ (null));
   const [workspace, setWorkspace] = useState(/** @type {import('../../types').Workspace | null} */ (null));
   const [session, setSession] = useState(/** @type {import('../../types').Session | null} */ (null));
@@ -80,6 +85,7 @@ export function PRDetail({ prId, onBack }) {
   const [loading, setLoading] = useState(true);
   const [openingClaude, setOpeningClaude] = useState(false);
   const [openingStep, setOpeningStep] = useState('');
+  const [openingError, setOpeningError] = useState('');
   const [retriggering, setRetriggering] = useState(false);
   const [copiedBranch, setCopiedBranch] = useState(false);
   const [togglingDraft, setTogglingDraft] = useState(false);
@@ -144,6 +150,7 @@ export function PRDetail({ prId, onBack }) {
   /** Ensure workspace + session exist, creating them if needed. Returns { ws, sess } or null on failure. */
   const ensureWorkspaceAndSession = useCallback(async () => {
     setOpeningClaude(true);
+    setOpeningError('');
     try {
       setOpeningStep('Creating workspace...');
       const ws = await getOrCreateWorkspace();
@@ -157,6 +164,7 @@ export function PRDetail({ prId, onBack }) {
       return { ws, sess };
     } catch (err) {
       console.error('Failed to set up workspace/session:', err);
+      setOpeningError(getErrorMessage(err, 'Failed to start Claude'));
       return null;
     } finally {
       setOpeningClaude(false);
@@ -474,9 +482,16 @@ export function PRDetail({ prId, onBack }) {
                 className={styles.openButtonSpaced}
                 onClick={handleOpenInClaude}
                 disabled={openingClaude}
+                aria-busy={openingClaude}
               >
+                {openingClaude && <span className={styles.spinner} aria-hidden="true" />}
                 {openingClaude ? openingStep : 'Open in Claude'}
               </Button>
+            )}
+            {openingError && (
+              <p className={styles.launchError} role="alert">
+                {openingError}
+              </p>
             )}
           </Stack>
         </Box>
@@ -498,6 +513,10 @@ export function PRDetail({ prId, onBack }) {
             onReattach={handleReattach}
             wsRef={wsRef}
             baseBranch={pr.base_branch}
+            workspaceId={workspace?.id}
+            prId={pr.id}
+            sessionState={workspace ? workspaceStates.get(workspace.id) : undefined}
+            codexReviewCapability={codexReviewCapability}
           />
         )}
 

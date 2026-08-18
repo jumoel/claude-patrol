@@ -27,12 +27,13 @@ export function createMcpServer(app, ctx = { callerSessionId: null }) {
   });
 
   for (const [tool, entry] of Object.entries(actionRegistry)) {
-    server.tool(tool, entry.description, entry.schema.shape, async (args) => {
+    server.tool(tool, entry.description, entry.schema.shape, async (args, extra) => {
+      const requestContext = { ...ctx, signal: extra.signal };
       let result;
       if (entry.mcpHandler) {
-        result = await entry.mcpHandler(app, args, ctx);
+        result = await entry.mcpHandler(app, args, requestContext);
       } else {
-        result = await invokeForMcp(app, entry, args, ctx);
+        result = await invokeForMcp(app, entry, args, requestContext);
       }
       // Some handlers return raw text via `__text` (transcript summaries).
       if (result && typeof result === 'object' && '__text' in result) {

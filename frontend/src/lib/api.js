@@ -88,6 +88,13 @@ export async function fetchConfig() {
   return readJson(res);
 }
 
+/** Resolve the optional first-party Codex integration without blocking app config. */
+export async function fetchCodexReviewCapability(force = false) {
+  const res = await fetch(`${BASE}/api/capabilities/codex-review${force ? '?refresh=true' : ''}`);
+  if (!res.ok) throw new Error(`Failed to check Codex capability: ${res.status}`);
+  return readJson(res);
+}
+
 /**
  * Fetch workspaces, optionally filtered by PR ID.
  * @param {string} [prId]
@@ -143,6 +150,32 @@ export async function createScratchWorkspace(repo, branch) {
 export async function fetchWorkspace(id) {
   const res = await fetch(`${BASE}/api/workspaces/${id}`);
   if (!res.ok) throw new Error(`Failed to fetch workspace: ${res.status}`);
+  return readJson(res);
+}
+
+/**
+ * Fetch the current explicit Codex review lifecycle for a workspace.
+ * @param {string} workspaceId
+ * @returns {Promise<import('../types').CodexReviewStatusResponse>}
+ */
+export async function fetchCodexReviewState(workspaceId) {
+  const res = await fetch(`${BASE}/api/workspaces/${workspaceId}/codex-review`);
+  if (!res.ok) throw new Error((await readError(res)) || `Failed to fetch Codex review: ${res.status}`);
+  return readJson(res);
+}
+
+/**
+ * Ask the attached Claude session to run the reserved Codex review tool.
+ * @param {string} workspaceId
+ * @returns {Promise<{review: import('../types').CodexReview, dispatchedAt: number}>}
+ */
+export async function requestCodexReview(workspaceId) {
+  const res = await fetch(`${BASE}/api/workspaces/${workspaceId}/codex-review`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+  });
+  if (!res.ok) throw new Error((await readError(res)) || `Failed to request Codex review: ${res.status}`);
   return readJson(res);
 }
 

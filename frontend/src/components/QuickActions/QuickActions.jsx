@@ -1,3 +1,4 @@
+import { useCodexReviewState } from '../../hooks/useCodexReviewState.js';
 import { sendTerminalCommand } from '../../lib/terminal.js';
 import { Button } from '../ui/Button/Button.jsx';
 import { Stack } from '../ui/Stack/Stack.jsx';
@@ -29,9 +30,18 @@ function getActions(baseBranch) {
 
 /**
  * Quick action buttons that send commands to an active terminal session.
- * @param {{ wsRef?: { current: WebSocket | null }, onSend?: (text: string) => void, baseBranch?: string }} props
+ * @param {{
+ *   wsRef?: { current: WebSocket | null },
+ *   onSend?: (text: string) => void,
+ *   baseBranch?: string,
+ *   workspaceId?: string,
+ *   prId?: string,
+ *   sessionState?: 'working' | 'idle',
+ *   codexReviewCapability?: import('../../types').CodexReviewCapability,
+ * }} props
  */
-export function QuickActions({ wsRef, onSend, baseBranch }) {
+export function QuickActions({ wsRef, onSend, baseBranch, workspaceId, prId, sessionState, codexReviewCapability }) {
+  const codexReview = useCodexReviewState(prId ? workspaceId : undefined);
   /** @param {QuickAction} action */
   const handleAction = (action) => {
     if (onSend) {
@@ -41,6 +51,35 @@ export function QuickActions({ wsRef, onSend, baseBranch }) {
     sendTerminalCommand(wsRef?.current, action.command);
   };
 
+  const reviewActive = ['requested', 'running', 'delivering'].includes(codexReview.review?.status || '');
+  const reviewDisabled =
+    codexReview.requesting ||
+    reviewActive ||
+    sessionState === 'working' ||
+    !codexReview.ready ||
+    !codexReviewCapability?.available;
+  let reviewTitle = 'Review the full effective PR diff with Codex';
+  if (codexReviewCapability?.checking) reviewTitle = 'Checking Codex availability';
+  else if (!codexReviewCapability?.available) reviewTitle = codexReviewCapability?.reason || 'Codex is unavailable';
+  else if (codexReview.reason === 'session_restart_required') {
+    reviewTitle = 'Restart this Claude session to enable Codex review';
+  } else if (!codexReview.ready) reviewTitle = 'The workspace is not ready for a Codex review';
+  else if (sessionState === 'working') reviewTitle = 'Wait for Claude to become idle';
+
+  const statusText = (() => {
+    if (codexReview.error) return codexReview.error;
+    if (codexReview.requesting) return 'Requesting Codex review...';
+    if (codexReview.review?.status === 'requested') return 'Asking Claude to start Codex...';
+    if (codexReview.review?.status === 'running') return 'Codex is reviewing the full diff...';
+    if (codexReview.review?.status === 'delivering') return 'Claude is presenting the review...';
+    if (codexReview.review?.status === 'complete') return 'Review delivered in Claude.';
+    if (codexReview.review?.status === 'failed') return codexReview.review.error?.message || 'Codex review failed.';
+    if (codexReview.review?.status === 'delivery_unconfirmed') {
+      return codexReview.review.error?.message || 'Review delivery could not be confirmed.';
+    }
+    return null;
+  })();
+
   return (
     <Stack gap={2} wrap className={styles.actions}>
       <span className={styles.label}>Quick actions:</span>
@@ -49,6 +88,27 @@ export function QuickActions({ wsRef, onSend, baseBranch }) {
           {action.label}
         </Button>
       ))}
+      {prId && workspaceId && (
+        <Button
+          size="md"
+          variant="primary"
+          onClick={codexReview.requestReview}
+          disabled={reviewDisabled}
+          title={reviewTitle}
+        >
+          {codexReview.requesting ? 'Requesting Codex...' : 'Review with Codex'}
+        </Button>
+      )}
+      {prId && workspaceId && statusText && (
+        <span
+          className={codexReview.error || codexReview.review?.error ? styles.error : styles.status}
+          role="status"
+          aria-live="polite"
+        >
+          {(codexReview.requesting || reviewActive) && <span className={styles.spinner} aria-hidden="true" />}
+          {statusText}
+        </span>
+      )}
     </Stack>
   );
 }

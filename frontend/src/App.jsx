@@ -11,7 +11,7 @@ import { SetupMode } from './components/SetupMode/SetupMode.jsx';
 import { WorkspaceDetail } from './components/WorkspaceDetail/WorkspaceDetail.jsx';
 import { useIdleNotification } from './hooks/useIdleNotification.js';
 import { usePRs } from './hooks/usePRs.js';
-import { fetchConfig, fetchScratchWorkspaces } from './lib/api.js';
+import { fetchCodexReviewCapability, fetchConfig, fetchScratchWorkspaces } from './lib/api.js';
 
 /** @typedef {import('./types').PullRequest} PullRequest */
 /** @typedef {import('./types').FilterState} FilterState */
@@ -175,6 +175,15 @@ export default function App() {
   const [restartNeeded, setRestartNeeded] = useState(false);
   const [startupSha, setStartupSha] = useState('');
   const [currentSha, setCurrentSha] = useState('');
+  const [codexReviewCapability, setCodexReviewCapability] = useState(
+    /** @type {import('./types').CodexReviewCapability} */ ({
+      available: false,
+      checking: true,
+      reason: null,
+      version: null,
+      checkedAt: null,
+    }),
+  );
 
   const { syncedAt, loading, error, syncing, countdown, triggerSync, ghRateLimit } = prSource;
   const allPRs = prSource.prs;
@@ -195,6 +204,39 @@ export default function App() {
         if (needsSetup === null) setNeedsSetup(false);
       });
   }, [needsSetup]);
+
+  const refreshCodexCapability = useCallback(async (force = false) => {
+    setCodexReviewCapability((current) => ({ ...current, checking: true }));
+    try {
+      setCodexReviewCapability(await fetchCodexReviewCapability(force));
+    } catch (err) {
+      setCodexReviewCapability({
+        available: false,
+        checking: false,
+        reason: err instanceof Error ? err.message : String(err),
+        version: null,
+        checkedAt: null,
+      });
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshCodexCapability();
+  }, [refreshCodexCapability]);
+
+  useEffect(() => {
+    const handleFocus = () => {
+      if (!codexReviewCapability.available) refreshCodexCapability(true);
+    };
+    window.addEventListener('focus', handleFocus);
+    return () => window.removeEventListener('focus', handleFocus);
+  }, [codexReviewCapability.available, refreshCodexCapability]);
+
+  useEffect(() => {
+    if (codexReviewCapability.available || codexReviewCapability.checking) return undefined;
+    const timer = setInterval(() => refreshCodexCapability(), 60_000);
+    return () => clearInterval(timer);
+  }, [codexReviewCapability.available, codexReviewCapability.checking, refreshCodexCapability]);
 
   // Fetch scratch workspaces (refresh on local changes like workspace creation/deletion)
   useEffect(() => {
@@ -372,9 +414,19 @@ export default function App() {
       {showSetup ? (
         <SetupMode onConfigured={handleConfigured} isFirstRun={needsSetup === true} />
       ) : selectedPR ? (
-        <PRDetail prId={selectedPR} onBack={navigateBack} />
+        <PRDetail
+          prId={selectedPR}
+          onBack={navigateBack}
+          workspaceStates={workspaceStates}
+          codexReviewCapability={codexReviewCapability}
+        />
       ) : selectedWorkspace ? (
-        <WorkspaceDetail workspaceId={selectedWorkspace} onBack={navigateBack} />
+        <WorkspaceDetail
+          workspaceId={selectedWorkspace}
+          onBack={navigateBack}
+          workspaceStates={workspaceStates}
+          codexReviewCapability={codexReviewCapability}
+        />
       ) : (
         <>
           <DashboardSummary

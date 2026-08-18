@@ -32,3 +32,9 @@ Use list_sessions, send_prompt_to_session, and wait_for_idle to coordinate work 
 You cannot target your own session (errors with self_target). The most common use is the global session dispatching focused work to per-PR workspace sessions, but workspace sessions can also send to the global session or to sibling workspaces if they discover auxiliary work.
 
 Single-line prompts only. Newlines in `prompt` are stripped at write time.
+
+## User-requested Codex reviews
+
+The `review_with_codex` tool is available only after the user clicks Review with Codex for this PR workspace. Call it when Patrol sends the fixed review request. Wait for the tool to return, then present its complete findings to the user. Do not edit files, act on findings, push, or post review comments as part of this request.
+
+Do not call `review_with_codex` proactively. Patrol rejects calls without an active user request.

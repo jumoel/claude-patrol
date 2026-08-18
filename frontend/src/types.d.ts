@@ -245,6 +245,44 @@ export interface PublicConfig {
   restart_needed?: boolean;
   startup_sha?: string;
   current_sha?: string;
+  capabilities?: {
+    codex_review: CodexReviewCapability;
+  };
+}
+
+export interface CodexReviewCapability {
+  available: boolean;
+  checking: boolean;
+  reason: string | null;
+  version: string | null;
+  checkedAt: string | null;
+}
+
+export type CodexReviewStatus =
+  | 'requested'
+  | 'running'
+  | 'delivering'
+  | 'complete'
+  | 'failed'
+  | 'delivery_unconfirmed';
+
+export interface CodexReview {
+  id: string;
+  workspaceId: string;
+  sessionId: string;
+  prId: string;
+  status: CodexReviewStatus;
+  requestedAt: string;
+  startedAt: string | null;
+  resultReadyAt: string | null;
+  endedAt: string | null;
+  error: { code: string; message: string } | null;
+}
+
+export interface CodexReviewStatusResponse {
+  review: CodexReview | null;
+  ready: boolean;
+  reason: string | null;
 }
 
 export interface RestartStatus {

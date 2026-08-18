@@ -12,6 +12,7 @@ A self-hosted PR monitoring dashboard that watches your GitHub orgs and repos, s
 - **Session transcripts** - Claude Code JSONL transcripts are archived when sessions end. View past conversations with searchable, structured output (tool calls, thinking blocks, results).
 - **CI diagnostics** - view failed check logs inline, extract error context from GitHub Actions, retrigger failed checks.
 - **MCP server** - exposes PR data, workspace ops, and CI logs as tools for Claude Code. Claude can triage PRs, create workspaces, and investigate failures autonomously.
+- **Codex review handoff** - an explicit button asks the workspace's Claude session to run a read-only Codex review of the full effective PR diff, then Claude presents the result in the same terminal.
 
 ## Prerequisites
 
@@ -22,6 +23,7 @@ You'll need these installed and on your PATH:
 - **gh** - GitHub CLI, authenticated (`gh auth login`)
 - **jj** - Jujutsu version control
 - **claude** - Claude Code CLI
+- **codex** (optional) - Codex CLI, authenticated with `codex login`, for Review with Codex
 - **tmux** - terminal multiplexer (sessions survive server restarts)
 - **Ghostty** (optional) - for the "Pop out" and "Terminal" buttons
 
@@ -274,7 +276,8 @@ Fastify server
     |-- Automation queue: persistent, bounded rule actions
     |-- PTY manager: tmux sessions with node-pty bridge
     |-- Workspace manager: jj workspace create/destroy
-    |-- MCP server: stdio transport for Claude Code
+    |-- Patrol MCP server: per-session HTTP transport for Claude Code
+    |-- Optional Codex client: first-party `codex mcp-server` over stdio
     |
 SQLite (node:sqlite) -- prs, workspaces, sessions
 ```
@@ -289,6 +292,8 @@ No native database dependencies - `node:sqlite` is built into Node.js.
 **PRs**: `GET /api/prs` (filterable), `GET /api/prs/:id`, `GET /api/prs/:id/diff`, `GET /api/prs/:id/comments`, `GET /api/prs/:id/check-logs`
 
 **Workspaces**: `POST /api/workspaces`, `GET /api/workspaces`, `GET /api/workspaces/:id`, `DELETE /api/workspaces/:id`, `GET /api/workspaces/operations`, `POST /api/workspaces/:id/retry-cleanup`, `POST /api/workspaces/:id/terminal`, `POST /api/workspaces/cleanup`
+
+**Codex reviews**: `GET /api/workspaces/:id/codex-review`, `POST /api/workspaces/:id/codex-review`, `GET /api/capabilities/codex-review`
 
 **Sessions**: `POST /api/sessions`, `GET /api/sessions`, `DELETE /api/sessions/:id`, `POST /api/sessions/:id/popout`, `GET /api/sessions/history`, `GET /api/sessions/:id/transcript`
 
@@ -308,6 +313,7 @@ When Claude Code connects via the auto-generated MCP config, it gets access to:
 - `retrigger_checks` - re-run failed CI
 - `wait_for_checks` - poll until CI checks reach a final state
 - `trigger_sync` - force a GitHub poll
+- `review_with_codex` - fulfill an explicit Review with Codex request for the calling PR workspace
 
 ## License
 
