@@ -6,7 +6,14 @@
     "useIgnoreFile": true
   },
   "files": {
-    "includes": ["src/**/*.js", "frontend/src/**/*.js", "frontend/src/**/*.jsx"]
+    "includes": [
+      "bin/**/*.js",
+      "scripts/**/*.js",
+      "src/**/*.js",
+      "frontend/scripts/**/*.js",
+      "frontend/src/**/*.js",
+      "frontend/src/**/*.jsx"
+    ]
   },
   "linter": {
     "enabled": true,

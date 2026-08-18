@@ -25,7 +25,6 @@ export function usePRs(filters) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(/** @type {string | null} */ (null));
   const [syncing, setSyncing] = useState(false);
-  const [_pollInterval, setPollInterval] = useState(600);
   const [countdown, setCountdown] = useState(0);
   const [ghRateLimit, setGhRateLimit] = useState(/** @type {import('../types').GhRateLimit | null} */ (null));
   const [freshness, setFreshness] = useState(/** @type {import('../types').PullRequestFreshness | null} */ (null));
@@ -54,7 +53,6 @@ export function usePRs(filters) {
   useEffect(() => {
     fetchConfig()
       .then((cfg) => {
-        setPollInterval(cfg.poll.interval_seconds);
         pollIntervalRef.current = cfg.poll.interval_seconds;
         // Recalculate countdown with correct interval if we already have syncedAt
         if (syncedAtRef.current) {
@@ -72,7 +70,7 @@ export function usePRs(filters) {
     return () => clearInterval(id);
   }, []);
 
-  // Initial fetch and re-fetch on filter change
+  // Initial fetch. Live updates below refresh the same stable filter set.
   useEffect(() => {
     loadPRs();
   }, [loadPRs]);
@@ -97,7 +95,6 @@ export function usePRs(filters) {
         // Re-fetch config so interval is up-to-date for the next sync.
         fetchConfig()
           .then((cfg) => {
-            setPollInterval(cfg.poll.interval_seconds);
             pollIntervalRef.current = cfg.poll.interval_seconds;
             setCountdown(cfg.poll.interval_seconds);
           })

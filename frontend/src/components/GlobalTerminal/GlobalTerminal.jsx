@@ -4,7 +4,7 @@ import { useResizeHandle } from '../../hooks/useResizeHandle.js';
 import { createSession as apiCreateSession, promoteSession } from '../../lib/api.js';
 import { getErrorMessage } from '../../lib/errors.js';
 import shared from '../../styles/shared.module.css';
-import { Terminal } from '../Terminal/Terminal.jsx';
+import { LazyTerminal } from '../Terminal/LazyTerminal.jsx';
 import { Button } from '../ui/Button/Button.jsx';
 import { RepoCombobox } from '../ui/RepoCombobox/RepoCombobox.jsx';
 import { Stack } from '../ui/Stack/Stack.jsx';
@@ -224,7 +224,7 @@ export function GlobalTerminal({ open, onToggle, onSessionChange }) {
         )}
         <div className={styles.content}>
           {loading && <p className={styles.loading}>Starting session...</p>}
-          {session && <Terminal wsUrl={`/ws/sessions/${session.id}`} focus={open} onExit={handleSessionExit} />}
+          {session && <LazyTerminal wsUrl={`/ws/sessions/${session.id}`} focus={open} onExit={handleSessionExit} />}
           {!session && !loading && (
             <div className={styles.placeholder}>
               <Button variant="primary" size="lg" dark onClick={startSession}>

@@ -17,7 +17,7 @@ cd "$ROOT_DIR"
 if [ ! -d frontend/node_modules ]; then
   echo "ERROR: frontend/node_modules is missing." >&2
   if [ ! -d vendor/xterm.js/lib ]; then
-    echo "       Vendored xterm.js is also missing — run \`pnpm run setup\` to bootstrap it, then deps." >&2
+    echo "       Vendored xterm.js is also missing - run \`pnpm run setup\` to bootstrap it, then deps." >&2
   else
     echo "       Run \`pnpm install\` (frontend/ is a pnpm workspace and is covered by the root install)." >&2
   fi
@@ -43,5 +43,5 @@ fi
 if $needs_build; then
   pnpm --filter claude-patrol-frontend build
 else
-  echo "frontend/dist is up-to-date — skipping build"
+  echo "frontend/dist is up-to-date - skipping build"
 fi

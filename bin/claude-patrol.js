@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 
-import { isRunning, readPid, removePid } from '../src/pid.js';
-import { pidPath, stateDir, dataDir, configDir, configPath, defaultDbPath } from '../src/paths.js';
-import { unlinkSync, rmSync, existsSync } from 'node:fs';
 import { execSync, spawnSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { existsSync, rmSync, unlinkSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { configDir, configPath, dataDir, defaultDbPath, pidPath, stateDir } from '../src/paths.js';
+import { isRunning, removePid } from '../src/pid.js';
 
 const args = process.argv.slice(2);
 const command = args[0] || 'start';
@@ -22,7 +22,11 @@ switch (command) {
     const childArgs = [join(rootDir, 'src/index.js'), ...args.slice(1)];
     let firstRun = true;
     while (true) {
-      const runArgs = firstRun ? childArgs : (childArgs.includes('--reattach') ? childArgs : [...childArgs, '--reattach']);
+      const runArgs = firstRun
+        ? childArgs
+        : childArgs.includes('--reattach')
+          ? childArgs
+          : [...childArgs, '--reattach'];
       const result = spawnSync(process.execPath, runArgs, { cwd: rootDir, stdio: 'inherit' });
       if (result.error) {
         console.error(`[claude-patrol] Failed to launch server: ${result.error.message}`);
@@ -36,6 +40,7 @@ switch (command) {
       }
       firstRun = false;
     }
+    break;
   }
 
   case 'stop': {
@@ -59,11 +64,15 @@ switch (command) {
         console.log('[claude-patrol] Stopped.');
         process.exit(0);
       }
-      await new Promise(r => setTimeout(r, 100));
+      await new Promise((r) => setTimeout(r, 100));
     }
 
     console.error('[claude-patrol] Server did not stop within 5s. Sending SIGKILL.');
-    try { process.kill(status.pid, 'SIGKILL'); } catch { /* already gone */ }
+    try {
+      process.kill(status.pid, 'SIGKILL');
+    } catch {
+      /* already gone */
+    }
     removePid();
     process.exit(1);
     break;
@@ -80,11 +89,8 @@ switch (command) {
     const hours = Math.floor(uptime / 3600);
     const minutes = Math.floor((uptime % 3600) / 60);
     const seconds = uptime % 60;
-    const uptimeStr = hours > 0
-      ? `${hours}h ${minutes}m ${seconds}s`
-      : minutes > 0
-        ? `${minutes}m ${seconds}s`
-        : `${seconds}s`;
+    const uptimeStr =
+      hours > 0 ? `${hours}h ${minutes}m ${seconds}s` : minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
 
     console.log(`[claude-patrol] Running`);
     console.log(`  URL:     http://localhost:${status.port}`);
@@ -100,9 +106,7 @@ switch (command) {
       process.exit(1);
     }
 
-    const files = [
-      { path: pidPath(), label: 'PID file' },
-    ];
+    const files = [{ path: pidPath(), label: 'PID file' }];
 
     // Try to read actual db_path from config, fall back to default
     let dbPath = defaultDbPath();
@@ -179,15 +183,17 @@ switch (command) {
     try {
       const res = await fetch(`http://localhost:${status.port}/api/workspaces`);
       if (res.ok) workspaces = await res.json();
-    } catch { /* non-fatal */ }
-    const wsMap = Object.fromEntries(workspaces.map(w => [w.id, w]));
+    } catch {
+      /* non-fatal */
+    }
+    const wsMap = Object.fromEntries(workspaces.map((w) => [w.id, w]));
 
     // If a session ID fragment was passed, match it directly
     const targetArg = args[1];
     let target = null;
 
     if (targetArg) {
-      target = sessions.find(s => s.id === targetArg || s.id.startsWith(targetArg));
+      target = sessions.find((s) => s.id === targetArg || s.id.startsWith(targetArg));
       if (!target) {
         console.error(`[claude-patrol] No session matching "${targetArg}".`);
         process.exit(1);
@@ -207,10 +213,10 @@ switch (command) {
       // Read single keypress for selection
       const { createInterface } = await import('node:readline');
       const rl = createInterface({ input: process.stdin, output: process.stdout });
-      const answer = await new Promise(resolve => rl.question('\nSelect session number: ', resolve));
+      const answer = await new Promise((resolve) => rl.question('\nSelect session number: ', resolve));
       rl.close();
       const idx = parseInt(answer, 10) - 1;
-      if (isNaN(idx) || idx < 0 || idx >= sessions.length) {
+      if (Number.isNaN(idx) || idx < 0 || idx >= sessions.length) {
         console.error('[claude-patrol] Invalid selection.');
         process.exit(1);
       }

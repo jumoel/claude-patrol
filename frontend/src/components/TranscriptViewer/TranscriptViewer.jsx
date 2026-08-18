@@ -74,12 +74,19 @@ export function TranscriptViewer({ entries, loading, error }) {
         <input
           className={styles.searchInput}
           type="text"
+          name="transcript-search"
+          autoComplete="off"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search transcript..."
         />
         <Stack gap={2} as="label" className={styles.toggleLabel}>
-          <input type="checkbox" checked={showThinking} onChange={(e) => setShowThinking(e.target.checked)} />
+          <input
+            type="checkbox"
+            name="show-transcript-thinking"
+            checked={showThinking}
+            onChange={(e) => setShowThinking(e.target.checked)}
+          />
           Show thinking
         </Stack>
         {search && (

@@ -1,6 +1,5 @@
 import { FitAddon } from '@xterm/addon-fit';
 import { UnicodeGraphemesAddon } from '@xterm/addon-unicode-graphemes';
-import { WebglAddon } from '@xterm/addon-webgl';
 import { Terminal as XTerm } from '@xterm/xterm';
 import { useEffect, useRef } from 'react';
 import '@xterm/xterm/css/xterm.css';
@@ -53,20 +52,26 @@ export function Terminal({ wsUrl, wsRef: externalWsRef, focus, onExit, onToggleM
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
     term.open(containerRef.current);
+    if (term.textarea) {
+      term.textarea.name = 'terminal-input';
+      term.textarea.autocomplete = 'off';
+    }
 
     // Unicode 15 with grapheme cluster support - makes emoji double-width,
     // handles compound emoji, skin tones, ZWJ sequences
     const unicodeAddon = new UnicodeGraphemesAddon();
     term.loadAddon(unicodeAddon);
 
-    // GPU-accelerated renderer with custom box-drawing/powerline glyphs
-    try {
-      const webglAddon = new WebglAddon({ customGlyphs: true });
-      webglAddon.onContextLoss(() => webglAddon.dispose());
-      term.loadAddon(webglAddon);
-    } catch {
-      // WebGL not available, fall back to DOM renderer
-    }
+    // The optional renderer is large, so load it only after a terminal opens.
+    // xterm keeps its DOM renderer if WebGL is unavailable or the import fails.
+    import('@xterm/addon-webgl')
+      .then(({ WebglAddon }) => {
+        if (cancelled) return;
+        const webglAddon = new WebglAddon({ customGlyphs: true });
+        webglAddon.onContextLoss(() => webglAddon.dispose());
+        term.loadAddon(webglAddon);
+      })
+      .catch(() => {});
 
     fitAddon.fit();
     term.focus();

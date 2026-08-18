@@ -1,0 +1,49 @@
+@reference "tailwindcss";
+
+.toggleButton {
+  @apply p-0 text-sm text-gray-500 hover:text-gray-700 cursor-pointer transition-colors;
+  align-self: flex-start;
+  background: none;
+  border: none;
+  text-align: left;
+}
+
+.loading,
+.empty {
+  @apply text-sm text-gray-400;
+}
+
+.error {
+  @apply text-sm text-red-600;
+}
+
+.list {
+  @apply space-y-1;
+}
+
+.sessionRow {
+  @apply flex items-center justify-between w-full py-1.5 px-3 rounded hover:bg-gray-50 transition-colors cursor-pointer;
+  background: none;
+  border: none;
+  text-align: left;
+}
+
+.sessionInfo {
+  @apply min-w-0 flex-1;
+}
+
+.startedAt {
+  @apply text-sm text-gray-500;
+}
+
+.duration {
+  @apply text-xs text-gray-400;
+}
+
+.chevron {
+  @apply inline-block text-sm text-gray-400 transition-transform duration-150;
+}
+
+.chevronOpen {
+  transform: rotate(90deg);
+}

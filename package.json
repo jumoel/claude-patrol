@@ -11,7 +11,7 @@
     "build": "pnpm --filter claude-patrol-frontend build",
     "start": "bash scripts/build-if-stale.sh && bash scripts/start-loop.sh",
     "watch": "bash scripts/build-if-stale.sh && node src/watch.js",
-    "lint": "biome check src/ frontend/src/",
+    "lint": "biome check .",
     "typecheck": "tsc --project frontend/tsconfig.json",
     "test": "node --test src/**/*.test.js"
   },

@@ -7,7 +7,7 @@
  */
 
 import { readFileSync, writeFileSync } from 'node:fs';
-import { resolve, dirname } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -28,10 +28,7 @@ async function main() {
   const svgBuffer = readFileSync(svgPath);
 
   for (const size of sizes) {
-    const png = await sharp(svgBuffer)
-      .resize(size, size)
-      .png()
-      .toBuffer();
+    const png = await sharp(svgBuffer).resize(size, size).png().toBuffer();
 
     const outPath = resolve(publicDir, `favicon-${size}.png`);
     writeFileSync(outPath, png);
@@ -39,10 +36,7 @@ async function main() {
   }
 
   // Also generate apple-touch-icon
-  const apple = await sharp(svgBuffer)
-    .resize(180, 180)
-    .png()
-    .toBuffer();
+  const apple = await sharp(svgBuffer).resize(180, 180).png().toBuffer();
   writeFileSync(resolve(publicDir, 'apple-touch-icon.png'), apple);
   console.log('Generated apple-touch-icon.png');
 

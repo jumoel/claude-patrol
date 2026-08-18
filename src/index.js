@@ -17,10 +17,9 @@ import {
   activeSessionCount,
   cleanupOrphanedSessions,
   cleanupOrphanedTmuxSessions,
-  initMcpConfig,
   killAllSessions,
   reattachOrphanedSessions,
-  updateMcpConfig,
+  setMcpPort,
 } from './pty-manager.js';
 import { startRulesEngine, stopRulesEngine } from './rules.js';
 import { createServer } from './server.js';
@@ -144,7 +143,7 @@ export async function startServer(options = {}) {
   }
 
   // Write MCP config after server binds so it uses the actual port
-  initMcpConfig({ ...config, port });
+  setMcpPort(port);
 
   // Write PID file with actual port
   writePid(port);
@@ -195,7 +194,6 @@ export async function startServer(options = {}) {
         console.error(`[poller] Target reconciliation failed: ${error.message}`),
       );
     }
-    updateMcpConfig(newConfig);
     emitLocalChange();
     // Update header with new config
     if (isTTY) {

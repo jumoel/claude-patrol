@@ -65,8 +65,7 @@ const PATROL_SYSTEM_PROMPT = readFileSync(resolve(import.meta.dirname, 'patrol-s
 
 /**
  * Port the Patrol server is currently listening on. Used to construct
- * per-session MCP URLs at session-spawn time. Set by initMcpConfig from
- * startup and from the config-change handler.
+ * per-session MCP URLs at session-spawn time. Set after the server binds.
  * @type {number | null}
  */
 let currentPort = null;
@@ -76,15 +75,14 @@ let currentPort = null;
  * written at session-spawn time (see writeMcpConfigForSession) using this
  * port. The per-session URL embeds the session id so MCP tool handlers can
  * identify their caller without trusting it.
- * @param {{port: number}} config
+ * @param {number} port
  */
-export function initMcpConfig(config) {
-  currentPort = config.port;
+export function setMcpPort(port) {
+  if (!Number.isInteger(port) || port < 1 || port > 65_535) {
+    throw new TypeError(`Invalid MCP port: ${port}`);
+  }
+  currentPort = port;
 }
-
-/** Alias for config-change handler. Live port changes do not rewrite
- * existing per-session config files; new sessions pick up the updated port. */
-export const updateMcpConfig = initMcpConfig;
 
 /**
  * Write a per-session MCP config file pointing at /mcp/<sessionId>. Each
@@ -99,7 +97,7 @@ function mcpConfigPathForSession(sessionId) {
 
 function writeMcpConfigForSession(sessionId) {
   if (currentPort === null) {
-    throw new Error('writeMcpConfigForSession called before initMcpConfig');
+    throw new Error('writeMcpConfigForSession called before setMcpPort');
   }
   const path = mcpConfigPathForSession(sessionId);
   const configJson = {

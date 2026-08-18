@@ -8,9 +8,7 @@ import {
   fetchCheckLogs,
   fetchPR,
   fetchPRComments,
-  fetchSessionHistory,
   fetchSessions,
-  fetchSessionTranscript,
   fetchWorkspaces,
   refreshPR,
   setPRDraft,
@@ -31,9 +29,9 @@ import shared from '../../styles/shared.module.css';
 import { CheckLogViewer } from '../CheckLogViewer/CheckLogViewer.jsx';
 import { CommentsList } from '../CommentsList/CommentsList.jsx';
 import { RuleControls } from '../RuleControls/RuleControls.jsx';
+import { SessionHistory } from '../SessionHistory/SessionHistory.jsx';
 import { StatusBadge } from '../StatusBadge/StatusBadge.jsx';
 import { TerminalCard } from '../TerminalCard/TerminalCard.jsx';
-import { TranscriptViewer } from '../TranscriptViewer/TranscriptViewer.jsx';
 import { Badge } from '../ui/Badge/Badge.jsx';
 import { Box } from '../ui/Box/Box.jsx';
 import { Button } from '../ui/Button/Button.jsx';
@@ -484,7 +482,7 @@ export function PRDetail({ prId, onBack, workspaceStates, codexReviewCapability 
                 disabled={openingClaude}
                 aria-busy={openingClaude}
               >
-                {openingClaude && <span className={styles.spinner} aria-hidden="true" />}
+                {openingClaude && <span className={shared.buttonSpinner} aria-hidden="true" />}
                 {openingClaude ? openingStep : 'Open in Claude'}
               </Button>
             )}
@@ -521,7 +519,7 @@ export function PRDetail({ prId, onBack, workspaceStates, codexReviewCapability 
         )}
 
         {/* Past Sessions */}
-        {workspace && <SessionHistory workspaceId={workspace.id} />}
+        {workspace && <SessionHistory key={workspace.id} workspaceId={workspace.id} />}
 
         {/* Checks */}
         {pr.checks.length > 0 && (
@@ -780,98 +778,5 @@ function PRDescription({ bodyHtml }) {
       </button>
       {expanded && <div className={styles.descriptionBody} dangerouslySetInnerHTML={{ __html: bodyHtml }} />}
     </div>
-  );
-}
-
-/** @param {{workspaceId: string}} props */
-function SessionHistory({ workspaceId }) {
-  const [history, setHistory] = useState(/** @type {import('../../types').Session[] | null} */ (null));
-  const [loading, setLoading] = useState(false);
-  const [expanded, setExpanded] = useState(false);
-  const [transcripts, setTranscripts] = useState(
-    /** @type {Record<string, import('../../types').TranscriptEntry[]>} */ ({}),
-  );
-  const [transcriptLoading, setTranscriptLoading] = useState(/** @type {Record<string, boolean>} */ ({}));
-  const [transcriptErrors, setTranscriptErrors] = useState(/** @type {Record<string, string>} */ ({}));
-
-  useEffect(() => {
-    if (!expanded || history) return;
-    setLoading(true);
-    fetchSessionHistory(workspaceId)
-      .then(setHistory)
-      .catch((err) => console.error('Failed to load session history:', err))
-      .finally(() => setLoading(false));
-  }, [expanded, history, workspaceId]);
-
-  const handleViewTranscript = useCallback(
-    /** @param {string} sessionId */
-    (sessionId) => {
-      if (transcripts[sessionId]) {
-        setTranscripts((prev) => {
-          const next = { ...prev };
-          delete next[sessionId];
-          return next;
-        });
-        return;
-      }
-      setTranscriptLoading((prev) => ({ ...prev, [sessionId]: true }));
-      fetchSessionTranscript(sessionId)
-        .then((entries) => setTranscripts((prev) => ({ ...prev, [sessionId]: entries })))
-        .catch((err) => setTranscriptErrors((prev) => ({ ...prev, [sessionId]: err.message })))
-        .finally(() => setTranscriptLoading((prev) => ({ ...prev, [sessionId]: false })));
-    },
-    [transcripts],
-  );
-
-  /** @param {string | null} start @param {string | null} end */
-  const formatDuration = (start, end) => {
-    if (!start || !end) return '';
-    const ms = new Date(end).getTime() - new Date(start).getTime();
-    const mins = Math.floor(ms / 60000);
-    if (mins < 1) return '<1m';
-    if (mins < 60) return `${mins}m`;
-    return `${Math.floor(mins / 60)}h ${mins % 60}m`;
-  };
-
-  return (
-    <Box p={5} border rounded="lg" bg="white">
-      <Stack direction="col" gap={3}>
-        <button className={styles.toggleButton} onClick={() => setExpanded(!expanded)} style={{ padding: '0' }}>
-          {expanded ? 'Hide' : 'Show'} past sessions
-        </button>
-        {expanded && loading && <p className={shared.loading}>Loading...</p>}
-        {expanded && history && history.length === 0 && (
-          <p style={{ color: '#9ca3af', fontSize: '14px', marginTop: '8px' }}>No past sessions</p>
-        )}
-        {expanded && history && history.length > 0 && (
-          <div className={styles.reviewsList}>
-            {history.map((sess) => (
-              <div key={sess.id}>
-                <button className={styles.checkRow} onClick={() => handleViewTranscript(sess.id)}>
-                  <Stack gap={2} className={styles.checkInfo}>
-                    <span style={{ fontSize: '14px', color: '#6b7280' }}>
-                      {new Date(sess.started_at).toLocaleString()}
-                    </span>
-                    <span style={{ fontSize: '13px', color: '#9ca3af' }}>
-                      {formatDuration(sess.started_at, sess.ended_at)}
-                    </span>
-                  </Stack>
-                  <span className={`${styles.chevron} ${transcripts[sess.id] ? styles.chevronOpen : ''}`}>
-                    &#x25B8;
-                  </span>
-                </button>
-                {(transcripts[sess.id] || transcriptLoading[sess.id] || transcriptErrors[sess.id]) && (
-                  <TranscriptViewer
-                    entries={transcripts[sess.id] || null}
-                    loading={!!transcriptLoading[sess.id]}
-                    error={transcriptErrors[sess.id] || null}
-                  />
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-      </Stack>
-    </Box>
   );
 }

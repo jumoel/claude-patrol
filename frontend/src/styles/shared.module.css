@@ -88,3 +88,23 @@
 .error {
   @apply text-center text-red-500 py-12;
 }
+
+.buttonSpinner {
+  @apply inline-block h-4 w-4 shrink-0 rounded-full border-2 border-white/40 border-t-white;
+  animation: spin 0.8s linear infinite;
+}
+
+.terminalLoading {
+  @apply flex h-full items-center justify-center gap-2 bg-gray-900 text-sm text-gray-400;
+}
+
+.terminalSpinner {
+  @apply inline-block h-4 w-4 shrink-0 rounded-full border-2 border-gray-600 border-t-gray-300;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

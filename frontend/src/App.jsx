@@ -188,7 +188,7 @@ export default function App() {
   const { syncedAt, loading, error, syncing, countdown, triggerSync, ghRateLimit } = prSource;
   const allPRs = prSource.prs;
 
-  // Check if setup is needed + update status (re-check on each sync)
+  // Check whether setup is needed and load update status.
   useEffect(() => {
     fetchConfig()
       .then((cfg) => {
@@ -456,9 +456,9 @@ export default function App() {
             sortedRowsRef={sortedRowsRef}
           />
           <ScratchWorkspaces
+            scratchWorkspaces={scratchWorkspaces}
             workspaceStates={workspaceStates}
             dismissedIdle={dismissedIdle}
-            localChangeCount={localChangeCount}
           />
         </>
       )}

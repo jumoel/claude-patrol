@@ -9,7 +9,7 @@ set -euo pipefail
 #   2. Installs deps for root + frontend in one `pnpm install` (frontend/ is a
 #      pnpm workspace package; see pnpm-workspace.yaml)
 #   3. Fixes node-pty's spawn-helper executable bit on macOS
-#   4. Verifies the postconditions — fails loudly if any step left the tree broken
+#   4. Verifies the postconditions - fails loudly if any step left the tree broken
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT_DIR"
@@ -28,7 +28,7 @@ check_cmd() {
   if command -v "$cmd" >/dev/null 2>&1; then
     echo "   ok: $label ($(command -v "$cmd"))"
   else
-    missing+=("$label — $hint")
+    missing+=("$label - $hint")
   fi
 }
 
@@ -37,7 +37,7 @@ check_optional() {
   if command -v "$cmd" >/dev/null 2>&1; then
     echo "   ok: $label ($(command -v "$cmd"))"
   else
-    optional_missing+=("$label — $hint")
+    optional_missing+=("$label - $hint")
   fi
 }
 
@@ -45,12 +45,12 @@ check_optional() {
 if command -v node >/dev/null 2>&1; then
   node_major=$(node -p 'process.versions.node.split(".")[0]')
   if [ "$node_major" -lt 22 ]; then
-    missing+=("Node.js >= 22 (found $(node -v)) — upgrade via nvm/fnm/brew")
+    missing+=("Node.js >= 22 (found $(node -v)) - upgrade via nvm/fnm/brew")
   else
     echo "   ok: Node.js $(node -v)"
   fi
 else
-  missing+=("Node.js >= 22 — install via nvm/fnm/brew")
+  missing+=("Node.js >= 22 - install via nvm/fnm/brew")
 fi
 
 check_cmd pnpm  "pnpm"          "install via 'npm i -g pnpm' or corepack"
@@ -58,7 +58,7 @@ check_cmd gh    "GitHub CLI"    "install via 'brew install gh' then 'gh auth log
 check_cmd jj    "Jujutsu (jj)"  "install via 'brew install jj' (see https://github.com/jj-vcs/jj)"
 check_cmd tmux  "tmux"          "install via 'brew install tmux'"
 check_cmd claude "Claude Code"  "install via 'npm i -g @anthropic-ai/claude-code'"
-check_optional ghostty "Ghostty" "optional — needed only for Pop-out / Terminal buttons"
+check_optional ghostty "Ghostty" "optional - needed only for Pop-out / Terminal buttons"
 
 if [ ${#missing[@]} -gt 0 ]; then
   echo
@@ -96,7 +96,7 @@ if [ ${#spawn_helpers[@]} -eq 0 ]; then
     echo "       Root install may have skipped node-pty (check npm_config_ignore_scripts / pnpm onlyBuiltDependencies)."
     exit 1
   fi
-  echo "   (no darwin prebuilds — skipping on non-macOS platform)"
+  echo "   (no darwin prebuilds - skipping on non-macOS platform)"
 else
   chmod +x "${spawn_helpers[@]}"
   echo "   fixed: ${spawn_helpers[*]}"
@@ -110,10 +110,10 @@ check() {
     errors=$((errors + 1))
   fi
 }
-check node_modules/zod "root dep — pnpm install at root did not populate node_modules"
-check node_modules/fastify "root dep — pnpm install at root did not populate node_modules"
-check frontend/node_modules/vite "frontend dep — pnpm --filter install did not populate frontend/node_modules"
-check vendor/xterm.js/lib "xterm.js was not built — re-run scripts/setup-xterm.sh"
+check node_modules/zod "root dep - pnpm install at root did not populate node_modules"
+check node_modules/fastify "root dep - pnpm install at root did not populate node_modules"
+check frontend/node_modules/vite "frontend dep - pnpm --filter install did not populate frontend/node_modules"
+check vendor/xterm.js/lib "xterm.js was not built - re-run scripts/setup-xterm.sh"
 if [ "$errors" -gt 0 ]; then
   echo
   echo "Setup INCOMPLETE: $errors missing artifact(s) above. Fix and re-run \`pnpm run setup\`."

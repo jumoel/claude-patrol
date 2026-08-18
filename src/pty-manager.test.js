@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { unlinkSync, writeFileSync } from 'node:fs';
+import { readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { afterEach, describe, it } from 'node:test';
@@ -11,6 +11,7 @@ import {
   dispatchWsMessage,
   getSessionCodexReviewReadiness,
   PATROL_MCP_TIMEOUT_MS,
+  setMcpPort,
 } from './pty-manager.js';
 
 afterEach(() => closeDb());
@@ -74,6 +75,28 @@ it('removes an inherited NO_COLOR setting from the Claude process', () => {
   assert.throws(() => createSessionWithRuntime(null, process.cwd(), { runtime }), /stop after command capture/);
   const newSession = commands.find(([command, subcommand]) => command === 'tmux' && subcommand === 'new-session');
   assert.match(newSession.at(-1), /^'env' '-u' 'NO_COLOR' 'claude'/);
+});
+
+it('writes per-session MCP config with the explicitly recorded port', () => {
+  initDb(':memory:');
+  setMcpPort(4242);
+  let mcpConfig;
+  const runtime = {
+    randomUUID: () => 'port-session',
+    execFileSync(command, args) {
+      if (command === 'tmux' && args[0] === 'new-session') {
+        const path = resolve(tmpdir(), 'patrol-mcp-port-session.json');
+        mcpConfig = JSON.parse(readFileSync(path, 'utf8'));
+      }
+    },
+    spawnPty() {
+      throw new Error('stop after config capture');
+    },
+  };
+
+  assert.throws(() => createSessionWithRuntime(null, process.cwd(), { runtime }), /stop after config capture/);
+  assert.equal(mcpConfig.mcpServers.patrol.url, 'http://127.0.0.1:4242/mcp/port-session');
+  assert.throws(() => setMcpPort({ port: 3000 }), /Invalid MCP port/);
 });
 
 /**

@@ -5,7 +5,7 @@ import { useResizeHandle } from '../../hooks/useResizeHandle.js';
 import { sendTerminalCommand, whenWsOpen } from '../../lib/terminal.js';
 import shared from '../../styles/shared.module.css';
 import { QuickActions } from '../QuickActions/QuickActions.jsx';
-import { Terminal } from '../Terminal/Terminal.jsx';
+import { LazyTerminal } from '../Terminal/LazyTerminal.jsx';
 import { Box } from '../ui/Box/Box.jsx';
 import { Button } from '../ui/Button/Button.jsx';
 import { Stack } from '../ui/Stack/Stack.jsx';
@@ -158,7 +158,7 @@ export function TerminalCard({
           </Stack>
         </Stack>
         <div className={shared.overlayContent}>
-          <Terminal
+          <LazyTerminal
             wsUrl={`/ws/sessions/${session.id}`}
             wsRef={wsRef}
             onExit={handleExit}
@@ -239,7 +239,7 @@ export function TerminalCard({
         codexReviewCapability={codexReviewCapability}
       />
       <div style={{ height: termHeight }}>
-        <Terminal
+        <LazyTerminal
           wsUrl={`/ws/sessions/${session.id}`}
           wsRef={wsRef}
           onExit={handleExit}

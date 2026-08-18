@@ -34,9 +34,9 @@ $ git clone <repo-url> && cd claude-patrol
 $ pnpm run setup
 ```
 
-`pnpm run setup` is the one command that does everything needed on a fresh clone: it clones and builds the vendored `xterm.js`, then runs `pnpm install` (which covers root and the `frontend/` workspace package in one go), then fixes the node-pty spawn-helper permissions on macOS. It is idempotent — safe to re-run any time (e.g. after pulling changes that touch the vendored xterm.js commit).
+`pnpm run setup` is the one command that does everything needed on a fresh clone: it clones and builds the vendored `xterm.js`, then runs `pnpm install` (which covers root and the `frontend/` workspace package in one go), then fixes the node-pty spawn-helper permissions on macOS. It is idempotent - safe to re-run any time (e.g. after pulling changes that touch the vendored xterm.js commit).
 
-After the first setup, a plain `pnpm install` is enough for routine dep updates — `frontend/` is a pnpm workspace, so root install covers both packages. The reason `pnpm install` alone can't do everything is that we deliberately **don't** use `preinstall`/`postinstall` hooks (supply-chain risk), and the vendored xterm.js + node-pty chmod live outside what pnpm itself runs.
+After the first setup, a plain `pnpm install` is enough for routine dep updates - `frontend/` is a pnpm workspace, so root install covers both packages. The reason `pnpm install` alone can't do everything is that we deliberately **don't** use `preinstall`/`postinstall` hooks (supply-chain risk), and the vendored xterm.js + node-pty chmod live outside what pnpm itself runs.
 
 On first start, Claude Patrol creates its configuration at
 `~/.config/claude-patrol/config.json` (or

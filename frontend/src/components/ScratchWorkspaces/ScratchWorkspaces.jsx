@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from 'react';
-import { createScratchWorkspace, fetchScratchWorkspaces } from '../../lib/api.js';
+import { useCallback, useState } from 'react';
+import { createScratchWorkspace } from '../../lib/api.js';
 import { getErrorMessage } from '../../lib/errors.js';
 import { getRelativeTime } from '../../lib/time.js';
 import { Badge } from '../ui/Badge/Badge.jsx';
@@ -11,24 +11,16 @@ import styles from './ScratchWorkspaces.module.css';
 
 /**
  * @param {{
+ *   scratchWorkspaces: import('../../types').Workspace[],
  *   workspaceStates?: Map<string, 'working' | 'idle'>,
  *   dismissedIdle?: Set<string>,
- *   localChangeCount: number,
  * }} props
  */
-export function ScratchWorkspaces({ workspaceStates, dismissedIdle, localChangeCount }) {
-  const [scratchWorkspaces, setScratchWorkspaces] = useState(/** @type {import('../../types').Workspace[]} */ ([]));
+export function ScratchWorkspaces({ scratchWorkspaces, workspaceStates, dismissedIdle }) {
   const [showNewWork, setShowNewWork] = useState(false);
   const [newWorkRepo, setNewWorkRepo] = useState('');
   const [newWorkBranch, setNewWorkBranch] = useState('');
   const [newWorkSubmitting, setNewWorkSubmitting] = useState(false);
-
-  useEffect(() => {
-    void localChangeCount;
-    fetchScratchWorkspaces()
-      .then((ws) => setScratchWorkspaces(ws))
-      .catch(() => {});
-  }, [localChangeCount]);
 
   const handleNewWork = useCallback(async () => {
     if (!newWorkRepo || !newWorkBranch) return;

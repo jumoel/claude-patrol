@@ -100,11 +100,11 @@ Same fix applied to `runRuleForAll` (the bulk surface behind `/api/rules/:id/run
 
 ## 2026-05-13 - Explicit `pnpm run setup` for new contributors
 
-New contributors hit a wall: after `pnpm install` at the root, `pnpm start` failed with `sh: vite: command not found` because `frontend/node_modules` was never installed and `vendor/xterm.js` was never cloned. There was also no obvious single command to drive the rest of setup — users had to read the script list and discover `setup:xterm` themselves.
+New contributors hit a wall: after `pnpm install` at the root, `pnpm start` failed with `sh: vite: command not found` because `frontend/node_modules` was never installed and `vendor/xterm.js` was never cloned. There was also no obvious single command to drive the rest of setup - users had to read the script list and discover `setup:xterm` themselves.
 
 Fix: one explicit `pnpm run setup` command that runs after `pnpm install`. It (1) clones and builds vendored xterm.js if missing, (2) `cd frontend && pnpm install`, and (3) fixes the node-pty spawn-helper executable bit on macOS. Idempotent.
 
-Why not `preinstall`/`postinstall` hooks: install hooks run silently on every `pnpm install` (including transitively when this package is a dependency, in CI, etc.) and are a well-known supply-chain footgun. An explicit setup command is harder to miss — and `pnpm start` is now noisy about its prerequisites — without ceding any visibility.
+Why not `preinstall`/`postinstall` hooks: install hooks run silently on every `pnpm install` (including transitively when this package is a dependency, in CI, etc.) and are a well-known supply-chain footgun. An explicit setup command is harder to miss - and `pnpm start` is now noisy about its prerequisites - without ceding any visibility.
 
 Also removed the redundant xterm existence check from `start`/`watch` (setup is the only place that handles it now), and added a `build` script so `pnpm run build` does what you'd expect. CLAUDE.md and README.md call the new command out at the top of the onboarding section.
 

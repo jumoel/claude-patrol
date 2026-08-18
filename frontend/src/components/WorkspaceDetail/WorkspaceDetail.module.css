@@ -14,33 +14,6 @@
   @apply text-green-800 underline hover:text-green-900;
 }
 
-.spinner {
-  @apply inline-block h-4 w-4 shrink-0 rounded-full border-2 border-white/40 border-t-white;
-  animation: spin 0.8s linear infinite;
-}
-
 .launchError {
   @apply text-sm text-red-600;
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-.sessionRow {
-  @apply flex items-center justify-between w-full py-1.5 px-3 rounded hover:bg-gray-50 transition-colors cursor-pointer;
-  background: none;
-  border: none;
-  text-align: left;
-}
-
-.chevron {
-  @apply text-gray-400 text-sm transition-transform duration-150;
-  display: inline-block;
-}
-
-.chevronOpen {
-  transform: rotate(90deg);
 }
