@@ -6,6 +6,18 @@ import { Badge } from '../ui/Badge/Badge.jsx';
 import { Stack } from '../ui/Stack/Stack.jsx';
 import styles from './CommandPalette.module.css';
 
+/** @typedef {'working' | 'idle'} SessionState */
+/** @typedef {{match: boolean, score: number}} MatchResult */
+/** @typedef {MatchResult & {type: 'pr', item: import('../../types').PullRequest}} PullRequestEntry */
+/** @typedef {MatchResult & {type: 'workspace', item: import('../../types').Workspace}} WorkspaceEntry */
+/** @typedef {MatchResult & {type: 'global', item: {id: 'global'}}} GlobalEntry */
+/** @typedef {PullRequestEntry | WorkspaceEntry | GlobalEntry} PaletteEntry */
+
+/**
+ * @param {string} query
+ * @param {import('../../types').PullRequest} pr
+ * @returns {MatchResult}
+ */
 function fuzzyMatchPR(query, pr) {
   if (!query) return { match: true, score: 0 };
   const primary = `${pr.title} ${pr.org}/${pr.repo} #${pr.number} ${pr.branch}`.toLowerCase();
@@ -22,6 +34,11 @@ function fuzzyMatchPR(query, pr) {
   return { match: true, score };
 }
 
+/**
+ * @param {string} query
+ * @param {import('../../types').Workspace} ws
+ * @returns {MatchResult}
+ */
 function fuzzyMatchWorkspace(query, ws) {
   if (!query) return { match: true, score: 0 };
   const haystack = `${ws.bookmark} ${ws.repo || ''} scratch workspace`.toLowerCase();
@@ -35,6 +52,19 @@ function fuzzyMatchWorkspace(query, ws) {
   return { match: true, score };
 }
 
+/**
+ * @param {{
+ *   prs: import('../../types').PullRequest[],
+ *   scratchWorkspaces: import('../../types').Workspace[],
+ *   workspaceStates?: Map<string, SessionState>,
+ *   dismissedIdle?: Set<string>,
+ *   hasGlobalSession: boolean,
+ *   onNavigate: (prId: string) => void,
+ *   onNavigateWorkspace: (workspaceId: string) => void,
+ *   onOpenGlobalTerminal: () => void,
+ *   onCloseGlobalTerminal?: () => void,
+ * }} props
+ */
 export function CommandPalette({
   prs,
   scratchWorkspaces,
@@ -49,9 +79,9 @@ export function CommandPalette({
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
-  const dialogRef = useRef(null);
-  const inputRef = useRef(null);
-  const resultsRef = useRef(null);
+  const dialogRef = useRef(/** @type {HTMLDivElement | null} */ (null));
+  const inputRef = useRef(/** @type {HTMLInputElement | null} */ (null));
+  const resultsRef = useRef(/** @type {HTMLDivElement | null} */ (null));
 
   const close = useCallback(() => {
     setOpen(false);
@@ -61,6 +91,7 @@ export function CommandPalette({
 
   // Global Cmd+K / Ctrl+K listener
   useEffect(() => {
+    /** @param {KeyboardEvent} e */
     const handler = (e) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
         e.preventDefault();
@@ -89,34 +120,54 @@ export function CommandPalette({
   useClickOutside(dialogRef, open ? close : () => {});
 
   const filtered = useMemo(() => {
+    /** @type {PullRequestEntry[]} */
     const prItems = query
-      ? prs.map((pr) => ({ ...fuzzyMatchPR(query, pr), type: 'pr', item: pr })).filter((r) => r.match)
-      : prs.map((pr) => ({ match: true, score: 0, type: 'pr', item: pr }));
+      ? prs
+          .map((pr) => ({ ...fuzzyMatchPR(query, pr), type: /** @type {'pr'} */ ('pr'), item: pr }))
+          .filter((r) => r.match)
+      : prs.map((pr) => ({ match: true, score: 0, type: /** @type {'pr'} */ ('pr'), item: pr }));
 
+    /** @type {WorkspaceEntry[]} */
     const wsItems =
       (scratchWorkspaces || []).length > 0
         ? query
           ? (scratchWorkspaces || [])
-              .map((ws) => ({ ...fuzzyMatchWorkspace(query, ws), type: 'workspace', item: ws }))
+              .map((ws) => ({
+                ...fuzzyMatchWorkspace(query, ws),
+                type: /** @type {'workspace'} */ ('workspace'),
+                item: ws,
+              }))
               .filter((r) => r.match)
-          : (scratchWorkspaces || []).map((ws) => ({ match: true, score: 0, type: 'workspace', item: ws }))
+          : (scratchWorkspaces || []).map((ws) => ({
+              match: true,
+              score: 0,
+              type: /** @type {'workspace'} */ ('workspace'),
+              item: ws,
+            }))
         : [];
 
     // Global terminal entry (only if session is active)
+    /** @type {GlobalEntry[]} */
     const globalItems = [];
     if (hasGlobalSession) {
       const gLabel = 'Global Terminal';
       if (!query || gLabel.toLowerCase().includes(query.toLowerCase())) {
-        globalItems.push({ match: true, score: query ? 1 : 0, type: 'global', item: { id: 'global' } });
+        globalItems.push({
+          match: true,
+          score: query ? 1 : 0,
+          type: 'global',
+          item: { id: 'global' },
+        });
       }
     }
 
     const all = [...prItems, ...wsItems, ...globalItems];
 
     // Boost items with active sessions to top (idle first, then working), then sort by score
+    /** @param {PaletteEntry} entry */
     const sessionPriority = (entry) => {
       if (!workspaceStates?.size) return 0;
-      const wsId = entry.type === 'workspace' ? entry.item.id : entry.item.workspace_id;
+      const wsId = entry.type === 'workspace' ? entry.item.id : entry.type === 'pr' ? entry.item.workspace_id : null;
       if (!wsId) return 0;
       const state = workspaceStates.get(wsId);
       if (state === 'idle') return 2;
@@ -145,6 +196,7 @@ export function CommandPalette({
   }, [selectedIndex]);
 
   const handleSelect = useCallback(
+    /** @param {PaletteEntry} entry */
     (entry) => {
       if (entry.type === 'global') {
         onOpenGlobalTerminal();
@@ -161,6 +213,7 @@ export function CommandPalette({
     [onNavigate, onNavigateWorkspace, onOpenGlobalTerminal, onCloseGlobalTerminal, close],
   );
 
+  /** @param {import('react').KeyboardEvent<HTMLDivElement>} e */
   const handleKeyDown = (e) => {
     if (e.key === 'ArrowDown') {
       e.preventDefault();
@@ -239,6 +292,7 @@ export function CommandPalette({
   );
 }
 
+/** @param {{state?: SessionState, dismissed?: boolean}} props */
 function SessionStateBadge({ state, dismissed }) {
   if (state === 'working')
     return (
@@ -262,6 +316,7 @@ function SessionStateBadge({ state, dismissed }) {
   return null;
 }
 
+/** @param {{pr: import('../../types').PullRequest, sessionState?: SessionState, dismissed?: boolean}} props */
 function PRResult({ pr, sessionState, dismissed }) {
   return (
     <Stack direction="col" gap={1} className={styles.resultInfo}>
@@ -295,11 +350,14 @@ function GlobalResult() {
   );
 }
 
+/** @param {{ws: import('../../types').Workspace, sessionState?: SessionState, dismissed?: boolean}} props */
 function WorkspaceResult({ ws, sessionState, dismissed }) {
   return (
     <Stack direction="col" gap={1} className={styles.resultInfo}>
       <div className={styles.resultTitle}>{ws.bookmark}</div>
-      <Stack gap={2} className={styles.resultMeta}>{ws.repo && <span className={styles.resultRepo}>{ws.repo}</span>}</Stack>
+      <Stack gap={2} className={styles.resultMeta}>
+        {ws.repo && <span className={styles.resultRepo}>{ws.repo}</span>}
+      </Stack>
       <Stack gap={1} className={styles.resultBadges}>
         <Badge color="purple">scratch workspace</Badge>
         <SessionStateBadge state={sessionState} dismissed={dismissed} />

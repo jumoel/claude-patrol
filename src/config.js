@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
-import { existsSync, readFileSync, unwatchFile, watchFile, writeFileSync } from 'node:fs';
-import { isAbsolute, resolve } from 'node:path';
+import { existsSync, readFileSync, renameSync, rmSync, unwatchFile, watchFile, writeFileSync } from 'node:fs';
+import { dirname, isAbsolute, resolve } from 'node:path';
 import { z } from 'zod';
 import { configPath, dataDir, defaultDbPath } from './paths.js';
 import { expandPath } from './utils.js';
@@ -14,6 +14,7 @@ const OWNER_REPO_RE = /^[^/]+\/[^/]+$/;
 export const configSchema = z
   .object({
     port: z.number().int().positive().default(3000),
+    host: z.string().min(1).default('127.0.0.1'),
     db_path: z.string().optional(),
     workspace_base_path: z.string().default('~/.claude-patrol/workspaces'),
     work_dir: z.string().default('~/.claude-patrol/workspaces'),
@@ -23,11 +24,20 @@ export const configSchema = z
       .object({
         interval_seconds: z.number().int().min(5).default(30),
         orgs: z.array(z.string()).default([]),
-        repos: z
-          .array(z.string().regex(OWNER_REPO_RE, 'must be "owner/repo" format'))
-          .default([]),
+        repos: z.array(z.string().regex(OWNER_REPO_RE, 'must be "owner/repo" format')).default([]),
       })
       .default({ interval_seconds: 30, orgs: [], repos: [] }),
+    security: z
+      .object({
+        auth_token: z.string().min(16).optional(),
+        allowed_origins: z.array(z.string().url()).default([]),
+      })
+      .default({ allowed_origins: [] }),
+    automation: z
+      .object({
+        concurrency: z.number().int().min(1).max(16).default(2),
+      })
+      .default({ concurrency: 2 }),
     repos: z
       .record(
         z.string(),
@@ -42,15 +52,11 @@ export const configSchema = z
   .passthrough();
 
 /**
- * Read and validate config from disk. Path fields are expanded (~ -> home).
- * @returns {Readonly<Record<string, unknown>>}
- */
-/**
  * Ensure a config file exists. If not, write a starter template and return false.
  * @returns {boolean} true if config exists, false if template was written
  */
-export function ensureConfig() {
-  if (existsSync(CONFIG_PATH)) return true;
+export function ensureConfig(path = CONFIG_PATH) {
+  if (existsSync(path)) return true;
 
   const template = {
     port: 3000,
@@ -62,7 +68,7 @@ export function ensureConfig() {
       repos: [],
     },
   };
-  writeFileSync(CONFIG_PATH, `${JSON.stringify(template, null, 2)}\n`);
+  writeConfigAtomic(path, template);
   return false;
 }
 
@@ -83,14 +89,11 @@ export function getConfigPath() {
   return CONFIG_PATH;
 }
 
-export function loadConfig() {
-  const raw = readFileSync(CONFIG_PATH, 'utf8');
-  const parsed = JSON.parse(raw);
+/** Read and validate configuration data and expand filesystem paths. */
+export function parseConfig(parsed) {
   const result = configSchema.safeParse(parsed);
   if (!result.success) {
-    const issues = result.error.issues
-      .map((i) => `  ${i.path.join('.')}: ${i.message}`)
-      .join('\n');
+    const issues = result.error.issues.map((i) => `  ${i.path.join('.')}: ${i.message}`).join('\n');
     throw new Error(`Invalid config:\n${issues}`);
   }
   const cfg = result.data;
@@ -112,6 +115,48 @@ export function loadConfig() {
   }
 
   return Object.freeze(cfg);
+}
+
+export function loadConfig(path = CONFIG_PATH) {
+  const raw = readFileSync(path, 'utf8');
+  return parseConfig(JSON.parse(raw));
+}
+
+function writeConfigAtomic(path, value) {
+  const temporaryPath = resolve(dirname(path), `.config.${process.pid}.${Date.now()}.tmp`);
+  try {
+    writeFileSync(temporaryPath, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
+    renameSync(temporaryPath, path);
+  } catch (error) {
+    rmSync(temporaryPath, { force: true });
+    throw error;
+  }
+}
+
+/**
+ * Validate, atomically persist, and publish a partial configuration update.
+ * The raw on-disk object is merged so normalized absolute paths are never
+ * written back over the user's portable path values.
+ */
+export function updateConfig(patch, path = CONFIG_PATH) {
+  const raw = JSON.parse(readFileSync(path, 'utf8'));
+  const mergeSection = (key) => {
+    if (!Object.hasOwn(patch, key)) return raw[key];
+    const value = patch[key];
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
+    return { ...(raw[key] ?? {}), ...value };
+  };
+  const merged = {
+    ...raw,
+    ...patch,
+    poll: mergeSection('poll'),
+    security: mergeSection('security'),
+  };
+  const normalized = parseConfig(merged);
+  writeConfigAtomic(path, merged);
+  setCurrentConfig(normalized);
+  configEvents.emit('change', normalized);
+  return normalized;
 }
 
 export const configEvents = new EventEmitter();
@@ -143,6 +188,7 @@ export function watchConfig() {
   watchFile(CONFIG_PATH, { interval: 1000 }, () => {
     try {
       const cfg = loadConfig();
+      if (currentConfig && JSON.stringify(cfg) === JSON.stringify(currentConfig)) return;
       configEvents.emit('change', cfg);
       console.log('[config] Reloaded config');
     } catch (err) {

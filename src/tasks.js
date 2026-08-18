@@ -3,7 +3,7 @@ import { appEvents } from './app-events.js';
 
 /**
  * In-memory registry of long-running async operations (workspace destroy,
- * future: workspace create, summary generation, etc). Surfaces them in the
+ * with room for future workspace operations). Surfaces them in the
  * UI so users see what's still running in the background and any warnings
  * that came back.
  *

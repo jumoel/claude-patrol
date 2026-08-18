@@ -4,12 +4,12 @@ import styles from './TranscriptViewer.module.css';
 
 /**
  * Render a Claude Code JSONL transcript as a conversation view.
- * @param {{ entries: object[] | null, loading: boolean, error: string | null }} props
+ * @param {{ entries: import('../../types').TranscriptEntry[] | null, loading: boolean, error: string | null }} props
  */
 export function TranscriptViewer({ entries, loading, error }) {
   const [search, setSearch] = useState('');
   const [showThinking, setShowThinking] = useState(false);
-  const [expandedTools, setExpandedTools] = useState(new Set());
+  const [expandedTools, setExpandedTools] = useState(new Set(/** @type {string[]} */ ([])));
 
   const filtered = useMemo(() => {
     if (!entries) return [];
@@ -34,6 +34,7 @@ export function TranscriptViewer({ entries, loading, error }) {
     return result;
   }, [entries, search, showThinking]);
 
+  /** @param {string} key */
   const toggleTool = (key) => {
     setExpandedTools((prev) => {
       const next = new Set(prev);

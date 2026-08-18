@@ -1,4 +1,3 @@
-import { getCurrentConfig } from '../config.js';
 import { execFile } from '../utils.js';
 
 /**
@@ -6,9 +5,10 @@ import { execFile } from '../utils.js';
  * @param {import('fastify').FastifyInstance} app
  */
 export function registerSetupRoutes(app) {
+  const { getConfig } = app.appContext;
   // List all repos from configured orgs + explicit repos (for workspace creation)
   app.get('/api/repos', async (_request, reply) => {
-    const cfg = getCurrentConfig();
+    const cfg = getConfig();
     const orgs = cfg?.poll?.orgs || [];
     const explicitRepos = cfg?.poll?.repos || [];
 

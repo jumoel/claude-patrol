@@ -21,7 +21,8 @@ export const BOOT_TIMEOUT_MS_DEFAULT = 30_000;
  * Used to distinguish real content output from TUI status-bar refreshes.
  */
 // eslint-disable-next-line no-control-regex
-const ANSI_RE = /\x1b(?:\[[0-9;?]*[A-Za-z]|\][^\x07\x1b]*(?:\x07|\x1b\\)|\(.|>[0-9]*|=[0-9]*|[ #%()*+\-.\/][A-Za-z0-9]?)/g;
+const ANSI_RE =
+  /\x1b(?:\[[0-9;?]*[A-Za-z]|\][^\x07\x1b]*(?:\x07|\x1b\\)|\(.|>[0-9]*|=[0-9]*|[ #%()*+\-./][A-Za-z0-9]?)/g;
 function printableLength(data) {
   // Strip escape sequences, then count non-control characters
   const stripped = data.replace(ANSI_RE, '');
@@ -329,7 +330,9 @@ export function reattachOrphanedSessions() {
     try {
       // Ensure status bar is off (may have been on from older sessions)
       const tmuxName = `patrol-${session.id}`;
-      try { execFileSync('tmux', ['set-option', '-t', tmuxName, 'status', 'off'], { timeout: 5_000 }); } catch {}
+      try {
+        execFileSync('tmux', ['set-option', '-t', tmuxName, 'status', 'off'], { timeout: 5_000 });
+      } catch {}
       attachPtyToTmux(session.id, {
         claudeProjectDir: session.claude_project_dir,
         startedAt: session.started_at,

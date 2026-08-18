@@ -9,13 +9,13 @@ import styles from './RepoCombobox.module.css';
 export function RepoCombobox({ value, onChange, disabled = false, variant = 'light' }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
-  const [repos, setRepos] = useState([]);
+  const [repos, setRepos] = useState(/** @type {string[]} */ ([]));
   const [loading, setLoading] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [highlighted, setHighlighted] = useState(0);
-  const containerRef = useRef(null);
-  const inputRef = useRef(null);
-  const listRef = useRef(null);
+  const containerRef = useRef(/** @type {HTMLDivElement | null} */ (null));
+  const inputRef = useRef(/** @type {HTMLInputElement | null} */ (null));
+  const listRef = useRef(/** @type {HTMLDivElement | null} */ (null));
 
   // Fetch repos on first open
   useEffect(() => {
@@ -32,9 +32,10 @@ export function RepoCombobox({ value, onChange, disabled = false, variant = 'lig
 
   // Close on outside click
   useEffect(() => {
-    if (!open) return;
+    if (!open) return undefined;
+    /** @param {MouseEvent} e */
     const handler = (e) => {
-      if (containerRef.current && !containerRef.current.contains(e.target)) {
+      if (containerRef.current && e.target instanceof Node && !containerRef.current.contains(e.target)) {
         setOpen(false);
         setQuery('');
       }
@@ -58,6 +59,7 @@ export function RepoCombobox({ value, onChange, disabled = false, variant = 'lig
   }, [highlighted]);
 
   const select = useCallback(
+    /** @param {string} repo */
     (repo) => {
       onChange(repo);
       setOpen(false);
@@ -67,6 +69,7 @@ export function RepoCombobox({ value, onChange, disabled = false, variant = 'lig
   );
 
   const handleKeyDown = useCallback(
+    /** @param {import('react').KeyboardEvent<HTMLInputElement>} e */
     (e) => {
       if (!open) {
         if (e.key === 'ArrowDown' || e.key === 'Enter') {

@@ -1,5 +1,4 @@
-import { writeFileSync } from 'node:fs';
-import { getConfigPath, getCurrentConfig, isConfigured } from '../config.js';
+import { isConfigured } from '../config.js';
 import { getRestartStatus, getUpdateStatus, pullUpdate, restartServer } from '../update-check.js';
 
 /**
@@ -7,8 +6,9 @@ import { getRestartStatus, getUpdateStatus, pullUpdate, restartServer } from '..
  * @param {import('fastify').FastifyInstance} app
  */
 export function registerConfigRoutes(app) {
+  const { getConfig, updateConfig } = app.appContext;
   app.get('/api/config', () => {
-    const cfg = getCurrentConfig();
+    const cfg = getConfig();
     return {
       poll: cfg.poll,
       needs_setup: !isConfigured(cfg),
@@ -18,31 +18,16 @@ export function registerConfigRoutes(app) {
 
   app.post('/api/config', (request, reply) => {
     const body = request.body;
-    if (!body || typeof body !== 'object') {
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
       return reply.code(400).send({ error: 'Request body must be a JSON object' });
     }
 
-    // Read current config and merge poll targets
-    const current = getCurrentConfig();
-    const newConfig = {
-      ...current,
-      poll: {
-        ...current.poll,
-        ...body.poll,
-      },
-    };
-
-    // Validate poll structure
-    if (!Array.isArray(newConfig.poll.orgs) || !Array.isArray(newConfig.poll.repos)) {
-      return reply.code(400).send({ error: 'poll.orgs and poll.repos must be arrays' });
-    }
-
     try {
-      // Write to disk - fs.watchFile will pick up the change and live-reload
-      writeFileSync(getConfigPath(), `${JSON.stringify(newConfig, null, 2)}\n`);
+      updateConfig(body);
       return { ok: true };
     } catch (err) {
-      return reply.code(500).send({ error: `Failed to write config: ${err.message}` });
+      const validationError = err.message.startsWith('Invalid config:') || err instanceof SyntaxError;
+      return reply.code(validationError ? 400 : 500).send({ error: `Failed to write config: ${err.message}` });
     }
   });
 

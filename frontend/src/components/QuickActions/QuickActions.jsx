@@ -3,6 +3,11 @@ import { Button } from '../ui/Button/Button.jsx';
 import { Stack } from '../ui/Stack/Stack.jsx';
 import styles from './QuickActions.module.css';
 
+/**
+ * @typedef {{label: string, command: string}} QuickAction
+ * @param {string | undefined} baseBranch
+ * @returns {QuickAction[]}
+ */
 function getActions(baseBranch) {
   const target = baseBranch || 'main';
   return [
@@ -27,6 +32,7 @@ function getActions(baseBranch) {
  * @param {{ wsRef?: { current: WebSocket | null }, onSend?: (text: string) => void, baseBranch?: string }} props
  */
 export function QuickActions({ wsRef, onSend, baseBranch }) {
+  /** @param {QuickAction} action */
   const handleAction = (action) => {
     if (onSend) {
       onSend(action.command);

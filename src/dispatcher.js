@@ -68,8 +68,7 @@ export async function ensureSessionAndSend({
   callerSessionId = null,
   waitForBusy = false,
 }) {
-  const targetCount =
-    (session_id ? 1 : 0) + (pr_id ? 1 : 0) + (workspace_id ? 1 : 0) + (isGlobal ? 1 : 0);
+  const targetCount = (session_id ? 1 : 0) + (pr_id ? 1 : 0) + (workspace_id ? 1 : 0) + (isGlobal ? 1 : 0);
   if (targetCount === 0) {
     throw taggedError('no_target', 'one of session_id, pr_id, workspace_id, global is required');
   }
@@ -94,14 +93,18 @@ export async function ensureSessionAndSend({
   } else {
     let workspace = null;
     if (pr_id) {
-      workspace = db.prepare("SELECT * FROM workspaces WHERE pr_id = ? AND status = 'active'").get(pr_id);
+      workspace = db
+        .prepare("SELECT * FROM workspaces WHERE pr_id = ? AND status = 'active' AND operation_state = 'ready'")
+        .get(pr_id);
       if (!workspace) {
         if (!autoCreate) throw taggedError('no_workspace', `no active workspace for pr ${pr_id}`);
         const created = await createWorkspace(pr_id, getCurrentConfig());
         workspace = db.prepare('SELECT * FROM workspaces WHERE id = ?').get(created.id);
       }
     } else if (workspace_id) {
-      workspace = db.prepare("SELECT * FROM workspaces WHERE id = ? AND status = 'active'").get(workspace_id);
+      workspace = db
+        .prepare("SELECT * FROM workspaces WHERE id = ? AND status = 'active' AND operation_state = 'ready'")
+        .get(workspace_id);
       if (!workspace) throw taggedError('no_workspace', `workspace ${workspace_id} not found or not active`);
     }
     // workspace stays null for the global path
@@ -179,4 +182,3 @@ export async function ensureSessionAndSend({
     dispatched_at,
   };
 }
-

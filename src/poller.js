@@ -1,142 +1,17 @@
 import { spawn } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { unlinkSync } from 'node:fs';
-import { hasReviewsViewer } from './active-tabs.js';
 import { emitGhRateLimit, emitLocalChange } from './app-events.js';
 import { getDb } from './db.js';
 import { deriveCIStatus, formatPR } from './pr-status.js';
+import { SingleFlight } from './single-flight.js';
 import { makePrId } from './utils.js';
 import { destroyWorkspace } from './workspace.js';
 
 export const pollerEvents = new EventEmitter();
-pollerEvents.setMaxListeners(0);
 
-/** Track in-flight PR summary generations to avoid concurrent batches stomping on each other. */
-const prSummaryInFlight = new Set();
-
-/** PRs per batched claude invocation. Bigger = fewer spawns, but worse worst-case latency / context use. */
-const PR_SUMMARY_BATCH_SIZE = 20;
-/** Max chars of body to include per PR in the batch prompt. */
-const PR_SUMMARY_BODY_LIMIT = 2000;
-
-/**
- * Run `claude --print --model haiku` with the given prompt piped on stdin.
- * @param {string} prompt
- * @param {{timeoutMs?: number}} [options]
- * @returns {Promise<string>}
- */
-function runClaudePrint(prompt, { timeoutMs = 60_000 } = {}) {
-  return new Promise((resolve, reject) => {
-    const proc = spawn('claude', ['--print', '--model', 'haiku'], {
-      stdio: ['pipe', 'pipe', 'pipe'],
-      timeout: timeoutMs,
-    });
-    let stdout = '';
-    let stderr = '';
-    proc.stdout.on('data', (d) => {
-      stdout += d;
-    });
-    proc.stderr.on('data', (d) => {
-      stderr += d;
-    });
-    proc.on('close', (code) => {
-      if (code === 0) resolve(stdout.trim());
-      else reject(new Error(`claude exited ${code}: ${stderr.trim()}`));
-    });
-    proc.on('error', reject);
-    proc.stdin.write(prompt);
-    proc.stdin.end();
-  });
-}
-
-/**
- * Parse a batched summary response into an id->summary map.
- * The model is instructed to emit `### <id> ###` delimiters followed by the
- * one-line summary. We're lenient with surrounding whitespace and ignore any
- * IDs the model hallucinates that weren't in the request.
- * @param {string} text
- * @param {Set<string>} expectedIds
- * @returns {Map<string, string>}
- */
-function parseBatchedSummaries(text, expectedIds) {
-  const out = new Map();
-  // Delimiter occupies its own line: "### <id> ###". PR ids contain '#'
-  // (org/repo#N), so we require explicit spaces around the inner id rather
-  // than relying on a `[^#]` class that would reject the id itself.
-  // Split result interleaves: [pre, id1, body1, id2, body2, ...].
-  const parts = text.split(/^###[ \t]+(.+?)[ \t]+###[ \t]*$/m);
-  for (let i = 1; i + 1 < parts.length; i += 2) {
-    const id = parts[i].trim();
-    if (!expectedIds.has(id)) continue;
-    const summary = parts[i + 1].trim().split('\n')[0].trim();
-    if (summary) out.set(id, summary);
-  }
-  return out;
-}
-
-/**
- * Build a single batched prompt that asks for one-line summaries of every PR
- * in the chunk. Bodies are clamped to keep context use bounded.
- * @param {Array<{id: string, title: string, body: string}>} chunk
- */
-function buildBatchSummaryPrompt(chunk) {
-  const blocks = chunk
-    .map((p) => `### ${p.id} ###\nTitle: ${p.title}\nDescription:\n${p.body.slice(0, PR_SUMMARY_BODY_LIMIT)}`)
-    .join('\n\n---\n\n');
-  return `You are a PR summarizer. For each PR below, write exactly one short sentence (under 100 characters) that captures what it does and why - for a busy human scanning a list. No markdown, no quotes, no preamble.
-
-Output format: for each PR, emit a delimiter line "### <id> ###" using the exact id given, then a newline, then the one-sentence summary on the next line. Do not summarize PRs that aren't listed below. Use the ids verbatim - they are opaque tokens.
-
-${blocks}`;
-}
-
-/**
- * Summarize a list of PRs in one or a few batched claude calls and persist
- * the results. Replaces the old per-PR fire-and-forget loop, which spawned
- * one process per changed body. For initial syncs that's the difference
- * between 1 spawn and N spawns.
- * @param {Array<{id: string, title: string, body: string}>} prs
- */
-async function generatePRSummariesBatch(prs) {
-  const eligible = prs.filter((p) => p.body?.trim() && !prSummaryInFlight.has(p.id));
-  if (eligible.length === 0) return;
-
-  for (let i = 0; i < eligible.length; i += PR_SUMMARY_BATCH_SIZE) {
-    const chunk = eligible.slice(i, i + PR_SUMMARY_BATCH_SIZE);
-    for (const p of chunk) prSummaryInFlight.add(p.id);
-
-    try {
-      const prompt = buildBatchSummaryPrompt(chunk);
-      const stdout = await runClaudePrint(prompt);
-      const summaries = parseBatchedSummaries(stdout, new Set(chunk.map((p) => p.id)));
-      if (summaries.size > 0) {
-        const db = getDb();
-        const update = db.prepare('UPDATE prs SET pr_summary = ? WHERE id = ?');
-        db.exec('BEGIN');
-        try {
-          for (const [id, summary] of summaries) update.run(summary, id);
-          db.exec('COMMIT');
-        } catch (err) {
-          db.exec('ROLLBACK');
-          throw err;
-        }
-        emitLocalChange();
-        console.log(`[poller] Generated ${summaries.size}/${chunk.length} PR summaries (batch of ${chunk.length})`);
-      } else {
-        console.warn(`[poller] PR summary batch returned no parseable summaries (${chunk.length} PRs)`);
-      }
-    } catch (err) {
-      console.warn(`[poller] PR summary batch failed (${chunk.length} PRs): ${err.message}`);
-    } finally {
-      for (const p of chunk) prSummaryInFlight.delete(p.id);
-    }
-  }
-}
-
-// Page size 50 with 30 inline check contexts. Larger inline payloads (100/100)
-// 504 from GitHub's gateway once a search returns enough heavy PRs - the
-// review-requested queue in a busy mono-repo can easily hit that, while the
-// author queue almost never does. Pagination picks up the rest for PRs that
+// Page size 50 with 30 inline check contexts. Larger inline payloads
+// can 504 from GitHub's gateway. Pagination picks up the rest for PRs that
 // exceed 30 checks (see CHECKS_PAGE_QUERY).
 const GRAPHQL_QUERY = `
 query($q: String!, $cursor: String) {
@@ -409,9 +284,7 @@ export async function fetchPRBodyHtml(owner, name, number) {
 /**
  * Force-refresh a single PR from GitHub and upsert it into the DB. Bypasses
  * the incremental-polling cadence: the next time you ask for this PR, every
- * field reflects the live GitHub state. Preserves the PR's existing role
- * flags (is_authored, is_review_requested) - this is a refresh, not a role
- * re-evaluation.
+ * field reflects the live GitHub state.
  *
  * If the PR has been MERGED or CLOSED, this short-circuits to the same
  * cleanup the poller's orphan path runs: destroy active workspaces, delete
@@ -429,7 +302,7 @@ export async function refreshSinglePR(prId, config) {
   const number = Number(numStr);
 
   const db = getDb();
-  const existing = db.prepare('SELECT id, is_authored, is_review_requested FROM prs WHERE id = ?').get(prId);
+  const existing = db.prepare('SELECT id FROM prs WHERE id = ?').get(prId);
   if (!existing) throw new Error(`PR not tracked: ${prId}`);
 
   const result = await ghGraphql(SINGLE_PR_QUERY, { owner, name, number });
@@ -453,10 +326,7 @@ export async function refreshSinglePR(prId, config) {
     contextsConn.pageInfo.hasNextPage = false;
   }
 
-  const roles = new Set();
-  if (existing.is_authored) roles.add('author');
-  if (existing.is_review_requested) roles.add('reviewer');
-  upsertPRs([{ pr, roles }]);
+  upsertPRs([pr]);
 
   // Overwrite body_html unconditionally - upsertPRs blanks it only when the
   // body text changes, but a force-refresh should also pick up rendering
@@ -592,24 +462,23 @@ async function fetchRemainingChecks(nodeId, startCursor) {
 
 /**
  * Fetch all open PRs for a search qualifier, handling pagination.
- * Also paginates check contexts for PRs that exceed 100 checks.
+ * Also paginates check contexts for PRs that exceed the inline page.
  *
  * @param {string} qualifier - e.g. "org:foo" or "repo:owner/repo" or
  *   "org:a org:b repo:c/d" (multiple qualifiers are OR'd by GitHub search).
- * @param {string} roleQualifier - one of "author:@me", "review-requested:@me".
  * @param {string | null} [sinceIso] - if set, restricts the search to PRs
  *   updated at or after this ISO timestamp via `updated:>=`. Used by
  *   incremental polls to avoid refetching unchanged PRs.
  * @returns {Promise<{prs: object[]}>}
  */
-async function fetchPRs(qualifier, roleQualifier, sinceIso = null) {
+async function fetchPRs(qualifier, sinceIso = null) {
   const allPRs = [];
   let cursor = null;
   let hasNext = true;
 
   const sinceClause = sinceIso ? ` updated:>=${sinceIso}` : '';
   while (hasNext) {
-    const vars = { q: `${qualifier} is:pr is:open ${roleQualifier}${sinceClause} sort:updated-desc` };
+    const vars = { q: `${qualifier} is:pr is:open author:@me${sinceClause} sort:updated-desc` };
     if (cursor) vars.cursor = cursor;
     const result = await ghGraphql(GRAPHQL_QUERY, vars);
     const search = result.data?.search;
@@ -623,7 +492,7 @@ async function fetchPRs(qualifier, roleQualifier, sinceIso = null) {
     cursor = search.pageInfo.endCursor;
   }
 
-  // Paginate checks for PRs that have more than 100
+  // Paginate checks that do not fit in the inline page.
   for (const pr of allPRs) {
     const contextsConn = pr.commits?.nodes?.[0]?.commit?.statusCheckRollup?.contexts;
     if (contextsConn?.pageInfo?.hasNextPage) {
@@ -637,20 +506,19 @@ async function fetchPRs(qualifier, roleQualifier, sinceIso = null) {
 }
 
 /**
- * Enumerate the ids of every open PR for a role, ids only. Used to drive
- * stale-flag clearing and orphan cleanup on incremental cycles, where the
+ * Enumerate the ids of every open authored PR. Used to drive stale cleanup
+ * on incremental cycles, where the
  * heavy `updated:>=` search returns only recently-changed PRs and so can't
  * tell "merged/closed" apart from "not updated lately".
  * @param {string} qualifier
- * @param {string} roleQualifier - "author:@me" or "review-requested:@me"
  * @returns {Promise<Array<{id: string, org: string, repo: string}>>}
  */
-async function fetchOpenPRIds(qualifier, roleQualifier) {
+async function fetchOpenPRIds(qualifier) {
   const out = [];
   let cursor = null;
   let hasNext = true;
   while (hasNext) {
-    const vars = { q: `${qualifier} is:pr is:open ${roleQualifier}` };
+    const vars = { q: `${qualifier} is:pr is:open author:@me` };
     if (cursor) vars.cursor = cursor;
     const result = await ghGraphql(OPEN_IDS_QUERY, vars);
     const search = result.data?.search;
@@ -724,17 +592,11 @@ function extractLabels(pr) {
 /** @type {import('node:sqlite').StatementSync | null} */
 let upsertStmt = null;
 /** @type {import('node:sqlite').StatementSync | null} */
-let clearRoleByOrgStmt = null;
+let findStaleByOrgStmt = null;
 /** @type {import('node:sqlite').StatementSync | null} */
-let clearRoleByRepoStmt = null;
+let findStaleByRepoStmt = null;
 /** @type {import('node:sqlite').StatementSync | null} */
-let clearReviewerRoleByOrgStmt = null;
-/** @type {import('node:sqlite').StatementSync | null} */
-let clearReviewerRoleByRepoStmt = null;
-/** @type {import('node:sqlite').StatementSync | null} */
-let findOrphanRowsStmt = null;
-/** @type {import('node:sqlite').StatementSync | null} */
-let deleteOrphanRowStmt = null;
+let deletePrStmt = null;
 /** @type {import('node:sqlite').StatementSync | null} */
 let getExistingBodyStmt = null;
 /** @type {import('node:sqlite').StatementSync | null} */
@@ -748,39 +610,21 @@ let getPrByIdStmt = null;
 function getStatements() {
   const db = getDb();
   if (!upsertStmt) {
-    // Per-role flags are written here so a PR's role(s) reflect the most
-    // recent poll. Anything not in the explicit column list resets to its
-    // DEFAULT on REPLACE, by design - we want a fresh role tag per cycle.
     upsertStmt = db.prepare(`
-      INSERT OR REPLACE INTO prs (id, number, title, body, body_html, repo, org, author, url, branch, base_branch, is_fork, draft, mergeable, checks, reviews, labels, comments, created_at, updated_at, synced_at, is_authored, is_review_requested)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT OR REPLACE INTO prs (id, number, title, body, body_html, repo, org, author, url, branch, base_branch, is_fork, draft, mergeable, checks, reviews, labels, comments, created_at, updated_at, synced_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
   }
-  if (!clearRoleByOrgStmt) {
-    clearRoleByOrgStmt = db.prepare(
-      'UPDATE prs SET is_authored = 0 WHERE org = ? AND is_authored = 1 AND id NOT IN (SELECT value FROM json_each(?))',
+  if (!findStaleByOrgStmt) {
+    findStaleByOrgStmt = db.prepare('SELECT id FROM prs WHERE org = ? AND id NOT IN (SELECT value FROM json_each(?))');
+  }
+  if (!findStaleByRepoStmt) {
+    findStaleByRepoStmt = db.prepare(
+      'SELECT id FROM prs WHERE org = ? AND repo = ? AND id NOT IN (SELECT value FROM json_each(?))',
     );
   }
-  if (!clearRoleByRepoStmt) {
-    clearRoleByRepoStmt = db.prepare(
-      'UPDATE prs SET is_authored = 0 WHERE org = ? AND repo = ? AND is_authored = 1 AND id NOT IN (SELECT value FROM json_each(?))',
-    );
-  }
-  if (!clearReviewerRoleByOrgStmt) {
-    clearReviewerRoleByOrgStmt = db.prepare(
-      'UPDATE prs SET is_review_requested = 0 WHERE org = ? AND is_review_requested = 1 AND id NOT IN (SELECT value FROM json_each(?))',
-    );
-  }
-  if (!clearReviewerRoleByRepoStmt) {
-    clearReviewerRoleByRepoStmt = db.prepare(
-      'UPDATE prs SET is_review_requested = 0 WHERE org = ? AND repo = ? AND is_review_requested = 1 AND id NOT IN (SELECT value FROM json_each(?))',
-    );
-  }
-  if (!findOrphanRowsStmt) {
-    findOrphanRowsStmt = db.prepare('SELECT id FROM prs WHERE is_authored = 0 AND is_review_requested = 0');
-  }
-  if (!deleteOrphanRowStmt) {
-    deleteOrphanRowStmt = db.prepare('DELETE FROM prs WHERE id = ?');
+  if (!deletePrStmt) {
+    deletePrStmt = db.prepare('DELETE FROM prs WHERE id = ?');
   }
   if (!getExistingBodyStmt) {
     getExistingBodyStmt = db.prepare('SELECT body, body_html FROM prs WHERE id = ?');
@@ -793,12 +637,9 @@ function getStatements() {
   }
   return {
     upsert: upsertStmt,
-    clearRoleByOrg: clearRoleByOrgStmt,
-    clearRoleByRepo: clearRoleByRepoStmt,
-    clearReviewerRoleByOrg: clearReviewerRoleByOrgStmt,
-    clearReviewerRoleByRepo: clearReviewerRoleByRepoStmt,
-    findOrphanRows: findOrphanRowsStmt,
-    deleteOrphanRow: deleteOrphanRowStmt,
+    findStaleByOrg: findStaleByOrgStmt,
+    findStaleByRepo: findStaleByRepoStmt,
+    deletePr: deletePrStmt,
     getExistingBody: getExistingBodyStmt,
     getExistingPrev: getExistingPrevStmt,
     getPrById: getPrByIdStmt,
@@ -843,48 +684,55 @@ function computeChanges(prev, next) {
  */
 async function cleanupStalePR(prId, config) {
   const db = getDb();
-  const workspaces = db.prepare("SELECT id FROM workspaces WHERE pr_id = ? AND status = 'active'").all(prId);
+  const workspaces = db.prepare('SELECT id FROM workspaces WHERE pr_id = ?').all(prId);
   for (const ws of workspaces) {
     try {
-      await destroyWorkspace(ws.id, config);
+      const result = await destroyWorkspace(ws.id, config);
+      if (!result.ok) {
+        throw new Error(result.warnings.join('; ') || 'workspace cleanup was incomplete');
+      }
     } catch (err) {
       console.warn(`[poller] Failed to destroy workspace ${ws.id} for stale PR ${prId}: ${err.message}`);
-    }
-  }
-  // Clean up archived transcript files before deleting session rows
-  const sessionsToDelete = db
-    .prepare('SELECT transcript_path FROM sessions WHERE workspace_id IN (SELECT id FROM workspaces WHERE pr_id = ?)')
-    .all(prId);
-  for (const sess of sessionsToDelete) {
-    if (sess.transcript_path) {
-      try {
-        unlinkSync(sess.transcript_path);
-      } catch {
-        /* best effort */
-      }
+      throw err;
     }
   }
 
-  // Clean up any remaining DB rows (sessions, workspaces) before PR deletion
-  db.prepare('DELETE FROM sessions WHERE workspace_id IN (SELECT id FROM workspaces WHERE pr_id = ?)').run(prId);
-  db.prepare('DELETE FROM workspaces WHERE pr_id = ?').run(prId);
+  // A successful destroy detaches the PR foreign key so stale-PR deletion
+  // cannot be blocked. Retain the initial ids so their archived sessions and
+  // historical rows can still be removed after every external cleanup step
+  // has succeeded.
+  for (const workspace of workspaces) {
+    const sessionsToDelete = db
+      .prepare('SELECT transcript_path FROM sessions WHERE workspace_id = ?')
+      .all(workspace.id);
+    for (const session of sessionsToDelete) {
+      if (session.transcript_path) {
+        try {
+          unlinkSync(session.transcript_path);
+        } catch {
+          /* best effort */
+        }
+      }
+    }
+    db.prepare('DELETE FROM sessions WHERE workspace_id = ?').run(workspace.id);
+    db.prepare('DELETE FROM workspaces WHERE id = ?').run(workspace.id);
+  }
 }
 
 /**
- * Upsert PRs into the database with their per-role flags.
- * @param {Array<{pr: object, roles: Set<string>}>} entries - raw PR nodes from GraphQL plus the role set we saw them in
+ * Upsert authored PRs into the database.
+ * @param {object[]} prs raw PR nodes from GraphQL
  */
-function upsertPRs(entries) {
+function upsertPRs(prs) {
   const db = getDb();
   const now = new Date().toISOString();
   const { upsert, getExistingBody, getExistingPrev, getPrById } = getStatements();
-  const needsSummary = [];
   /** @type {Array<{id: string, prev: object, changes: object}>} */
   const pendingDiffs = [];
 
   db.exec('BEGIN');
   try {
-    for (const { pr, roles } of entries) {
+    for (const pr of prs) {
       const prOrg = pr.repository.owner.login;
       const repo = pr.repository.name;
       const id = makePrId(prOrg, repo, pr.number);
@@ -893,9 +741,6 @@ function upsertPRs(entries) {
       // Check if body changed (new PR or updated description)
       const existing = getExistingBody.get(id);
       const bodyChanged = !existing || existing.body !== newBody;
-      if (bodyChanged) {
-        needsSummary.push({ id, title: pr.title, body: newBody });
-      }
 
       // Capture prev row for transition detection. SELECT inside the
       // transaction to avoid any concurrent-write race (poller is
@@ -929,8 +774,6 @@ function upsertPRs(entries) {
         pr.createdAt,
         pr.updatedAt,
         now,
-        roles.has('author') ? 1 : 0,
-        roles.has('reviewer') ? 1 : 0,
       );
 
       const changes = computeChanges(prev, pr);
@@ -952,50 +795,23 @@ function upsertPRs(entries) {
     if (!row) continue;
     pollerEvents.emit('pr-changed', { pr: formatPR(row), prev, changes });
   }
-
-  // Fire-and-forget batched summarization for PRs with new/changed bodies.
-  // One claude spawn per chunk replaces N per-PR spawns.
-  if (needsSummary.length > 0) {
-    generatePRSummariesBatch(needsSummary).catch((err) => {
-      console.warn(`[poller] PR summary batch failed: ${err.message}`);
-    });
-  }
 }
 
 /**
- * Clear a single role flag on rows in the given scope that weren't seen this cycle.
- * Doesn't destroy workspaces or delete rows - that happens later in `cleanupOrphans`
- * once we know a PR is gone from BOTH roles.
- * @param {'author' | 'reviewer'} role
+ * Destroy workspaces and delete PRs in a configured scope that are no longer
+ * present in GitHub's complete authored-open set.
  * @param {'org' | 'repo'} scope
  * @param {string} org
  * @param {string | null} repo
  * @param {string[]} seenIds
  */
-function clearStaleRoleFlag(role, scope, org, repo, seenIds) {
-  const { clearRoleByOrg, clearRoleByRepo, clearReviewerRoleByOrg, clearReviewerRoleByRepo } = getStatements();
+async function cleanupStaleScope(scope, org, repo, seenIds, config) {
+  const { findStaleByOrg, findStaleByRepo, deletePr } = getStatements();
   const seenJson = JSON.stringify(seenIds);
-  if (role === 'author') {
-    if (scope === 'org') clearRoleByOrg.run(org, seenJson);
-    else clearRoleByRepo.run(org, repo, seenJson);
-  } else {
-    if (scope === 'org') clearReviewerRoleByOrg.run(org, seenJson);
-    else clearReviewerRoleByRepo.run(org, repo, seenJson);
-  }
-}
-
-/**
- * Destroy workspaces and delete PR rows that have no role flags set
- * (i.e. they no longer appear in any tab). Runs once per poll cycle after
- * both role searches have updated the flags.
- * @param {object} config
- */
-async function cleanupOrphans(config) {
-  const { findOrphanRows, deleteOrphanRow } = getStatements();
-  const orphans = findOrphanRows.all();
-  for (const row of orphans) {
+  const stale = scope === 'org' ? findStaleByOrg.all(org, seenJson) : findStaleByRepo.all(org, repo, seenJson);
+  for (const row of stale) {
     await cleanupStalePR(row.id, config);
-    deleteOrphanRow.run(row.id);
+    deletePr.run(row.id);
   }
 }
 
@@ -1004,39 +820,44 @@ async function cleanupOrphans(config) {
 // FULL_SWEEP_INTERVAL_MS. That incremental fetch is the single biggest knob
 // on GraphQL point usage. Cleanup of merged/closed PRs no longer waits for
 // that full sweep: every cycle also runs the cheap id-only OPEN_IDS_QUERY
-// enumeration, which gives a complete open-set to clear stale role flags
-// and orphan dead rows against. So a heavy full sweep is only about
+// enumeration, which gives a complete open set for stale cleanup. A heavy full sweep is only about
 // refreshing data on PRs whose `updatedAt` didn't move (e.g. CI finishing).
 const FULL_SWEEP_INTERVAL_MS = 30 * 60 * 1000;
 // Overlap window so a PR updated right before/after the previous fetch
 // boundary doesn't get skipped because of clock skew or in-flight time.
 const INCREMENTAL_BUFFER_MS = 10 * 60 * 1000;
-/** @type {{ author: number | null, reviewer: number | null }} */
-const lastFullSweepAt = { author: null, reviewer: null };
-/** @type {{ author: number | null, reviewer: number | null }} */
-const lastSweepAt = { author: null, reviewer: null };
+let lastFullSweepAt = null;
+let lastSweepAt = null;
 
 /**
- * Decide whether this cycle should do a full sweep for a given role.
- * @param {'author' | 'reviewer'} role
+ * Decide whether this cycle should do a full sweep.
  */
-function shouldFullSweep(role) {
-  const last = lastFullSweepAt[role];
-  return last === null || Date.now() - last >= FULL_SWEEP_INTERVAL_MS;
+function shouldFullSweep() {
+  return lastFullSweepAt === null || Date.now() - lastFullSweepAt >= FULL_SWEEP_INTERVAL_MS;
 }
 
 /**
  * Build the `updated:>=<iso>` filter for an incremental fetch. Returns null
  * when the caller is doing a full sweep, or when we've never swept this
- * role before (first cycle has to fetch everything).
- * @param {'author' | 'reviewer'} role
+ * before (the first cycle has to fetch everything).
  * @param {boolean} fullSweep
  */
-function buildSinceFilter(role, fullSweep) {
+function buildSinceFilter(fullSweep) {
   if (fullSweep) return null;
-  const last = lastSweepAt[role];
-  if (last === null) return null;
-  return new Date(last - INCREMENTAL_BUFFER_MS).toISOString();
+  if (lastSweepAt === null) return null;
+  return new Date(lastSweepAt - INCREMENTAL_BUFFER_MS).toISOString();
+}
+
+function recordSync({ syncedAt, sweepStartedAt, fullSweep }) {
+  getDb()
+    .prepare(
+      `UPDATE sync_state
+          SET synced_at = ?,
+              last_sweep_at = ?,
+              last_full_sweep_at = COALESCE(?, last_full_sweep_at)
+        WHERE id = 1`,
+    )
+    .run(syncedAt, new Date(sweepStartedAt).toISOString(), fullSweep ? new Date(sweepStartedAt).toISOString() : null);
 }
 
 /**
@@ -1045,10 +866,9 @@ function buildSinceFilter(role, fullSweep) {
  * FULL_SWEEP_INTERVAL_MS. Cleanup of merged/closed PRs runs every cycle off
  * a cheap id-only enumeration regardless of full-sweep cadence.
  * @param {object} config
- * @param {{force?: boolean}} [options] - `force` makes this a full sweep of
- *   both roles (reviewer included regardless of who's viewing). Used by the
- *   manual "Sync now" button so it always returns authoritative, fully
- *   cleaned-up state.
+ * @param {{force?: boolean}} [options] - `force` makes this a full sweep.
+ *   Used by the manual "Sync now" button so it always returns authoritative,
+ *   fully cleaned-up state.
  */
 async function pollOnce(config, { force = false } = {}) {
   // Skip the cycle entirely if gh is rate-limited and we know when it resets.
@@ -1074,93 +894,45 @@ async function pollOnce(config, { force = false } = {}) {
   // multiple `org:` / `repo:` qualifiers, so one call covers everything.
   const qualifier = [...orgs.map((o) => `org:${o}`), ...repos.map((r) => `repo:${r}`)].join(' ');
 
-  // Two searches per cycle: one for PRs the user authored, one for PRs they've
-  // been asked to review. GitHub search doesn't support boolean OR on
-  // qualifiers, so we run them in parallel and merge results by PR id.
-  // The reviewer search is skipped when no client is viewing the reviews tab
-  // (it's the slow one in busy orgs); existing is_review_requested flags
-  // stay put so the data simply ages until someone opens the tab. A manual
-  // sync (`force`) always includes it and always sweeps fully.
-  const includeReviewer = force || hasReviewsViewer();
-  const authorFull = force || shouldFullSweep('author');
-  const reviewerFull = includeReviewer && (force || shouldFullSweep('reviewer'));
-  const authorSince = buildSinceFilter('author', authorFull);
-  const reviewerSince = includeReviewer ? buildSinceFilter('reviewer', reviewerFull) : null;
+  const fullSweep = force || shouldFullSweep();
+  const since = buildSinceFilter(fullSweep);
   // On incremental cycles the heavy fetch only sees recently-updated PRs, so
   // we need a separate complete open-set to clean up against. On full cycles
   // the heavy fetch already enumerates everything, so we reuse it and skip
   // the extra request.
-  const needAuthorLight = !authorFull;
-  const needReviewerLight = includeReviewer && !reviewerFull;
+  const needLightSweep = !fullSweep;
   const sweepStartedAt = Date.now();
-  let authoredResult;
-  let reviewerResult;
-  let authorLightIds;
-  let reviewerLightIds;
+  let result;
+  let lightIds;
   try {
-    [authoredResult, reviewerResult, authorLightIds, reviewerLightIds] = await Promise.all([
-      fetchPRs(qualifier, 'author:@me', authorSince),
-      includeReviewer ? fetchPRs(qualifier, 'review-requested:@me', reviewerSince) : Promise.resolve({ prs: [] }),
-      needAuthorLight ? fetchOpenPRIds(qualifier, 'author:@me') : Promise.resolve(null),
-      needReviewerLight ? fetchOpenPRIds(qualifier, 'review-requested:@me') : Promise.resolve(null),
+    [result, lightIds] = await Promise.all([
+      fetchPRs(qualifier, since),
+      needLightSweep ? fetchOpenPRIds(qualifier) : Promise.resolve(null),
     ]);
   } catch (err) {
-    console.error(`[poller] Poll failed: ${err.message}`);
-    return;
+    throw new Error(`GitHub refresh failed: ${err.message}`, { cause: err });
   }
 
   // Record sweep timestamps only after the fetches succeed. A failed fetch
   // doesn't advance the incremental cursor, so the next cycle replays the
   // same window rather than silently dropping the PRs from this one.
-  lastSweepAt.author = sweepStartedAt;
-  if (authorFull) lastFullSweepAt.author = sweepStartedAt;
-  if (includeReviewer) {
-    lastSweepAt.reviewer = sweepStartedAt;
-    if (reviewerFull) lastFullSweepAt.reviewer = sweepStartedAt;
-  }
+  lastSweepAt = sweepStartedAt;
+  if (fullSweep) lastFullSweepAt = sweepStartedAt;
 
-  // Merge into one entry per PR id, tracking which roles found it.
-  /** @type {Map<string, {pr: object, roles: Set<string>}>} */
-  const byId = new Map();
-  for (const pr of authoredResult.prs) {
-    const id = makePrId(pr.repository.owner.login, pr.repository.name, pr.number);
-    byId.set(id, { pr, roles: new Set(['author']) });
-  }
-  for (const pr of reviewerResult.prs) {
-    const id = makePrId(pr.repository.owner.login, pr.repository.name, pr.number);
-    const existing = byId.get(id);
-    if (existing) existing.roles.add('reviewer');
-    else byId.set(id, { pr, roles: new Set(['reviewer']) });
-  }
+  upsertPRs(result.prs);
 
-  const entries = [...byId.values()];
-  upsertPRs(entries);
-
-  // Build the complete open-set per role for stale-flag clearing. On full
+  // Build the complete open set for stale cleanup. On full
   // cycles the heavy result already lists every open PR; on incremental
   // cycles we use the cheap id-only enumeration fetched above. Either way
   // these sets are authoritative, so cleanup can run every cycle.
-  const authorOpen = authorFull
-    ? authoredResult.prs.map((pr) => ({
+  const openPrs = fullSweep
+    ? result.prs.map((pr) => ({
         id: makePrId(pr.repository.owner.login, pr.repository.name, pr.number),
         org: pr.repository.owner.login,
         repo: pr.repository.name,
       }))
-    : authorLightIds || [];
-  const reviewerOpen = !includeReviewer
-    ? null
-    : reviewerFull
-      ? reviewerResult.prs.map((pr) => ({
-          id: makePrId(pr.repository.owner.login, pr.repository.name, pr.number),
-          org: pr.repository.owner.login,
-          repo: pr.repository.name,
-        }))
-      : reviewerLightIds || [];
+    : lightIds || [];
 
-  // Group seen ids per (role, scope) so each role's stale-cleanup ignores
-  // PRs in the other role's list. A PR in the authored set that's missing
-  // from the reviewer set shouldn't have its is_review_requested flag
-  // cleared - it was never flagged in the first place.
   const bucketize = (openList) => {
     const byOrg = new Map();
     const byRepo = new Map();
@@ -1176,44 +948,33 @@ async function pollOnce(config, { force = false } = {}) {
     }
     return { byOrg, byRepo };
   };
-  const authorSeen = bucketize(authorOpen);
-  const reviewerSeen = reviewerOpen ? bucketize(reviewerOpen) : null;
+  const seen = bucketize(openPrs);
 
-  for (const org of orgs) {
-    clearStaleRoleFlag('author', 'org', org, null, authorSeen.byOrg.get(org) || []);
-    if (reviewerSeen) {
-      clearStaleRoleFlag('reviewer', 'org', org, null, reviewerSeen.byOrg.get(org) || []);
-    }
-  }
-  for (const ownerRepo of repos) {
-    const [owner, repo] = ownerRepo.split('/');
-    clearStaleRoleFlag('author', 'repo', owner, repo, authorSeen.byRepo.get(ownerRepo) || []);
-    if (reviewerSeen) {
-      clearStaleRoleFlag('reviewer', 'repo', owner, repo, reviewerSeen.byRepo.get(ownerRepo) || []);
-    }
-  }
-
-  // Orphan cleanup deletes rows where both flags are 0, and tears down their
-  // workspaces. The authored open-set is always complete now, so this runs
-  // every cycle. When the reviewer search was skipped we don't clear reviewer
-  // flags, so a still-review-requested PR keeps its flag and survives - only
-  // genuinely dead rows (both flags already 0) get removed.
   try {
-    await cleanupOrphans(config);
+    for (const org of orgs) {
+      await cleanupStaleScope('org', org, null, seen.byOrg.get(org) || [], config);
+    }
+    for (const ownerRepo of repos) {
+      const [owner, repo] = ownerRepo.split('/');
+      await cleanupStaleScope('repo', owner, repo, seen.byRepo.get(ownerRepo) || [], config);
+    }
   } catch (err) {
-    console.error(`[poller] Orphan cleanup failed: ${err.message}`);
+    console.error(`[poller] Stale PR cleanup failed: ${err.message}`);
   }
 
-  const authorMode = authorFull ? 'full' : 'incremental';
-  const reviewerMode = includeReviewer ? (reviewerFull ? 'full' : 'incremental') : 'skipped';
-  console.log(
-    `[poller] Sync complete - ${entries.length} PRs (${authoredResult.prs.length} authored [${authorMode}], ${includeReviewer ? `${reviewerResult.prs.length} review-requested [${reviewerMode}]` : 'review-requested skipped'}) across ${qualifier}`,
-  );
+  const mode = fullSweep ? 'full' : 'incremental';
+  console.log(`[poller] Sync complete - ${result.prs.length} authored PRs [${mode}] across ${qualifier}`);
 
   // Adopt scratch workspaces whose branch matches a newly-synced PR
   adoptScratchWorkspaces();
 
-  pollerEvents.emit('sync', { synced_at: new Date().toISOString(), pr_count: entries.length });
+  const syncedAt = new Date().toISOString();
+  recordSync({ syncedAt, sweepStartedAt, fullSweep });
+
+  pollerEvents.emit('sync', {
+    synced_at: syncedAt,
+    pr_count: result.prs.length,
+  });
 }
 
 /** @type {import('node:sqlite').StatementSync | null} */
@@ -1234,7 +995,9 @@ let adoptWorkspaceStmt = null;
 function adoptScratchWorkspaces() {
   const db = getDb();
   if (!findScratchesStmt) {
-    findScratchesStmt = db.prepare("SELECT * FROM workspaces WHERE pr_id IS NULL AND status = 'active'");
+    findScratchesStmt = db.prepare(
+      "SELECT * FROM workspaces WHERE pr_id IS NULL AND status = 'active' AND operation_state = 'ready'",
+    );
     findPrByBranchStmt = db.prepare('SELECT id FROM prs WHERE org = ? AND repo = ? AND branch = ?');
     findPrByBranchSuffixStmt = db.prepare("SELECT id FROM prs WHERE org = ? AND repo = ? AND branch LIKE '%/' || ?");
     adoptWorkspaceStmt = db.prepare('UPDATE workspaces SET pr_id = ?, repo = NULL WHERE id = ?');
@@ -1292,6 +1055,32 @@ async function cleanupRemovedTargets(config) {
 let intervalHandle = null;
 let lastTargetsKey = null;
 
+const pollFlight = new SingleFlight({
+  merge: (previous, next) => ({
+    config: next.config,
+    force: previous.force || next.force,
+    resetSweeps: previous.resetSweeps || next.resetSweeps,
+    cleanupTargets: previous.cleanupTargets || next.cleanupTargets,
+  }),
+  run: async ({ config, force, resetSweeps, cleanupTargets }) => {
+    if (resetSweeps) {
+      lastFullSweepAt = null;
+      lastSweepAt = null;
+    }
+    if (cleanupTargets) await cleanupRemovedTargets(config);
+    return pollOnce(config, { force });
+  },
+});
+
+function schedulePoll(config, options = {}) {
+  return pollFlight.request({
+    config,
+    force: options.force ?? false,
+    resetSweeps: options.resetSweeps ?? false,
+    cleanupTargets: options.cleanupTargets ?? false,
+  });
+}
+
 /**
  * Start the polling loop.
  * @param {object} config
@@ -1311,15 +1100,12 @@ export function startPoller(config) {
   const targetsChanged = targetsKey !== lastTargetsKey;
   lastTargetsKey = targetsKey;
   if (targetsChanged) {
-    lastFullSweepAt.author = null;
-    lastFullSweepAt.reviewer = null;
-    lastSweepAt.author = null;
-    lastSweepAt.reviewer = null;
-    cleanupRemovedTargets(config).catch((err) => console.error(`[poller] Cleanup failed: ${err.message}`));
-    pollOnce(config).catch((err) => console.error(`[poller] Poll failed: ${err.message}`));
+    schedulePoll(config, { resetSweeps: true, cleanupTargets: true }).catch((err) =>
+      console.error(`[poller] Poll failed: ${err.message}`),
+    );
   }
   intervalHandle = setInterval(
-    () => pollOnce(config).catch((err) => console.error(`[poller] Poll failed: ${err.message}`)),
+    () => schedulePoll(config).catch((err) => console.error(`[poller] Poll failed: ${err.message}`)),
     config.poll.interval_seconds * 1000,
   );
 }
@@ -1327,23 +1113,32 @@ export function startPoller(config) {
 /**
  * Stop the polling loop.
  */
-export function stopPoller() {
+export function stopPoller({ drain = false } = {}) {
   if (intervalHandle) {
     clearInterval(intervalHandle);
     intervalHandle = null;
   }
+  return drain ? pollFlight.whenIdle() : undefined;
 }
 
 /**
  * Trigger an immediate poll with the given config. This is the manual
- * "Sync now" path, so it forces a full sweep of both roles (reviewer
- * included regardless of the active tab) and runs cleanup - the user
- * expects authoritative state, with merged/closed PRs gone.
+ * "Sync now" path, so it forces a full sweep and cleanup. The user expects
+ * authoritative state, with merged/closed PRs gone.
  * @param {object} config
  * @returns {Promise<void>}
  */
 export function triggerPoll(config) {
-  return pollOnce(config, { force: true });
+  return schedulePoll(config, { force: true });
+}
+
+/** Remove rows for targets that are no longer configured without starting an interval. */
+export function reconcilePollTargets(config) {
+  return schedulePoll(config, { resetSweeps: true, cleanupTargets: true });
+}
+
+export function getPollerStatus() {
+  return { active: pollFlight.active, pending: pollFlight.pending };
 }
 
 /**
@@ -1351,12 +1146,9 @@ export function triggerPoll(config) {
  */
 export function resetStatements() {
   upsertStmt = null;
-  clearRoleByOrgStmt = null;
-  clearRoleByRepoStmt = null;
-  clearReviewerRoleByOrgStmt = null;
-  clearReviewerRoleByRepoStmt = null;
-  findOrphanRowsStmt = null;
-  deleteOrphanRowStmt = null;
+  findStaleByOrgStmt = null;
+  findStaleByRepoStmt = null;
+  deletePrStmt = null;
   getExistingBodyStmt = null;
   getExistingPrevStmt = null;
   getPrByIdStmt = null;

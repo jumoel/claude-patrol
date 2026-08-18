@@ -1,4 +1,3 @@
-import { getDb } from '../db.js';
 import { execFile, isFailedConclusion } from '../utils.js';
 
 const RUN_ID_RE = /\/actions\/runs\/(\d+)/;
@@ -62,7 +61,10 @@ async function fetchFreshFailedChecks(org, repo, branch) {
   while (true) {
     const { stdout } = await execFile(
       'gh',
-      ['api', `repos/${org}/${repo}/commits/${encodeURIComponent(branch)}/check-runs?per_page=100&filter=latest&page=${page}`],
+      [
+        'api',
+        `repos/${org}/${repo}/commits/${encodeURIComponent(branch)}/check-runs?per_page=100&filter=latest&page=${page}`,
+      ],
       { timeout: 30_000 },
     );
     const data = JSON.parse(stdout);
@@ -101,6 +103,7 @@ function extractRunIds(checks) {
  * @param {import('fastify').FastifyInstance} app
  */
 export function registerCheckRoutes(app) {
+  const { getDb } = app.appContext;
   app.post('/api/checks/retrigger', async (request, reply) => {
     const { pr_id, check_name } = request.body;
     if (!pr_id) {
@@ -135,9 +138,7 @@ export function registerCheckRoutes(app) {
       failed = restMatches.length > 0 ? restMatches : dbMatches;
 
       if (failed.length === 0) {
-        const available = [
-          ...new Set([...(failedRest || []).map((c) => c.name), ...failedDb.map((c) => c.name)]),
-        ];
+        const available = [...new Set([...(failedRest || []).map((c) => c.name), ...failedDb.map((c) => c.name)])];
         return {
           ok: true,
           retriggered: 0,

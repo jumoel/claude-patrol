@@ -8,12 +8,17 @@ import { PRDetail } from './components/PRDetail/PRDetail.jsx';
 import { PRTable } from './components/PRTable/PRTable.jsx';
 import { ScratchWorkspaces } from './components/ScratchWorkspaces/ScratchWorkspaces.jsx';
 import { SetupMode } from './components/SetupMode/SetupMode.jsx';
-import { TabBar } from './components/TabBar/TabBar.jsx';
 import { WorkspaceDetail } from './components/WorkspaceDetail/WorkspaceDetail.jsx';
 import { useIdleNotification } from './hooks/useIdleNotification.js';
 import { usePRs } from './hooks/usePRs.js';
-import { triggerSync as apiTriggerSync, fetchConfig, fetchScratchWorkspaces, reportActiveTab } from './lib/api.js';
+import { fetchConfig, fetchScratchWorkspaces } from './lib/api.js';
 
+/** @typedef {import('./types').PullRequest} PullRequest */
+/** @typedef {import('./types').FilterState} FilterState */
+/** @typedef {import('./types').FilterListKey} FilterListKey */
+/** @typedef {{ id: string, desc: boolean }} SortState */
+
+/** @param {number} seconds */
 function formatCountdown(seconds) {
   const m = Math.floor(seconds / 60);
   const s = seconds % 60;
@@ -24,6 +29,8 @@ function formatCountdown(seconds) {
 /**
  * Apply client-side filters. Each filter key maps to an array of allowed values.
  * Empty array = no filter (show all).
+ * @param {PullRequest[]} prs
+ * @param {FilterState} filters
  */
 function applyFilters(prs, filters) {
   return prs.filter((pr) => {
@@ -50,6 +57,8 @@ function applyFilters(prs, filters) {
  * Sort PRs so stacked branches appear together in dependency order.
  * Stack roots appear first (sorted by updated_at), followed by their children
  * in depth order. Non-stacked PRs keep their original position.
+ * @param {PullRequest[]} prs
+ * @returns {PullRequest[]}
  */
 function sortByStacks(prs) {
   // Separate stacked and non-stacked
@@ -59,11 +68,13 @@ function sortByStacks(prs) {
   if (stacked.length === 0) return prs;
 
   // Group by stack_root
+  /** @type {Map<string, PullRequest[]>} */
   const groups = new Map();
   for (const pr of stacked) {
     const root = pr.stack_root;
-    if (!groups.has(root)) groups.set(root, []);
-    groups.get(root).push(pr);
+    const group = groups.get(root);
+    if (group) group.push(pr);
+    else groups.set(root, [pr]);
   }
 
   // Sort each group by stack_depth (base first, top last)
@@ -79,6 +90,7 @@ function sortByStacks(prs) {
   });
 
   // Interleave: stacked groups first, then non-stacked
+  /** @type {PullRequest[]} */
   const result = [];
   for (const [, group] of sortedGroups) {
     result.push(...group);
@@ -87,32 +99,26 @@ function sortByStacks(prs) {
   return result;
 }
 
+/** @type {FilterListKey[]} */
 const FILTER_KEYS = ['org', 'repo', 'ci', 'review', 'mergeable', 'draft'];
 
-// Stable filter objects so usePRs doesn't see a new ref each render. Each tab
-// has its own role qualifier; nothing else differs at fetch time (client-side
-// filtering and sorting live in App state).
-const AUTHOR_FILTERS = Object.freeze({ role: 'author' });
-const REVIEWER_FILTERS = Object.freeze({ role: 'reviewer' });
+// Stable filter object so usePRs doesn't see a new ref each render.
+const DASHBOARD_FILTERS = Object.freeze({});
 
-/** Parse the active tab from the hash path. */
-function parseTabFromHash(hash) {
-  const path = hash.split('?')[0];
-  return path === '#/reviews' ? 'reviews' : 'authored';
-}
-
-/** Parse filters and sorting from hash query string. */
+/** @returns {{ filters: FilterState, sorting: SortState[], stackView: boolean }} */
 function parseHashParams() {
   const hash = window.location.hash;
   const qIdx = hash.indexOf('?');
   if (qIdx === -1) return { filters: {}, sorting: [], stackView: true };
   const params = new URLSearchParams(hash.slice(qIdx + 1));
+  /** @type {FilterState} */
   const filters = {};
   for (const key of FILTER_KEYS) {
     const val = params.get(key);
     if (val) filters[key] = val.split(',');
   }
   if (params.get('needsWork') === '1') filters.needsWork = true;
+  /** @type {SortState[]} */
   const sorting = [];
   const sortId = params.get('sort');
   if (sortId) {
@@ -122,11 +128,13 @@ function parseHashParams() {
   return { filters, sorting, stackView };
 }
 
-/** Write filters, sorting, and stack view into the hash query string, preserving the path. */
+/**
+ * Write filters, sorting, and stack view into the dashboard hash query string.
+ * @param {FilterState} filters
+ * @param {SortState[]} sorting
+ * @param {boolean} stackView
+ */
 function writeHashParams(filters, sorting, stackView) {
-  const hash = window.location.hash;
-  const qIdx = hash.indexOf('?');
-  const path = qIdx === -1 ? hash : hash.slice(0, qIdx);
   const params = new URLSearchParams();
   for (const key of FILTER_KEYS) {
     if (filters[key]?.length) params.set(key, filters[key].join(','));
@@ -138,45 +146,38 @@ function writeHashParams(filters, sorting, stackView) {
   }
   if (!stackView) params.set('stacks', '0');
   const qs = params.toString();
-  const newHash = qs ? `${path || '#/'}?${qs}` : path || '';
   // Use replaceState to avoid polluting history with every filter/sort change
-  history.replaceState(null, '', qs ? newHash : path || window.location.pathname);
+  history.replaceState(null, '', `${window.location.pathname}${window.location.search}${qs ? `#/?${qs}` : ''}`);
 }
 
 export default function App() {
-  const [needsSetup, setNeedsSetup] = useState(null); // null = loading, true/false
+  const [needsSetup, setNeedsSetup] = useState(/** @type {boolean | null} */ (null));
   const [showSetup, setShowSetup] = useState(false);
   const initial = useMemo(() => parseHashParams(), []);
-  const [activeTab, setActiveTab] = useState(() => parseTabFromHash(window.location.hash));
   const [filters, setFilters] = useState(initial.filters);
   const [sorting, setSorting] = useState(initial.sorting);
   const [stackView, setStackView] = useState(initial.stackView);
-  const [selectedPR, setSelectedPR] = useState(null);
-  const [selectedWorkspace, setSelectedWorkspace] = useState(null);
+  const [selectedPR, setSelectedPR] = useState(/** @type {string | null} */ (null));
+  const [selectedWorkspace, setSelectedWorkspace] = useState(/** @type {string | null} */ (null));
   const [terminalOpen, setTerminalOpen] = useState(false);
   const [hasGlobalSession, setHasGlobalSession] = useState(false);
   const [copied, setCopied] = useState(false);
-  const copiedTimeout = useRef(null);
-  const sortedRowsRef = useRef(null);
+  const copiedTimeout = useRef(/** @type {ReturnType<typeof setTimeout> | null} */ (null));
+  const sortedRowsRef = useRef(/** @type {PullRequest[] | null} */ (null));
   const toggleTerminal = useCallback(() => setTerminalOpen((prev) => !prev), []);
   const openGlobalTerminal = useCallback(() => setTerminalOpen(true), []);
   const closeGlobalTerminal = useCallback(() => setTerminalOpen(false), []);
-  const authored = usePRs(AUTHOR_FILTERS);
-  const reviews = usePRs(REVIEWER_FILTERS);
+  const prSource = usePRs(DASHBOARD_FILTERS);
   const { workspaceStates, dismissedIdle, setActiveWorkspace, localChangeCount } = useIdleNotification();
-  const [scratchWorkspaces, setScratchWorkspaces] = useState([]);
+  const [scratchWorkspaces, setScratchWorkspaces] = useState(/** @type {import('./types').Workspace[]} */ ([]));
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const [commitsBehind, setCommitsBehind] = useState(0);
   const [restartNeeded, setRestartNeeded] = useState(false);
   const [startupSha, setStartupSha] = useState('');
   const [currentSha, setCurrentSha] = useState('');
 
-  // The two tabs share most lifecycle signals (sync time, rate limit, etc).
-  // Pick the active tab's source so the header reflects what the user is
-  // looking at; both are driven by the same poller cycle so they agree.
-  const activeSource = activeTab === 'reviews' ? reviews : authored;
-  const { syncedAt, loading, error, syncing, countdown, triggerSync, ghRateLimit } = activeSource;
-  const allPRs = activeSource.prs;
+  const { syncedAt, loading, error, syncing, countdown, triggerSync, ghRateLimit } = prSource;
+  const allPRs = prSource.prs;
 
   // Check if setup is needed + update status (re-check on each sync)
   useEffect(() => {
@@ -197,30 +198,14 @@ export default function App() {
 
   // Fetch scratch workspaces (refresh on local changes like workspace creation/deletion)
   useEffect(() => {
+    void localChangeCount;
     fetchScratchWorkspaces()
       .then(setScratchWorkspaces)
       .catch(() => {});
   }, [localChangeCount]);
 
-  // Tell the server which tab this browser is on so it can skip the slow
-  // review-requested GitHub query when nobody is on the reviews tab. The
-  // clientId is per-browser-tab (sessionStorage), so multiple windows are
-  // tracked independently and a closed tab eventually expires server-side.
-  // Re-posts on tab change and on a heartbeat (server TTL is 5 minutes).
-  useEffect(() => {
-    let clientId = sessionStorage.getItem('patrol-client-id');
-    if (!clientId) {
-      clientId = crypto.randomUUID();
-      sessionStorage.setItem('patrol-client-id', clientId);
-    }
-    reportActiveTab(clientId, activeTab).catch(() => {});
-    const id = setInterval(() => {
-      reportActiveTab(clientId, activeTab).catch(() => {});
-    }, 60_000);
-    return () => clearInterval(id);
-  }, [activeTab]);
-
   // Sync filters + sorting to URL hash
+  /** @type {(newFilters: FilterState) => void} */
   const handleFilterChange = useCallback(
     (newFilters) => {
       setFilters(newFilters);
@@ -229,6 +214,7 @@ export default function App() {
     [sorting, stackView],
   );
 
+  /** @type {import('@tanstack/react-table').OnChangeFn<import('@tanstack/react-table').SortingState>} */
   const handleSortingChange = useCallback(
     (updater) => {
       setSorting((prev) => {
@@ -240,6 +226,7 @@ export default function App() {
     [filters, stackView],
   );
 
+  /** @type {(value: boolean) => void} */
   const handleStackViewChange = useCallback(
     (value) => {
       setStackView(value);
@@ -256,11 +243,8 @@ export default function App() {
   const copyFilteredAsMarkdown = useCallback(() => {
     // Use the exact sorted row order from PRTable so markdown always matches the screen
     const prs = sortedRowsRef.current || filteredPRs;
-    const formatPR = (pr, indent = '') => {
-      let line = `${indent}- [#${pr.number}](${pr.url}) - ${pr.title}`;
-      if (pr.pr_summary) line += ` - ${pr.pr_summary}`;
-      return line;
-    };
+    /** @param {PullRequest} pr @param {string} [indent] */
+    const formatPR = (pr, indent = '') => `${indent}- [#${pr.number}](${pr.url}) - ${pr.title}`;
     let md;
     if (stackView) {
       md = prs
@@ -274,31 +258,10 @@ export default function App() {
     }
     navigator.clipboard.writeText(md).then(() => {
       setCopied(true);
-      clearTimeout(copiedTimeout.current);
+      if (copiedTimeout.current !== null) clearTimeout(copiedTimeout.current);
       copiedTimeout.current = setTimeout(() => setCopied(false), 2000);
     });
   }, [filteredPRs, stackView]);
-
-  // Switching tabs: drop filters/sorting that don't carry over, then update URL.
-  // Switching INTO reviews kicks off an immediate sync because the poller
-  // skips the review-requested query while nobody is on this tab, so the
-  // cached data could be arbitrarily stale.
-  const handleTabChange = useCallback(
-    (tab) => {
-      const wasOnReviews = activeTab === 'reviews';
-      setActiveTab(tab);
-      setFilters({});
-      setSorting([]);
-      setStackView(true);
-      window.location.hash = tab === 'reviews' ? '/reviews' : '/';
-      if (tab === 'reviews' && !wasOnReviews) {
-        const clientId = sessionStorage.getItem('patrol-client-id');
-        const refresh = clientId ? reportActiveTab(clientId, 'reviews').then(() => apiTriggerSync()) : apiTriggerSync();
-        refresh.catch(() => {});
-      }
-    },
-    [activeTab],
-  );
 
   // Simple hash-based routing
   useEffect(() => {
@@ -321,7 +284,6 @@ export default function App() {
         setShowSetup(needsSetup === true);
         setSelectedPR(null);
         setSelectedWorkspace(null);
-        setActiveTab(parseTabFromHash(hash));
         // Restore filters + sorting + stack view from URL when returning to dashboard
         const { filters: f, sorting: s, stackView: sv } = parseHashParams();
         setFilters(f);
@@ -349,10 +311,14 @@ export default function App() {
   const syncTime = syncedAt ? `Last synced: ${new Date(syncedAt).toLocaleTimeString()}` : 'Not synced';
   const nextSync = countdown > 0 ? formatCountdown(countdown) : '';
 
-  const navigateToPR = (prId) => {
-    window.location.hash = `/pr/${encodeURIComponent(prId)}`;
-  };
+  const navigateToPR = useCallback(
+    /** @param {string} prId */ (prId) => {
+      window.location.hash = `/pr/${encodeURIComponent(prId)}`;
+    },
+    [],
+  );
 
+  /** @param {string} wsId */
   const navigateToWorkspace = (wsId) => {
     window.location.hash = `/workspace/${wsId}`;
   };
@@ -370,9 +336,8 @@ export default function App() {
     }
     if (!stackView) params.set('stacks', '0');
     const qs = params.toString();
-    const basePath = activeTab === 'reviews' ? '/reviews' : '/';
-    window.location.hash = qs ? `${basePath}?${qs}` : basePath === '/' ? '' : basePath;
-  }, [filters, sorting, stackView, activeTab]);
+    window.location.hash = qs ? `/?${qs}` : '';
+  }, [filters, sorting, stackView]);
 
   const handleConfigured = useCallback(() => {
     setNeedsSetup(false);
@@ -412,19 +377,11 @@ export default function App() {
         <WorkspaceDetail workspaceId={selectedWorkspace} onBack={navigateBack} />
       ) : (
         <>
-          <TabBar
-            activeTab={activeTab}
-            onChange={handleTabChange}
-            authoredCount={authored.prs.length}
-            reviewCount={reviews.prs.length}
+          <DashboardSummary
+            prCount={filteredPRs.length}
+            onOpenGlobalTerminal={openGlobalTerminal}
+            changeToken={localChangeCount}
           />
-          {activeTab === 'authored' && (
-            <DashboardSummary
-              prCount={filteredPRs.length}
-              syncedAt={syncedAt}
-              onOpenGlobalTerminal={openGlobalTerminal}
-            />
-          )}
           <FilterBar
             prs={allPRs}
             filters={filters}
@@ -446,13 +403,11 @@ export default function App() {
             stackView={stackView}
             sortedRowsRef={sortedRowsRef}
           />
-          {activeTab === 'authored' && (
-            <ScratchWorkspaces
-              workspaceStates={workspaceStates}
-              dismissedIdle={dismissedIdle}
-              localChangeCount={localChangeCount}
-            />
-          )}
+          <ScratchWorkspaces
+            workspaceStates={workspaceStates}
+            dismissedIdle={dismissedIdle}
+            localChangeCount={localChangeCount}
+          />
         </>
       )}
       <GlobalTerminal open={terminalOpen} onToggle={toggleTerminal} onSessionChange={setHasGlobalSession} />

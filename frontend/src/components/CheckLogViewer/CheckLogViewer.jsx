@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { Stack } from '../ui/Stack/Stack.jsx';
 import styles from './CheckLogViewer.module.css';
 
+/** @param {{log: string | null, truncated: boolean, loading: boolean, error: string | null}} props */
 export function CheckLogViewer({ log, truncated, loading, error }) {
   const [search, setSearch] = useState('');
 
@@ -10,7 +11,7 @@ export function CheckLogViewer({ log, truncated, loading, error }) {
     const term = search.toLowerCase();
     return log
       .split('\n')
-      .filter((line) => line.toLowerCase().includes(term))
+      .filter(/** @param {string} line */ (line) => line.toLowerCase().includes(term))
       .join('\n');
   }, [log, search]);
 

@@ -5,11 +5,8 @@ import fastifyStatic from '@fastify/static';
 import fastifyWebsocket from '@fastify/websocket';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import Fastify from 'fastify';
-import { appEvents } from './app-events.js';
-import { getDb } from './db.js';
+import { createAppContext } from './app-context.js';
 import { createMcpServer } from './mcp-server.js';
-import { getGhRateLimitState, pollerEvents } from './poller.js';
-import { getSessionStates } from './pty-manager.js';
 import { registerCheckRoutes } from './routes/checks.js';
 import { registerCommentRoutes } from './routes/comments.js';
 import { registerConfigRoutes } from './routes/config.js';
@@ -20,6 +17,7 @@ import { registerSetupRoutes } from './routes/setup.js';
 import { registerSyncRoutes } from './routes/sync.js';
 import { registerTaskRoutes } from './routes/tasks.js';
 import { registerWorkspaceRoutes } from './routes/workspaces.js';
+import { AUTH_COOKIE, createSecurityPolicy, isOriginAllowed, isProtectedPath } from './security.js';
 
 // Event types forwarded over the /api/events SSE stream.
 // Each entry registers a listener on connect and tears it down on close,
@@ -27,24 +25,51 @@ import { registerWorkspaceRoutes } from './routes/workspaces.js';
 // transforms (or ignores) the emitter's args before serialization. Today only
 // `local-change` uses it, since that event emits a constant `{}` regardless
 // of what the producer passes.
-const SSE_EVENTS = [
-  { name: 'sync', emitter: pollerEvents },
-  { name: 'local-change', emitter: appEvents, payload: () => ({}) },
-  { name: 'session-state', emitter: appEvents },
-  { name: 'task-update', emitter: appEvents },
-  { name: 'gh-rate-limit', emitter: appEvents },
-  { name: 'rule-run', emitter: appEvents },
-];
+function sseEvents(context) {
+  return [
+    { name: 'sync', emitter: context.pollerEvents },
+    { name: 'local-change', emitter: context.appEvents, payload: () => ({}) },
+    { name: 'session-state', emitter: context.appEvents },
+    { name: 'task-update', emitter: context.appEvents },
+    { name: 'gh-rate-limit', emitter: context.appEvents },
+    { name: 'rule-run', emitter: context.appEvents },
+  ];
+}
 
 /**
  * Create and configure the Fastify server.
  * @returns {import('fastify').FastifyInstance}
  */
-export async function createServer() {
+export async function createServer(options = {}) {
+  const context = options.context ?? createAppContext();
+  const config = options.config ?? context.getConfig?.() ?? {};
+  const security = options.securityPolicy ?? createSecurityPolicy(config);
   const app = Fastify({ logger: false });
+  app.decorate('appContext', context);
 
-  await app.register(fastifyCors, { origin: true });
+  await app.register(fastifyCors, {
+    origin: security.allowedOrigins.length > 0 ? security.allowedOrigins : false,
+    credentials: true,
+  });
   await app.register(fastifyWebsocket);
+
+  app.addHook('onRequest', async (request, reply) => {
+    const path = request.url.split('?')[0];
+    if (!isOriginAllowed(request, security.allowedOrigins) && isProtectedPath(path)) {
+      return reply.code(403).send({ error: 'Origin not allowed' });
+    }
+
+    if (typeof request.query?.token === 'string' && security.hasValidToken(request)) {
+      reply.header(
+        'Set-Cookie',
+        `${AUTH_COOKIE}=${encodeURIComponent(request.query?.token ?? '')}; HttpOnly; SameSite=Strict; Path=/`,
+      );
+    }
+
+    if (isProtectedPath(path) && !security.authenticate(request)) {
+      return reply.code(401).send({ error: 'Authentication required' });
+    }
+  });
 
   registerPRRoutes(app);
   registerSyncRoutes(app);
@@ -57,6 +82,25 @@ export async function createServer() {
   registerTaskRoutes(app);
   registerRuleRoutes(app);
 
+  // One listener per backend event broadcasts to every browser connection.
+  // This keeps EventEmitter listener counts constant as tabs are opened.
+  const sseConnections = new Set();
+  const broadcastHandlers = sseEvents(context).map(({ name, emitter, payload }) => {
+    const handler = (data) => {
+      const body = payload ? payload(data) : data;
+      const message = `event: ${name}\ndata: ${JSON.stringify(body ?? {})}\n\n`;
+      for (const connection of sseConnections) {
+        try {
+          connection.write(message);
+        } catch {
+          sseConnections.delete(connection);
+        }
+      }
+    };
+    emitter.on(name, handler);
+    return { name, emitter, handler };
+  });
+
   // MCP endpoint, scoped per session. The session id in the URL is the
   // server's only trustworthy source of caller identity. Tool handlers that
   // need to know who is calling (self-target checks, etc.) receive it via
@@ -65,7 +109,8 @@ export async function createServer() {
   // server is built per-request, tools call routes via app.inject().
   app.post('/mcp/:sessionId', async (request, reply) => {
     const callerSessionId = request.params.sessionId;
-    const session = getDb()
+    const session = context
+      .getDb()
       .prepare("SELECT id FROM sessions WHERE id = ? AND status IN ('active', 'detached')")
       .get(callerSessionId);
     if (!session) {
@@ -100,7 +145,6 @@ export async function createServer() {
   });
 
   // SSE endpoint for live updates
-  const sseConnections = new Set();
   app.get('/api/events', (request, reply) => {
     reply.hijack();
     const raw = reply.raw;
@@ -112,26 +156,14 @@ export async function createServer() {
 
     sseConnections.add(raw);
 
-    const handlers = SSE_EVENTS.map(({ name, emitter, payload }) => {
-      const handler = (data) => {
-        const body = payload ? payload(data) : data;
-        raw.write(`event: ${name}\ndata: ${JSON.stringify(body ?? {})}\n\n`);
-      };
-      emitter.on(name, handler);
-      return { name, emitter, handler };
-    });
-
     // Send current session states so the client doesn't miss events
     // that fired before it connected.
-    for (const s of getSessionStates()) {
+    for (const s of context.getSessionStates()) {
       raw.write(`event: session-state\ndata: ${JSON.stringify(s)}\n\n`);
     }
     // Replay current gh rate-limit state so a fresh tab knows it's throttled.
-    raw.write(`event: gh-rate-limit\ndata: ${JSON.stringify(getGhRateLimitState())}\n\n`);
+    raw.write(`event: gh-rate-limit\ndata: ${JSON.stringify(context.getGhRateLimitState())}\n\n`);
     request.raw.on('close', () => {
-      for (const { name, emitter, handler } of handlers) {
-        emitter.removeListener(name, handler);
-      }
       sseConnections.delete(raw);
     });
   });
@@ -142,6 +174,12 @@ export async function createServer() {
       conn.end();
     }
     sseConnections.clear();
+  });
+
+  app.addHook('onClose', async () => {
+    for (const { name, emitter, handler } of broadcastHandlers) {
+      emitter.removeListener(name, handler);
+    }
   });
 
   // Serve frontend build if it exists

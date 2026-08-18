@@ -36,7 +36,10 @@ $ pnpm run setup
 
 After the first setup, a plain `pnpm install` is enough for routine dep updates — `frontend/` is a pnpm workspace, so root install covers both packages. The reason `pnpm install` alone can't do everything is that we deliberately **don't** use `preinstall`/`postinstall` hooks (supply-chain risk), and the vendored xterm.js + node-pty chmod live outside what pnpm itself runs.
 
-Create a `config.json` in the project root:
+On first start, Claude Patrol creates its configuration at
+`~/.config/claude-patrol/config.json` (or
+`$XDG_CONFIG_HOME/claude-patrol/config.json`). Edit that file directly, or
+complete setup in the browser:
 
 ```json
 {
@@ -45,8 +48,8 @@ Create a `config.json` in the project root:
     "repos": ["owner/repo"],
     "interval_seconds": 600
   },
-  "db_path": "./data/claude-patrol.db",
   "port": 3000,
+  "host": "127.0.0.1",
   "workspace_base_path": "~/.claude-patrol/workspaces",
   "work_dir": "~/work",
   "global_terminal_cwd": "~/work"
@@ -74,7 +77,7 @@ This runs `vite build --watch` for the frontend and the backend server concurren
 If you install globally (`pnpm install -g`), the `claude-patrol` command is available:
 
 ```sh
-$ claude-patrol start [--open]   # build frontend, start server
+$ claude-patrol start [--open] [--host address]  # build frontend, start server
 $ claude-patrol stop             # graceful shutdown
 $ claude-patrol status           # show running state and uptime
 $ claude-patrol clean            # remove DB, PID file, MCP config
@@ -88,9 +91,13 @@ Running without a subcommand defaults to `start`.
 |---|---|
 | `poll.orgs` | GitHub organizations to monitor |
 | `poll.repos` | Individual `owner/repo` entries to monitor |
-| `poll.interval_seconds` | Polling interval (minimum 5s) |
-| `db_path` | Path to the SQLite database file |
+| `poll.interval_seconds` | Authored-PR polling interval (minimum 5s) |
+| `db_path` | Path to the SQLite database file. Defaults to `$XDG_DATA_HOME/claude-patrol/claude-patrol.db`. |
 | `port` | Server port (auto-increments if in use) |
+| `host` | Bind address. Defaults to `127.0.0.1`. Non-loopback binds require an authentication token. |
+| `security.allowed_origins` | Additional browser origins allowed to call the API. Same-origin requests are always allowed. |
+| `security.auth_token` | Token for non-loopback access. Prefer the `CLAUDE_PATROL_AUTH_TOKEN` environment variable. |
+| `automation.concurrency` | Maximum number of rule action chains running concurrently (default 2). |
 | `workspace_base_path` | Base directory for jj workspaces |
 | `work_dir` | Base directory where your repos are cloned. Expects a `<org>/<repo>` structure (e.g. `~/work/acme/api-server`, `~/work/acme/webapp`). When creating jj workspaces, Claude Patrol resolves the main repo at `<work_dir>/<org>/<repo>`. |
 | `global_terminal_cwd` | Working directory for the global terminal |
@@ -98,7 +105,21 @@ Running without a subcommand defaults to `start`.
 | `repos.<org/repo>.symlinks` | Additional symlinks to create in workspaces |
 | `repos.<org/repo>.initCommands` | Commands to run after workspace creation |
 
-Config changes are picked up automatically - no restart needed.
+Polling, repository, workspace, and rule changes are picked up automatically.
+Binding and security changes require a restart.
+
+### Remote access
+
+The default server is local-only. To listen on another interface, set `host`
+or pass `--host`, and provide a token:
+
+```sh
+CLAUDE_PATROL_AUTH_TOKEN='a-long-random-token' pnpm start -- --host 0.0.0.0
+```
+
+Open `http://<host>:3000/?token=a-long-random-token` once. Patrol stores the
+validated token in an HttpOnly, same-site cookie. Remote API clients may
+instead send `Authorization: Bearer <token>`.
 
 ## Rules
 
@@ -157,7 +178,9 @@ Invalid values (e.g. `ci_status: "success"`) are rejected at load time with a cl
 - `{ "type": "mcp", "tool": "<name>", "args": { ... } }` - calls any rule-fireable patrol tool. Read-only tools (`list_*`, `get_*`) are rejected at load time. Args support `{{pr.<field>}}` and `{{session.<field>}}` substitution before schema validation.
 - `{ "type": "dispatch_claude", "prompt": "..." }` - resolves the PR's active workspace (creates one if missing), spawns Claude (waits for first idle), then writes the prompt. If the session is already mid-turn, the run errors with `session_busy` and cooldown retries on next trigger.
 
-Actions run sequentially per rule. First failure stops the chain and marks the run `error`.
+Actions run sequentially within each rule execution. Executions are persisted
+and processed through a bounded queue; the first action failure stops the chain
+and marks the run `error`.
 
 ### Scoping
 
@@ -210,14 +233,14 @@ Same Arm/Subscribe flow as above. Patrol creates the workspace if needed and wai
 
 - `cooldown_minutes` (default 10) - per `(rule_id, pr_id|session_id|workspace_id)` bucket. Prevents flapping CI from firing the same rule multiple times.
 - Rules live-reload on `config.json` save. Invalid rules show in the Rules dropdown on the dashboard and as `WRN` lines in the TUI; valid rules keep firing.
-- `rule_runs` rows persist; on server restart, mid-flight runs are reconciled to `status='error'` with `error='server_restarted'`.
+- `rule_runs` rows persist. Queued executions resume after restart; executions interrupted after beginning are reconciled to `status='error'` with `error='server_restarted'` to avoid replaying partially completed mutations.
 - `rule_subscriptions` rows persist across restarts. If a subscribed PR is purged from the DB, the orphan row is harmless - the auto-fire path looks up the PR fresh and short-circuits if it's gone.
 
 ### Limitations
 
 - Single-line prompts only. Multi-line through bracketed paste is not implemented.
 - `dispatch_claude` is not allowed on `session.idle` triggers (loop trap). Use an `mcp` action instead.
-- Two rules dispatching to the same workspace concurrently can interleave prompts. Cooldown bounds it.
+- Forced rules targeting the same workspace can still interleave prompts. The global queue concurrency limit bounds this; use rule scoping and cooldowns to avoid targeting the same workspace simultaneously.
 - No multi-step workflows (`wait_for`, `branch`, `goto`). The triggers themselves are the wait primitives.
 
 ### Manual fire
@@ -226,7 +249,7 @@ Same Arm/Subscribe flow as above. Patrol creates the workspace if needed and wai
 
 ### Bulk fire (run for all matching)
 
-`POST /api/rules/:id/run-all` with body `{"subscribe": true}` fires the rule against every PR matching its `where` clause. For rules with `requires_subscription: true`, `subscribe: true` auto-subscribes the matching PRs first; without it, unsubscribed PRs are skipped. `force: true` bypasses cooldown and the subscription gate. Fires happen in parallel server-side; the response returns immediately with `{ fired: [{pr_id, run_id}], skipped: [{pr_id, reason}] }`.
+`POST /api/rules/:id/run-all` with body `{"subscribe": true}` queues the rule against every PR matching its `where` clause. For rules with `requires_subscription: true`, `subscribe: true` auto-subscribes the matching PRs first; without it, unsubscribed PRs are skipped. `force: true` bypasses cooldown and the subscription gate. The response returns immediately with `{ fired: [{pr_id, run_id}], skipped: [{pr_id, reason}] }`; the bounded automation queue reports progress through `rule-run` events.
 
 Use case: "rebase every conflicted PR right now":
 ```sh
@@ -243,11 +266,12 @@ Same available from the dashboard PR detail view via "Run for all matching" next
 Browser (React + xterm.js)
     |
     |-- REST API (/api/prs, /api/workspaces, /api/sessions, ...)
-    |-- SSE (/api/events) for live PR updates
+    |-- One shared SSE connection (/api/events) for live updates
     |-- WebSocket (/ws/sessions/:id) for terminal I/O
     |
 Fastify server
-    |-- Poller: gh api graphql -> SQLite
+    |-- Poll coordinator: serialized gh api graphql -> SQLite
+    |-- Automation queue: persistent, bounded rule actions
     |-- PTY manager: tmux sessions with node-pty bridge
     |-- Workspace manager: jj workspace create/destroy
     |-- MCP server: stdio transport for Claude Code
@@ -264,7 +288,7 @@ No native database dependencies - `node:sqlite` is built into Node.js.
 
 **PRs**: `GET /api/prs` (filterable), `GET /api/prs/:id`, `GET /api/prs/:id/diff`, `GET /api/prs/:id/comments`, `GET /api/prs/:id/check-logs`
 
-**Workspaces**: `POST /api/workspaces`, `GET /api/workspaces`, `GET /api/workspaces/:id`, `DELETE /api/workspaces/:id`, `POST /api/workspaces/:id/terminal`, `POST /api/workspaces/cleanup`
+**Workspaces**: `POST /api/workspaces`, `GET /api/workspaces`, `GET /api/workspaces/:id`, `DELETE /api/workspaces/:id`, `GET /api/workspaces/operations`, `POST /api/workspaces/:id/retry-cleanup`, `POST /api/workspaces/:id/terminal`, `POST /api/workspaces/cleanup`
 
 **Sessions**: `POST /api/sessions`, `GET /api/sessions`, `DELETE /api/sessions/:id`, `POST /api/sessions/:id/popout`, `GET /api/sessions/history`, `GET /api/sessions/:id/transcript`
 

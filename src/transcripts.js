@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { getDb } from './db.js';
 import { transcriptsDir } from './paths.js';
@@ -197,21 +197,32 @@ export function claudeProjectDirForWorkspace(workspacePath) {
  */
 export function parseTranscript(jsonlPath) {
   const raw = readFileSync(jsonlPath, 'utf8');
-  const parsed = raw.trim().split('\n')
-    .map(line => { try { return JSON.parse(line); } catch { return null; } })
+  const parsed = raw
+    .trim()
+    .split('\n')
+    .map((line) => {
+      try {
+        return JSON.parse(line);
+      } catch {
+        return null;
+      }
+    })
     .filter(Boolean)
-    .filter(e => e.type === 'user' || e.type === 'assistant');
+    .filter((e) => e.type === 'user' || e.type === 'assistant');
 
   let prevWasAssistant = true;
-  return parsed.map(e => {
+  return parsed.map((e) => {
     const content = simplifyContent(e.message?.content);
     const role = e.message?.role || e.type;
-    const hasText = content.some(b => b.type === 'text');
+    const hasText = content.some((b) => b.type === 'text');
 
     let isHuman = false;
     if (role === 'user' && hasText) {
-      const textContent = content.filter(b => b.type === 'text').map(b => b.text).join('');
-      const looksLikeSystem = SYSTEM_PATTERNS.some(p => textContent.includes(p));
+      const textContent = content
+        .filter((b) => b.type === 'text')
+        .map((b) => b.text)
+        .join('');
+      const looksLikeSystem = SYSTEM_PATTERNS.some((p) => textContent.includes(p));
       isHuman = prevWasAssistant && !looksLikeSystem;
     }
 
@@ -238,14 +249,12 @@ export function simplifyContent(content) {
   if (typeof content === 'string') return [{ type: 'text', text: content }];
   if (!Array.isArray(content)) return [];
 
-  return content.map(block => {
+  return content.map((block) => {
     if (block.type === 'text') {
       return { type: 'text', text: block.text };
     }
     if (block.type === 'tool_use') {
-      const inputStr = typeof block.input === 'string'
-        ? block.input
-        : JSON.stringify(block.input);
+      const inputStr = typeof block.input === 'string' ? block.input : JSON.stringify(block.input);
       return {
         type: 'tool_use',
         name: block.name,
@@ -253,9 +262,7 @@ export function simplifyContent(content) {
       };
     }
     if (block.type === 'tool_result') {
-      const outputStr = typeof block.content === 'string'
-        ? block.content
-        : JSON.stringify(block.content);
+      const outputStr = typeof block.content === 'string' ? block.content : JSON.stringify(block.content);
       return {
         type: 'tool_result',
         name: block.name || null,
@@ -268,4 +275,3 @@ export function simplifyContent(content) {
     return { type: block.type };
   });
 }
-

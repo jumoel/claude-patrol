@@ -1,9 +1,14 @@
 import { useCallback, useEffect, useState } from 'react';
 import { fetchConfig, fetchSetupAccounts, fetchSetupRepos, saveConfig } from '../../lib/api.js';
+import { getErrorMessage } from '../../lib/errors.js';
 import { Box } from '../ui/Box/Box.jsx';
 import { Button } from '../ui/Button/Button.jsx';
 import { Stack } from '../ui/Stack/Stack.jsx';
 import styles from './SetupMode.module.css';
+
+/** @typedef {'accounts' | 'repos' | 'settings' | 'saving'} SetupStep */
+/** @typedef {'all' | 'pick'} AccountMode */
+/** @typedef {'accounts' | 'repos' | 'settings'} ConfigStep */
 
 const INTERVAL_PRESETS = [
   { label: '15s', value: 15 },
@@ -21,17 +26,19 @@ const INTERVAL_PRESETS = [
  * @param {{ onConfigured: () => void, isFirstRun: boolean }} props
  */
 export function SetupMode({ onConfigured, isFirstRun }) {
-  const [step, setStep] = useState('accounts');
-  const [accounts, setAccounts] = useState([]);
+  const [step, setStep] = useState(/** @type {SetupStep} */ ('accounts'));
+  const [accounts, setAccounts] = useState(/** @type {import('../../types').SetupAccount[]} */ ([]));
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [error, setError] = useState(/** @type {string | null} */ (null));
 
-  const [accountModes, setAccountModes] = useState({});
-  const [repoLists, setRepoLists] = useState({});
-  const [repoLoading, setRepoLoading] = useState({});
-  const [selectedRepos, setSelectedRepos] = useState({});
+  const [accountModes, setAccountModes] = useState(/** @type {Record<string, AccountMode>} */ ({}));
+  const [repoLists, setRepoLists] = useState(/** @type {Record<string, import('../../types').SetupRepo[]>} */ ({}));
+  const [repoLoading, setRepoLoading] = useState(/** @type {Record<string, boolean>} */ ({}));
+  const [selectedRepos, setSelectedRepos] = useState(/** @type {Record<string, Set<string>>} */ ({}));
   const [interval, setInterval_] = useState(30);
-  const [_existingConfig, setExistingConfig] = useState(null);
+  const [_existingConfig, setExistingConfig] = useState(
+    /** @type {import('../../types').PublicConfig['poll'] | null} */ (null),
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -44,7 +51,9 @@ export function SetupMode({ onConfigured, isFirstRun }) {
         setAccounts(accountsData.accounts);
         setExistingConfig(configData.poll);
 
+        /** @type {Record<string, AccountMode>} */
         const modes = {};
+        /** @type {Record<string, Set<string>>} */
         const repos = {};
         for (const acc of accountsData.accounts) {
           if (configData.poll.orgs.includes(acc.login)) {
@@ -61,6 +70,7 @@ export function SetupMode({ onConfigured, isFirstRun }) {
           setInterval_(configData.poll.interval_seconds);
         }
         setAccountModes(modes);
+        /** @type {Record<string, Set<string>>} */
         const repoMap = {};
         for (const [k, v] of Object.entries(repos)) {
           repoMap[k] = v;
@@ -88,7 +98,7 @@ export function SetupMode({ onConfigured, isFirstRun }) {
             });
         }
       } catch (err) {
-        if (!cancelled) setError(err.message);
+        if (!cancelled) setError(getErrorMessage(err));
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -98,19 +108,23 @@ export function SetupMode({ onConfigured, isFirstRun }) {
     };
   }, []);
 
-  const toggleAccount = useCallback((login) => {
-    setAccountModes((prev) => {
-      const next = { ...prev };
-      if (next[login]) {
-        delete next[login];
-      } else {
-        next[login] = 'all';
-      }
-      return next;
-    });
-  }, []);
+  const toggleAccount = useCallback(
+    /** @param {string} login */ (login) => {
+      setAccountModes((prev) => {
+        const next = { ...prev };
+        if (next[login]) {
+          delete next[login];
+        } else {
+          next[login] = 'all';
+        }
+        return next;
+      });
+    },
+    [],
+  );
 
   const setMode = useCallback(
+    /** @param {string} login @param {AccountMode} mode */
     (login, mode) => {
       setAccountModes((prev) => ({ ...prev, [login]: mode }));
       if (mode === 'pick' && !repoLists[login]) {
@@ -128,23 +142,28 @@ export function SetupMode({ onConfigured, isFirstRun }) {
     [repoLists],
   );
 
-  const toggleRepo = useCallback((account, repoName) => {
-    setSelectedRepos((prev) => {
-      const set = new Set(prev[account] || []);
-      if (set.has(repoName)) {
-        set.delete(repoName);
-      } else {
-        set.add(repoName);
-      }
-      return { ...prev, [account]: set };
-    });
-  }, []);
+  const toggleRepo = useCallback(
+    /** @param {string} account @param {string} repoName */ (account, repoName) => {
+      setSelectedRepos((prev) => {
+        const set = new Set(prev[account] || []);
+        if (set.has(repoName)) {
+          set.delete(repoName);
+        } else {
+          set.add(repoName);
+        }
+        return { ...prev, [account]: set };
+      });
+    },
+    [],
+  );
 
   const selectedCount = Object.keys(accountModes).filter((k) => accountModes[k]).length;
 
   const handleSave = useCallback(async () => {
     setStep('saving');
+    /** @type {string[]} */
     const orgs = [];
+    /** @type {string[]} */
     const repos = [];
     for (const [login, mode] of Object.entries(accountModes)) {
       if (!mode) continue;
@@ -167,7 +186,7 @@ export function SetupMode({ onConfigured, isFirstRun }) {
       });
       onConfigured();
     } catch (err) {
-      setError(err.message);
+      setError(getErrorMessage(err));
       setStep('settings');
     }
   }, [accountModes, selectedRepos, interval, onConfigured]);
@@ -193,7 +212,9 @@ export function SetupMode({ onConfigured, isFirstRun }) {
     );
   }
 
+  /** @type {Record<ConfigStep, string>} */
   const stepLabels = { accounts: 'Accounts', repos: 'Repos', settings: 'Settings' };
+  /** @type {ConfigStep[]} */
   const stepKeys = ['accounts', 'repos', 'settings'];
 
   return (
@@ -224,7 +245,7 @@ export function SetupMode({ onConfigured, isFirstRun }) {
           <Stack
             gap={2}
             key={key}
-            className={`${styles.step} ${step === key ? styles.stepActive : ''} ${stepKeys.indexOf(step) > i ? styles.stepDone : ''}`}
+            className={`${styles.step} ${step === key ? styles.stepActive : ''} ${stepKeys.indexOf(step === 'saving' ? 'settings' : step) > i ? styles.stepDone : ''}`}
           >
             <span className={styles.stepNumber}>{i + 1}</span>
             <span className={styles.stepLabel}>{stepLabels[key]}</span>

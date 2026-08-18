@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { createScratchWorkspace, fetchScratchWorkspaces } from '../../lib/api.js';
+import { getErrorMessage } from '../../lib/errors.js';
 import { getRelativeTime } from '../../lib/time.js';
 import { Badge } from '../ui/Badge/Badge.jsx';
 import { Box } from '../ui/Box/Box.jsx';
@@ -8,14 +9,22 @@ import { RepoCombobox } from '../ui/RepoCombobox/RepoCombobox.jsx';
 import { Stack } from '../ui/Stack/Stack.jsx';
 import styles from './ScratchWorkspaces.module.css';
 
+/**
+ * @param {{
+ *   workspaceStates?: Map<string, 'working' | 'idle'>,
+ *   dismissedIdle?: Set<string>,
+ *   localChangeCount: number,
+ * }} props
+ */
 export function ScratchWorkspaces({ workspaceStates, dismissedIdle, localChangeCount }) {
-  const [scratchWorkspaces, setScratchWorkspaces] = useState([]);
+  const [scratchWorkspaces, setScratchWorkspaces] = useState(/** @type {import('../../types').Workspace[]} */ ([]));
   const [showNewWork, setShowNewWork] = useState(false);
   const [newWorkRepo, setNewWorkRepo] = useState('');
   const [newWorkBranch, setNewWorkBranch] = useState('');
   const [newWorkSubmitting, setNewWorkSubmitting] = useState(false);
 
   useEffect(() => {
+    void localChangeCount;
     fetchScratchWorkspaces()
       .then((ws) => setScratchWorkspaces(ws))
       .catch(() => {});
@@ -30,7 +39,7 @@ export function ScratchWorkspaces({ workspaceStates, dismissedIdle, localChangeC
       setNewWorkBranch('');
       window.location.hash = `/workspace/${ws.id}`;
     } catch (err) {
-      alert(err.message);
+      alert(getErrorMessage(err));
     } finally {
       setNewWorkSubmitting(false);
     }
@@ -47,43 +56,45 @@ export function ScratchWorkspaces({ workspaceStates, dismissedIdle, localChangeC
         </Button>
       </Stack>
       {showNewWork && (
-        <Box p={4} border rounded="lg" bg="white" className={styles.form}><Stack gap={2} wrap align="end">
-          <Stack direction="col">
-            <label className={styles.label}>Repo</label>
-            <RepoCombobox value={newWorkRepo} onChange={setNewWorkRepo} disabled={newWorkSubmitting} />
+        <Box p={4} border rounded="lg" bg="white" className={styles.form}>
+          <Stack gap={2} wrap align="end">
+            <Stack direction="col">
+              <label className={styles.label}>Repo</label>
+              <RepoCombobox value={newWorkRepo} onChange={setNewWorkRepo} disabled={newWorkSubmitting} />
+            </Stack>
+            <Stack direction="col" className={styles.fieldGroupFlex}>
+              <label className={styles.label}>Branch</label>
+              <input
+                className={styles.input}
+                type="text"
+                value={newWorkBranch}
+                onChange={(e) => setNewWorkBranch(e.target.value)}
+                placeholder="feat/my-feature"
+                onKeyDown={(e) => e.key === 'Enter' && handleNewWork()}
+              />
+            </Stack>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={handleNewWork}
+              disabled={newWorkSubmitting || !newWorkRepo || !newWorkBranch}
+            >
+              {newWorkSubmitting ? 'Creating...' : 'Create'}
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setShowNewWork(false);
+                setNewWorkBranch('');
+              }}
+              disabled={newWorkSubmitting}
+              type="button"
+            >
+              Cancel
+            </Button>
           </Stack>
-          <Stack direction="col" className={styles.fieldGroupFlex}>
-            <label className={styles.label}>Branch</label>
-            <input
-              className={styles.input}
-              type="text"
-              value={newWorkBranch}
-              onChange={(e) => setNewWorkBranch(e.target.value)}
-              placeholder="feat/my-feature"
-              onKeyDown={(e) => e.key === 'Enter' && handleNewWork()}
-            />
-          </Stack>
-          <Button
-            variant="primary"
-            size="sm"
-            onClick={handleNewWork}
-            disabled={newWorkSubmitting || !newWorkRepo || !newWorkBranch}
-          >
-            {newWorkSubmitting ? 'Creating...' : 'Create'}
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => {
-              setShowNewWork(false);
-              setNewWorkBranch('');
-            }}
-            disabled={newWorkSubmitting}
-            type="button"
-          >
-            Cancel
-          </Button>
-        </Stack></Box>
+        </Box>
       )}
       {scratchWorkspaces.length > 0 ? (
         <table className={styles.table}>
@@ -109,14 +120,20 @@ export function ScratchWorkspaces({ workspaceStates, dismissedIdle, localChangeC
                 <tr
                   key={ws.id}
                   className={styles.row}
-                  onClick={() => { window.location.hash = `/workspace/${ws.id}`; }}
+                  onClick={() => {
+                    window.location.hash = `/workspace/${ws.id}`;
+                  }}
                 >
                   <td className={styles.cell}>
-                    <span className={styles.bookmark}>{ws.bookmark}</span>
+                    <a
+                      href={`#/workspace/${ws.id}`}
+                      className={styles.bookmark}
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      {ws.bookmark}
+                    </a>
                   </td>
-                  <td className={styles.cell}>
-                    {ws.repo && <span className={styles.repoTag}>{ws.repo}</span>}
-                  </td>
+                  <td className={styles.cell}>{ws.repo && <span className={styles.repoTag}>{ws.repo}</span>}</td>
                   <td className={`${styles.cell} ${styles.cellCenter}`}>
                     <SessionBadge state={wsState} dismissed={isDismissed} />
                   </td>
@@ -135,6 +152,7 @@ export function ScratchWorkspaces({ workspaceStates, dismissedIdle, localChangeC
   );
 }
 
+/** @param {{state?: 'working' | 'idle', dismissed?: boolean}} props */
 function SessionBadge({ state, dismissed }) {
   if (state === 'working')
     return (

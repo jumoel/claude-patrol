@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { fetchTasks } from '../lib/api.js';
+import { subscribeAppEvent } from '../lib/event-stream.js';
 
 const COMPLETED_TTL_MS = 5 * 60 * 1000;
 const MAX_VISIBLE = 50;
@@ -7,10 +8,10 @@ const MAX_VISIBLE = 50;
 /**
  * Subscribe to backend task updates. Returns a sorted list of tasks
  * (running first, most recent completed next).
- * @returns {Array<object>}
+ * @returns {import('../types').Task[]}
  */
 export function useTasks() {
-  const [tasks, setTasks] = useState([]);
+  const [tasks, setTasks] = useState(/** @type {import('../types').Task[]} */ ([]));
 
   useEffect(() => {
     let cancelled = false;
@@ -20,9 +21,9 @@ export function useTasks() {
       })
       .catch(() => {});
 
-    const source = new EventSource('/api/events');
-    source.addEventListener('task-update', (e) => {
+    const unsubscribe = subscribeAppEvent('task-update', (e) => {
       try {
+        /** @type {import('../types').Task} */
         const incoming = JSON.parse(e.data);
         setTasks((prev) => merge(prev, incoming));
       } catch {
@@ -32,13 +33,17 @@ export function useTasks() {
 
     return () => {
       cancelled = true;
-      source.close();
+      unsubscribe();
     };
   }, []);
 
   return tasks;
 }
 
+/**
+ * @param {import('../types').Task[]} prev
+ * @param {import('../types').Task} incoming
+ */
 function merge(prev, incoming) {
   const without = prev.filter((t) => t.id !== incoming.id);
   const next = [incoming, ...without];
@@ -50,7 +55,7 @@ function merge(prev, incoming) {
   fresh.sort((a, b) => {
     if (!a.endedAt && b.endedAt) return -1;
     if (a.endedAt && !b.endedAt) return 1;
-    return new Date(b.startedAt) - new Date(a.startedAt);
+    return new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime();
   });
 
   return fresh.slice(0, MAX_VISIBLE);

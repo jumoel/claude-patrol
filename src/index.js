@@ -9,10 +9,10 @@ import {
   unwatchConfig,
   watchConfig,
 } from './config.js';
-import { initDb } from './db.js';
+import { closeDb, initDb } from './db.js';
 import { startHealthChecks, stopHealthChecks } from './health.js';
 import { isRunning, readPid, removePid, writePid } from './pid.js';
-import { resetStatements, startPoller, stopPoller } from './poller.js';
+import { reconcilePollTargets, resetStatements, startPoller, stopPoller } from './poller.js';
 import {
   activeSessionCount,
   cleanupOrphanedSessions,
@@ -22,12 +22,12 @@ import {
   reattachOrphanedSessions,
   updateMcpConfig,
 } from './pty-manager.js';
-import { startRulesEngine } from './rules.js';
+import { startRulesEngine, stopRulesEngine } from './rules.js';
 import { createServer } from './server.js';
 import { validateStartup } from './startup.js';
 import { destroyTui, initTui, setHeader } from './tui.js';
 import { startUpdateChecks, stopUpdateChecks } from './update-check.js';
-import { pruneStaleComposeStacks } from './workspace.js';
+import { inspectWorkspaceState, pruneStaleComposeStacks } from './workspace.js';
 
 /**
  * Start the claude-patrol server.
@@ -37,6 +37,8 @@ export async function startServer(options = {}) {
   // --port <number> overrides config.port and skips the single-instance check
   const portFlagIdx = process.argv.indexOf('--port');
   let portOverride = portFlagIdx !== -1 ? Number(process.argv[portFlagIdx + 1]) : null;
+  const hostFlagIdx = process.argv.indexOf('--host');
+  const hostOverride = hostFlagIdx !== -1 ? process.argv[hostFlagIdx + 1] : null;
 
   const isReattachEarly = options.reattach || process.argv.includes('--reattach');
   // On a restart-style relaunch (--reattach) without an explicit --port, pin
@@ -73,6 +75,13 @@ export async function startServer(options = {}) {
   setCurrentConfig(config);
   initDb(config.db_path);
 
+  const workspaceIssues = inspectWorkspaceState();
+  if (workspaceIssues.length > 0) {
+    console.warn(
+      `[claude-patrol] ${workspaceIssues.length} workspace operation(s) need reconciliation; inspect GET /api/workspaces/operations`,
+    );
+  }
+
   const isClean = options.clean || process.argv.includes('--clean');
   if (isClean) {
     cleanupOrphanedSessions();
@@ -105,7 +114,8 @@ export async function startServer(options = {}) {
   startHealthChecks();
   startUpdateChecks();
 
-  const server = await createServer();
+  const host = hostOverride || config.host;
+  const server = await createServer({ config: { ...config, host } });
 
   // Wire the rules engine (after createServer so app.inject is available;
   // before listen so trigger handlers attach before any pr-changed fires).
@@ -119,7 +129,7 @@ export async function startServer(options = {}) {
   const stickyPort = portOverride !== null;
   for (let attempt = 0; attempt < 10; attempt++) {
     try {
-      await server.listen({ port, host: '0.0.0.0' });
+      await server.listen({ port, host });
       break;
     } catch (err) {
       if (err.code !== 'EADDRINUSE') throw err;
@@ -179,6 +189,11 @@ export async function startServer(options = {}) {
       pollerRunning = true;
     } else {
       console.log('Config changed but no poll targets yet');
+      stopPoller();
+      pollerRunning = false;
+      reconcilePollTargets(newConfig).catch((error) =>
+        console.error(`[poller] Target reconciliation failed: ${error.message}`),
+      );
     }
     updateMcpConfig(newConfig);
     emitLocalChange();
@@ -215,7 +230,8 @@ export async function startServer(options = {}) {
     shutdownState = 'exiting';
     destroyTui();
     unwatchConfig();
-    stopPoller();
+    await stopPoller({ drain: true });
+    await stopRulesEngine({ drain: true });
     stopHealthChecks();
     stopUpdateChecks();
     if (killSessions) {
@@ -232,6 +248,7 @@ export async function startServer(options = {}) {
     } catch {
       /* ignore close errors */
     }
+    closeDb();
     console.log('Shutdown complete.');
     process.exit(0);
   }

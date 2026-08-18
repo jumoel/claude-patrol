@@ -1,190 +1,58 @@
-import { mkdirSync } from 'node:fs';
+import { constants, copyFileSync, existsSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { CURRENT_SCHEMA_VERSION, migrateDb } from './migrations.js';
 
 /** @type {DatabaseSync | null} */
 let db = null;
 
 /**
- * Initialize the database, creating tables if needed.
- * @param {string} dbPath - absolute path (already expanded by config loader)
- * @returns {DatabaseSync}
+ * Initialize and migrate the database.
+ * @param {string} dbPath absolute path (already expanded by config loader)
  */
 export function initDb(dbPath) {
-  if (db) {
-    db.close();
-  }
+  closeDb();
+  if (dbPath !== ':memory:') mkdirSync(dirname(dbPath), { recursive: true });
 
-  mkdirSync(dirname(dbPath), { recursive: true });
-  db = new DatabaseSync(dbPath);
-  db.exec('PRAGMA journal_mode = WAL');
-  db.exec('PRAGMA foreign_keys = ON');
-
-  /** Run ALTER TABLE ADD COLUMN, logging success and swallowing "already exists". */
-  function addColumn(table, columnDef) {
-    try {
-      db.exec(`ALTER TABLE ${table} ADD COLUMN ${columnDef}`);
-      const colName = columnDef.split(/\s/)[0];
-      console.log(`[db] Migration: added column ${table}.${colName}`);
-    } catch {
-      /* column already exists */
-    }
-  }
-
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS prs (
-      id TEXT PRIMARY KEY,
-      number INTEGER NOT NULL,
-      title TEXT NOT NULL,
-      repo TEXT NOT NULL,
-      org TEXT NOT NULL,
-      author TEXT NOT NULL,
-      url TEXT NOT NULL,
-      branch TEXT NOT NULL,
-      draft INTEGER NOT NULL DEFAULT 0,
-      checks JSON NOT NULL DEFAULT '[]',
-      reviews JSON NOT NULL DEFAULT '[]',
-      labels JSON NOT NULL DEFAULT '[]',
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL,
-      synced_at TEXT NOT NULL
-    )
-  `);
-  db.exec('CREATE INDEX IF NOT EXISTS idx_prs_org ON prs(org)');
-  db.exec('CREATE INDEX IF NOT EXISTS idx_prs_repo ON prs(repo)');
-
-  addColumn('prs', "mergeable TEXT NOT NULL DEFAULT 'UNKNOWN'");
-  addColumn('prs', "base_branch TEXT NOT NULL DEFAULT 'main'");
-  addColumn('prs', "body TEXT NOT NULL DEFAULT ''");
-  addColumn('prs', "body_html TEXT NOT NULL DEFAULT ''");
-  addColumn('prs', "pr_summary TEXT NOT NULL DEFAULT ''");
-  addColumn('prs', 'is_fork INTEGER NOT NULL DEFAULT 0');
-  addColumn('prs', "comments JSON NOT NULL DEFAULT '[]'");
-  // Role flags: a PR can appear in the authored list, the review-requested
-  // list, or both. Existing rows were all authored (the only role we polled
-  // before), so the first time these columns appear we backfill is_authored=1.
-  {
-    const cols = db.prepare("PRAGMA table_info('prs')").all();
-    const hasAuthored = cols.some((c) => c.name === 'is_authored');
-    addColumn('prs', 'is_authored INTEGER NOT NULL DEFAULT 0');
-    addColumn('prs', 'is_review_requested INTEGER NOT NULL DEFAULT 0');
-    if (!hasAuthored) {
-      db.exec('UPDATE prs SET is_authored = 1');
-      console.log('[db] Migration: backfilled prs.is_authored=1 on existing rows');
-    }
-  }
-  db.exec('CREATE INDEX IF NOT EXISTS idx_prs_is_authored ON prs(is_authored)');
-  db.exec('CREATE INDEX IF NOT EXISTS idx_prs_is_review_requested ON prs(is_review_requested)');
-
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS workspaces (
-      id TEXT PRIMARY KEY,
-      pr_id TEXT REFERENCES prs(id),
-      name TEXT NOT NULL,
-      path TEXT NOT NULL,
-      bookmark TEXT NOT NULL,
-      repo TEXT,
-      status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'destroyed')),
-      created_at TEXT NOT NULL,
-      destroyed_at TEXT
-    )
-  `);
-  db.exec('CREATE INDEX IF NOT EXISTS idx_workspaces_pr ON workspaces(pr_id)');
-  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_workspaces_active_pr ON workspaces(pr_id) WHERE status = 'active'");
-
-  // Migration: make pr_id nullable and add repo column (SQLite requires table recreation)
-  {
-    const cols = db.prepare("PRAGMA table_info('workspaces')").all();
-    const prIdCol = cols.find((c) => c.name === 'pr_id');
-    const repoCol = cols.find((c) => c.name === 'repo');
-    if ((prIdCol && prIdCol.notnull === 1) || !repoCol) {
-      console.log('[db] Migration: recreating workspaces table (nullable pr_id + repo column)');
-      db.exec('PRAGMA foreign_keys = OFF');
-      db.exec('BEGIN');
-      try {
-        db.exec(`CREATE TABLE workspaces_new (
-          id TEXT PRIMARY KEY,
-          pr_id TEXT REFERENCES prs(id),
-          name TEXT NOT NULL,
-          path TEXT NOT NULL,
-          bookmark TEXT NOT NULL,
-          repo TEXT,
-          status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'destroyed')),
-          created_at TEXT NOT NULL,
-          destroyed_at TEXT
-        )`);
-        db.exec(
-          'INSERT INTO workspaces_new (id, pr_id, name, path, bookmark, status, created_at, destroyed_at) SELECT id, pr_id, name, path, bookmark, status, created_at, destroyed_at FROM workspaces',
-        );
-        db.exec('DROP TABLE workspaces');
-        db.exec('ALTER TABLE workspaces_new RENAME TO workspaces');
-        db.exec('CREATE INDEX idx_workspaces_pr ON workspaces(pr_id)');
-        db.exec("CREATE UNIQUE INDEX idx_workspaces_active_pr ON workspaces(pr_id) WHERE status = 'active'");
-        db.exec('COMMIT');
-      } catch (err) {
-        db.exec('ROLLBACK');
-        throw err;
+  const hadDatabase = dbPath !== ':memory:' && existsSync(dbPath);
+  const nextDb = new DatabaseSync(dbPath);
+  try {
+    nextDb.exec('PRAGMA journal_mode = WAL');
+    nextDb.exec('PRAGMA foreign_keys = ON');
+    if (hadDatabase) {
+      const version = Number(nextDb.prepare('PRAGMA user_version').get()?.user_version ?? 0);
+      if (version < CURRENT_SCHEMA_VERSION) {
+        nextDb.exec('PRAGMA wal_checkpoint(FULL)');
+        const backupPath = `${dbPath}.backup-v${version}-to-v${CURRENT_SCHEMA_VERSION}`;
+        try {
+          copyFileSync(dbPath, backupPath, constants.COPYFILE_EXCL);
+          console.log(`[db] Pre-migration backup written to ${backupPath}`);
+        } catch (error) {
+          if (error.code !== 'EEXIST') throw error;
+        }
       }
-      db.exec('PRAGMA foreign_keys = ON');
     }
+    migrateDb(nextDb);
+    const violations = nextDb.prepare('PRAGMA foreign_key_check').all();
+    if (violations.length > 0) {
+      throw new Error(`foreign key validation failed (${violations.length} violation(s))`);
+    }
+    db = nextDb;
+    return db;
+  } catch (error) {
+    nextDb.close();
+    throw error;
   }
-
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS sessions (
-      id TEXT PRIMARY KEY,
-      workspace_id TEXT,
-      pid INTEGER,
-      status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'detached', 'killed')),
-      started_at TEXT NOT NULL,
-      ended_at TEXT
-    )
-  `);
-  db.exec('CREATE INDEX IF NOT EXISTS idx_sessions_workspace ON sessions(workspace_id)');
-
-  addColumn('sessions', 'claude_project_dir TEXT');
-  addColumn('sessions', 'transcript_path TEXT');
-  // workspaces.summary / workspaces.summary_updated_at columns may exist on
-  // older DBs from when the patrol-side summarizer was active. They're left
-  // in place (sqlite drop is destructive) but no longer read or written.
-
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS rule_runs (
-      id TEXT PRIMARY KEY,
-      rule_id TEXT NOT NULL,
-      trigger TEXT NOT NULL,
-      pr_id TEXT,
-      workspace_id TEXT,
-      session_id TEXT,
-      cooldown_key TEXT NOT NULL,
-      status TEXT NOT NULL CHECK(status IN ('running', 'success', 'error')),
-      error TEXT,
-      started_at TEXT NOT NULL,
-      ended_at TEXT
-    )
-  `);
-  db.exec('CREATE INDEX IF NOT EXISTS idx_rule_runs_cooldown ON rule_runs(rule_id, cooldown_key, started_at)');
-  db.exec('CREATE INDEX IF NOT EXISTS idx_rule_runs_started ON rule_runs(started_at DESC)');
-
-  // Per-(rule, pr) opt-in subscriptions for rules with `requires_subscription: true`.
-  // No FK to prs - if a PR is purged, the orphan row is harmless (the auto-fire path
-  // looks up the PR fresh and short-circuits if it's gone).
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS rule_subscriptions (
-      rule_id TEXT NOT NULL,
-      pr_id TEXT NOT NULL,
-      created_at TEXT NOT NULL,
-      PRIMARY KEY (rule_id, pr_id)
-    )
-  `);
-  db.exec('CREATE INDEX IF NOT EXISTS idx_rule_subscriptions_pr ON rule_subscriptions(pr_id)');
-
-  return db;
 }
 
-/**
- * Get the database instance. Throws if not initialized.
- * @returns {DatabaseSync}
- */
+/** Close the active database. Primarily used by graceful shutdown and tests. */
+export function closeDb() {
+  if (!db) return;
+  db.close();
+  db = null;
+}
+
+/** Get the active database instance. */
 export function getDb() {
   if (!db) throw new Error('Database not initialized. Call initDb() first.');
   return db;

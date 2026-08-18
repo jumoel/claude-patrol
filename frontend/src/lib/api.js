@@ -1,9 +1,35 @@
 const BASE = '';
 
 /**
+ * Assign one known API contract at the response boundary. This is a static
+ * contract, not runtime validation. Callers must still treat provider-defined
+ * extension fields as unknown.
+ * @template T
+ * @param {Response} response
+ * @returns {Promise<T>}
+ */
+function readJson(response) {
+  return /** @type {Promise<T>} */ (response.json());
+}
+
+/**
+ * Read a server error without widening every JSON response to `any`.
+ * @param {Response} response
+ * @returns {Promise<string | null>}
+ */
+async function readError(response) {
+  /** @type {unknown} */
+  const body = await response.json().catch(/** @returns {null} */ () => null);
+  if (body && typeof body === 'object' && 'error' in body && typeof body.error === 'string') {
+    return body.error;
+  }
+  return null;
+}
+
+/**
  * Fetch PRs with optional filters.
  * @param {Record<string, string>} [filters]
- * @returns {Promise<{prs: object[], synced_at: string | null}>}
+ * @returns {Promise<import('../types').PullRequestListResponse>}
  */
 export async function fetchPRs(filters = {}) {
   const params = new URLSearchParams();
@@ -15,32 +41,31 @@ export async function fetchPRs(filters = {}) {
   const url = `${BASE}/api/prs${params.toString() ? `?${params}` : ''}`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Failed to fetch PRs: ${res.status}`);
-  return res.json();
+  return readJson(res);
 }
 
 /**
  * Fetch a single PR by ID.
  * @param {string} id
- * @returns {Promise<object>}
+ * @returns {Promise<import('../types').PullRequest>}
  */
 export async function fetchPR(id) {
   const res = await fetch(`${BASE}/api/prs/${encodeURIComponent(id)}`);
   if (!res.ok) throw new Error(`Failed to fetch PR: ${res.status}`);
-  return res.json();
+  return readJson(res);
 }
 
 /**
  * Force-refresh a single PR from GitHub right now. Returns the updated PR row.
  * @param {string} id
- * @returns {Promise<object>}
+ * @returns {Promise<import('../types').RefreshPullRequestResponse>}
  */
 export async function refreshPR(id) {
   const res = await fetch(`${BASE}/api/prs/${encodeURIComponent(id)}/refresh`, { method: 'POST' });
   if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    throw new Error(data.error || `Failed to refresh PR: ${res.status}`);
+    throw new Error((await readError(res)) || `Failed to refresh PR: ${res.status}`);
   }
-  return res.json();
+  return readJson(res);
 }
 
 /**
@@ -50,52 +75,35 @@ export async function refreshPR(id) {
 export async function triggerSync() {
   const res = await fetch(`${BASE}/api/sync/trigger`, { method: 'POST' });
   if (!res.ok) throw new Error(`Sync trigger failed: ${res.status}`);
-  return res.json();
-}
-
-/**
- * Report which tab the user is viewing. The server skips the slow
- * review-requested GitHub query on poll cycles when nobody is on the
- * reviews tab.
- * @param {string} clientId
- * @param {'authored' | 'reviews'} tab
- */
-export async function reportActiveTab(clientId, tab) {
-  const res = await fetch(`${BASE}/api/active-tab`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ clientId, tab }),
-  });
-  if (!res.ok) throw new Error(`active-tab failed: ${res.status}`);
-  return res.json();
+  return readJson(res);
 }
 
 /**
  * Fetch public config.
- * @returns {Promise<{poll: {orgs: string[], repos: string[], interval_seconds: number}}>}
+ * @returns {Promise<import('../types').PublicConfig>}
  */
 export async function fetchConfig() {
   const res = await fetch(`${BASE}/api/config`);
   if (!res.ok) throw new Error(`Failed to fetch config: ${res.status}`);
-  return res.json();
+  return readJson(res);
 }
 
 /**
  * Fetch workspaces, optionally filtered by PR ID.
  * @param {string} [prId]
- * @returns {Promise<object[]>}
+ * @returns {Promise<import('../types').Workspace[]>}
  */
 export async function fetchWorkspaces(prId) {
   const url = prId ? `${BASE}/api/workspaces?pr_id=${encodeURIComponent(prId)}` : `${BASE}/api/workspaces`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Failed to fetch workspaces: ${res.status}`);
-  return res.json();
+  return readJson(res);
 }
 
 /**
  * Create a workspace for a PR.
  * @param {string} prId
- * @returns {Promise<object>}
+ * @returns {Promise<import('../types').Workspace>}
  */
 export async function createWorkspace(prId) {
   const res = await fetch(`${BASE}/api/workspaces`, {
@@ -104,17 +112,16 @@ export async function createWorkspace(prId) {
     body: JSON.stringify({ pr_id: prId }),
   });
   if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    throw new Error(data.error || `Failed to create workspace: ${res.status}`);
+    throw new Error((await readError(res)) || `Failed to create workspace: ${res.status}`);
   }
-  return res.json();
+  return readJson(res);
 }
 
 /**
  * Create a scratch workspace (no PR).
  * @param {string} repo - "org/repo" format
  * @param {string} branch - branch name
- * @returns {Promise<object>}
+ * @returns {Promise<import('../types').Workspace>}
  */
 export async function createScratchWorkspace(repo, branch) {
   const res = await fetch(`${BASE}/api/workspaces`, {
@@ -123,31 +130,30 @@ export async function createScratchWorkspace(repo, branch) {
     body: JSON.stringify({ repo, branch }),
   });
   if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    throw new Error(data.error || `Failed to create scratch workspace: ${res.status}`);
+    throw new Error((await readError(res)) || `Failed to create scratch workspace: ${res.status}`);
   }
-  return res.json();
+  return readJson(res);
 }
 
 /**
  * Fetch a single workspace by ID.
  * @param {string} id
- * @returns {Promise<object>}
+ * @returns {Promise<import('../types').Workspace>}
  */
 export async function fetchWorkspace(id) {
   const res = await fetch(`${BASE}/api/workspaces/${id}`);
   if (!res.ok) throw new Error(`Failed to fetch workspace: ${res.status}`);
-  return res.json();
+  return readJson(res);
 }
 
 /**
  * Fetch scratch workspaces (no PR).
- * @returns {Promise<object[]>}
+ * @returns {Promise<import('../types').Workspace[]>}
  */
 export async function fetchScratchWorkspaces() {
   const res = await fetch(`${BASE}/api/workspaces?type=scratch`);
   if (!res.ok) throw new Error(`Failed to fetch scratch workspaces: ${res.status}`);
-  return res.json();
+  return readJson(res);
 }
 
 /**
@@ -158,25 +164,25 @@ export async function fetchScratchWorkspaces() {
 export async function destroyWorkspace(workspaceId) {
   const res = await fetch(`${BASE}/api/workspaces/${workspaceId}`, { method: 'DELETE' });
   if (!res.ok) throw new Error(`Failed to destroy workspace: ${res.status}`);
-  return res.json();
+  return readJson(res);
 }
 
 /**
  * Fetch sessions, optionally filtered by workspace ID.
  * @param {string} [workspaceId]
- * @returns {Promise<object[]>}
+ * @returns {Promise<import('../types').Session[]>}
  */
 export async function fetchSessions(workspaceId) {
   const url = workspaceId ? `${BASE}/api/sessions?workspace_id=${workspaceId}` : `${BASE}/api/sessions`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Failed to fetch sessions: ${res.status}`);
-  return res.json();
+  return readJson(res);
 }
 
 /**
  * Create a session.
  * @param {string | null} workspaceId
- * @returns {Promise<object>}
+ * @returns {Promise<import('../types').Session>}
  */
 export async function createSession(workspaceId) {
   const body = workspaceId ? { workspace_id: workspaceId } : { global: true };
@@ -186,34 +192,33 @@ export async function createSession(workspaceId) {
     body: JSON.stringify(body),
   });
   if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    throw new Error(data.error || `Failed to create session: ${res.status}`);
+    throw new Error((await readError(res)) || `Failed to create session: ${res.status}`);
   }
-  return res.json();
+  return readJson(res);
 }
 
 /**
  * Fetch CI check logs for a PR.
  * @param {string} prId
  * @param {string} [runId] - optional run ID filter
- * @returns {Promise<{logs: object[]}>}
+ * @returns {Promise<{logs: import('../types').CheckLog[]}>}
  */
 export async function fetchCheckLogs(prId, runId) {
   const params = runId ? `?run_id=${runId}` : '';
   const res = await fetch(`${BASE}/api/prs/${encodeURIComponent(prId)}/check-logs${params}`);
   if (!res.ok) throw new Error(`Failed to fetch check logs: ${res.status}`);
-  return res.json();
+  return readJson(res);
 }
 
 /**
  * Fetch review comments for a PR.
  * @param {string} prId
- * @returns {Promise<{reviews: object[], conversation: object[]}>}
+ * @returns {Promise<import('../types').PullRequestCommentsResponse>}
  */
 export async function fetchPRComments(prId) {
   const res = await fetch(`${BASE}/api/prs/${encodeURIComponent(prId)}/comments`);
   if (!res.ok) throw new Error(`Failed to fetch PR comments: ${res.status}`);
-  return res.json();
+  return readJson(res);
 }
 
 /**
@@ -224,7 +229,7 @@ export async function fetchPRComments(prId) {
 export async function killSession(sessionId) {
   const res = await fetch(`${BASE}/api/sessions/${sessionId}`, { method: 'DELETE' });
   if (!res.ok) throw new Error(`Failed to kill session: ${res.status}`);
-  return res.json();
+  return readJson(res);
 }
 
 /**
@@ -232,7 +237,7 @@ export async function killSession(sessionId) {
  * @param {string} sessionId
  * @param {string} repo - "org/repo" format
  * @param {string} branch - branch name
- * @returns {Promise<{workspace: object, session: object}>}
+ * @returns {Promise<{workspace: import('../types').Workspace, session: import('../types').Session}>}
  */
 export async function promoteSession(sessionId, repo, branch) {
   const res = await fetch(`${BASE}/api/sessions/${sessionId}/promote`, {
@@ -241,39 +246,42 @@ export async function promoteSession(sessionId, repo, branch) {
     body: JSON.stringify({ repo, branch }),
   });
   if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    throw new Error(data.error || `Failed to promote session: ${res.status}`);
+    throw new Error((await readError(res)) || `Failed to promote session: ${res.status}`);
   }
-  return res.json();
+  return readJson(res);
 }
 
+/**
+ * @param {string} sessionId
+ * @returns {Promise<import('../types').Session>}
+ */
 export async function reattachSession(sessionId) {
   const res = await fetch(`${BASE}/api/sessions/${sessionId}/reattach`, { method: 'POST' });
   if (!res.ok) throw new Error(`Failed to reattach session: ${res.status}`);
-  return res.json();
+  return readJson(res);
 }
 
 /**
  * Fetch session history (killed sessions).
  * @param {string} [workspaceId]
- * @returns {Promise<object[]>}
+ * @returns {Promise<import('../types').Session[]>}
  */
 export async function fetchSessionHistory(workspaceId) {
   const url = workspaceId ? `${BASE}/api/sessions/history?workspace_id=${workspaceId}` : `${BASE}/api/sessions/history`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Failed to fetch session history: ${res.status}`);
-  return res.json();
+  return readJson(res);
 }
 
 /**
  * Fetch a session's transcript.
  * @param {string} sessionId
- * @returns {Promise<object[]>}
+ * @returns {Promise<import('../types').TranscriptEntry[]>}
  */
 export async function fetchSessionTranscript(sessionId) {
   const res = await fetch(`${BASE}/api/sessions/${sessionId}/transcript`);
   if (!res.ok) throw new Error(`Failed to fetch transcript: ${res.status}`);
-  return res.json();
+  return readJson(res);
 }
 
 /**
@@ -288,16 +296,11 @@ export async function saveConfig(config) {
     body: JSON.stringify(config),
   });
   if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    throw new Error(data.error || `Failed to save config: ${res.status}`);
+    throw new Error((await readError(res)) || `Failed to save config: ${res.status}`);
   }
-  return res.json();
+  return readJson(res);
 }
 
-/**
- * Fetch GitHub accounts (personal + orgs) for setup.
- * @returns {Promise<{accounts: Array<{login: string, type: string, avatar_url: string}>}>}
- */
 /**
  * Fetch all available repos from configured orgs + explicit repos.
  * @returns {Promise<{repos: string[]}>}
@@ -305,7 +308,7 @@ export async function saveConfig(config) {
 export async function fetchAllRepos() {
   const res = await fetch(`${BASE}/api/repos`);
   if (!res.ok) throw new Error(`Failed to fetch repos: ${res.status}`);
-  return res.json();
+  return readJson(res);
 }
 
 /**
@@ -321,33 +324,33 @@ export async function setPRDraft(prId, draft) {
     body: JSON.stringify({ draft }),
   });
   if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    throw new Error(data.error || `Failed to update draft status: ${res.status}`);
+    throw new Error((await readError(res)) || `Failed to update draft status: ${res.status}`);
   }
-  return res.json();
+  return readJson(res);
 }
 
+/**
+ * @returns {Promise<{accounts: import('../types').SetupAccount[]}>}
+ */
 export async function fetchSetupAccounts() {
   const res = await fetch(`${BASE}/api/setup/accounts`);
   if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    throw new Error(data.error || `Failed to fetch accounts: ${res.status}`);
+    throw new Error((await readError(res)) || `Failed to fetch accounts: ${res.status}`);
   }
-  return res.json();
+  return readJson(res);
 }
 
 /**
  * Fetch repos for a GitHub account.
  * @param {string} account
- * @returns {Promise<{repos: Array<{name: string, nameWithOwner: string, description: string}>}>}
+ * @returns {Promise<{repos: import('../types').SetupRepo[]}>}
  */
 export async function fetchSetupRepos(account) {
   const res = await fetch(`${BASE}/api/setup/repos?account=${encodeURIComponent(account)}`);
   if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    throw new Error(data.error || `Failed to fetch repos: ${res.status}`);
+    throw new Error((await readError(res)) || `Failed to fetch repos: ${res.status}`);
   }
-  return res.json();
+  return readJson(res);
 }
 
 /**
@@ -357,10 +360,9 @@ export async function fetchSetupRepos(account) {
 export async function triggerUpdate() {
   const res = await fetch(`${BASE}/api/update`, { method: 'POST' });
   if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    throw new Error(data.error || `Update failed: ${res.status}`);
+    throw new Error((await readError(res)) || `Update failed: ${res.status}`);
   }
-  return res.json();
+  return readJson(res);
 }
 
 /**
@@ -372,36 +374,42 @@ export async function triggerUpdate() {
 export async function triggerRestart() {
   const res = await fetch(`${BASE}/api/restart`, { method: 'POST' });
   if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    throw new Error(data.error || `Restart failed: ${res.status}`);
+    throw new Error((await readError(res)) || `Restart failed: ${res.status}`);
   }
-  return res.json();
+  return readJson(res);
+}
+
+/** @returns {Promise<import('../types').RestartStatus>} */
+export async function fetchRestartStatus() {
+  const res = await fetch(`${BASE}/api/restart/status`);
+  if (!res.ok) throw new Error(`Failed to fetch restart status: ${res.status}`);
+  return readJson(res);
 }
 
 /**
  * Fetch the current task list (running + recently completed background ops).
- * @returns {Promise<Array<object>>}
+ * @returns {Promise<import('../types').Task[]>}
  */
 export async function fetchTasks() {
   const res = await fetch(`${BASE}/api/tasks`);
   if (!res.ok) throw new Error(`Failed to fetch tasks: ${res.status}`);
-  return res.json();
+  return readJson(res);
 }
 
 /**
  * Fetch loaded rules + per-rule load errors.
- * @returns {Promise<{rules: Array<object>, errors: Array<{rule_id: string, error: string}>}>}
+ * @returns {Promise<{rules: import('../types').RuleDefinition[], errors: import('../types').RuleLoadError[]}>}
  */
 export async function fetchRules() {
   const res = await fetch(`${BASE}/api/rules`);
   if (!res.ok) throw new Error(`Failed to fetch rules: ${res.status}`);
-  return res.json();
+  return readJson(res);
 }
 
 /**
  * Fetch recent rule_runs rows.
  * @param {{limit?: number, rule_id?: string, pr_id?: string}} [filters]
- * @returns {Promise<Array<object>>}
+ * @returns {Promise<import('../types').RuleRun[]>}
  */
 export async function fetchRuleRuns(filters = {}) {
   const params = new URLSearchParams();
@@ -411,43 +419,58 @@ export async function fetchRuleRuns(filters = {}) {
   const qs = params.toString();
   const res = await fetch(`${BASE}/api/rules/runs${qs ? `?${qs}` : ''}`);
   if (!res.ok) throw new Error(`Failed to fetch rule runs: ${res.status}`);
-  return res.json();
+  return readJson(res);
 }
 
 /**
  * Fetch rule subscriptions for a PR.
  * @param {string} prId
- * @returns {Promise<Array<{rule_id: string, pr_id: string, created_at: string}>>}
+ * @returns {Promise<import('../types').RuleSubscription[]>}
  */
 export async function fetchPRRuleSubscriptions(prId) {
   const res = await fetch(`${BASE}/api/prs/${encodeURIComponent(prId)}/rule-subscriptions`);
   if (!res.ok) throw new Error(`Failed to fetch subscriptions: ${res.status}`);
-  return res.json();
+  return readJson(res);
 }
 
-/** Subscribe a PR to a rule (only valid for `requires_subscription: true` rules). */
+/**
+ * Subscribe a PR to a rule (only valid for `requires_subscription: true` rules).
+ * @param {string} ruleId
+ * @param {string} prId
+ * @returns {Promise<{rule_id: string, pr_id: string, created: boolean}>}
+ */
 export async function subscribeRuleForPR(ruleId, prId) {
   const res = await fetch(`${BASE}/api/rules/${encodeURIComponent(ruleId)}/subscribe`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ pr_id: prId }),
   });
-  if (!res.ok) throw new Error((await res.json()).error || `Failed: ${res.status}`);
-  return res.json();
+  if (!res.ok) throw new Error((await readError(res)) || `Failed: ${res.status}`);
+  return readJson(res);
 }
 
-/** Unsubscribe a PR from a rule. */
+/**
+ * Unsubscribe a PR from a rule.
+ * @param {string} ruleId
+ * @param {string} prId
+ * @returns {Promise<{rule_id: string, pr_id: string}>}
+ */
 export async function unsubscribeRuleForPR(ruleId, prId) {
   const res = await fetch(`${BASE}/api/rules/${encodeURIComponent(ruleId)}/subscribe`, {
     method: 'DELETE',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ pr_id: prId }),
   });
-  if (!res.ok) throw new Error((await res.json()).error || `Failed: ${res.status}`);
-  return res.json();
+  if (!res.ok) throw new Error((await readError(res)) || `Failed: ${res.status}`);
+  return readJson(res);
 }
 
-/** Fire a rule manually against a PR or session. */
+/**
+ * Fire a rule manually against a PR or session.
+ * @param {string} ruleId
+ * @param {{pr_id?: string, session_id?: string, force?: boolean}} [options]
+ * @returns {Promise<import('../types').RuleRun>}
+ */
 export async function runRuleManually(ruleId, { pr_id, session_id, force } = {}) {
   const url = new URL(`${BASE}/api/rules/${encodeURIComponent(ruleId)}/run`, window.location.origin);
   if (force) url.searchParams.set('force', 'true');
@@ -456,8 +479,8 @@ export async function runRuleManually(ruleId, { pr_id, session_id, force } = {})
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ pr_id, session_id }),
   });
-  if (!res.ok) throw new Error((await res.json()).error || `Failed: ${res.status}`);
-  const run = await res.json();
+  if (!res.ok) throw new Error((await readError(res)) || `Failed: ${res.status}`);
+  const run = await readJson(res);
   // The route returns 200 with the run row even when the action chain errored
   // (e.g. session_busy). Surface that so the UI doesn't swallow the failure.
   if (run.status === 'error') throw new Error(run.error || 'rule run failed');
@@ -467,6 +490,9 @@ export async function runRuleManually(ruleId, { pr_id, session_id, force } = {})
 /**
  * Fire a rule against every PR matching its `where` clause. Returns a list
  * of fired PRs and skipped PRs (with reasons). Fires happen async server-side.
+ * @param {string} ruleId
+ * @param {{subscribe?: boolean, force?: boolean}} [options]
+ * @returns {Promise<import('../types').BulkRuleRunResponse>}
  */
 export async function runRuleForAll(ruleId, { subscribe, force } = {}) {
   const res = await fetch(`${BASE}/api/rules/${encodeURIComponent(ruleId)}/run-all`, {
@@ -474,18 +500,20 @@ export async function runRuleForAll(ruleId, { subscribe, force } = {}) {
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ subscribe: !!subscribe, force: !!force }),
   });
-  if (!res.ok) throw new Error((await res.json()).error || `Failed: ${res.status}`);
-  return res.json();
+  if (!res.ok) throw new Error((await readError(res)) || `Failed: ${res.status}`);
+  return readJson(res);
 }
 
 /**
  * Subscribe every PR matching a rule's `where` clause. Only valid for rules
  * with `requires_subscription: true`. Returns subscribed/already/skipped lists.
+ * @param {string} ruleId
+ * @returns {Promise<import('../types').BulkRuleSubscriptionResponse>}
  */
 export async function subscribeRuleForAll(ruleId) {
   const res = await fetch(`${BASE}/api/rules/${encodeURIComponent(ruleId)}/subscribe-all`, {
     method: 'POST',
   });
-  if (!res.ok) throw new Error((await res.json()).error || `Failed: ${res.status}`);
-  return res.json();
+  if (!res.ok) throw new Error((await readError(res)) || `Failed: ${res.status}`);
+  return readJson(res);
 }

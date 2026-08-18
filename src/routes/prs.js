@@ -1,7 +1,4 @@
 import { emitLocalChange } from '../app-events.js';
-import { getCurrentConfig } from '../config.js';
-import { getDb } from '../db.js';
-import { fetchPRBodyHtml, refreshSinglePR } from '../poller.js';
 import { enrichWithStackInfo, formatPR } from '../pr-status.js';
 import { execFile } from '../utils.js';
 
@@ -38,21 +35,13 @@ function storeDiffCache(map, prId, key, data) {
  * @param {import('fastify').FastifyInstance} app
  */
 export function registerPRRoutes(app) {
+  const { fetchPRBodyHtml, getConfig, getDb, getPollerStatus, refreshSinglePR } = app.appContext;
   app.get('/api/prs', (request) => {
     const db = getDb();
-    const { org, repo, draft, ci, review, mergeable, role } = request.query;
+    const { org, repo, draft, ci, review, mergeable } = request.query;
 
     let sql = 'SELECT * FROM prs WHERE 1=1';
     const params = [];
-
-    // role scopes the result to one tab. Default to authored so existing
-    // callers (MCP, old links) keep their current behavior.
-    const roleFilter = role === 'reviewer' || role === 'author' ? role : 'author';
-    if (roleFilter === 'reviewer') {
-      sql += ' AND is_review_requested = 1';
-    } else {
-      sql += ' AND is_authored = 1';
-    }
 
     if (org) {
       sql += ' AND org = ?';
@@ -87,12 +76,16 @@ export function registerPRRoutes(app) {
     enrichWithStackInfo(prs);
 
     // Enrich with workspace/session indicators
-    const activeWorkspaceRows = db.prepare("SELECT id, pr_id FROM workspaces WHERE status = 'active'").all();
+    const activeWorkspaceRows = db
+      .prepare("SELECT id, pr_id FROM workspaces WHERE status = 'active' AND operation_state = 'ready'")
+      .all();
     const activeWorkspaces = new Set(activeWorkspaceRows.map((r) => r.pr_id));
     const prWorkspaceMap = Object.fromEntries(activeWorkspaceRows.filter((r) => r.pr_id).map((r) => [r.pr_id, r.id]));
     const activeSessions = new Set(
       db
-        .prepare("SELECT w.pr_id FROM sessions s JOIN workspaces w ON s.workspace_id = w.id WHERE s.status = 'active'")
+        .prepare(
+          "SELECT w.pr_id FROM sessions s JOIN workspaces w ON s.workspace_id = w.id WHERE s.status = 'active' AND w.operation_state = 'ready'",
+        )
         .all()
         .map((r) => r.pr_id),
     );
@@ -102,8 +95,21 @@ export function registerPRRoutes(app) {
       pr.workspace_id = prWorkspaceMap[pr.id] || null;
     }
 
-    const syncRow = db.prepare('SELECT MAX(synced_at) as synced_at FROM prs').get();
-    return { prs, synced_at: syncRow?.synced_at ?? null };
+    const state = db.prepare('SELECT * FROM sync_state WHERE id = 1').get();
+    const fallback = db.prepare('SELECT MAX(synced_at) AS synced_at FROM prs').get();
+    const syncedAt = state?.synced_at ?? fallback?.synced_at ?? null;
+    const config = getConfig();
+    const stale = !syncedAt || Date.now() - Date.parse(syncedAt) > config.poll.interval_seconds * 2 * 1000;
+    const pollStatus = getPollerStatus();
+    return {
+      prs,
+      synced_at: syncedAt,
+      freshness: {
+        synced_at: syncedAt,
+        stale,
+        refreshing: pollStatus.active || pollStatus.pending,
+      },
+    };
   });
 
   app.get('/api/prs/:id', async (request, reply) => {
@@ -142,7 +148,7 @@ export function registerPRRoutes(app) {
     }
     let result;
     try {
-      result = await refreshSinglePR(request.params.id, getCurrentConfig());
+      result = await refreshSinglePR(request.params.id, getConfig());
     } catch (err) {
       return reply.code(502).send({ error: `Failed to refresh PR: ${err.message}` });
     }

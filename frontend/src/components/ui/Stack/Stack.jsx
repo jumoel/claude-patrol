@@ -24,17 +24,16 @@ const JUSTIFY_CLASSES = {
 
 /**
  * Flex layout component for horizontal and vertical stacking.
- * @param {{
- *   gap: 1 | 2 | 3 | 4 | 5 | 6,
+ * @typedef {React.HTMLAttributes<HTMLElement> & {
+ *   gap?: 1 | 2 | 3 | 4 | 5 | 6,
  *   direction?: 'row' | 'col',
  *   align?: 'start' | 'center' | 'end' | 'baseline' | 'stretch',
  *   justify?: 'start' | 'center' | 'end' | 'between',
  *   wrap?: boolean,
- *   as?: string,
- *   className?: string,
+ *   as?: React.ElementType,
  *   children: React.ReactNode,
- *   [key: string]: any,
- * }} props
+ * }} StackProps
+ * @param {StackProps} props
  */
 export function Stack({
   gap,
@@ -53,12 +52,14 @@ export function Stack({
   const classes = [
     'flex',
     direction === 'col' ? 'flex-col' : undefined,
-    GAP_CLASSES[gap],
+    gap ? GAP_CLASSES[gap] : undefined,
     ALIGN_CLASSES[resolvedAlign],
     justify ? JUSTIFY_CLASSES[justify] : undefined,
     wrap ? 'flex-wrap' : undefined,
     className,
-  ].filter(Boolean).join(' ');
+  ]
+    .filter(Boolean)
+    .join(' ');
 
   return (
     <Tag className={classes} {...rest}>

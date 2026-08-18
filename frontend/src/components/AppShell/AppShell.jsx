@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import logoSvg from '../../assets/logo.svg';
-import { triggerRestart, triggerUpdate } from '../../lib/api.js';
+import { fetchRestartStatus, triggerRestart, triggerUpdate } from '../../lib/api.js';
+import { getErrorMessage } from '../../lib/errors.js';
 import { Button } from '../ui/Button/Button.jsx';
 import { Stack } from '../ui/Stack/Stack.jsx';
 import styles from './AppShell.module.css';
@@ -9,6 +10,7 @@ import styles from './AppShell.module.css';
  * Top-level layout shell. Provides page structure, header, and content area.
  */
 
+/** @param {string | null | undefined} resetAt */
 function formatResetCountdown(resetAt) {
   if (!resetAt) return null;
   const ms = new Date(resetAt).getTime() - Date.now();
@@ -25,6 +27,25 @@ function formatResetCountdown(resetAt) {
   return `${s}s`;
 }
 
+/**
+ * @param {{
+ *   title: string,
+ *   syncTime: string,
+ *   nextSync: string,
+ *   syncing: boolean,
+ *   onSync: () => void | Promise<void>,
+ *   terminalOpen: boolean,
+ *   onToggleTerminal: () => void,
+ *   onSetup?: () => void,
+ *   updateAvailable: boolean,
+ *   commitsBehind: number,
+ *   restartNeeded: boolean,
+ *   startupSha: string,
+ *   currentSha: string,
+ *   ghRateLimit: import('../../types').GhRateLimit | null,
+ *   children: React.ReactNode,
+ * }} props
+ */
 export function AppShell({
   title,
   syncTime,
@@ -44,17 +65,19 @@ export function AppShell({
 }) {
   const [dismissed, setDismissed] = useState(false);
   const [pulling, setPulling] = useState(false);
-  const [pullResult, setPullResult] = useState(null);
+  const [pullResult, setPullResult] = useState(
+    /** @type {{ok: true, output?: string} | {ok: false, error: string} | null} */ (null),
+  );
   const [restarting, setRestarting] = useState(false);
-  const [restartPhase, setRestartPhase] = useState(null);
+  const [restartPhase, setRestartPhase] = useState(/** @type {string | null} */ (null));
   const [, setNow] = useState(0);
-  const headerRef = useRef(null);
+  const headerRef = useRef(/** @type {HTMLElement | null} */ (null));
   const showBanner = (updateAvailable || pullResult || restartNeeded) && !dismissed;
   const showRateLimit = !!ghRateLimit?.limited;
 
   // Tick once per second while rate-limited so the reset countdown updates.
   useEffect(() => {
-    if (!showRateLimit || !ghRateLimit?.resetAt) return;
+    if (!showRateLimit || !ghRateLimit?.resetAt) return undefined;
     const id = setInterval(() => setNow((n) => n + 1), 1000);
     return () => clearInterval(id);
   }, [showRateLimit, ghRateLimit?.resetAt]);
@@ -64,7 +87,7 @@ export function AppShell({
   // Publish header height as a CSS variable so maximized terminals can leave it visible.
   useEffect(() => {
     const el = headerRef.current;
-    if (!el) return;
+    if (!el) return undefined;
     const update = () => {
       document.documentElement.style.setProperty('--app-header-height', `${el.offsetHeight}px`);
     };
@@ -84,7 +107,7 @@ export function AppShell({
       const result = await triggerUpdate();
       setPullResult({ ok: true, output: result.output });
     } catch (err) {
-      setPullResult({ ok: false, error: err.message });
+      setPullResult({ ok: false, error: getErrorMessage(err, 'Update failed') });
     } finally {
       setPulling(false);
     }
@@ -102,14 +125,8 @@ export function AppShell({
     let sawDown = false;
     const poll = setInterval(async () => {
       try {
-        const res = await fetch('/api/restart/status');
-        if (res.ok) {
-          const data = await res.json();
-          if (data.phase) setRestartPhase(data.phase);
-        } else {
-          sawDown = true;
-          setRestartPhase('restarting');
-        }
+        const data = await fetchRestartStatus();
+        if (data.phase) setRestartPhase(data.phase);
       } catch {
         sawDown = true;
         setRestartPhase('restarting');
@@ -142,7 +159,7 @@ export function AppShell({
             <img src={logoSvg} alt="" className={styles.logo} />
             <h1 className={styles.title}>{title}</h1>
           </a>
-          <Stack gap={3}>
+          <Stack gap={3} className={styles.headerActions}>
             <span className={styles.syncStatus}>
               {syncTime}
               {nextSync && (

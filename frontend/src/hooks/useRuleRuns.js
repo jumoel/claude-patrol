@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { fetchRuleRuns } from '../lib/api.js';
+import { subscribeAppEvent } from '../lib/event-stream.js';
 
 const COMPLETED_TTL_MS = 30 * 60 * 1000;
 const MAX_VISIBLE = 50;
@@ -8,10 +9,10 @@ const MAX_VISIBLE = 50;
  * Subscribe to rule-run events. Initial state from /api/rules/runs, live updates
  * via the `rule-run` SSE event (emitted on insert and on each persisted update).
  * Sorted: running first, most recent completed next.
- * @returns {Array<object>}
+ * @returns {import('../types').RuleRun[]}
  */
 export function useRuleRuns() {
-  const [runs, setRuns] = useState([]);
+  const [runs, setRuns] = useState(/** @type {import('../types').RuleRun[]} */ ([]));
 
   useEffect(() => {
     let cancelled = false;
@@ -21,9 +22,9 @@ export function useRuleRuns() {
       })
       .catch(() => {});
 
-    const source = new EventSource('/api/events');
-    source.addEventListener('rule-run', (e) => {
+    const unsubscribe = subscribeAppEvent('rule-run', (e) => {
       try {
+        /** @type {import('../types').RuleRun} */
         const incoming = JSON.parse(e.data);
         setRuns((prev) => merge(prev, incoming));
       } catch {
@@ -33,13 +34,17 @@ export function useRuleRuns() {
 
     return () => {
       cancelled = true;
-      source.close();
+      unsubscribe();
     };
   }, []);
 
   return runs;
 }
 
+/**
+ * @param {import('../types').RuleRun[]} prev
+ * @param {import('../types').RuleRun} incoming
+ */
 function merge(prev, incoming) {
   const without = prev.filter((r) => r.id !== incoming.id);
   const next = [incoming, ...without];
@@ -50,7 +55,7 @@ function merge(prev, incoming) {
   fresh.sort((a, b) => {
     if (!a.ended_at && b.ended_at) return -1;
     if (a.ended_at && !b.ended_at) return 1;
-    return new Date(b.started_at) - new Date(a.started_at);
+    return new Date(b.started_at).getTime() - new Date(a.started_at).getTime();
   });
 
   return fresh.slice(0, MAX_VISIBLE);

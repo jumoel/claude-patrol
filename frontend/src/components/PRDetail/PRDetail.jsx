@@ -24,6 +24,7 @@ import {
   isScheduledCheck,
   statusColorGroup,
 } from '../../lib/checks.js';
+import { getErrorMessage } from '../../lib/errors.js';
 import { sendTerminalCommand, whenWsOpen } from '../../lib/terminal.js';
 import { getRelativeTime } from '../../lib/time.js';
 import shared from '../../styles/shared.module.css';
@@ -48,6 +49,7 @@ const DOT_STYLES = {
   gray: styles.dotScheduled,
 };
 
+/** @type {Record<string, string>} */
 const CHECK_STATUS_LABELS = {
   SUCCESS: 'success',
   NEUTRAL: 'neutral',
@@ -68,10 +70,12 @@ const CHECK_STATUS_LABELS = {
  * @param {{ prId: string, onBack: () => void }} props
  */
 export function PRDetail({ prId, onBack }) {
-  const [pr, setPR] = useState(null);
-  const [workspace, setWorkspace] = useState(null);
-  const [session, setSession] = useState(null);
-  const [comments, setComments] = useState(null);
+  const [pr, setPR] = useState(/** @type {import('../../types').PullRequest | null} */ (null));
+  const [workspace, setWorkspace] = useState(/** @type {import('../../types').Workspace | null} */ (null));
+  const [session, setSession] = useState(/** @type {import('../../types').Session | null} */ (null));
+  const [comments, setComments] = useState(
+    /** @type {import('../../types').PullRequestCommentsResponse | null} */ (null),
+  );
   const [commentsLoading, setCommentsLoading] = useState(true);
   const [loading, setLoading] = useState(true);
   const [openingClaude, setOpeningClaude] = useState(false);
@@ -80,10 +84,10 @@ export function PRDetail({ prId, onBack }) {
   const [copiedBranch, setCopiedBranch] = useState(false);
   const [togglingDraft, setTogglingDraft] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const wsRef = useRef(null);
+  const wsRef = useRef(/** @type {WebSocket | null} */ (null));
 
   /** Deduped workspace creation promise so both buttons share a single in-flight request. */
-  const workspacePromiseRef = useRef(null);
+  const workspacePromiseRef = useRef(/** @type {Promise<import('../../types').Workspace> | null} */ (null));
 
   const loadData = useCallback(async () => {
     try {
@@ -230,7 +234,7 @@ export function PRDetail({ prId, onBack }) {
       const fresh = await refreshPR(prId);
       // Server tore down the row because the PR is merged/closed. Surface
       // that and go back to the dashboard - there's nothing left to view.
-      if (fresh?.removed) {
+      if ('removed' in fresh) {
         alert(`This PR is ${fresh.state.toLowerCase()}; it's been removed from the dashboard.`);
         onBack();
         return;
@@ -238,7 +242,7 @@ export function PRDetail({ prId, onBack }) {
       setPR(fresh);
     } catch (err) {
       console.error('Failed to refresh PR:', err);
-      alert(`Failed to refresh PR: ${err.message}`);
+      alert(`Failed to refresh PR: ${getErrorMessage(err)}`);
     } finally {
       setRefreshing(false);
     }
@@ -249,10 +253,10 @@ export function PRDetail({ prId, onBack }) {
     setTogglingDraft(true);
     try {
       const { draft } = await setPRDraft(prId, !pr.draft);
-      setPR((prev) => ({ ...prev, draft }));
+      setPR((prev) => (prev ? { ...prev, draft } : prev));
     } catch (err) {
       console.error('Failed to toggle draft:', err);
-      alert(`Failed to toggle draft: ${err.message}`);
+      alert(`Failed to toggle draft: ${getErrorMessage(err)}`);
     } finally {
       setTogglingDraft(false);
     }
@@ -606,14 +610,15 @@ export function PRDetail({ prId, onBack }) {
   );
 }
 
+/** @param {{ check: import('../../types').Check, prId?: string }} props */
 function CheckRow({ check, prId }) {
   const status = checkToStatus(check);
   const colorGroup = statusColorGroup(status);
   const dotClass = DOT_STYLES[colorGroup] || styles.dotScheduled;
   const isFailed = isFailedCheck(check);
-  const [jobLogs, setJobLogs] = useState(null);
+  const [jobLogs, setJobLogs] = useState(/** @type {import('../../types').CheckLog[] | null} */ (null));
   const [logLoading, setLogLoading] = useState(false);
-  const [logError, setLogError] = useState(null);
+  const [logError, setLogError] = useState(/** @type {string | null} */ (null));
   const [showLog, setShowLog] = useState(false);
 
   const handleViewLog = useCallback(async () => {
@@ -625,13 +630,14 @@ function CheckRow({ check, prId }) {
     if (!showLog || jobLogs || logLoading || logError) return;
 
     const match = check.url?.match(/\/actions\/runs\/(\d+)/);
-    if (!match) {
-      setLogError('No run ID found in check URL');
+    const runId = match?.[1];
+    if (!prId || !runId) {
+      setLogError(!prId ? 'No PR ID available' : 'No run ID found in check URL');
       return;
     }
 
     setLogLoading(true);
-    fetchCheckLogs(prId, match[1])
+    fetchCheckLogs(prId, runId)
       .then((data) => {
         const validLogs = data.logs?.filter((l) => !l.error) ?? [];
         const errors = data.logs?.filter((l) => l.error).map((l) => l.error) ?? [];
@@ -670,8 +676,8 @@ function CheckRow({ check, prId }) {
       {showLog &&
         jobLogs?.map((job, i) => (
           <div key={i}>
-            {jobLogs.length > 1 && <div className={styles.jobLogLabel}>{job.job || `Job ${i + 1}`}</div>}
-            <CheckLogViewer log={job.log} truncated={job.truncated} loading={false} error={null} />
+            {jobLogs.length > 1 && <div className={styles.jobLogLabel}>{job.job_name || `Job ${i + 1}`}</div>}
+            <CheckLogViewer log={job.log ?? null} truncated={job.truncated ?? false} loading={false} error={null} />
           </div>
         ))}
       {showLog && !jobLogs && <CheckLogViewer log={null} truncated={false} loading={logLoading} error={logError} />}
@@ -679,6 +685,7 @@ function CheckRow({ check, prId }) {
   );
 }
 
+/** @param {{checks: import('../../types').Check[]}} props */
 function PassedChecksGroup({ checks }) {
   const [expanded, setExpanded] = useState(false);
 
@@ -692,17 +699,20 @@ function PassedChecksGroup({ checks }) {
   );
 }
 
+/** @param {{pr: import('../../types').PullRequest}} props */
 function StackInfo({ pr }) {
   const parentId = pr.stack_parent;
   const childIds = pr.stack_children || [];
   const { stack_position: pos, stack_size: size } = pr;
 
   /** Extract display label from PR id (e.g. "org/repo#123" -> "#123") */
+  /** @param {string} id */
   const prLabel = (id) => {
     const match = id.match(/#(\d+)$/);
     return match ? `#${match[1]}` : id;
   };
 
+  /** @param {string} id */
   const navigateTo = (id) => {
     window.location.hash = `/pr/${encodeURIComponent(id)}`;
   };
@@ -739,6 +749,7 @@ function StackInfo({ pr }) {
   );
 }
 
+/** @param {{bodyHtml: string}} props */
 function PRDescription({ bodyHtml }) {
   const [expanded, setExpanded] = useState(false);
 
@@ -753,13 +764,16 @@ function PRDescription({ bodyHtml }) {
   );
 }
 
+/** @param {{workspaceId: string}} props */
 function SessionHistory({ workspaceId }) {
-  const [history, setHistory] = useState(null);
+  const [history, setHistory] = useState(/** @type {import('../../types').Session[] | null} */ (null));
   const [loading, setLoading] = useState(false);
   const [expanded, setExpanded] = useState(false);
-  const [transcripts, setTranscripts] = useState({});
-  const [transcriptLoading, setTranscriptLoading] = useState({});
-  const [transcriptErrors, setTranscriptErrors] = useState({});
+  const [transcripts, setTranscripts] = useState(
+    /** @type {Record<string, import('../../types').TranscriptEntry[]>} */ ({}),
+  );
+  const [transcriptLoading, setTranscriptLoading] = useState(/** @type {Record<string, boolean>} */ ({}));
+  const [transcriptErrors, setTranscriptErrors] = useState(/** @type {Record<string, string>} */ ({}));
 
   useEffect(() => {
     if (!expanded || history) return;
@@ -771,6 +785,7 @@ function SessionHistory({ workspaceId }) {
   }, [expanded, history, workspaceId]);
 
   const handleViewTranscript = useCallback(
+    /** @param {string} sessionId */
     (sessionId) => {
       if (transcripts[sessionId]) {
         setTranscripts((prev) => {
@@ -789,9 +804,10 @@ function SessionHistory({ workspaceId }) {
     [transcripts],
   );
 
+  /** @param {string | null} start @param {string | null} end */
   const formatDuration = (start, end) => {
     if (!start || !end) return '';
-    const ms = new Date(end) - new Date(start);
+    const ms = new Date(end).getTime() - new Date(start).getTime();
     const mins = Math.floor(ms / 60000);
     if (mins < 1) return '<1m';
     if (mins < 60) return `${mins}m`;

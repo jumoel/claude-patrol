@@ -1,8 +1,6 @@
 import { copyFileSync, cpSync, existsSync, mkdirSync } from 'node:fs';
 import { basename, resolve } from 'node:path';
 import { emitLocalChange } from '../app-events.js';
-import { getCurrentConfig } from '../config.js';
-import { getDb } from '../db.js';
 import {
   attachSession,
   createResumedSession,
@@ -26,15 +24,18 @@ import { createScratchWorkspace } from '../workspace.js';
  * @param {import('fastify').FastifyInstance} app
  */
 export function registerSessionRoutes(app) {
+  const { getConfig, getDb } = app.appContext;
   app.post('/api/sessions', (request, reply) => {
     const { workspace_id, global: isGlobal } = request.body || {};
     const db = getDb();
 
     let cwd;
     if (isGlobal) {
-      cwd = getCurrentConfig().global_terminal_cwd || process.cwd();
+      cwd = getConfig().global_terminal_cwd || process.cwd();
     } else if (workspace_id) {
-      const workspace = db.prepare("SELECT * FROM workspaces WHERE id = ? AND status = 'active'").get(workspace_id);
+      const workspace = db
+        .prepare("SELECT * FROM workspaces WHERE id = ? AND status = 'active' AND operation_state = 'ready'")
+        .get(workspace_id);
       if (!workspace) {
         return reply.code(404).send({ error: 'Workspace not found or not active' });
       }
@@ -164,7 +165,7 @@ export function registerSessionRoutes(app) {
       return reply.code(400).send({ error: 'Session is already in a workspace' });
     }
 
-    const config = getCurrentConfig();
+    const config = getConfig();
     const [org, repoName] = repo.split('/');
     const mainRepoPath = resolve(expandPath(config.work_dir), org, repoName);
 

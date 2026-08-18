@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useSyncExternalStore } from 'react';
+import { subscribeAppEvent } from '../lib/event-stream.js';
 
 /**
  * Tracks session activity state (working/idle) per workspace via SSE.
@@ -13,6 +14,7 @@ import { useCallback, useEffect, useSyncExternalStore } from 'react';
  *   dismissedIdle: Set<string>,
  *   dismissWorkspace: (workspaceId: string) => void,
  *   setActiveWorkspace: (workspaceId: string | null) => void,
+ *   localChangeCount: number,
  * }}
  */
 
@@ -26,10 +28,12 @@ const sessionWorkspaceMap = new Map();
 /** Monotonic counter incremented on each local-change SSE event. */
 let localChangeCount = 0;
 
+/** @type {Set<() => void>} */
 const listeners = new Set();
 function notify() {
   for (const cb of listeners) cb();
 }
+/** @param {() => void} cb */
 function subscribe(cb) {
   listeners.add(cb);
   return () => listeners.delete(cb);
@@ -47,19 +51,15 @@ function getLocalChangeSnapshot() {
   return localChangeCount;
 }
 
-/** Workspace ID the user is currently viewing. */
-let activeWorkspaceId = null;
-
-/** @type {EventSource | null} */
-let source = null;
+/** @type {Array<() => void>} */
+let sseUnsubscribers = [];
 let refCount = 0;
 
 function startSSE() {
-  if (source) return;
-  source = new EventSource('/api/events');
+  if (sseUnsubscribers.length > 0) return;
 
   // Clear stale state on reconnect.
-  source.addEventListener('open', () => {
+  const onOpen = subscribeAppEvent('open', () => {
     if (workspaceStates.size > 0 || dismissedIdle.size > 0) {
       workspaceStates = new Map();
       dismissedIdle = new Set();
@@ -70,12 +70,13 @@ function startSSE() {
     }
   });
 
-  source.addEventListener('local-change', () => {
+  const onLocalChange = subscribeAppEvent('local-change', () => {
     localChangeCount++;
     notify();
   });
 
-  source.addEventListener('session-state', (event) => {
+  const onSessionState = subscribeAppEvent('session-state', (event) => {
+    /** @type {{sessionId: string, workspaceId: string | null, state: 'working' | 'idle' | 'exited'}} */
     const { sessionId, workspaceId, state } = JSON.parse(event.data);
 
     if (state === 'exited') {
@@ -119,15 +120,13 @@ function startSSE() {
     }
 
     if (changed) notify();
-
   });
+  sseUnsubscribers = [onOpen, onLocalChange, onSessionState];
 }
 
 function stopSSE() {
-  if (source) {
-    source.close();
-    source = null;
-  }
+  for (const unsubscribe of sseUnsubscribers) unsubscribe();
+  sseUnsubscribers = [];
 }
 
 export function useIdleNotification() {
@@ -144,22 +143,31 @@ export function useIdleNotification() {
   const dismissed = useSyncExternalStore(subscribe, getDismissedSnapshot);
   const localChanges = useSyncExternalStore(subscribe, getLocalChangeSnapshot);
 
-  const dismissWorkspace = useCallback((workspaceId) => {
-    if (workspaceId && workspaceStates.get(workspaceId) === 'idle' && !dismissedIdle.has(workspaceId)) {
-      dismissedIdle = new Set(dismissedIdle);
-      dismissedIdle.add(workspaceId);
-      dismissedSnapshot = dismissedIdle;
-      notify();
-    }
-  }, []);
+  const dismissWorkspace = useCallback(
+    /** @param {string} workspaceId */ (workspaceId) => {
+      if (workspaceId && workspaceStates.get(workspaceId) === 'idle' && !dismissedIdle.has(workspaceId)) {
+        dismissedIdle = new Set(dismissedIdle);
+        dismissedIdle.add(workspaceId);
+        dismissedSnapshot = dismissedIdle;
+        notify();
+      }
+    },
+    [],
+  );
 
   const setActiveWorkspace = useCallback(
+    /** @param {string | null} wsId */
     (wsId) => {
-      activeWorkspaceId = wsId;
       if (wsId) dismissWorkspace(wsId);
     },
     [dismissWorkspace],
   );
 
-  return { workspaceStates: states, dismissedIdle: dismissed, dismissWorkspace, setActiveWorkspace, localChangeCount: localChanges };
+  return {
+    workspaceStates: states,
+    dismissedIdle: dismissed,
+    dismissWorkspace,
+    setActiveWorkspace,
+    localChangeCount: localChanges,
+  };
 }

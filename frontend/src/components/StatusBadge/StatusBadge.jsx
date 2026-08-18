@@ -1,5 +1,6 @@
 import { Badge } from '../ui/Badge/Badge.jsx';
 
+/** @type {Record<string, string>} */
 const LABELS = {
   pass: 'Pass',
   fail: 'Fail',
@@ -11,10 +12,11 @@ const LABELS = {
   CONFLICTING: 'Conflict',
   UNKNOWN: 'Unknown',
   draft: 'Draft',
-  open: 'Ready',
+  open: 'Open',
 };
 
 /** Maps type-status to a Badge color. */
+/** @type {Record<string, 'green' | 'red' | 'yellow' | 'gray'>} */
 const COLOR_MAP = {
   'ci-pass': 'green',
   'ci-fail': 'red',

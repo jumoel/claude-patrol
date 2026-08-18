@@ -1,7 +1,5 @@
 import { execFile as execFileCb } from 'node:child_process';
 import { emitLocalChange } from '../app-events.js';
-import { getCurrentConfig } from '../config.js';
-import { getDb } from '../db.js';
 import { formatPR } from '../pr-status.js';
 import { runTask } from '../tasks.js';
 import { createScratchWorkspace, createWorkspace, destroyWorkspace } from '../workspace.js';
@@ -11,6 +9,7 @@ import { createScratchWorkspace, createWorkspace, destroyWorkspace } from '../wo
  * @param {import('fastify').FastifyInstance} app
  */
 export function registerWorkspaceRoutes(app) {
+  const { getConfig, getDb } = app.appContext;
   app.post('/api/workspaces', async (request, reply) => {
     const { pr_id, repo, branch } = request.body || {};
     if (!pr_id && (!repo || !branch)) {
@@ -18,8 +17,8 @@ export function registerWorkspaceRoutes(app) {
     }
     try {
       const workspace = pr_id
-        ? await createWorkspace(pr_id, getCurrentConfig())
-        : await createScratchWorkspace(repo, branch, getCurrentConfig());
+        ? await createWorkspace(pr_id, getConfig())
+        : await createScratchWorkspace(repo, branch, getConfig());
       emitLocalChange();
       return reply.code(201).send(workspace);
     } catch (err) {
@@ -43,8 +42,9 @@ export function registerWorkspaceRoutes(app) {
     if (status) {
       sql += ' AND w.status = ?';
       params.push(status);
+      if (status === 'active') sql += " AND w.operation_state = 'ready'";
     } else {
-      sql += " AND w.status = 'active'";
+      sql += " AND w.status = 'active' AND w.operation_state = 'ready'";
     }
     if (pr_id) {
       sql += ' AND w.pr_id = ?';
@@ -63,6 +63,14 @@ export function registerWorkspaceRoutes(app) {
     return db.prepare(sql).all(...params);
   });
 
+  app.get('/api/workspaces/operations', () => {
+    return getDb()
+      .prepare(
+        "SELECT * FROM workspaces WHERE operation_state NOT IN ('ready', 'destroyed') ORDER BY operation_updated_at DESC",
+      )
+      .all();
+  });
+
   app.get('/api/workspaces/:id', (request, reply) => {
     const db = getDb();
     const workspace = db.prepare('SELECT * FROM workspaces WHERE id = ?').get(request.params.id);
@@ -74,7 +82,7 @@ export function registerWorkspaceRoutes(app) {
 
   app.delete('/api/workspaces/:id', async (request, reply) => {
     try {
-      const result = await destroyWorkspace(request.params.id, getCurrentConfig());
+      const result = await destroyWorkspace(request.params.id, getConfig());
       emitLocalChange();
       return result;
     } catch (err) {
@@ -82,9 +90,24 @@ export function registerWorkspaceRoutes(app) {
     }
   });
 
+  app.post('/api/workspaces/:id/retry-cleanup', async (request, reply) => {
+    const workspace = getDb().prepare('SELECT * FROM workspaces WHERE id = ?').get(request.params.id);
+    if (!workspace) return reply.code(404).send({ error: 'Workspace not found' });
+    if (['ready', 'destroyed'].includes(workspace.operation_state)) {
+      return reply.code(409).send({ error: 'Workspace does not have an interrupted operation to clean up' });
+    }
+    try {
+      return await destroyWorkspace(request.params.id, getConfig());
+    } catch (error) {
+      return reply.code(400).send({ error: error.message });
+    }
+  });
+
   app.post('/api/workspaces/:id/terminal', (request, reply) => {
     const db = getDb();
-    const workspace = db.prepare("SELECT * FROM workspaces WHERE id = ? AND status = 'active'").get(request.params.id);
+    const workspace = db
+      .prepare("SELECT * FROM workspaces WHERE id = ? AND status = 'active' AND operation_state = 'ready'")
+      .get(request.params.id);
     if (!workspace) {
       return reply.code(404).send({ error: 'Workspace not found or not active' });
     }
@@ -104,7 +127,7 @@ export function registerWorkspaceRoutes(app) {
       SELECT w.id AS workspace_id, p.id, p.number, p.title, p.repo, p.org, p.author, p.url, p.branch, p.draft, p.mergeable, p.checks, p.reviews, p.labels, p.created_at, p.updated_at, p.synced_at
       FROM workspaces w
       JOIN prs p ON w.pr_id = p.id
-      WHERE w.status = 'active'
+      WHERE w.status = 'active' AND w.operation_state = 'ready'
     `)
       .all();
 
@@ -141,8 +164,14 @@ export function registerWorkspaceRoutes(app) {
         const warnings = [];
         for (const { workspace_id, pr_id } of matched) {
           try {
-            await destroyWorkspace(workspace_id, getCurrentConfig());
-            results.push({ workspace_id, pr_id, status: 'destroyed' });
+            const result = await destroyWorkspace(workspace_id, getConfig());
+            if (result.ok) {
+              results.push({ workspace_id, pr_id, status: 'destroyed' });
+            } else {
+              const message = result.warnings.join('; ') || 'Workspace cleanup was incomplete';
+              results.push({ workspace_id, pr_id, status: 'error', message });
+              warnings.push(`${pr_id}: ${message}`);
+            }
           } catch (err) {
             results.push({ workspace_id, pr_id, status: 'error', message: err.message });
             warnings.push(`${pr_id}: ${err.message}`);
@@ -159,5 +188,4 @@ export function registerWorkspaceRoutes(app) {
       },
     );
   });
-
 }

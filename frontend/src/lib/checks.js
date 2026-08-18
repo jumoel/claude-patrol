@@ -1,22 +1,27 @@
 const FAILED_CONCLUSIONS = new Set(['FAILURE', 'ERROR', 'TIMED_OUT']);
 const PASSED_CONCLUSIONS = new Set(['SUCCESS', 'NEUTRAL', 'SKIPPED']);
 
+/** @param {import('../types').Check} check */
 export function isFailedCheck(check) {
-  return FAILED_CONCLUSIONS.has(check.conclusion);
+  return check.conclusion !== null && FAILED_CONCLUSIONS.has(check.conclusion);
 }
 
+/** @param {import('../types').Check} check */
 export function isPassedCheck(check) {
-  return PASSED_CONCLUSIONS.has(check.conclusion);
+  return check.conclusion !== null && PASSED_CONCLUSIONS.has(check.conclusion);
 }
 
+/** @param {import('../types').Check} check */
 export function isRunningCheck(check) {
   return check.status === 'IN_PROGRESS' && !check.conclusion;
 }
 
+/** @param {import('../types').Check} check */
 export function isScheduledCheck(check) {
   return !isFailedCheck(check) && !isPassedCheck(check) && !isRunningCheck(check);
 }
 
+/** @param {import('../types').PullRequest} pr */
 export function isMergeReady(pr) {
   return pr.ci_status === 'pass' && pr.mergeable === 'MERGEABLE' && pr.review_status === 'approved' && !pr.draft;
 }
@@ -24,10 +29,12 @@ export function isMergeReady(pr) {
 /**
  * Map a check to a display status. Uses real GitHub status/conclusion values
  * when available, falling back to the raw status string.
+ * @param {import('../types').Check} check
+ * @returns {string}
  */
 export function checkToStatus(check) {
-  if (isFailedCheck(check)) return check.conclusion;
-  if (isPassedCheck(check)) return check.conclusion;
+  if (check.conclusion && isFailedCheck(check)) return check.conclusion;
+  if (check.conclusion && isPassedCheck(check)) return check.conclusion;
   // Not completed - use the status field directly (IN_PROGRESS, QUEUED, WAITING, PENDING, REQUESTED)
   // StatusContext uses state field: EXPECTED, ERROR, FAILURE, PENDING, SUCCESS
   return check.status || 'PENDING';
@@ -36,6 +43,8 @@ export function checkToStatus(check) {
 /**
  * Map a status string to a color group for styling.
  * Groups: 'green', 'red', 'blue', 'yellow', 'gray'
+ * @param {string} status
+ * @returns {'green' | 'red' | 'blue' | 'yellow' | 'gray'}
  */
 export function statusColorGroup(status) {
   switch (status) {

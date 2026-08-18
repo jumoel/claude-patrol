@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { actionRegistry, invokeAction } from './actions.js';
 import { appEvents } from './app-events.js';
+import { AutomationQueue } from './automation-queue.js';
 import { configEvents } from './config.js';
 import { getDb } from './db.js';
 import { ensureSessionAndSend } from './dispatcher.js';
@@ -108,7 +109,7 @@ const ruleSchema = z
         ctx.addIssue({
           code: 'custom',
           path: ['actions', offending, 'type'],
-          message: "dispatch_claude is not allowed on session.idle triggers (self-dispatch loop)",
+          message: 'dispatch_claude is not allowed on session.idle triggers (self-dispatch loop)',
         });
       }
     }
@@ -127,7 +128,7 @@ const ruleSchema = z
       ctx.addIssue({
         code: 'custom',
         path: ['requires_subscription'],
-        message: "requires_subscription has no effect when manual: true (manual already disables auto-fire)",
+        message: 'requires_subscription has no effect when manual: true (manual already disables auto-fire)',
       });
     }
 
@@ -188,6 +189,21 @@ let loadErrors = [];
 
 let app = null;
 let started = false;
+let automationQueue = null;
+
+function onConfigChange(cfg) {
+  loadRules(cfg?.rules);
+  automationQueue?.setConcurrency(cfg?.automation?.concurrency);
+}
+
+function onPrChanged(event) {
+  handlePrChanged(event).catch((err) => console.warn(`[rules] pr-changed handler error: ${err.message}`));
+}
+
+function onSessionState(event) {
+  if (event.state !== 'idle') return;
+  handleSessionIdle(event).catch((err) => console.warn(`[rules] session-state handler error: ${err.message}`));
+}
 
 /**
  * Initialize and wire up the rules engine. Idempotent.
@@ -197,36 +213,32 @@ let started = false;
 export function startRulesEngine(fastifyApp, initialConfig) {
   if (started) return;
   app = fastifyApp;
-  started = true;
-
-  // Reconcile any rule_runs that were left as 'running' when the server died.
-  reconcileStaleRuns();
 
   loadRules(initialConfig?.rules);
-
-  configEvents.on('change', (cfg) => {
-    loadRules(cfg?.rules);
+  automationQueue = new AutomationQueue({
+    getDb,
+    concurrency: initialConfig?.automation?.concurrency,
+    execute: executeRuleJob,
+    onUpdate: (run) => appEvents.emit('rule-run', toPublic(run)),
   });
+  automationQueue.start();
 
-  pollerEvents.on('pr-changed', (event) => {
-    handlePrChanged(event).catch((err) => console.warn(`[rules] pr-changed handler error: ${err.message}`));
-  });
-
-  appEvents.on('session-state', (event) => {
-    if (event.state !== 'idle') return;
-    handleSessionIdle(event).catch((err) => console.warn(`[rules] session-state handler error: ${err.message}`));
-  });
+  configEvents.on('change', onConfigChange);
+  pollerEvents.on('pr-changed', onPrChanged);
+  appEvents.on('session-state', onSessionState);
+  started = true;
 }
 
-function reconcileStaleRuns() {
-  const db = getDb();
-  const now = new Date().toISOString();
-  const result = db
-    .prepare("UPDATE rule_runs SET status = 'error', error = 'server_restarted', ended_at = ? WHERE status = 'running'")
-    .run(now);
-  if (result.changes > 0) {
-    console.log(`[rules] Reconciled ${result.changes} stale rule_run(s) as 'server_restarted'`);
-  }
+/** Stop listeners and optionally drain actions already running. */
+export async function stopRulesEngine({ drain = true } = {}) {
+  if (!started) return;
+  configEvents.removeListener('change', onConfigChange);
+  pollerEvents.removeListener('pr-changed', onPrChanged);
+  appEvents.removeListener('session-state', onSessionState);
+  await automationQueue?.stop({ drain });
+  automationQueue = null;
+  app = null;
+  started = false;
 }
 
 function loadRules(rulesArray) {
@@ -310,14 +322,20 @@ async function handlePrChanged(event) {
     if (!matches(rule.where, predCtx)) continue;
     const cooldownKey = pr.id;
     if (!cooldownOk(rule, cooldownKey)) continue;
-    await fireRule(rule, {
-      trigger: rule.on,
-      pr_id: pr.id,
-      workspace_id: null,
-      session_id: null,
-      cooldown_key: cooldownKey,
-      tmplCtx,
-    });
+    try {
+      await fireRule(rule, {
+        trigger: rule.on,
+        pr_id: pr.id,
+        workspace_id: null,
+        session_id: null,
+        cooldown_key: cooldownKey,
+        tmplCtx,
+        dedupe_key: `${rule.id}:${rule.on}:${pr.id}:${pr.updated_at}`,
+      });
+    } catch (error) {
+      if (error.code === 'cooldown' || error.code === 'duplicate') continue;
+      throw error;
+    }
   }
 }
 
@@ -354,14 +372,19 @@ async function handleSessionIdle(event) {
     if (!matches(rule.where, predCtx)) continue;
     const cooldownKey = sessionId;
     if (!cooldownOk(rule, cooldownKey)) continue;
-    await fireRule(rule, {
-      trigger: 'session.idle',
-      pr_id: prId,
-      workspace_id: workspaceId,
-      session_id: sessionId,
-      cooldown_key: cooldownKey,
-      tmplCtx,
-    });
+    try {
+      await fireRule(rule, {
+        trigger: 'session.idle',
+        pr_id: prId,
+        workspace_id: workspaceId,
+        session_id: sessionId,
+        cooldown_key: cooldownKey,
+        tmplCtx,
+      });
+    } catch (error) {
+      if (error.code === 'cooldown') continue;
+      throw error;
+    }
   }
 }
 
@@ -438,7 +461,7 @@ function cooldownOk(rule, cooldownKey) {
   const cutoff = new Date(Date.now() - minutes * 60_000).toISOString();
   const db = getDb();
   const recent = db
-    .prepare("SELECT id FROM rule_runs WHERE rule_id = ? AND cooldown_key = ? AND started_at > ? LIMIT 1")
+    .prepare('SELECT id FROM rule_runs WHERE rule_id = ? AND cooldown_key = ? AND started_at > ? LIMIT 1')
     .get(rule.id, cooldownKey, cutoff);
   if (recent) {
     console.log(`[rules] cooldown active: rule=${rule.id} key=${cooldownKey}`);
@@ -452,14 +475,14 @@ function cooldownOk(rule, cooldownKey) {
  * @param {object} rule - validated rule definition
  * @param {object} ctx - { trigger, pr_id, workspace_id, session_id, cooldown_key, tmplCtx }
  */
-export async function fireRule(rule, ctx) {
-  const db = getDb();
+export function fireRule(rule, ctx, { force = false } = {}) {
+  if (!automationQueue) throw new Error('rules engine is not running');
   // Caller may pre-assign an id (e.g. bulk run-all wants to return ids before
   // the fire completes). Fall back to a fresh UUID otherwise.
   const id = ctx._id ?? randomUUID();
   const startedAt = new Date().toISOString();
 
-  let runRow = {
+  const runRow = {
     id,
     rule_id: rule.id,
     trigger: ctx.trigger,
@@ -473,49 +496,27 @@ export async function fireRule(rule, ctx) {
     ended_at: null,
   };
 
-  db.prepare(
-    'INSERT INTO rule_runs (id, rule_id, trigger, pr_id, workspace_id, session_id, cooldown_key, status, error, started_at, ended_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-  ).run(
-    runRow.id,
-    runRow.rule_id,
-    runRow.trigger,
-    runRow.pr_id,
-    runRow.workspace_id,
-    runRow.session_id,
-    runRow.cooldown_key,
-    runRow.status,
-    runRow.error,
-    runRow.started_at,
-    runRow.ended_at,
-  );
-  appEvents.emit('rule-run', toPublic(runRow));
+  const queued = automationQueue.enqueue({
+    run: runRow,
+    payload: { rule, ctx: { ...ctx, _id: undefined } },
+    cooldownMinutes: rule.cooldown_minutes,
+    bypassCooldown: force,
+    dedupeKey: ctx.dedupe_key ?? null,
+  });
+  return queued.completion.then(toPublic);
+}
 
-  let error = null;
-  try {
-    for (const action of rule.actions) {
-      await runAction(action, ctx, runRow);
-    }
-  } catch (err) {
-    error = err.message || String(err);
+async function executeRuleJob({ rule, ctx }, runRow) {
+  for (const action of rule.actions) {
+    await runAction(action, ctx, runRow);
   }
 
-  const endedAt = new Date().toISOString();
-  const status = error ? 'error' : 'success';
-  db.prepare('UPDATE rule_runs SET status = ?, error = ?, ended_at = ? WHERE id = ?').run(status, error, endedAt, id);
-
-  // consume_on=fire rules consume their subscription on successful auto-fire so
-  // the user has to re-subscribe to arm another run. Errors leave the
-  // subscription intact so the next trigger gets another shot at it.
-  // (consume_on=trigger is consumed at trigger evaluation time, not here.)
-  if (status === 'success' && rule.consume_on === 'fire' && rule.requires_subscription && runRow.pr_id) {
-    db.prepare('DELETE FROM rule_subscriptions WHERE rule_id = ? AND pr_id = ?').run(rule.id, runRow.pr_id);
+  // consume_on=fire rules consume only after their complete action chain has
+  // succeeded. Queue failures deliberately leave the subscription armed.
+  if (rule.consume_on === 'fire' && rule.requires_subscription && runRow.pr_id) {
+    getDb().prepare('DELETE FROM rule_subscriptions WHERE rule_id = ? AND pr_id = ?').run(rule.id, runRow.pr_id);
     console.log(`[rules] consume_on=fire consumed subscription: rule=${rule.id} pr=${runRow.pr_id}`);
   }
-
-  runRow = { ...runRow, status, error, ended_at: endedAt };
-  appEvents.emit('rule-run', toPublic(runRow));
-
-  return toPublic(runRow);
 }
 
 /** Strip internal-only fields from a rule_runs row before SSE/API emission. */
@@ -563,7 +564,9 @@ async function dispatchClaude(ctx, prompt, runRow) {
   // when it already exists; if autoCreate has to make one, the rule_run row
   // will pick it up from the dispatcher's return value.
   const db = getDb();
-  const existing = db.prepare("SELECT id FROM workspaces WHERE pr_id = ? AND status = 'active'").get(ctx.pr_id);
+  const existing = db
+    .prepare("SELECT id FROM workspaces WHERE pr_id = ? AND status = 'active' AND operation_state = 'ready'")
+    .get(ctx.pr_id);
   if (existing) updateRunRow(runRow, { workspace_id: existing.id });
 
   try {
@@ -579,7 +582,9 @@ async function dispatchClaude(ctx, prompt, runRow) {
     // before failing (e.g. session creation crashed mid-flight), pick it
     // up so the rule_run row reflects the partial state.
     if (!runRow.workspace_id) {
-      const ws = db.prepare("SELECT id FROM workspaces WHERE pr_id = ? AND status = 'active'").get(ctx.pr_id);
+      const ws = db
+        .prepare("SELECT id FROM workspaces WHERE pr_id = ? AND status = 'active' AND operation_state = 'ready'")
+        .get(ctx.pr_id);
       if (ws) updateRunRow(runRow, { workspace_id: ws.id });
     }
     // If the dispatcher resolved a session before failing (e.g. session_busy
@@ -622,17 +627,21 @@ export async function manualRunRule(ruleId, options = {}) {
       db.prepare('DELETE FROM rule_subscriptions WHERE rule_id = ? AND pr_id = ?').run(rule.id, pr.id);
       console.log(`[rules] manual run consumed subscription (consume_on=trigger): rule=${rule.id} pr=${pr.id}`);
     }
-    return fireRule(rule, {
-      trigger: rule.on,
-      pr_id: pr.id,
-      workspace_id: null,
-      session_id: null,
-      cooldown_key: cooldownKey,
-      tmplCtx: { pr, session: null },
-      // Manual Run Now queues behind an in-flight turn instead of failing
-      // fast with session_busy. See dispatcher.js BUSY_WAIT_TIMEOUT_MS.
-      waitForBusy: true,
-    });
+    return fireRule(
+      rule,
+      {
+        trigger: rule.on,
+        pr_id: pr.id,
+        workspace_id: null,
+        session_id: null,
+        cooldown_key: cooldownKey,
+        tmplCtx: { pr, session: null },
+        // Manual Run Now queues behind an in-flight turn instead of failing
+        // fast with session_busy. See dispatcher.js BUSY_WAIT_TIMEOUT_MS.
+        waitForBusy: true,
+      },
+      { force: options.force },
+    );
   }
 
   if (rule.on === 'session.idle') {
@@ -656,17 +665,21 @@ export async function manualRunRule(ruleId, options = {}) {
     if (!options.force && !cooldownOk(rule, cooldownKey)) {
       throw new Error('cooldown active (pass force=true to bypass)');
     }
-    return fireRule(rule, {
-      trigger: 'session.idle',
-      pr_id: prId,
-      workspace_id: sess.workspace_id,
-      session_id: sess.id,
-      cooldown_key: cooldownKey,
-      tmplCtx: {
-        pr: null,
-        session: { id: sess.id, workspace_id: sess.workspace_id, workspace_repo: workspaceRepo },
+    return fireRule(
+      rule,
+      {
+        trigger: 'session.idle',
+        pr_id: prId,
+        workspace_id: sess.workspace_id,
+        session_id: sess.id,
+        cooldown_key: cooldownKey,
+        tmplCtx: {
+          pr: null,
+          session: { id: sess.id, workspace_id: sess.workspace_id, workspace_repo: workspaceRepo },
+        },
       },
-    });
+      { force: options.force },
+    );
   }
 
   throw new Error(`unknown trigger: ${rule.on}`);
@@ -722,9 +735,7 @@ export function unsubscribeRule(ruleId, prId) {
 export function listSubscriptions(opts = {}) {
   const db = getDb();
   if (opts.rule_id && opts.pr_id) {
-    return db
-      .prepare('SELECT * FROM rule_subscriptions WHERE rule_id = ? AND pr_id = ?')
-      .all(opts.rule_id, opts.pr_id);
+    return db.prepare('SELECT * FROM rule_subscriptions WHERE rule_id = ? AND pr_id = ?').all(opts.rule_id, opts.pr_id);
   }
   if (opts.rule_id) {
     return db.prepare('SELECT * FROM rule_subscriptions WHERE rule_id = ? ORDER BY created_at DESC').all(opts.rule_id);
@@ -794,16 +805,24 @@ export function runRuleForAll(ruleId, options = {}) {
     // Fire-and-forget. The fireRule INSERT is synchronous so the run_id is
     // already valid when this returns; the action chain runs in the background.
     const runId = randomUUID();
-    fireRule(rule, {
-      trigger: rule.on,
-      pr_id: pr.id,
-      workspace_id: null,
-      session_id: null,
-      cooldown_key: pr.id,
-      tmplCtx: { pr, session: null },
-      _id: runId,
-    }).catch((err) => console.warn(`[rules] run-all fire error for ${pr.id}: ${err.message}`));
-    fired.push({ pr_id: pr.id, run_id: runId });
+    try {
+      fireRule(
+        rule,
+        {
+          trigger: rule.on,
+          pr_id: pr.id,
+          workspace_id: null,
+          session_id: null,
+          cooldown_key: pr.id,
+          tmplCtx: { pr, session: null },
+          _id: runId,
+        },
+        { force: options.force },
+      ).catch((err) => console.warn(`[rules] run-all fire error for ${pr.id}: ${err.message}`));
+      fired.push({ pr_id: pr.id, run_id: runId });
+    } catch (err) {
+      skipped.push({ pr_id: pr.id, reason: err.code ?? err.message });
+    }
   }
 
   console.log(`[rules] run-all rule=${ruleId}: fired=${fired.length} skipped=${skipped.length}`);
@@ -874,5 +893,8 @@ export function listRuleRuns(opts = {}) {
   }
   const sql = `SELECT * FROM rule_runs ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY started_at DESC LIMIT ?`;
   params.push(limit);
-  return db.prepare(sql).all(...params).map(toPublic);
+  return db
+    .prepare(sql)
+    .all(...params)
+    .map(toPublic);
 }

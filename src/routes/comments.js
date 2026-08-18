@@ -1,4 +1,3 @@
-import { getDb } from '../db.js';
 import { execFile } from '../utils.js';
 
 /**
@@ -36,6 +35,7 @@ const COMMENTS_CACHE_MAX_ENTRIES = 200;
  * @param {import('fastify').FastifyInstance} app
  */
 export function registerCommentRoutes(app) {
+  const { getDb } = app.appContext;
   app.get('/api/prs/:id/comments', async (request, reply) => {
     const db = getDb();
     const pr = db.prepare('SELECT org, repo, number, updated_at FROM prs WHERE id = ?').get(request.params.id);

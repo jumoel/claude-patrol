@@ -1,5 +1,6 @@
 import { useCallback, useState } from 'react';
 import { destroyWorkspace } from '../../lib/api.js';
+import { getErrorMessage } from '../../lib/errors.js';
 import { Badge } from '../ui/Badge/Badge.jsx';
 import { Button } from '../ui/Button/Button.jsx';
 import { Stack } from '../ui/Stack/Stack.jsx';
@@ -7,11 +8,11 @@ import styles from './WorkspaceControls.module.css';
 
 /**
  * Workspace create/destroy controls for a PR.
- * @param {{ prId: string, workspace: object | null, onUpdate: () => void, getOrCreateWorkspace?: () => Promise<object>, claudeWaiting?: boolean }} props
+ * @param {{ prId: string, workspace: import('../../types').Workspace | null, onUpdate: () => void, getOrCreateWorkspace?: () => Promise<import('../../types').Workspace>, claudeWaiting?: boolean }} props
  */
 export function WorkspaceControls({ workspace, onUpdate, getOrCreateWorkspace, claudeWaiting }) {
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
+  const [error, setError] = useState(/** @type {string | null} */ (null));
   const [confirmDestroy, setConfirmDestroy] = useState(false);
 
   const handleCreate = useCallback(async () => {
@@ -22,7 +23,7 @@ export function WorkspaceControls({ workspace, onUpdate, getOrCreateWorkspace, c
       await getOrCreateWorkspace();
       onUpdate();
     } catch (err) {
-      setError(err.message);
+      setError(getErrorMessage(err));
     } finally {
       setLoading(false);
     }
@@ -37,7 +38,7 @@ export function WorkspaceControls({ workspace, onUpdate, getOrCreateWorkspace, c
       setConfirmDestroy(false);
       onUpdate();
     } catch (err) {
-      setError(err.message);
+      setError(getErrorMessage(err));
     } finally {
       setLoading(false);
     }

@@ -11,20 +11,29 @@ const RECONNECT_DELAYS = [500, 1000, 2000, 4000];
 /**
  * Terminal component backed by xterm.js and a WebSocket connection.
  * Auto-reconnects on disconnect (for server restarts in watch mode).
- * @param {{ wsUrl: string, wsRef?: import('react').MutableRefObject<WebSocket | null> }} props
+ * @param {{
+ *   wsUrl: string,
+ *   wsRef?: import('react').MutableRefObject<WebSocket | null>,
+ *   focus?: boolean,
+ *   onExit?: (code: number) => void,
+ *   onToggleMaximize?: () => void,
+ *   borderless?: boolean,
+ * }} props
  */
 export function Terminal({ wsUrl, wsRef: externalWsRef, focus, onExit, onToggleMaximize, borderless }) {
-  const containerRef = useRef(null);
-  const termRef = useRef(null);
-  const wsRef = useRef(null);
-  const fitRef = useRef(null);
+  const containerRef = useRef(/** @type {HTMLDivElement | null} */ (null));
+  const termRef = useRef(/** @type {XTerm | null} */ (null));
+  const wsRef = useRef(/** @type {WebSocket | null} */ (null));
+  const fitRef = useRef(/** @type {FitAddon | null} */ (null));
 
   useEffect(() => {
-    if (!containerRef.current || !wsUrl) return;
+    if (!containerRef.current || !wsUrl) return undefined;
 
     let cancelled = false;
+    /** @type {ResizeObserver | undefined} */
     let observer;
     let reconnectAttempt = 0;
+    /** @type {ReturnType<typeof setTimeout> | null} */
     let reconnectTimer = null;
 
     const term = new XTerm({
@@ -117,7 +126,8 @@ export function Terminal({ wsUrl, wsRef: externalWsRef, focus, onExit, onToggleM
     // layout changes even when the inner container dimensions haven't
     // propagated yet.
     observer = new ResizeObserver(() => fitAndSync());
-    observer.observe(containerRef.current.parentElement);
+    const wrapper = containerRef.current.parentElement;
+    if (wrapper) observer.observe(wrapper);
 
     function connectWs() {
       if (cancelled || !term) return;

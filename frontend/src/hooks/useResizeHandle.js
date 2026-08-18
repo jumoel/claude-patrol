@@ -3,26 +3,29 @@ import { useCallback, useRef, useState } from 'react';
 /**
  * Pointer-based drag resize logic. Returns state and event handlers.
  *
- * @param {{ initial: number, min: number, max: number, direction: 'up' | 'down', onPersist?: (height: number) => void }} opts
+ * @param {{ initial: number, min: number, max: number, direction?: 'up' | 'down', onPersist?: (height: number) => void }} opts
  *   - direction 'up': dragging up increases height (bottom-anchored drawer)
  *   - direction 'down': dragging down increases height (top-anchored container)
  */
 export function useResizeHandle({ initial, min, max, direction = 'down', onPersist }) {
   const [height, setHeight] = useState(initial);
   const [dragging, setDragging] = useState(false);
+  /** @type {import('react').MutableRefObject<{y: number, height: number} | null>} */
   const dragStartRef = useRef(null);
 
   const onPointerDown = useCallback(
+    /** @param {import('react').PointerEvent<HTMLElement>} e */
     (e) => {
       e.preventDefault();
       dragStartRef.current = { y: e.clientY, height };
       setDragging(true);
-      e.target.setPointerCapture(e.pointerId);
+      e.currentTarget.setPointerCapture(e.pointerId);
     },
     [height],
   );
 
   const onPointerMove = useCallback(
+    /** @param {import('react').PointerEvent<HTMLElement>} e */
     (e) => {
       if (!dragStartRef.current) return;
       const rawDelta = e.clientY - dragStartRef.current.y;

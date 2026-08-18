@@ -210,7 +210,7 @@ export const actionRegistry = {
 
   subscribe_rule_for_all_matching_prs: {
     description:
-      'Subscribe every PR matching a rule\'s `where` clause to that rule. Only valid for rules with `requires_subscription: true`. Returns `subscribed` (newly opted in), `already_subscribed` (no-op), and `skipped` (with reasons). Does not fire the rule - subscriptions take effect on the next matching trigger event for each PR.',
+      "Subscribe every PR matching a rule's `where` clause to that rule. Only valid for rules with `requires_subscription: true`. Returns `subscribed` (newly opted in), `already_subscribed` (no-op), and `skipped` (with reasons). Does not fire the rule - subscriptions take effect on the next matching trigger event for each PR.",
     schema: z.object({
       rule_id: z.string().describe('Rule id from list_rules; must have requires_subscription: true'),
     }),
@@ -346,7 +346,7 @@ export const actionRegistry = {
 
   get_session_transcript: {
     description:
-      "Get a summary of a previous Claude session. Returns human messages and assistant text responses (no tool use, tool results, or thinking blocks). Also returns the full transcript path if you need raw details. Use get_session_history first to find session IDs.",
+      'Get a summary of a previous Claude session. Returns human messages and assistant text responses (no tool use, tool results, or thinking blocks). Also returns the full transcript path if you need raw details. Use get_session_history first to find session IDs.',
     schema: z.object({
       session_id: z.string().describe('Session ID from get_session_history'),
     }),
@@ -486,7 +486,11 @@ export const actionRegistry = {
         };
         const timer = setTimeout(() => {
           cleanup();
-          resolve({ ok: false, error: 'timeout', message: `did not reach idle within ${args.timeout_minutes ?? 30} minute(s)` });
+          resolve({
+            ok: false,
+            error: 'timeout',
+            message: `did not reach idle within ${args.timeout_minutes ?? 30} minute(s)`,
+          });
         }, timeoutMs);
         function cleanup() {
           appEvents.removeListener('session-state', handler);

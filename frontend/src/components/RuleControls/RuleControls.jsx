@@ -6,6 +6,8 @@ import {
   subscribeRuleForPR,
   unsubscribeRuleForPR,
 } from '../../lib/api.js';
+import { getErrorMessage } from '../../lib/errors.js';
+import { subscribeAppEvent } from '../../lib/event-stream.js';
 import { Badge } from '../ui/Badge/Badge.jsx';
 import { Button } from '../ui/Button/Button.jsx';
 import { Stack } from '../ui/Stack/Stack.jsx';
@@ -19,12 +21,12 @@ import styles from './RuleControls.module.css';
  * @param {{ prId: string }} props
  */
 export function RuleControls({ prId }) {
-  const [allRules, setAllRules] = useState([]);
-  const [ruleErrors, setRuleErrors] = useState([]);
-  const [subscriptions, setSubscriptions] = useState(new Set());
+  const [allRules, setAllRules] = useState(/** @type {import('../../types').RuleDefinition[]} */ ([]));
+  const [ruleErrors, setRuleErrors] = useState(/** @type {import('../../types').RuleLoadError[]} */ ([]));
+  const [subscriptions, setSubscriptions] = useState(new Set(/** @type {string[]} */ ([])));
   const [loading, setLoading] = useState(true);
-  const [busyRule, setBusyRule] = useState(null);
-  const [error, setError] = useState(null);
+  const [busyRule, setBusyRule] = useState(/** @type {string | null} */ (null));
+  const [error, setError] = useState(/** @type {string | null} */ (null));
 
   const load = useCallback(async () => {
     try {
@@ -33,7 +35,7 @@ export function RuleControls({ prId }) {
       setRuleErrors(data.errors || []);
       setSubscriptions(new Set(subs.map((s) => s.rule_id)));
     } catch (err) {
-      setError(err.message);
+      setError(getErrorMessage(err));
     } finally {
       setLoading(false);
     }
@@ -50,9 +52,9 @@ export function RuleControls({ prId }) {
   // PR - consume_on rules consume their subscription on success/trigger and the UI needs
   // to flip the badge from "Armed" back to "Not subscribed" without a manual reload.
   useEffect(() => {
-    const source = new EventSource('/api/events');
-    source.addEventListener('rule-run', (e) => {
+    return subscribeAppEvent('rule-run', (e) => {
       try {
+        /** @type {import('../../types').RuleRun} */
         const run = JSON.parse(e.data);
         if (run?.pr_id === prId && run.status === 'success' && run.ended_at) {
           load();
@@ -61,10 +63,10 @@ export function RuleControls({ prId }) {
         /* ignore */
       }
     });
-    return () => source.close();
   }, [prId, load]);
 
   const toggleSubscription = useCallback(
+    /** @param {import('../../types').RuleDefinition} rule */
     async (rule) => {
       setBusyRule(rule.id);
       setError(null);
@@ -76,7 +78,7 @@ export function RuleControls({ prId }) {
         }
         await load();
       } catch (err) {
-        setError(err.message);
+        setError(getErrorMessage(err));
       } finally {
         setBusyRule(null);
       }
@@ -85,20 +87,20 @@ export function RuleControls({ prId }) {
   );
 
   const fireRule = useCallback(
+    /** @param {import('../../types').RuleDefinition} rule */
     async (rule) => {
       setBusyRule(rule.id);
       setError(null);
       try {
         await runRuleManually(rule.id, { pr_id: prId, force: true });
       } catch (err) {
-        setError(err.message);
+        setError(getErrorMessage(err));
       } finally {
         setBusyRule(null);
       }
     },
     [prId],
   );
-
 
   if (loading) return null;
 
@@ -112,14 +114,12 @@ export function RuleControls({ prId }) {
       <Stack direction="col" gap={2}>
         {sessionRuleCount === 0 && ruleErrors.length === 0 && (
           <p className={styles.empty}>
-            No rules configured. Add a rule with <code>on: "ci.finalized"</code> in <code>config.json</code> to enable per-PR
-            automation - see the README for examples.
+            No rules configured. Add a rule with <code>on: "ci.finalized"</code> in <code>config.json</code> to enable
+            per-PR automation - see the README for examples.
           </p>
         )}
         {sessionRuleCount > 0 && (
-          <p className={styles.empty}>
-            {sessionRuleCount} rule(s) loaded, but none target PRs.
-          </p>
+          <p className={styles.empty}>{sessionRuleCount} rule(s) loaded, but none target PRs.</p>
         )}
         {ruleErrors.length > 0 && (
           <p className={styles.error}>
@@ -146,9 +146,7 @@ export function RuleControls({ prId }) {
             <Stack gap={2} align="center">
               <span className={styles.name}>{rule.id}</span>
               {isManual && <Badge color="gray">Manual only</Badge>}
-              {requiresSubscription && isSubscribed && (
-                <Badge color="green">{armedLabel ?? 'Subscribed'}</Badge>
-              )}
+              {requiresSubscription && isSubscribed && <Badge color="green">{armedLabel ?? 'Subscribed'}</Badge>}
               {requiresSubscription && !isSubscribed && <Badge color="amber">Not subscribed</Badge>}
               {!requiresSubscription && !isManual && <Badge color="violet">Auto on all</Badge>}
             </Stack>

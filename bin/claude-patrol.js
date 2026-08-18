@@ -237,7 +237,8 @@ switch (command) {
     console.log(`Usage: claude-patrol <command> [options]
 
 Commands:
-  start [--open]     Start the server (default; --open to launch browser)
+  start [--open] [--host address]
+                     Start the server (default; local-only unless --host/config says otherwise)
   stop               Stop the running server
   status             Check if the server is running
   attach [id]        Attach terminal to a running session (tmux)

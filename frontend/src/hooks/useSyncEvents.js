@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { subscribeAppEvent } from '../lib/event-stream.js';
 
 /**
  * Subscribes to SSE sync events and calls `callback` on each sync.
@@ -6,8 +7,6 @@ import { useEffect } from 'react';
  */
 export function useSyncEvents(callback) {
   useEffect(() => {
-    const source = new EventSource('/api/events');
-    source.addEventListener('sync', () => callback());
-    return () => source.close();
+    return subscribeAppEvent('sync', () => callback());
   }, [callback]);
 }

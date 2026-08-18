@@ -43,8 +43,6 @@ export function formatPR(row) {
     ...row,
     draft: Boolean(row.draft),
     is_fork: Boolean(row.is_fork),
-    is_authored: Boolean(row.is_authored),
-    is_review_requested: Boolean(row.is_review_requested),
     checks,
     reviews,
     labels: JSON.parse(row.labels),

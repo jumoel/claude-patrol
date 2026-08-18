@@ -25,8 +25,8 @@ import styles from './WorkspaceDetail.module.css';
  * @param {{ workspaceId: string, onBack: () => void }} props
  */
 export function WorkspaceDetail({ workspaceId, onBack }) {
-  const [workspace, setWorkspace] = useState(null);
-  const [session, setSession] = useState(null);
+  const [workspace, setWorkspace] = useState(/** @type {import('../../types').Workspace | null} */ (null));
+  const [session, setSession] = useState(/** @type {import('../../types').Session | null} */ (null));
   const [loading, setLoading] = useState(true);
   const [openingSession, setOpeningSession] = useState(false);
 
@@ -111,73 +111,82 @@ export function WorkspaceDetail({ workspaceId, onBack }) {
   const adopted = workspace.pr_id && !workspace.repo;
 
   return (
-    <Box pb={16}><Stack direction="col" gap={4}>
-      {/* Header */}
-      <Box p={5} border rounded="lg" bg="white"><Stack direction="col" gap={3}>
-        <Stack justify="between">
-          <Button size="md" onClick={onBack}>
-            &larr; Back
-          </Button>
-          <Stack gap={2}>
-            {workspace.status === 'active' && (
-              <Button variant="danger" size="sm" onClick={handleDestroy}>
-                Destroy
+    <Box pb={16}>
+      <Stack direction="col" gap={4}>
+        {/* Header */}
+        <Box p={5} border rounded="lg" bg="white">
+          <Stack direction="col" gap={3}>
+            <Stack justify="between">
+              <Button size="md" onClick={onBack}>
+                &larr; Back
               </Button>
+              <Stack gap={2}>
+                {workspace.status === 'active' && (
+                  <Button variant="danger" size="sm" onClick={handleDestroy}>
+                    Destroy
+                  </Button>
+                )}
+              </Stack>
+            </Stack>
+            <div className={styles.title}>{workspace.bookmark}</div>
+            <Stack gap={2} wrap className={shared.identityRow}>
+              {workspace.repo && <span className={shared.repoTag}>{workspace.repo}</span>}
+              <span className={shared.branchTag}>{workspace.bookmark}</span>
+              <span className={shared.separator}>-</span>
+              <span className={shared.updatedText}>Created {getRelativeTime(workspace.created_at)}</span>
+              {workspace.status === 'destroyed' && <Badge color="red">Destroyed</Badge>}
+            </Stack>
+            {adopted && (
+              <div className={styles.adoptedNotice}>
+                Adopted by PR -{' '}
+                <a href={`#/pr/${encodeURIComponent(workspace.pr_id || '')}`} className={styles.prLink}>
+                  View PR
+                </a>
+              </div>
             )}
           </Stack>
-        </Stack>
-        <div className={styles.title}>{workspace.bookmark}</div>
-        <Stack gap={2} wrap className={shared.identityRow}>
-          {workspace.repo && <span className={shared.repoTag}>{workspace.repo}</span>}
-          <span className={shared.branchTag}>{workspace.bookmark}</span>
-          <span className={shared.separator}>-</span>
-          <span className={shared.updatedText}>Created {getRelativeTime(workspace.created_at)}</span>
-          {workspace.status === 'destroyed' && <Badge color="red">Destroyed</Badge>}
-        </Stack>
-        {adopted && (
-          <div className={styles.adoptedNotice}>
-            Adopted by PR -{' '}
-            <a href={`#/pr/${encodeURIComponent(workspace.pr_id)}`} className={styles.prLink}>
-              View PR
-            </a>
-          </div>
-        )}
-      </Stack></Box>
+        </Box>
 
-      {/* Terminal */}
-      {workspace.status === 'active' &&
-        (session ? (
-          <TerminalCard
-            session={session}
-            title={`Terminal - ${workspace.bookmark}`}
-            onKill={handleKillSession}
-            onExit={handleSessionExit}
-            onReattach={handleReattach}
-          />
-        ) : (
-          <Box p={5} border rounded="lg" bg="white"><Stack direction="col" gap={3}>
-            <Stack justify="between">
-              <h3 className={shared.sectionTitle}>Terminal</h3>
-            </Stack>
-            <Button variant="primary" size="lg" onClick={handleStartSession} disabled={openingSession}>
-              {openingSession ? 'Starting session...' : 'Start Terminal Session'}
-            </Button>
-          </Stack></Box>
-        ))}
+        {/* Terminal */}
+        {workspace.status === 'active' &&
+          (session ? (
+            <TerminalCard
+              session={session}
+              title={`Terminal - ${workspace.bookmark}`}
+              onKill={handleKillSession}
+              onExit={handleSessionExit}
+              onReattach={handleReattach}
+            />
+          ) : (
+            <Box p={5} border rounded="lg" bg="white">
+              <Stack direction="col" gap={3}>
+                <Stack justify="between">
+                  <h3 className={shared.sectionTitle}>Terminal</h3>
+                </Stack>
+                <Button variant="primary" size="lg" onClick={handleStartSession} disabled={openingSession}>
+                  {openingSession ? 'Starting session...' : 'Start Terminal Session'}
+                </Button>
+              </Stack>
+            </Box>
+          ))}
 
-      {/* Past Sessions */}
-      <SessionHistory workspaceId={workspaceId} />
-    </Stack></Box>
+        {/* Past Sessions */}
+        <SessionHistory workspaceId={workspaceId} />
+      </Stack>
+    </Box>
   );
 }
 
+/** @param {{workspaceId: string}} props */
 function SessionHistory({ workspaceId }) {
-  const [history, setHistory] = useState(null);
+  const [history, setHistory] = useState(/** @type {import('../../types').Session[] | null} */ (null));
   const [loading, setLoading] = useState(false);
   const [expanded, setExpanded] = useState(false);
-  const [transcripts, setTranscripts] = useState({});
-  const [transcriptLoading, setTranscriptLoading] = useState({});
-  const [transcriptErrors, setTranscriptErrors] = useState({});
+  const [transcripts, setTranscripts] = useState(
+    /** @type {Record<string, import('../../types').TranscriptEntry[]>} */ ({}),
+  );
+  const [transcriptLoading, setTranscriptLoading] = useState(/** @type {Record<string, boolean>} */ ({}));
+  const [transcriptErrors, setTranscriptErrors] = useState(/** @type {Record<string, string>} */ ({}));
 
   useEffect(() => {
     if (!expanded || history) return;
@@ -189,6 +198,7 @@ function SessionHistory({ workspaceId }) {
   }, [expanded, history, workspaceId]);
 
   const handleViewTranscript = useCallback(
+    /** @param {string} sessionId */
     (sessionId) => {
       if (transcripts[sessionId]) {
         setTranscripts((prev) => {
@@ -207,9 +217,10 @@ function SessionHistory({ workspaceId }) {
     [transcripts],
   );
 
+  /** @param {string | null} start @param {string | null} end */
   const formatDuration = (start, end) => {
     if (!start || !end) return '';
-    const ms = new Date(end) - new Date(start);
+    const ms = new Date(end).getTime() - new Date(start).getTime();
     const mins = Math.floor(ms / 60000);
     if (mins < 1) return '<1m';
     if (mins < 60) return `${mins}m`;

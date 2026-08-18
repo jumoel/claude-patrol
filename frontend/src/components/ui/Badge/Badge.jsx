@@ -1,5 +1,8 @@
 import styles from './Badge.module.css';
 
+/** @typedef {'green' | 'red' | 'blue' | 'yellow' | 'gray' | 'violet' | 'amber' | 'indigo' | 'orange' | 'purple'} BadgeColor */
+
+/** @type {Record<BadgeColor, string>} */
 const COLOR_CLASSES = {
   green: styles.green,
   red: styles.red,
@@ -13,6 +16,7 @@ const COLOR_CLASSES = {
   purple: styles.purple,
 };
 
+/** @type {Partial<Record<BadgeColor, string>>} */
 const NO_BORDER_CLASSES = {
   green: styles.greenNoBorder,
   red: styles.redNoBorder,
@@ -23,18 +27,20 @@ const NO_BORDER_CLASSES = {
 
 /**
  * Colored pill badge.
- * @param {{
- *   color?: 'green' | 'red' | 'blue' | 'yellow' | 'gray' | 'violet' | 'amber' | 'indigo' | 'orange' | 'purple',
+ * @typedef {React.HTMLAttributes<HTMLSpanElement> & {
+ *   color?: BadgeColor,
  *   border?: boolean,
  *   pulse?: boolean,
  *   className?: string,
+ *   title?: string,
  *   children: React.ReactNode,
- * }} props
+ * }} BadgeProps
+ * @param {BadgeProps} props
  */
 export function Badge({ color = 'gray', border = true, pulse = false, className, children, ...rest }) {
   const colorClass = border
-    ? (COLOR_CLASSES[color] || COLOR_CLASSES.gray)
-    : (NO_BORDER_CLASSES[color] || COLOR_CLASSES[color] || COLOR_CLASSES.gray);
+    ? COLOR_CLASSES[color] || COLOR_CLASSES.gray
+    : NO_BORDER_CLASSES[color] || COLOR_CLASSES[color] || COLOR_CLASSES.gray;
 
   const classes = [styles.base, colorClass, pulse && styles.pulse, className].filter(Boolean).join(' ');
 

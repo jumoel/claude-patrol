@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useEscapeKey } from '../../hooks/useEscapeKey.js';
 import { useResizeHandle } from '../../hooks/useResizeHandle.js';
-import { promoteSession } from '../../lib/api.js';
+import { createSession as apiCreateSession, promoteSession } from '../../lib/api.js';
+import { getErrorMessage } from '../../lib/errors.js';
 import shared from '../../styles/shared.module.css';
 import { Terminal } from '../Terminal/Terminal.jsx';
 import { Button } from '../ui/Button/Button.jsx';
@@ -27,6 +28,7 @@ function loadHeight() {
   return DEFAULT_HEIGHT;
 }
 
+/** @param {number} h */
 function persistHeight(h) {
   try {
     localStorage.setItem(STORAGE_KEY, String(Math.round(h)));
@@ -38,10 +40,10 @@ function persistHeight(h) {
 /**
  * Persistent global terminal drawer at the bottom of the UI.
  * Stays mounted when closed to preserve the xterm instance and session.
- * @param {{ open: boolean, onToggle: () => void }} props
+ * @param {{ open: boolean, onToggle: () => void, onSessionChange?: (active: boolean) => void }} props
  */
 export function GlobalTerminal({ open, onToggle, onSessionChange }) {
-  const [session, setSession] = useState(null);
+  const [session, setSession] = useState(/** @type {import('../../types').Session | null} */ (null));
   const [loading, setLoading] = useState(false);
   const [maximized, setMaximized] = useState(false);
   const [showPromote, setShowPromote] = useState(false);
@@ -71,14 +73,7 @@ export function GlobalTerminal({ open, onToggle, onSessionChange }) {
     if (session) return;
     setLoading(true);
     try {
-      const res = await fetch('/api/sessions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ global: true }),
-      });
-      if (!res.ok) throw new Error('Failed to create session');
-      const data = await res.json();
-      setSession(data);
+      setSession(await apiCreateSession(null));
     } catch (err) {
       console.error('Failed to start global session:', err);
     } finally {
@@ -126,7 +121,7 @@ export function GlobalTerminal({ open, onToggle, onSessionChange }) {
       window.location.hash = `#/workspace/${result.workspace.id}`;
     } catch (err) {
       console.error('Failed to promote session:', err);
-      alert(`Promote failed: ${err.message}`);
+      alert(`Promote failed: ${getErrorMessage(err)}`);
     } finally {
       setPromoting(false);
     }
@@ -212,7 +207,14 @@ export function GlobalTerminal({ open, onToggle, onSessionChange }) {
               onKeyDown={(e) => e.key === 'Enter' && handlePromote()}
               disabled={promoting}
             />
-            <Button variant="success" size="xs" dark filled onClick={handlePromote} disabled={promoting || !promoteRepo || !promoteBranch}>
+            <Button
+              variant="success"
+              size="xs"
+              dark
+              filled
+              onClick={handlePromote}
+              disabled={promoting || !promoteRepo || !promoteBranch}
+            >
               {promoting ? 'Promoting...' : 'Go'}
             </Button>
             <Button variant="ghost" size="xs" dark onClick={() => setShowPromote(false)} disabled={promoting}>

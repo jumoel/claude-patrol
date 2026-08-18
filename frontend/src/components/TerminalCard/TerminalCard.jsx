@@ -15,7 +15,7 @@ import { Stack } from '../ui/Stack/Stack.jsx';
  * Used by PRDetail and WorkspaceDetail for consistent terminal chrome.
  *
  * @param {{
- *   session: { id: string, status: string },
+ *   session: import('../../types').Session,
  *   title: string,
  *   onKill: () => void,
  *   onExit: () => void,
@@ -25,11 +25,20 @@ import { Stack } from '../ui/Stack/Stack.jsx';
  *   baseBranch?: string,
  * }} props
  */
-export function TerminalCard({ session, title, onKill, onExit, onPopOut, onReattach, wsRef: externalWsRef, baseBranch }) {
+export function TerminalCard({
+  session,
+  title,
+  onKill,
+  onExit,
+  onPopOut,
+  onReattach,
+  wsRef: externalWsRef,
+  baseBranch,
+}) {
   const [maximized, setMaximized] = useState(false);
   const [terminalOpen, setTerminalOpen] = useState(true);
   const [reattaching, setReattaching] = useState(false);
-  const internalWsRef = useRef(null);
+  const internalWsRef = useRef(/** @type {WebSocket | null} */ (null));
   const wsRef = externalWsRef || internalWsRef;
 
   const {
@@ -47,7 +56,7 @@ export function TerminalCard({ session, title, onKill, onExit, onPopOut, onReatt
   useEscapeKey(
     maximized,
     useCallback((e) => {
-      if (e?.target?.closest?.('.xterm')) return;
+      if (e.target instanceof Element && e.target.closest('.xterm')) return;
       setMaximized(false);
     }, []),
   );
@@ -60,6 +69,7 @@ export function TerminalCard({ session, title, onKill, onExit, onPopOut, onReatt
   }, [onExit]);
 
   const handleSendCommand = useCallback(
+    /** @param {string} text */
     async (text) => {
       // QuickAction click can fire while the WS is still in CONNECTING (e.g.
       // session was just reattached). Wait briefly so we don't silently drop.

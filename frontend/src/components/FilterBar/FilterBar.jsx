@@ -1,9 +1,13 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useId, useRef, useState } from 'react';
 import { useClickOutside } from '../../hooks/useClickOutside.js';
 import { Box } from '../ui/Box/Box.jsx';
 import { Button } from '../ui/Button/Button.jsx';
 import { Stack } from '../ui/Stack/Stack.jsx';
 import styles from './FilterBar.module.css';
+
+/** @typedef {import('../../types').FilterState} FilterState */
+/** @typedef {import('../../types').FilterListKey} FilterListKey */
+/** @typedef {import('../../types').PullRequest} PullRequest */
 
 const CI_OPTIONS = [
   { value: 'pass', label: 'Pass' },
@@ -27,16 +31,20 @@ const DRAFT_OPTIONS = [
 
 /**
  * Multi-select dropdown component.
+ * @param {{ label: string, options: Array<{value: string, label: string}>, selected: string[], onChange: (values: string[]) => void }} props
  */
 function MultiSelect({ label, options, selected, onChange }) {
   const [open, setOpen] = useState(false);
-  const ref = useRef(null);
+  const ref = useRef(/** @type {HTMLDivElement | null} */ (null));
+  const triggerRef = useRef(/** @type {HTMLButtonElement | null} */ (null));
+  const dropdownId = useId();
 
   useClickOutside(
     ref,
     useCallback(() => setOpen(false), []),
   );
 
+  /** @param {string} value */
   const toggle = (value) => {
     const next = selected.includes(value) ? selected.filter((v) => v !== value) : [...selected, value];
     onChange(next);
@@ -50,16 +58,30 @@ function MultiSelect({ label, options, selected, onChange }) {
         : `${selected.length} selected`;
 
   return (
-    <div className={styles.multiSelect} ref={ref}>
+    <div
+      className={styles.multiSelect}
+      ref={ref}
+      onKeyDown={(event) => {
+        if (event.key === 'Escape' && open) {
+          event.preventDefault();
+          setOpen(false);
+          triggerRef.current?.focus();
+        }
+      }}
+    >
       <button
+        ref={triggerRef}
         className={`${styles.trigger} ${selected.length > 0 ? styles.triggerActive : ''}`}
         onClick={() => setOpen((prev) => !prev)}
         type="button"
+        aria-expanded={open}
+        aria-controls={dropdownId}
+        aria-haspopup="true"
       >
         {displayLabel}
       </button>
       {open && (
-        <div className={styles.dropdown}>
+        <div id={dropdownId} className={styles.dropdown} role="group" aria-label={`${label} options`}>
           {options.map((opt) => (
             <label key={opt.value} className={styles.option}>
               <input
@@ -79,7 +101,15 @@ function MultiSelect({ label, options, selected, onChange }) {
 
 /**
  * Filter controls for the PR table.
- * @param {{ prs: object[], filters: Record<string, string[]>, onFilterChange: (filters: Record<string, string[]>) => void }} props
+ * @param {{
+ *   prs: PullRequest[],
+ *   filters: FilterState,
+ *   onFilterChange: (filters: FilterState) => void,
+ *   onCopyMarkdown?: () => void,
+ *   copied?: boolean,
+ *   stackView?: boolean,
+ *   onStackViewChange?: (enabled: boolean) => void,
+ * }} props
  */
 export function FilterBar({ prs, filters, onFilterChange, onCopyMarkdown, copied, stackView, onStackViewChange }) {
   const hasStacks = prs.some((p) => p.is_stacked);
@@ -89,10 +119,12 @@ export function FilterBar({ prs, filters, onFilterChange, onCopyMarkdown, copied
   const orgOptions = orgs.map((o) => ({ value: o, label: o }));
   const repoOptions = repos.map((r) => ({ value: r, label: r }));
 
+  /** @param {FilterListKey} key @param {string[]} value */
   const update = (key, value) => {
     onFilterChange({ ...filters, [key]: value });
   };
 
+  /** @type {FilterState} */
   const REVIEW_READY_FILTERS = {
     ci: ['pass'],
     review: ['changes_requested', 'pending'],
@@ -101,16 +133,19 @@ export function FilterBar({ prs, filters, onFilterChange, onCopyMarkdown, copied
   };
   const MERGE_READY_FILTERS = { ...REVIEW_READY_FILTERS, review: ['approved'] };
 
+  /** @param {FilterState} target */
   const filtersMatch = (target) =>
-    Object.entries(target).every(
-      ([key, values]) => filters[key]?.length === values.length && values.every((v) => filters[key].includes(v)),
-    );
+    /** @type {Array<[FilterListKey, string[]]>} */ (Object.entries(target)).every(([key, values]) => {
+      const current = filters[key];
+      return current?.length === values.length && values.every((v) => current.includes(v));
+    });
 
   const isReviewReadyActive = filtersMatch(REVIEW_READY_FILTERS);
   const isMergeReadyActive = filtersMatch(MERGE_READY_FILTERS);
   const isNeedsWorkActive = !!filters.needsWork;
   const hasAnyFilter = Object.values(filters).some((v) => v === true || (Array.isArray(v) && v.length > 0));
 
+  /** @param {FilterState} target @param {boolean} isActive */
   const toggleQuickFilter = (target, isActive) => {
     if (isActive) {
       onFilterChange({});
@@ -147,7 +182,7 @@ export function FilterBar({ prs, filters, onFilterChange, onCopyMarkdown, copied
           {hasStacks && (
             <button
               className={`${styles.quickFilter} ${styles.quickFilterPurple} ${stackView ? styles.quickFilterActive : ''}`}
-              onClick={() => onStackViewChange(!stackView)}
+              onClick={() => onStackViewChange?.(!stackView)}
               type="button"
             >
               Stacks

@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { useClickOutside } from '../../hooks/useClickOutside.js';
 import { useRuleRuns } from '../../hooks/useRuleRuns.js';
 import { useTasks } from '../../hooks/useTasks.js';
 import { fetchRules, fetchSessions, fetchWorkspaces, runRuleForAll, subscribeRuleForAll } from '../../lib/api.js';
+import { getErrorMessage } from '../../lib/errors.js';
 import { getRelativeTime } from '../../lib/time.js';
 import { Badge } from '../ui/Badge/Badge.jsx';
 import { Box } from '../ui/Box/Box.jsx';
@@ -10,13 +11,17 @@ import { Button } from '../ui/Button/Button.jsx';
 import { Stack } from '../ui/Stack/Stack.jsx';
 import styles from './DashboardSummary.module.css';
 
+/** @typedef {({kind: 'error', id: string} & import('../../types').RuleLoadError) | ({kind: 'run'} & import('../../types').RuleRun)} RuleActivityItem */
+
 /**
- * Summary stats bar above the PR table.
- * @param {{ prCount: number, syncedAt: string | null }} props
+ * @template T
+ * @param {{ label: string, items: T[], renderItem: (item: T, index: number) => React.ReactNode }} props
  */
 function StatDropdown({ label, items, renderItem }) {
   const [open, setOpen] = useState(false);
-  const ref = useRef(null);
+  const ref = useRef(/** @type {HTMLSpanElement | null} */ (null));
+  const triggerRef = useRef(/** @type {HTMLButtonElement | null} */ (null));
+  const dropdownId = useId();
 
   useClickOutside(
     ref,
@@ -24,28 +29,52 @@ function StatDropdown({ label, items, renderItem }) {
   );
 
   return (
-    <span className={styles.dropdownWrapper} ref={ref}>
+    <span
+      className={styles.dropdownWrapper}
+      ref={ref}
+      onKeyDown={(event) => {
+        if (event.key === 'Escape' && open) {
+          event.preventDefault();
+          setOpen(false);
+          triggerRef.current?.focus();
+        }
+      }}
+    >
       <button
+        ref={triggerRef}
         className={`${styles.stat} ${styles.clickable} ${items.length === 0 ? styles.disabled : ''}`}
         onClick={() => items.length > 0 && setOpen((prev) => !prev)}
         type="button"
+        disabled={items.length === 0}
+        aria-expanded={items.length > 0 ? open : undefined}
+        aria-controls={items.length > 0 ? dropdownId : undefined}
+        aria-haspopup={items.length > 0 ? 'true' : undefined}
       >
         {label}
       </button>
-      {open && items.length > 0 && <div className={styles.dropdown}>{items.map(renderItem)}</div>}
+      {open && items.length > 0 && (
+        <div id={dropdownId} className={styles.dropdown}>
+          {items.map(renderItem)}
+        </div>
+      )}
     </span>
   );
 }
 
-export function DashboardSummary({ prCount, onOpenGlobalTerminal }) {
-  const [workspaces, setWorkspaces] = useState([]);
-  const [sessions, setSessions] = useState([]);
-  const [ruleErrors, setRuleErrors] = useState([]);
-  const [ruleDefs, setRuleDefs] = useState([]);
+/**
+ * Summary stats bar above the PR table.
+ * @param {{ prCount: number, onOpenGlobalTerminal?: () => void, changeToken?: number }} props
+ */
+export function DashboardSummary({ prCount, onOpenGlobalTerminal, changeToken }) {
+  const [workspaces, setWorkspaces] = useState(/** @type {import('../../types').Workspace[]} */ ([]));
+  const [sessions, setSessions] = useState(/** @type {import('../../types').Session[]} */ ([]));
+  const [ruleErrors, setRuleErrors] = useState(/** @type {import('../../types').RuleLoadError[]} */ ([]));
+  const [ruleDefs, setRuleDefs] = useState(/** @type {import('../../types').RuleDefinition[]} */ ([]));
   const tasks = useTasks();
   const ruleRuns = useRuleRuns();
 
   useEffect(() => {
+    void changeToken;
     fetchWorkspaces()
       .then(setWorkspaces)
       .catch(() => {});
@@ -58,7 +87,7 @@ export function DashboardSummary({ prCount, onOpenGlobalTerminal }) {
         setRuleErrors(data.errors || []);
       })
       .catch(() => {});
-  }, []);
+  }, [changeToken]);
 
   // Build a workspace_id -> workspace lookup for session labels
   const wsById = Object.fromEntries(workspaces.map((ws) => [ws.id, ws]));
@@ -78,15 +107,16 @@ export function DashboardSummary({ prCount, onOpenGlobalTerminal }) {
     if (ruleRuns.length > 0) return `${ruleRuns.length} recent rule ${ruleRuns.length === 1 ? 'run' : 'runs'}`;
     return null;
   })();
+  /** @type {RuleActivityItem[]} */
   const activityItems = [
-    ...ruleErrors.map((e) => ({ kind: 'error', id: `err:${e.rule_id}`, ...e })),
-    ...ruleRuns.map((r) => ({ kind: 'run', ...r })),
+    ...ruleErrors.map((e) => ({ kind: /** @type {'error'} */ ('error'), id: `err:${e.rule_id}`, ...e })),
+    ...ruleRuns.map((r) => ({ kind: /** @type {'run'} */ ('run'), ...r })),
   ];
 
   const PR_TRIGGERS = ['ci.finalized', 'mergeable.changed', 'labels.changed', 'draft.changed'];
   const triggerableRules = ruleDefs.filter((r) => !r.manual && PR_TRIGGERS.includes(r.on));
 
-  const handleRunForAll = useCallback(async (rule) => {
+  const handleRunForAll = useCallback(async (/** @type {import('../../types').RuleDefinition} */ rule) => {
     const subscribe =
       rule.requires_subscription === true &&
       window.confirm(
@@ -105,11 +135,11 @@ export function DashboardSummary({ prCount, onOpenGlobalTerminal }) {
         `Fired: ${result.fired?.length ?? 0}\nSkipped: ${result.skipped?.length ?? 0}\n\nWatch the Rules dropdown for run progress.`,
       );
     } catch (err) {
-      window.alert(`Failed: ${err.message}`);
+      window.alert(`Failed: ${getErrorMessage(err)}`);
     }
   }, []);
 
-  const handleSubscribeAll = useCallback(async (rule) => {
+  const handleSubscribeAll = useCallback(async (/** @type {import('../../types').RuleDefinition} */ rule) => {
     const lifetimeNote =
       rule.consume_on === 'trigger'
         ? "Subscriptions clear on each PR's next trigger event whether or not the rule fires. Stale-subscription-safe."
@@ -129,7 +159,7 @@ export function DashboardSummary({ prCount, onOpenGlobalTerminal }) {
         `Subscribed: ${result.subscribed?.length ?? 0}\nAlready subscribed: ${result.already_subscribed?.length ?? 0}\nSkipped: ${result.skipped?.length ?? 0}`,
       );
     } catch (err) {
-      window.alert(`Failed: ${err.message}`);
+      window.alert(`Failed: ${getErrorMessage(err)}`);
     }
   }, []);
 
@@ -197,7 +227,11 @@ export function DashboardSummary({ prCount, onOpenGlobalTerminal }) {
         {activityLabel && (
           <>
             <span className={styles.divider} />
-            <StatDropdown label={activityLabel} items={activityItems} renderItem={(item) => <RuleItem key={item.id} item={item} />} />
+            <StatDropdown
+              label={activityLabel}
+              items={activityItems}
+              renderItem={(item) => <RuleItem key={item.id} item={item} />}
+            />
           </>
         )}
         {triggerableRules.length > 0 && (
@@ -222,6 +256,7 @@ export function DashboardSummary({ prCount, onOpenGlobalTerminal }) {
   );
 }
 
+/** @param {{task: import('../../types').Task}} props */
 function TaskItem({ task }) {
   const time = task.endedAt
     ? `Finished ${getRelativeTime(task.endedAt)}`
@@ -243,6 +278,7 @@ function TaskItem({ task }) {
   );
 }
 
+/** @param {{status: import('../../types').TaskStatus}} props */
 function TaskStatusBadge({ status }) {
   if (status === 'running')
     return (
@@ -256,6 +292,7 @@ function TaskStatusBadge({ status }) {
   return <Badge color="gray">{status}</Badge>;
 }
 
+/** @param {{item: RuleActivityItem}} props */
 function RuleItem({ item }) {
   if (item.kind === 'error') {
     return (
@@ -269,7 +306,9 @@ function RuleItem({ item }) {
     );
   }
 
-  const time = item.ended_at ? `Finished ${getRelativeTime(item.ended_at)}` : `Started ${getRelativeTime(item.started_at)}`;
+  const time = item.ended_at
+    ? `Finished ${getRelativeTime(item.ended_at)}`
+    : `Started ${getRelativeTime(item.started_at)}`;
   const target = item.pr_id || item.session_id || item.workspace_id;
   const href = item.pr_id
     ? `#/pr/${encodeURIComponent(item.pr_id)}`
@@ -297,6 +336,7 @@ function RuleItem({ item }) {
   );
 }
 
+/** @param {{status: import('../../types').RuleRunStatus}} props */
 function RuleStatusBadge({ status }) {
   if (status === 'running')
     return (
@@ -309,6 +349,13 @@ function RuleStatusBadge({ status }) {
   return <Badge color="gray">{status}</Badge>;
 }
 
+/**
+ * @param {{
+ *   rule: import('../../types').RuleDefinition,
+ *   onFire: (rule: import('../../types').RuleDefinition) => void,
+ *   onSubscribeAll: (rule: import('../../types').RuleDefinition) => void,
+ * }} props
+ */
 function TriggerableRuleItem({ rule, onFire, onSubscribeAll }) {
   const scope = rule.requires_subscription
     ? rule.consume_on === 'fire'

@@ -63,6 +63,9 @@ function weekdayMillis(start, end) {
  * True for actors who aren't the PR author and aren't a GitHub bot. Uses the
  * GraphQL `__typename` when present (most reliable) and falls back to the
  * conventional `[bot]` suffix on the login.
+ * @param {string} login
+ * @param {string | undefined} type
+ * @param {string} author
  */
 function isHumanActor(login, type, author) {
   if (!login || login === author) return false;
@@ -104,7 +107,7 @@ export function firstHumanInteractionAt(pr) {
  * PRs without one yet, counts forward to now so still-open PRs grow over
  * time. Returns null for drafts or PRs without `created_at`.
  *
- * @param {{ created_at: string, author: string, reviews?: object[], comments?: object[], draft?: boolean }} pr
+ * @param {{ created_at: string, author: string, reviews?: Array<{reviewer: string, reviewer_type?: string, submitted_at: string}>, comments?: Array<{author: string, author_type?: string, created_at: string}>, draft?: boolean }} pr
  * @returns {{ ms: number, pending: boolean } | null}
  */
 export function timeToFirstInteraction(pr) {

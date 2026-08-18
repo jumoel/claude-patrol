@@ -1,5 +1,7 @@
 import styles from './Button.module.css';
 
+/** @typedef {'default' | 'primary' | 'danger' | 'success' | 'warning' | 'ghost'} ButtonVariant */
+
 const SIZE_CLASSES = {
   xs: styles.xs,
   sm: styles.sm,
@@ -25,12 +27,14 @@ const DARK_VARIANT_CLASSES = {
   ghost: styles.darkGhost,
 };
 
+/** @type {Partial<Record<ButtonVariant, string>>} */
 const FILLED_CLASSES = {
   danger: styles.filledDanger,
   success: styles.filledSuccess,
   primary: styles.filledPrimary,
 };
 
+/** @type {Partial<Record<ButtonVariant, string>>} */
 const DARK_FILLED_CLASSES = {
   danger: styles.darkFilledDanger,
   success: styles.darkFilledSuccess,
@@ -39,17 +43,16 @@ const DARK_FILLED_CLASSES = {
 
 /**
  * Reusable button component.
- * @param {{
+ * @typedef {(React.ButtonHTMLAttributes<HTMLButtonElement> & React.AnchorHTMLAttributes<HTMLAnchorElement>) & {
  *   size?: 'xs' | 'sm' | 'md' | 'lg',
- *   variant?: 'default' | 'primary' | 'danger' | 'success' | 'warning' | 'ghost',
+ *   variant?: ButtonVariant,
  *   dark?: boolean,
  *   filled?: boolean,
  *   fullWidth?: boolean,
  *   as?: 'button' | 'a',
- *   className?: string,
  *   children: React.ReactNode,
- *   [key: string]: any,
- * }} props
+ * }} ButtonProps
+ * @param {ButtonProps} props
  */
 export function Button({
   size = 'sm',
@@ -74,7 +77,9 @@ export function Button({
     variantClass = VARIANT_CLASSES[variant] || VARIANT_CLASSES.default;
   }
 
-  const classes = [styles.base, sizeClass, variantClass, fullWidth && styles.fullWidth, className].filter(Boolean).join(' ');
+  const classes = [styles.base, sizeClass, variantClass, fullWidth && styles.fullWidth, className]
+    .filter(Boolean)
+    .join(' ');
 
   return (
     <Tag className={classes} {...rest}>

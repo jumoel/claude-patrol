@@ -22,11 +22,13 @@ function runHealthCheck() {
   }
 
   // Check active workspaces have existing directories
-  const workspaces = db.prepare("SELECT * FROM workspaces WHERE status = 'active'").all();
+  const workspaces = db.prepare("SELECT * FROM workspaces WHERE status = 'active' AND operation_state = 'ready'").all();
   for (const ws of workspaces) {
     if (!existsSync(ws.path)) {
-      db.prepare("UPDATE workspaces SET status = 'destroyed', destroyed_at = ? WHERE id = ?").run(now, ws.id);
-      console.log(`[health] Marked missing workspace ${ws.name} as destroyed`);
+      db.prepare(
+        "UPDATE workspaces SET operation_state = 'error', operation_step = 'health:missing_path', operation_error = ?, operation_updated_at = ? WHERE id = ?",
+      ).run(`Workspace directory is missing: ${ws.path}`, now, ws.id);
+      console.log(`[health] Marked missing workspace ${ws.name} for reconciliation`);
     }
   }
 }
