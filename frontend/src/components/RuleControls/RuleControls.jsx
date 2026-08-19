@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   fetchPRRuleSubscriptions,
   fetchRules,
@@ -8,6 +8,7 @@ import {
 } from '../../lib/api.js';
 import { getErrorMessage } from '../../lib/errors.js';
 import { subscribeAppEvent } from '../../lib/event-stream.js';
+import shared from '../../styles/shared.module.css';
 import { Badge } from '../ui/Badge/Badge.jsx';
 import { Button } from '../ui/Button/Button.jsx';
 import { Stack } from '../ui/Stack/Stack.jsx';
@@ -27,15 +28,27 @@ export function RuleControls({ prId }) {
   const [loading, setLoading] = useState(true);
   const [busyRule, setBusyRule] = useState(/** @type {string | null} */ (null));
   const [error, setError] = useState(/** @type {string | null} */ (null));
+  const [expanded, setExpanded] = useState(false);
+  const initializedPrRef = useRef(/** @type {string | null} */ (null));
 
   const load = useCallback(async () => {
+    setError(null);
     try {
       const [data, subs] = await Promise.all([fetchRules(), fetchPRRuleSubscriptions(prId)]);
+      const nextSubscriptions = new Set(subs.map((subscription) => subscription.rule_id));
       setAllRules(data.rules || []);
       setRuleErrors(data.errors || []);
-      setSubscriptions(new Set(subs.map((s) => s.rule_id)));
+      setSubscriptions(nextSubscriptions);
+      if (initializedPrRef.current !== prId) {
+        setExpanded(nextSubscriptions.size > 0);
+        initializedPrRef.current = prId;
+      }
     } catch (err) {
       setError(getErrorMessage(err));
+      if (initializedPrRef.current !== prId) {
+        setExpanded(true);
+        initializedPrRef.current = prId;
+      }
     } finally {
       setLoading(false);
     }
@@ -45,6 +58,8 @@ export function RuleControls({ prId }) {
   const rules = allRules.filter((r) => PR_TRIGGERS.includes(r.on));
 
   useEffect(() => {
+    setLoading(true);
+    initializedPrRef.current = null;
     load();
   }, [load]);
 
@@ -102,15 +117,21 @@ export function RuleControls({ prId }) {
     [prId],
   );
 
-  if (loading) return null;
+  const subscriptionCount = subscriptions.size;
+  const summary = loading
+    ? 'Loading...'
+    : error
+      ? 'Could not load rules'
+      : rules.length === 0
+        ? 'No PR rules'
+        : `${rules.length} available`;
 
+  let content = null;
   if (error) {
-    return <p className={styles.error}>Could not load rules: {error}</p>;
-  }
-
-  if (rules.length === 0) {
+    content = <p className={styles.error}>Could not load rules: {error}</p>;
+  } else if (rules.length === 0) {
     const sessionRuleCount = allRules.length;
-    return (
+    content = (
       <Stack direction="col" gap={2}>
         {sessionRuleCount === 0 && ruleErrors.length === 0 && (
           <p className={styles.empty}>
@@ -128,45 +149,84 @@ export function RuleControls({ prId }) {
         )}
       </Stack>
     );
+  } else {
+    content = (
+      <Stack direction="col">
+        {rules.map((rule) => {
+          const isBusy = busyRule === rule.id;
+          const isSubscribed = subscriptions.has(rule.id);
+          const isManual = rule.manual === true;
+          const requiresSubscription = rule.requires_subscription === true;
+          const consumeOn = rule.consume_on; // 'fire' | 'trigger' | undefined
+          const isConsumable = consumeOn === 'fire' || consumeOn === 'trigger';
+          const armedLabel =
+            consumeOn === 'fire' ? 'Armed (fires once)' : consumeOn === 'trigger' ? 'Armed (next trigger only)' : null;
+          return (
+            <div key={rule.id} className={styles.row}>
+              <div className={styles.identity}>
+                <span className={styles.name}>{rule.id}</span>
+                <span className={styles.trigger}>on {rule.on}</span>
+              </div>
+              <Stack gap={2} align="center" className={styles.status}>
+                {isManual && <Badge color="gray">Manual only</Badge>}
+                {requiresSubscription && isSubscribed && <Badge color="green">{armedLabel ?? 'Subscribed'}</Badge>}
+                {requiresSubscription && !isSubscribed && <Badge color="amber">Not subscribed</Badge>}
+                {!requiresSubscription && !isManual && <Badge color="violet">Auto on all</Badge>}
+              </Stack>
+              <Stack gap={2} className={styles.actions}>
+                {requiresSubscription && (
+                  <Button size="sm" onClick={() => toggleSubscription(rule)} disabled={isBusy}>
+                    {isSubscribed ? 'Unsubscribe' : isConsumable ? 'Arm' : 'Subscribe'}
+                  </Button>
+                )}
+                <Button size="sm" variant="primary" onClick={() => fireRule(rule)} disabled={isBusy}>
+                  {isBusy ? 'Running...' : 'Run now'}
+                </Button>
+              </Stack>
+            </div>
+          );
+        })}
+        {ruleErrors.length > 0 && (
+          <p className={styles.error}>{ruleErrors.length} additional rule(s) failed to load.</p>
+        )}
+      </Stack>
+    );
   }
 
   return (
-    <Stack direction="col" gap={3}>
-      {rules.map((rule) => {
-        const isBusy = busyRule === rule.id;
-        const isSubscribed = subscriptions.has(rule.id);
-        const isManual = rule.manual === true;
-        const requiresSubscription = rule.requires_subscription === true;
-        const consumeOn = rule.consume_on; // 'fire' | 'trigger' | undefined
-        const isConsumable = consumeOn === 'fire' || consumeOn === 'trigger';
-        const armedLabel =
-          consumeOn === 'fire' ? 'Armed (fires once)' : consumeOn === 'trigger' ? 'Armed (next trigger only)' : null;
-        return (
-          <div key={rule.id} className={styles.row}>
-            <div className={styles.identity}>
-              <span className={styles.name}>{rule.id}</span>
-              <span className={styles.trigger}>on {rule.on}</span>
-            </div>
-            <Stack gap={2} align="center" className={styles.status}>
-              {isManual && <Badge color="gray">Manual only</Badge>}
-              {requiresSubscription && isSubscribed && <Badge color="green">{armedLabel ?? 'Subscribed'}</Badge>}
-              {requiresSubscription && !isSubscribed && <Badge color="amber">Not subscribed</Badge>}
-              {!requiresSubscription && !isManual && <Badge color="violet">Auto on all</Badge>}
-            </Stack>
-            <Stack gap={2} className={styles.actions}>
-              {requiresSubscription && (
-                <Button size="sm" onClick={() => toggleSubscription(rule)} disabled={isBusy}>
-                  {isSubscribed ? 'Unsubscribe' : isConsumable ? 'Arm' : 'Subscribe'}
-                </Button>
-              )}
-              <Button size="sm" variant="primary" onClick={() => fireRule(rule)} disabled={isBusy}>
-                {isBusy ? 'Running...' : 'Run now'}
-              </Button>
-            </Stack>
-          </div>
-        );
-      })}
-      {error && <p className={styles.error}>{error}</p>}
-    </Stack>
+    <>
+      <h3 className={styles.heading}>
+        <button
+          className={`${styles.disclosure} ${expanded ? styles.disclosureExpanded : ''}`}
+          type="button"
+          aria-expanded={expanded}
+          onClick={() => setExpanded((current) => !current)}
+          disabled={loading}
+        >
+          <span className={styles.headingText}>
+            <span className={shared.sectionHeaderTitle}>Rules</span>
+            <span className={`${styles.summary} ${error ? styles.summaryError : ''}`}>{summary}</span>
+            {!loading && !error && rules.length > 0 && (
+              <span className={subscriptionCount > 0 ? styles.summarySubscribed : styles.summaryMuted}>
+                {subscriptionCount} subscribed
+              </span>
+            )}
+          </span>
+          <svg
+            className={`${styles.chevron} ${expanded ? styles.chevronExpanded : ''}`}
+            width="16"
+            height="16"
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            aria-hidden="true"
+          >
+            <path d="m5 6 3 3 3-3" />
+          </svg>
+        </button>
+      </h3>
+      {expanded && !loading && <div className={styles.body}>{content}</div>}
+    </>
   );
 }

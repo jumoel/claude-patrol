@@ -275,7 +275,7 @@ export function PRTable({
                   >
                     <button
                       type="button"
-                      className={`${styles.sortButton} ${header.column.columnDef.meta?.centered ? styles.sortButtonCenter : ''} ${header.column.columnDef.meta?.alignRight ? styles.sortButtonRight : ''}`}
+                      className={`${styles.sortButton} ${sortDirection ? styles.sortButtonActive : ''} ${header.column.columnDef.meta?.centered ? styles.sortButtonCenter : ''} ${header.column.columnDef.meta?.alignRight ? styles.sortButtonRight : ''}`}
                       onClick={header.column.getToggleSortingHandler()}
                       title={header.column.columnDef.meta?.headerTitle}
                     >

@@ -1,5 +1,13 @@
 @reference "tailwindcss";
 
+.setupShell {
+  @apply mx-auto w-full max-w-5xl;
+}
+
+.setupHeader {
+  @apply min-h-12;
+}
+
 .title {
   @apply text-lg font-semibold text-gray-900;
 }
@@ -10,11 +18,24 @@
 
 
 .list {
-  @apply flex flex-col bg-white border border-gray-200 rounded-lg overflow-hidden;
+  @apply flex flex-col;
+}
+
+.wizardPanel {
+  @apply overflow-hidden rounded-xl border border-gray-200 bg-white;
+  box-shadow: 0 1px 2px rgb(15 23 42 / 0.04);
+}
+
+.wizardFooter {
+  @apply flex items-center justify-end gap-3 border-t border-gray-200 bg-gray-50 px-4 py-3;
 }
 
 .accountRow {
   @apply px-4 py-3 cursor-pointer hover:bg-gray-50 transition-colors;
+}
+
+.accountRowSelected {
+  @apply bg-blue-50/60 hover:bg-blue-50;
 }
 
 .accountRow + .accountRow {
@@ -26,11 +47,11 @@
 }
 
 .avatar {
-  @apply w-8 h-8 rounded-full;
+  @apply h-8 w-8 rounded-full ring-1 ring-gray-200;
 }
 
 .avatarSmall {
-  @apply w-5 h-5 rounded-full;
+  @apply h-5 w-5 rounded-full ring-1 ring-gray-200;
 }
 
 .accountName {
@@ -67,7 +88,7 @@
 }
 
 .repoSectionHeader {
-  @apply flex items-center gap-3 px-4 py-3;
+  @apply flex items-center gap-3 bg-gray-50/60 px-4 py-3;
 }
 
 .modeToggle {
@@ -83,7 +104,7 @@
 }
 
 .modeBtnActive {
-  @apply bg-blue-50 text-blue-700;
+  @apply bg-blue-100 text-blue-800;
 }
 
 .numberInput {
@@ -95,11 +116,11 @@
 }
 
 .repoList {
-  @apply pl-8 pb-2 max-h-64 overflow-y-auto;
+  @apply max-h-64 overflow-y-auto px-4 pb-2;
 }
 
 .repoTools {
-  @apply flex items-center gap-3 px-12 pb-2;
+  @apply flex items-center gap-3 px-4 pb-2 pt-3;
 }
 
 .searchField {
@@ -115,7 +136,7 @@
 }
 
 .selectionCount {
-  @apply text-xs font-medium text-gray-500 whitespace-nowrap;
+  @apply whitespace-nowrap rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600;
 }
 
 .srOnly {
@@ -134,17 +155,36 @@
   @apply px-4 py-1.5 cursor-pointer hover:bg-gray-50 rounded transition-colors;
 }
 
+.repoRowSelected {
+  @apply bg-blue-50/70 hover:bg-blue-50;
+}
+
 .repoName {
   @apply text-sm text-gray-800;
 }
 
 .repoDesc {
-  @apply text-xs text-gray-400 truncate;
+  @apply truncate text-xs text-gray-500;
   max-width: 24rem;
 }
 
+.stepper {
+  @apply relative grid max-w-lg grid-cols-3 gap-2;
+}
+
+.stepper::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  right: 16.666%;
+  left: 16.666%;
+  height: 1px;
+  background: rgb(209 213 219);
+  transform: translateY(-50%);
+}
+
 .step {
-  @apply px-3 py-1.5 rounded-full text-xs font-medium text-gray-400 bg-gray-50 border border-gray-200 transition-colors;
+  @apply relative z-10 justify-self-center rounded-full border border-gray-200 bg-gray-50 px-3 py-1.5 text-xs font-medium text-gray-400 transition-colors;
 }
 
 .stepActive {
@@ -176,7 +216,19 @@
 }
 
 .settingsHint {
-  @apply text-xs text-gray-500 mt-1 mb-3;
+  @apply mt-1 text-xs text-gray-500;
+}
+
+.settingsPanel {
+  @apply max-w-3xl;
+}
+
+.settingsContent {
+  @apply p-5;
+}
+
+.settingsHeader {
+  @apply mb-4;
 }
 
 .presets {

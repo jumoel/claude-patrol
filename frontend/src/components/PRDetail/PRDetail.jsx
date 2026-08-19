@@ -309,7 +309,7 @@ export function PRDetail({ prId, onBack, workspaceStates }) {
     <Box pb={16}>
       <Stack direction="col" gap={4}>
         {/* Header */}
-        <Box p={5} border rounded="lg" bg="white">
+        <Box p={5} border rounded="lg" bg="white" className={shared.sectionCard}>
           <Stack direction="col" gap={3}>
             <Stack justify="between">
               <Button size="md" onClick={onBack}>
@@ -462,7 +462,7 @@ export function PRDetail({ prId, onBack, workspaceStates }) {
         </Box>
 
         {/* Actions row */}
-        <Box p={4} border rounded="lg" bg="white">
+        <Box p={4} border rounded="lg" bg="white" className={shared.sectionCard}>
           <Stack direction="col" gap={2}>
             <Stack justify="between" gap={4} wrap className={styles.workspaceRow}>
               <Stack direction="col" gap={1}>
@@ -475,7 +475,7 @@ export function PRDetail({ prId, onBack, workspaceStates }) {
                 {!session && (
                   <AgentProviderButton
                     variant="primary"
-                    size="md"
+                    size="sm"
                     onClick={handleOpenInAgent}
                     disabled={openingSession}
                     busy={openingSession}
@@ -501,11 +501,8 @@ export function PRDetail({ prId, onBack, workspaceStates }) {
           </Stack>
         </Box>
 
-        <Box p={5} border rounded="lg" bg="white">
-          <Stack direction="col" gap={3}>
-            <h3 className={shared.sectionTitle}>Rules</h3>
-            <RuleControls prId={prId} />
-          </Stack>
+        <Box p={0} border rounded="lg" bg="white" className={shared.sectionCard}>
+          <RuleControls prId={prId} />
         </Box>
 
         {session && (
@@ -529,76 +526,78 @@ export function PRDetail({ prId, onBack, workspaceStates }) {
 
         {/* Checks */}
         {pr.checks.length > 0 && (
-          <Box p={5} border rounded="lg" bg="white">
-            <Stack direction="col" gap={3}>
-              <Stack justify="between" wrap gap={3}>
-                <Stack gap={3} as="h3" className={shared.sectionTitle}>
-                  Checks
-                  <Stack gap={2} as="span">
-                    {passedChecks.length > 0 && (
-                      <span className={styles.summaryPass}>{passedChecks.length} passed</span>
-                    )}
-                    {failedChecks.length > 0 && (
-                      <span className={styles.summaryFail}>{failedChecks.length} failed</span>
-                    )}
-                    {runningChecks.length > 0 && (
-                      <span className={styles.summaryRunning}>{runningChecks.length} running</span>
-                    )}
-                    {scheduledChecks.length > 0 && (
-                      <span className={styles.summaryScheduled}>{scheduledChecks.length} queued</span>
-                    )}
-                  </Stack>
+          <Box p={0} border rounded="lg" bg="white" className={shared.sectionCard}>
+            <Stack justify="between" wrap gap={3} className={shared.sectionHeader}>
+              <Stack gap={3} as="h3" className={shared.sectionHeaderTitle}>
+                Checks
+                <Stack gap={2} as="span">
+                  {passedChecks.length > 0 && <span className={styles.summaryPass}>{passedChecks.length} passed</span>}
+                  {failedChecks.length > 0 && <span className={styles.summaryFail}>{failedChecks.length} failed</span>}
+                  {runningChecks.length > 0 && (
+                    <span className={styles.summaryRunning}>{runningChecks.length} running</span>
+                  )}
+                  {scheduledChecks.length > 0 && (
+                    <span className={styles.summaryScheduled}>{scheduledChecks.length} queued</span>
+                  )}
                 </Stack>
-                {failedChecks.length > 0 && (
-                  <Stack gap={2}>
-                    <Button variant="warning" size="sm" onClick={handleRetriggerFailed} disabled={retriggering}>
-                      {retriggering ? 'Retriggering...' : 'Retrigger failed'}
-                    </Button>
-                    <Button variant="primary" size="sm" onClick={handleInvestigateFailures}>
-                      Investigate failures
-                    </Button>
-                  </Stack>
-                )}
               </Stack>
-
-              {/* Failed checks first */}
               {failedChecks.length > 0 && (
-                <div className={styles.checkGroup}>
-                  {failedChecks.map((c, i) => (
-                    <CheckRow key={`fail-${i}`} check={c} prId={prId} />
-                  ))}
-                </div>
+                <Stack gap={2}>
+                  <Button variant="warning" size="sm" onClick={handleRetriggerFailed} disabled={retriggering}>
+                    {retriggering ? 'Retriggering...' : 'Retrigger failed'}
+                  </Button>
+                  <Button variant="primary" size="sm" onClick={handleInvestigateFailures}>
+                    Investigate failures
+                  </Button>
+                </Stack>
               )}
-
-              {/* Running checks */}
-              {runningChecks.length > 0 && (
-                <div className={styles.checkGroup}>
-                  {runningChecks.map((c, i) => (
-                    <CheckRow key={`running-${i}`} check={c} />
-                  ))}
-                </div>
-              )}
-
-              {/* Scheduled checks */}
-              {scheduledChecks.length > 0 && (
-                <div className={styles.checkGroup}>
-                  {scheduledChecks.map((c, i) => (
-                    <CheckRow key={`scheduled-${i}`} check={c} />
-                  ))}
-                </div>
-              )}
-
-              {/* Passed checks - collapsed by default if there are many */}
-              {passedChecks.length > 0 && <PassedChecksGroup checks={passedChecks} />}
             </Stack>
+
+            <div className={shared.sectionBody}>
+              <Stack direction="col" gap={3}>
+                {/* Failed checks first */}
+                {failedChecks.length > 0 && (
+                  <div className={styles.checkGroup}>
+                    {failedChecks.map((c, i) => (
+                      <CheckRow key={`fail-${i}`} check={c} prId={prId} />
+                    ))}
+                  </div>
+                )}
+
+                {/* Running checks */}
+                {runningChecks.length > 0 && (
+                  <div className={styles.checkGroup}>
+                    {runningChecks.map((c, i) => (
+                      <CheckRow key={`running-${i}`} check={c} />
+                    ))}
+                  </div>
+                )}
+
+                {/* Scheduled checks */}
+                {scheduledChecks.length > 0 && (
+                  <div className={styles.checkGroup}>
+                    {scheduledChecks.map((c, i) => (
+                      <CheckRow key={`scheduled-${i}`} check={c} />
+                    ))}
+                  </div>
+                )}
+
+                {/* Passed checks - collapsed by default if there are many */}
+                {passedChecks.length > 0 && <PassedChecksGroup checks={passedChecks} />}
+              </Stack>
+            </div>
           </Box>
         )}
 
         {/* Reviews */}
         {pr.reviews.length > 0 && (
-          <Box p={5} border rounded="lg" bg="white">
-            <Stack direction="col" gap={3}>
-              <h3 className={shared.sectionTitle}>Reviews</h3>
+          <Box p={0} border rounded="lg" bg="white" className={shared.sectionCard}>
+            <div className={shared.sectionHeader}>
+              <h3 className={shared.sectionHeaderTitle}>
+                Reviews <span className={shared.sectionHeaderMeta}>{pr.reviews.length}</span>
+              </h3>
+            </div>
+            <div className={shared.sectionBody}>
               <div className={styles.reviewsList}>
                 {pr.reviews.map((r, i) => (
                   <div key={i} className={styles.reviewRow}>
@@ -611,21 +610,23 @@ export function PRDetail({ prId, onBack, workspaceStates }) {
                   </div>
                 ))}
               </div>
-            </Stack>
+            </div>
           </Box>
         )}
 
         {/* Review Comments & Conversation */}
         {(commentsLoading || comments) && (
-          <Box p={5} border rounded="lg" bg="white">
-            <Stack direction="col" gap={3}>
-              <h3 className={shared.sectionTitle}>Comments</h3>
+          <Box p={0} border rounded="lg" bg="white" className={shared.sectionCard}>
+            <div className={shared.sectionHeader}>
+              <h3 className={shared.sectionHeaderTitle}>Comments</h3>
+            </div>
+            <div className={shared.sectionBody}>
               <CommentsList
                 reviews={comments?.reviews}
                 conversation={comments?.conversation}
                 loading={commentsLoading}
               />
-            </Stack>
+            </div>
           </Box>
         )}
       </Stack>

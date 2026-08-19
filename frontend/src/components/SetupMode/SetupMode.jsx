@@ -219,8 +219,8 @@ export function SetupMode({ onConfigured, isFirstRun }) {
   const stepKeys = ['accounts', 'repos', 'settings'];
 
   return (
-    <Stack direction="col" gap={4}>
-      <Stack gap={4} align="baseline" wrap>
+    <Stack direction="col" gap={4} className={styles.setupShell}>
+      <Stack gap={4} align="baseline" justify="between" wrap className={styles.setupHeader}>
         <div>
           <h2 className={styles.title}>{isFirstRun ? 'Set up monitoring' : 'Configure monitoring'}</h2>
           <p className={styles.subtitle}>
@@ -241,7 +241,7 @@ export function SetupMode({ onConfigured, isFirstRun }) {
         )}
       </Stack>
 
-      <Stack gap={2}>
+      <div className={styles.stepper}>
         {stepKeys.map((key, i) => (
           <Stack
             gap={2}
@@ -252,15 +252,20 @@ export function SetupMode({ onConfigured, isFirstRun }) {
             <span className={styles.stepLabel}>{stepLabels[key]}</span>
           </Stack>
         ))}
-      </Stack>
+      </div>
 
       {error && <p className={styles.inlineError}>{error}</p>}
 
       {step === 'accounts' && (
-        <>
+        <div className={styles.wizardPanel}>
           <div className={styles.list}>
             {accounts.map((acc) => (
-              <Stack gap={3} as="label" key={acc.login} className={styles.accountRow}>
+              <Stack
+                gap={3}
+                as="label"
+                key={acc.login}
+                className={`${styles.accountRow} ${accountModes[acc.login] ? styles.accountRowSelected : ''}`}
+              >
                 <input
                   type="checkbox"
                   className={styles.checkbox}
@@ -273,16 +278,16 @@ export function SetupMode({ onConfigured, isFirstRun }) {
               </Stack>
             ))}
           </div>
-          <Stack gap={3} justify="end">
+          <div className={styles.wizardFooter}>
             <Button variant="primary" size="sm" filled disabled={selectedCount === 0} onClick={() => setStep('repos')}>
               Next
             </Button>
-          </Stack>
-        </>
+          </div>
+        </div>
       )}
 
       {step === 'repos' && (
-        <>
+        <div className={styles.wizardPanel}>
           <div className={styles.list}>
             {accounts
               .filter((acc) => accountModes[acc.login])
@@ -356,7 +361,12 @@ export function SetupMode({ onConfigured, isFirstRun }) {
                             <p className={styles.emptyText}>No repositories match "{repoQueries[login]}"</p>
                           )}
                           {visibleRepos.map((repo) => (
-                            <Stack gap={3} as="label" key={repo.nameWithOwner} className={styles.repoRow}>
+                            <Stack
+                              gap={3}
+                              as="label"
+                              key={repo.nameWithOwner}
+                              className={`${styles.repoRow} ${picked.has(repo.nameWithOwner) ? styles.repoRowSelected : ''}`}
+                            >
                               <input
                                 type="checkbox"
                                 className={styles.checkbox}
@@ -374,22 +384,24 @@ export function SetupMode({ onConfigured, isFirstRun }) {
                 );
               })}
           </div>
-          <Stack gap={3} justify="end">
+          <div className={styles.wizardFooter}>
             <Button size="sm" onClick={() => setStep('accounts')}>
               Back
             </Button>
             <Button variant="primary" size="sm" filled onClick={() => setStep('settings')}>
               Next
             </Button>
-          </Stack>
-        </>
+          </div>
+        </div>
       )}
 
       {step === 'settings' && (
-        <>
-          <Box p={5} border rounded="lg" bg="white">
-            <label className={styles.settingsLabel}>Poll interval</label>
-            <p className={styles.settingsHint}>How often claude-patrol checks GitHub for updates.</p>
+        <div className={`${styles.wizardPanel} ${styles.settingsPanel}`}>
+          <div className={styles.settingsContent}>
+            <div className={styles.settingsHeader}>
+              <label className={styles.settingsLabel}>Poll interval</label>
+              <p className={styles.settingsHint}>How often claude-patrol checks GitHub for updates.</p>
+            </div>
             <Stack gap={2} wrap className={styles.presets}>
               {INTERVAL_PRESETS.map((p) => (
                 <button
@@ -413,16 +425,16 @@ export function SetupMode({ onConfigured, isFirstRun }) {
               />
               <span className={styles.intervalUnit}>seconds</span>
             </Stack>
-          </Box>
-          <Stack gap={3} justify="end">
+          </div>
+          <div className={styles.wizardFooter}>
             <Button size="sm" onClick={() => setStep('repos')}>
               Back
             </Button>
             <Button variant="primary" size="sm" filled onClick={handleSave}>
               Save and start monitoring
             </Button>
-          </Stack>
-        </>
+          </div>
+        </div>
       )}
 
       {step === 'saving' && <p className={styles.loadingText}>Saving configuration...</p>}

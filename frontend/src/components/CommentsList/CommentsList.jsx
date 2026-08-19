@@ -37,7 +37,7 @@ function InlineComment({ comment }) {
 /** @param {{review: import('../../types').StructuredReview}} props */
 function ReviewCard({ review }) {
   return (
-    <Box p={3} border borderColor="gray-100" rounded="lg">
+    <Box p={3} border borderColor="gray-100" rounded="lg" className={styles.reviewCard}>
       <Stack direction="col" gap={2}>
         <Stack gap={2} wrap>
           <span className={styles.author}>{review.author}</span>

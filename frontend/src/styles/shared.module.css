@@ -6,6 +6,27 @@
   @apply text-sm font-semibold text-gray-600 uppercase tracking-wider;
 }
 
+.sectionCard {
+  @apply overflow-hidden;
+  box-shadow: 0 1px 2px rgb(15 23 42 / 0.035);
+}
+
+.sectionHeader {
+  @apply flex min-h-11 items-center justify-between gap-4 border-b border-gray-200 bg-gray-50 px-5 py-2.5;
+}
+
+.sectionHeaderTitle {
+  @apply text-sm font-semibold uppercase tracking-wider text-gray-700;
+}
+
+.sectionHeaderMeta {
+  @apply text-xs font-medium normal-case tracking-normal text-gray-500;
+}
+
+.sectionBody {
+  @apply p-4;
+}
+
 .identityRow {
   @apply text-base text-gray-500;
 }

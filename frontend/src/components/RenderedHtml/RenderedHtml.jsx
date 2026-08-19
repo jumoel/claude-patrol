@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from 'react';
+import { memo, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import styles from './RenderedHtml.module.css';
 
 const STATUS_VALUE_PATTERN = /^(?:✅|❌|⚠️|⏳|🟢|🟡|🔴|✔️?|✖️?)$/u;
@@ -24,28 +24,68 @@ function normalizeTables(root) {
   }
 }
 
+/** @param {ParentNode} root */
+function normalizeDetails(root) {
+  for (const link of root.querySelectorAll('summary a')) {
+    const summary = link.parentElement;
+    if (!summary) continue;
+
+    const label = link.textContent?.trim() || 'Linked item';
+    const externalLink = document.createElement('a');
+    for (const attribute of link.attributes) {
+      externalLink.setAttribute(attribute.name, attribute.value);
+    }
+    externalLink.className = styles.detailsLink;
+    externalLink.textContent = 'Open linked item';
+    externalLink.setAttribute('aria-label', `Open linked item: ${label}`);
+
+    link.replaceWith(label);
+    summary.insertAdjacentElement('afterend', externalLink);
+  }
+}
+
+/** @param {string} html */
+function prepareHtml(html) {
+  const template = document.createElement('template');
+  template.innerHTML = html;
+  normalizeDetails(template.content);
+  return template.innerHTML;
+}
+
+/** @param {HTMLElement} root */
+function normalizeContent(root) {
+  normalizeTables(root);
+  normalizeDetails(root);
+}
+
 /**
  * Render trusted HTML returned by the backend, normalize Markdown table semantics,
  * and optionally collapse long bodies behind an explicit disclosure.
  *
  * @param {{ html: string, className?: string, collapsible?: boolean, collapsedHeight?: number }} props
  */
-export function RenderedHtml({ html, className, collapsible = false, collapsedHeight = 288 }) {
+function RenderedHtmlComponent({ html, className, collapsible = false, collapsedHeight = 288 }) {
   const ref = useRef(/** @type {HTMLDivElement | null} */ (null));
   const [canCollapse, setCanCollapse] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const preparedHtml = useMemo(() => prepareHtml(html), [html]);
 
   useLayoutEffect(() => {
     // Rerun table normalization and overflow measurement when the HTML changes.
-    void html;
+    void preparedHtml;
     const element = ref.current;
     if (!element) return undefined;
 
-    normalizeTables(element);
-    const mutationObserver = new MutationObserver(() => normalizeTables(element));
+    normalizeContent(element);
+    const mutationObserver = new MutationObserver(() => normalizeContent(element));
     mutationObserver.observe(element, { childList: true, subtree: true });
 
-    if (!collapsible) return () => mutationObserver.disconnect();
+    // Native disclosures already manage their own height. Measuring them for the
+    // outer clamp would rerender the HTML when one opens and reset its state.
+    if (!collapsible || element.querySelector('details')) {
+      setCanCollapse(false);
+      return () => mutationObserver.disconnect();
+    }
 
     const update = () => setCanCollapse(element.scrollHeight > collapsedHeight + 1);
     update();
@@ -55,19 +95,19 @@ export function RenderedHtml({ html, className, collapsible = false, collapsedHe
       mutationObserver.disconnect();
       observer.disconnect();
     };
-  }, [html, collapsible, collapsedHeight]);
+  }, [preparedHtml, collapsible, collapsedHeight]);
 
   return (
     <div className={styles.wrapper}>
       <div
         ref={ref}
-        className={`${className || ''} ${canCollapse && !expanded ? styles.clamped : ''}`}
+        className={`${styles.content} ${className || ''} ${canCollapse && !expanded ? styles.clamped : ''}`}
         style={
           /** @type {import('react').CSSProperties & Record<string, string>} */ ({
             '--rendered-html-collapsed-height': `${collapsedHeight}px`,
           })
         }
-        dangerouslySetInnerHTML={{ __html: html }}
+        dangerouslySetInnerHTML={{ __html: preparedHtml }}
       />
       {canCollapse && (
         <button className={styles.toggle} type="button" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>
@@ -77,3 +117,5 @@ export function RenderedHtml({ html, className, collapsible = false, collapsedHe
     </div>
   );
 }
+
+export const RenderedHtml = memo(RenderedHtmlComponent);

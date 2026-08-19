@@ -4,6 +4,79 @@
   @apply min-w-0;
 }
 
+.content :global(p) {
+  @apply my-1.5;
+}
+
+.content :global(a) {
+  @apply text-blue-700 underline decoration-blue-300 underline-offset-2 hover:decoration-blue-600;
+}
+
+.content :global(code) {
+  @apply rounded bg-gray-100 px-1 py-0.5 font-mono text-sm;
+}
+
+.content :global(pre) {
+  @apply my-2 overflow-x-auto rounded-md border border-gray-200 bg-gray-50 p-3;
+}
+
+.content :global(pre code) {
+  @apply bg-transparent p-0;
+}
+
+.content :global(ul),
+.content :global(ol) {
+  @apply my-1.5 pl-5;
+}
+
+.content :global(ul) {
+  @apply list-disc;
+}
+
+.content :global(ol) {
+  @apply list-decimal;
+}
+
+.content :global(blockquote) {
+  @apply my-2 border-l-2 border-gray-300 pl-3 text-gray-500;
+}
+
+.content :global(img) {
+  @apply my-2 max-w-full rounded;
+}
+
+.content :global(h1),
+.content :global(h2),
+.content :global(h3) {
+  @apply mb-1 mt-3 font-semibold text-gray-800;
+}
+
+.content :global(table) {
+  @apply my-2 border-collapse overflow-hidden rounded-md border border-gray-200 text-sm;
+}
+
+.content :global(th),
+.content :global(td) {
+  @apply border border-gray-200 px-3 py-1.5;
+}
+
+.content :global(th) {
+  @apply bg-gray-50 font-semibold;
+}
+
+.content :global(hr) {
+  @apply my-3 border-gray-200;
+}
+
+.detailsLink {
+  @apply mt-2 inline-flex text-xs font-medium;
+}
+
+.detailsLink::after {
+  content: '↗';
+  margin-left: 0.25rem;
+}
+
 .clamped {
   max-height: var(--rendered-html-collapsed-height);
   overflow: hidden;
