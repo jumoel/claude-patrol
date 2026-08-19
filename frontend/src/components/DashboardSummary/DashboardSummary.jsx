@@ -188,7 +188,8 @@ export function DashboardSummary({ prCount, onOpenGlobalTerminal, changeToken })
           renderItem={(sess) => {
             const ws = sess.workspace_id ? wsById[sess.workspace_id] : null;
             const label = ws ? ws.name : 'Global session';
-            const detail = `PID ${sess.pid} - started ${new Date(sess.started_at).toLocaleTimeString()}`;
+            const provider = sess.provider === 'codex' ? 'Codex' : 'Claude';
+            const detail = `${provider} - PID ${sess.pid} - started ${new Date(sess.started_at).toLocaleTimeString()}`;
             const href = ws ? (ws.pr_id ? `#/pr/${encodeURIComponent(ws.pr_id)}` : `#/workspace/${ws.id}`) : null;
             if (!href) {
               return (

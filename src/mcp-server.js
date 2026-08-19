@@ -48,7 +48,7 @@ export function createMcpServer(app, ctx = { callerSessionId: null }) {
 
 /**
  * MCP-only call path: dispatch + optional transform. Bypasses ruleFireable
- * because MCP tools always work from a Claude session.
+ * because MCP tools always work from a Patrol-managed agent session.
  */
 async function invokeForMcp(app, entry, args, ctx) {
   const { method, path, body } = entry.dispatch(args, ctx);

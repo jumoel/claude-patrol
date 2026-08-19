@@ -13,7 +13,7 @@ import { createWorkspace } from './workspace.js';
 
 /**
  * Resolve a target session and write a prompt into it. Used by the rules
- * engine's `dispatch_claude` action and by the upcoming
+ * engine's legacy `dispatch_claude` action and by the
  * `send_prompt_to_session` MCP tool.
  *
  * Exactly one of `session_id`, `pr_id`, `workspace_id`, or `global: true`
@@ -162,7 +162,7 @@ export async function ensureSessionAndSend({
   // either we just created it (isFresh) or it exists in memory but has
   // never tripped the activity detector (state === null, e.g. brand-new
   // session that hasn't finished booting). Without this, bytes can land
-  // in a Claude TUI that's still painting boot output and get eaten.
+  // in an agent TUI that's still painting boot output and get eaten.
   // For sessions already in 'idle' state, waitForFirstIdle resolves
   // immediately. For 'working' state we don't wait here; the busy check
   // in dispatchToSession will throw session_busy.

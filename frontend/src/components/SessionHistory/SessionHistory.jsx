@@ -91,17 +91,27 @@ export function SessionHistory({ workspaceId }) {
           <div className={styles.list}>
             {history.map((session) => {
               const transcriptOpen = openTranscripts.has(session.id);
+              const transcriptAvailable = session.provider === 'claude';
+              const sessionInfo = (
+                <Stack gap={2} className={styles.sessionInfo}>
+                  <span className={styles.provider}>{session.provider === 'codex' ? 'Codex' : 'Claude'}</span>
+                  <span className={styles.startedAt}>{new Date(session.started_at).toLocaleString()}</span>
+                  <span className={styles.duration}>{formatSessionDuration(session.started_at, session.ended_at)}</span>
+                </Stack>
+              );
               return (
                 <div key={session.id}>
-                  <button className={styles.sessionRow} onClick={() => handleViewTranscript(session.id)}>
-                    <Stack gap={2} className={styles.sessionInfo}>
-                      <span className={styles.startedAt}>{new Date(session.started_at).toLocaleString()}</span>
-                      <span className={styles.duration}>
-                        {formatSessionDuration(session.started_at, session.ended_at)}
-                      </span>
-                    </Stack>
-                    <span className={`${styles.chevron} ${transcriptOpen ? styles.chevronOpen : ''}`}>&#x25B8;</span>
-                  </button>
+                  {transcriptAvailable ? (
+                    <button className={styles.sessionRow} onClick={() => handleViewTranscript(session.id)}>
+                      {sessionInfo}
+                      <span className={`${styles.chevron} ${transcriptOpen ? styles.chevronOpen : ''}`}>&#x25B8;</span>
+                    </button>
+                  ) : (
+                    <div className={`${styles.sessionRow} ${styles.sessionRowUnavailable}`}>
+                      {sessionInfo}
+                      <span className={styles.unavailable}>Transcript unavailable</span>
+                    </div>
+                  )}
                   {transcriptOpen && (
                     <TranscriptViewer
                       entries={transcripts[session.id] || null}

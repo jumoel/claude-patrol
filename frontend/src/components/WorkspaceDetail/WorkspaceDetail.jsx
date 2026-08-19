@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useAgentProvider } from '../../context/AgentProviderContext.jsx';
 import { useSyncEvents } from '../../hooks/useSyncEvents.js';
 import {
   createSession as apiCreateSession,
@@ -11,6 +12,7 @@ import {
 import { getErrorMessage } from '../../lib/errors.js';
 import { getRelativeTime } from '../../lib/time.js';
 import shared from '../../styles/shared.module.css';
+import { AgentProviderSelect } from '../AgentProviderSelect/AgentProviderSelect.jsx';
 import { SessionHistory } from '../SessionHistory/SessionHistory.jsx';
 import { TerminalCard } from '../TerminalCard/TerminalCard.jsx';
 import { Badge } from '../ui/Badge/Badge.jsx';
@@ -25,10 +27,10 @@ import styles from './WorkspaceDetail.module.css';
  *   workspaceId: string,
  *   onBack: () => void,
  *   workspaceStates: Map<string, 'working' | 'idle'>,
- *   codexReviewCapability: import('../../types').CodexReviewCapability,
  * }} props
  */
-export function WorkspaceDetail({ workspaceId, onBack, workspaceStates, codexReviewCapability }) {
+export function WorkspaceDetail({ workspaceId, onBack, workspaceStates }) {
+  const { provider } = useAgentProvider();
   const [workspace, setWorkspace] = useState(/** @type {import('../../types').Workspace | null} */ (null));
   const [session, setSession] = useState(/** @type {import('../../types').Session | null} */ (null));
   const [loading, setLoading] = useState(true);
@@ -62,15 +64,15 @@ export function WorkspaceDetail({ workspaceId, onBack, workspaceStates, codexRev
     setOpeningSession(true);
     setOpeningError('');
     try {
-      const sess = await apiCreateSession(workspace.id);
+      const sess = await apiCreateSession(workspace.id, provider);
       setSession(sess);
     } catch (err) {
       console.error('Failed to create session:', err);
-      setOpeningError(getErrorMessage(err, 'Failed to start Claude'));
+      setOpeningError(getErrorMessage(err, `Failed to start ${provider === 'codex' ? 'Codex' : 'Claude'}`));
     } finally {
       setOpeningSession(false);
     }
-  }, [workspace]);
+  }, [provider, workspace]);
 
   const handleKillSession = useCallback(async () => {
     if (!session) return;
@@ -166,7 +168,6 @@ export function WorkspaceDetail({ workspaceId, onBack, workspaceStates, codexRev
               workspaceId={workspace.id}
               prId={workspace.pr_id || undefined}
               sessionState={workspaceStates.get(workspace.id)}
-              codexReviewCapability={codexReviewCapability}
             />
           ) : (
             <Box p={5} border rounded="lg" bg="white">
@@ -174,16 +175,21 @@ export function WorkspaceDetail({ workspaceId, onBack, workspaceStates, codexRev
                 <Stack justify="between">
                   <h3 className={shared.sectionTitle}>Terminal</h3>
                 </Stack>
-                <Button
-                  variant="primary"
-                  size="lg"
-                  onClick={handleStartSession}
-                  disabled={openingSession}
-                  aria-busy={openingSession}
-                >
-                  {openingSession && <span className={shared.buttonSpinner} aria-hidden="true" />}
-                  {openingSession ? 'Starting session...' : 'Start Terminal Session'}
-                </Button>
+                <Stack gap={2} wrap>
+                  <Button
+                    variant="primary"
+                    size="lg"
+                    onClick={handleStartSession}
+                    disabled={openingSession}
+                    aria-busy={openingSession}
+                  >
+                    {openingSession && <span className={shared.buttonSpinner} aria-hidden="true" />}
+                    {openingSession
+                      ? 'Starting session...'
+                      : `Start ${provider === 'codex' ? 'Codex' : 'Claude'} session`}
+                  </Button>
+                  <AgentProviderSelect disabled={openingSession} />
+                </Stack>
                 {openingError && (
                   <p className={styles.launchError} role="alert">
                     {openingError}

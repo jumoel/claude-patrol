@@ -64,7 +64,14 @@
   @apply text-gray-400 text-base p-4;
 }
 
+.launchError {
+  @apply m-0 text-center text-sm text-red-400;
+}
+
+.detached {
+  @apply m-0 text-center text-sm text-gray-400;
+}
+
 .placeholder {
   @apply flex items-center justify-center h-full;
 }
-

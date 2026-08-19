@@ -88,10 +88,10 @@ export async function fetchConfig() {
   return readJson(res);
 }
 
-/** Resolve the optional first-party Codex integration without blocking app config. */
-export async function fetchCodexReviewCapability(force = false) {
-  const res = await fetch(`${BASE}/api/capabilities/codex-review${force ? '?refresh=true' : ''}`);
-  if (!res.ok) throw new Error(`Failed to check Codex capability: ${res.status}`);
+/** Resolve noninteractive review capability for both agent providers. */
+export async function fetchProviderCapabilities(force = false) {
+  const res = await fetch(`${BASE}/api/capabilities/providers${force ? '?refresh=true' : ''}`);
+  if (!res.ok) throw new Error(`Failed to check agent capabilities: ${res.status}`);
   return readJson(res);
 }
 
@@ -154,28 +154,28 @@ export async function fetchWorkspace(id) {
 }
 
 /**
- * Fetch the current explicit Codex review lifecycle for a workspace.
+ * Fetch the current explicit peer review lifecycle for a workspace.
  * @param {string} workspaceId
- * @returns {Promise<import('../types').CodexReviewStatusResponse>}
+ * @returns {Promise<import('../types').PeerReviewStatusResponse>}
  */
-export async function fetchCodexReviewState(workspaceId) {
-  const res = await fetch(`${BASE}/api/workspaces/${workspaceId}/codex-review`);
-  if (!res.ok) throw new Error((await readError(res)) || `Failed to fetch Codex review: ${res.status}`);
+export async function fetchPeerReviewState(workspaceId) {
+  const res = await fetch(`${BASE}/api/workspaces/${workspaceId}/peer-review`);
+  if (!res.ok) throw new Error((await readError(res)) || `Failed to fetch peer review: ${res.status}`);
   return readJson(res);
 }
 
 /**
- * Ask the attached Claude session to run the reserved Codex review tool.
+ * Ask the attached session to run its reserved inverse-provider review tool.
  * @param {string} workspaceId
- * @returns {Promise<{review: import('../types').CodexReview, dispatchedAt: number}>}
+ * @returns {Promise<{review: import('../types').PeerReview, dispatchedAt: number}>}
  */
-export async function requestCodexReview(workspaceId) {
-  const res = await fetch(`${BASE}/api/workspaces/${workspaceId}/codex-review`, {
+export async function requestPeerReview(workspaceId) {
+  const res = await fetch(`${BASE}/api/workspaces/${workspaceId}/peer-review`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({}),
   });
-  if (!res.ok) throw new Error((await readError(res)) || `Failed to request Codex review: ${res.status}`);
+  if (!res.ok) throw new Error((await readError(res)) || `Failed to request peer review: ${res.status}`);
   return readJson(res);
 }
 
@@ -215,10 +215,11 @@ export async function fetchSessions(workspaceId) {
 /**
  * Create a session.
  * @param {string | null} workspaceId
+ * @param {import('../types').AgentProvider} provider
  * @returns {Promise<import('../types').Session>}
  */
-export async function createSession(workspaceId) {
-  const body = workspaceId ? { workspace_id: workspaceId } : { global: true };
+export async function createSession(workspaceId, provider) {
+  const body = workspaceId ? { workspace_id: workspaceId, provider } : { global: true, provider };
   const res = await fetch(`${BASE}/api/sessions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

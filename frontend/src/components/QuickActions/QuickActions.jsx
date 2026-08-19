@@ -1,4 +1,5 @@
-import { useCodexReviewState } from '../../hooks/useCodexReviewState.js';
+import { useAgentProvider } from '../../context/AgentProviderContext.jsx';
+import { usePeerReviewState } from '../../hooks/usePeerReviewState.js';
 import { sendTerminalCommand } from '../../lib/terminal.js';
 import { Button } from '../ui/Button/Button.jsx';
 import { Stack } from '../ui/Stack/Stack.jsx';
@@ -37,11 +38,17 @@ function getActions(baseBranch) {
  *   workspaceId?: string,
  *   prId?: string,
  *   sessionState?: 'working' | 'idle',
- *   codexReviewCapability?: import('../../types').CodexReviewCapability,
+ *   sessionProvider: import('../../types').AgentProvider,
  * }} props
  */
-export function QuickActions({ wsRef, onSend, baseBranch, workspaceId, prId, sessionState, codexReviewCapability }) {
-  const codexReview = useCodexReviewState(prId ? workspaceId : undefined);
+export function QuickActions({ wsRef, onSend, baseBranch, workspaceId, prId, sessionState, sessionProvider }) {
+  const { capabilities } = useAgentProvider();
+  const peerReview = usePeerReviewState(prId ? workspaceId : undefined);
+  const presenterProvider = peerReview.presenterProvider ?? sessionProvider;
+  const reviewerProvider = peerReview.reviewerProvider ?? (sessionProvider === 'claude' ? 'codex' : 'claude');
+  const presenterName = presenterProvider === 'codex' ? 'Codex' : 'Claude';
+  const reviewerName = reviewerProvider === 'codex' ? 'Codex' : 'Claude';
+  const reviewerCapability = capabilities[reviewerProvider];
   /** @param {QuickAction} action */
   const handleAction = (action) => {
     if (onSend) {
@@ -51,31 +58,34 @@ export function QuickActions({ wsRef, onSend, baseBranch, workspaceId, prId, ses
     sendTerminalCommand(wsRef?.current, action.command);
   };
 
-  const reviewActive = ['requested', 'running', 'delivering'].includes(codexReview.review?.status || '');
+  const reviewActive = ['requested', 'running', 'delivering'].includes(peerReview.review?.status || '');
   const reviewDisabled =
-    codexReview.requesting ||
+    peerReview.requesting ||
     reviewActive ||
     sessionState === 'working' ||
-    !codexReview.ready ||
-    !codexReviewCapability?.available;
-  let reviewTitle = 'Review the full effective PR diff with Codex';
-  if (codexReviewCapability?.checking) reviewTitle = 'Checking Codex availability';
-  else if (!codexReviewCapability?.available) reviewTitle = codexReviewCapability?.reason || 'Codex is unavailable';
-  else if (codexReview.reason === 'session_restart_required') {
-    reviewTitle = 'Restart this Claude session to enable Codex review';
-  } else if (!codexReview.ready) reviewTitle = 'The workspace is not ready for a Codex review';
-  else if (sessionState === 'working') reviewTitle = 'Wait for Claude to become idle';
+    !peerReview.ready ||
+    !reviewerCapability.available;
+  let reviewTitle = `Review the full effective PR diff with ${reviewerName}`;
+  if (reviewerCapability.checking) reviewTitle = `Checking ${reviewerName} availability`;
+  else if (!reviewerCapability.available) {
+    reviewTitle = reviewerCapability.reason || `${reviewerName} is unavailable`;
+  } else if (peerReview.reason === 'session_restart_required') {
+    reviewTitle = `Restart this ${presenterName} session to enable peer review`;
+  } else if (!peerReview.ready) reviewTitle = 'The workspace is not ready for peer review';
+  else if (sessionState === 'working') reviewTitle = `Wait for ${presenterName} to become idle`;
 
   const statusText = (() => {
-    if (codexReview.error) return codexReview.error;
-    if (codexReview.requesting) return 'Requesting Codex review...';
-    if (codexReview.review?.status === 'requested') return 'Asking Claude to start Codex...';
-    if (codexReview.review?.status === 'running') return 'Codex is reviewing the full diff...';
-    if (codexReview.review?.status === 'delivering') return 'Claude is presenting the review...';
-    if (codexReview.review?.status === 'complete') return 'Review delivered in Claude.';
-    if (codexReview.review?.status === 'failed') return codexReview.review.error?.message || 'Codex review failed.';
-    if (codexReview.review?.status === 'delivery_unconfirmed') {
-      return codexReview.review.error?.message || 'Review delivery could not be confirmed.';
+    if (peerReview.error) return peerReview.error;
+    if (peerReview.requesting) return `Requesting ${reviewerName} review...`;
+    if (peerReview.review?.status === 'requested') return `Asking ${presenterName} to start ${reviewerName}...`;
+    if (peerReview.review?.status === 'running') return `${reviewerName} is reviewing the full diff...`;
+    if (peerReview.review?.status === 'delivering') return `${presenterName} is presenting the review...`;
+    if (peerReview.review?.status === 'complete') return `Review delivered in ${presenterName}.`;
+    if (peerReview.review?.status === 'failed') {
+      return peerReview.review.error?.message || `${reviewerName} review failed.`;
+    }
+    if (peerReview.review?.status === 'delivery_unconfirmed') {
+      return peerReview.review.error?.message || 'Review delivery could not be confirmed.';
     }
     return null;
   })();
@@ -92,20 +102,20 @@ export function QuickActions({ wsRef, onSend, baseBranch, workspaceId, prId, ses
         <Button
           size="md"
           variant="primary"
-          onClick={codexReview.requestReview}
+          onClick={peerReview.requestReview}
           disabled={reviewDisabled}
           title={reviewTitle}
         >
-          {codexReview.requesting ? 'Requesting Codex...' : 'Review with Codex'}
+          {peerReview.requesting ? `Requesting ${reviewerName}...` : `Review with ${reviewerName}`}
         </Button>
       )}
       {prId && workspaceId && statusText && (
         <span
-          className={codexReview.error || codexReview.review?.error ? styles.error : styles.status}
+          className={peerReview.error || peerReview.review?.error ? styles.error : styles.status}
           role="status"
           aria-live="polite"
         >
-          {(codexReview.requesting || reviewActive) && <span className={styles.spinner} aria-hidden="true" />}
+          {(peerReview.requesting || reviewActive) && <span className={styles.spinner} aria-hidden="true" />}
           {statusText}
         </span>
       )}

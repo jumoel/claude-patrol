@@ -148,7 +148,7 @@ export function ScratchWorkspaces({ scratchWorkspaces, workspaceStates, dismisse
 function SessionBadge({ state, dismissed }) {
   if (state === 'working')
     return (
-      <Badge color="violet" title="Claude is actively working">
+      <Badge color="violet" title="Agent is actively working">
         <span className={styles.spinner} />
         Working
       </Badge>

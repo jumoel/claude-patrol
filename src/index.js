@@ -123,7 +123,7 @@ export async function startServer(options = {}) {
   let port = portOverride || config.port;
   // When an explicit --port is given (e.g. on restart), the caller wants
   // exactly that port - bumping would invalidate MCP URLs in already-running
-  // Claude sessions. Retry the same port through the overlap window with the
+  // agent sessions. Retry the same port through the overlap window with the
   // dying old process, then bail out. Without --port, fall back to bumping.
   const stickyPort = portOverride !== null;
   for (let attempt = 0; attempt < 10; attempt++) {

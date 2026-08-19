@@ -8,9 +8,9 @@ import styles from './WorkspaceControls.module.css';
 
 /**
  * Workspace create/destroy controls for a PR.
- * @param {{ prId: string, workspace: import('../../types').Workspace | null, onUpdate: () => void, getOrCreateWorkspace?: () => Promise<import('../../types').Workspace>, claudeWaiting?: boolean }} props
+ * @param {{ prId: string, workspace: import('../../types').Workspace | null, onUpdate: () => void, getOrCreateWorkspace?: () => Promise<import('../../types').Workspace>, sessionWaiting?: boolean }} props
  */
-export function WorkspaceControls({ workspace, onUpdate, getOrCreateWorkspace, claudeWaiting }) {
+export function WorkspaceControls({ workspace, onUpdate, getOrCreateWorkspace, sessionWaiting }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(/** @type {string | null} */ (null));
   const [confirmDestroy, setConfirmDestroy] = useState(false);
@@ -44,7 +44,7 @@ export function WorkspaceControls({ workspace, onUpdate, getOrCreateWorkspace, c
     }
   }, [workspace, onUpdate]);
 
-  const busy = loading || claudeWaiting;
+  const busy = loading || sessionWaiting;
 
   if (!workspace) {
     return (

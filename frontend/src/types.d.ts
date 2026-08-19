@@ -106,6 +106,7 @@ export interface Session {
   id: string;
   workspace_id: string | null;
   pid: number | null;
+  provider: AgentProvider;
   status: 'active' | 'detached' | 'killed';
   started_at: string;
   ended_at: string | null;
@@ -246,11 +247,13 @@ export interface PublicConfig {
   startup_sha?: string;
   current_sha?: string;
   capabilities?: {
-    codex_review: CodexReviewCapability;
+    providers: Record<AgentProvider, ProviderCapability>;
   };
 }
 
-export interface CodexReviewCapability {
+export type AgentProvider = 'claude' | 'codex';
+
+export interface ProviderCapability {
   available: boolean;
   checking: boolean;
   reason: string | null;
@@ -258,7 +261,7 @@ export interface CodexReviewCapability {
   checkedAt: string | null;
 }
 
-export type CodexReviewStatus =
+export type PeerReviewStatus =
   | 'requested'
   | 'running'
   | 'delivering'
@@ -266,12 +269,14 @@ export type CodexReviewStatus =
   | 'failed'
   | 'delivery_unconfirmed';
 
-export interface CodexReview {
+export interface PeerReview {
   id: string;
   workspaceId: string;
   sessionId: string;
   prId: string;
-  status: CodexReviewStatus;
+  presenterProvider: AgentProvider;
+  reviewerProvider: AgentProvider;
+  status: PeerReviewStatus;
   requestedAt: string;
   startedAt: string | null;
   resultReadyAt: string | null;
@@ -279,8 +284,10 @@ export interface CodexReview {
   error: { code: string; message: string } | null;
 }
 
-export interface CodexReviewStatusResponse {
-  review: CodexReview | null;
+export interface PeerReviewStatusResponse {
+  review: PeerReview | null;
+  presenterProvider: AgentProvider | null;
+  reviewerProvider: AgentProvider | null;
   ready: boolean;
   reason: string | null;
 }

@@ -401,7 +401,7 @@ export const actionRegistry = {
 
   get_session_history: {
     description:
-      'List previous Claude sessions for a PR or workspace. Returns session IDs, timestamps, and status. Use get_session_transcript to read what happened in a specific session.',
+      'List previous Claude and Codex sessions for a PR or workspace. Returns providers, session IDs, timestamps, and status. Claude transcripts can be read with get_session_transcript; Codex transcript ingestion is not supported.',
     schema: z.object({
       pr_id: z
         .string()
@@ -513,7 +513,7 @@ export const actionRegistry = {
 
   wait_for_idle: {
     description:
-      'Wait until a Claude session reaches idle. After send_prompt_to_session, pass the dispatched_at you received as `since` to anchor on that specific dispatch. Resolves when the session has gone through working then idle after `since` and is currently idle. Default timeout 30 minutes, max 120. This waits for the current TUI turn to quiesce, not for any background work the dispatched prompt may have spawned (run_in_background Bash, background subagents, autonomous loops).',
+      'Wait until a Claude or Codex session reaches idle. After send_prompt_to_session, pass the dispatched_at you received as `since` to anchor on that specific dispatch. Resolves when the session has gone through working then idle after `since` and is currently idle. Default timeout 30 minutes, max 120. This waits for the current TUI turn to quiesce, not for any background work the dispatched prompt may have spawned.',
     schema: z.object({
       session_id: z.string().describe('Session id to watch'),
       since: z

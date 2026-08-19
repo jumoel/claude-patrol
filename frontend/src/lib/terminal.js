@@ -4,7 +4,7 @@
  * briefly for the PTY to paint the input field, then writes Enter as a
  * separate write. The split-write timing lives in `pty-manager.js` and is
  * shared with the server-side rules engine - sending text+Enter in one
- * write can cause Claude's TUI to swallow the Enter.
+ * write can cause an agent TUI to swallow the Enter.
  *
  * Returns true on success, false when dropped (with a console.warn). Silent
  * drops were previously how the f2436f3 / parseWsMessage regression hid for

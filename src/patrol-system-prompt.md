@@ -26,6 +26,7 @@ Use list_sessions, send_prompt_to_session, and wait_for_idle to coordinate work 
 
 - list_sessions to see what's running and where.
 - send_prompt_to_session to hand off a task. Target by pr_id (most common), workspace_id, session_id, or global: true.
+- Set provider to `claude` or `codex` when creating a missing target. Existing targets keep their recorded provider.
 - If send_prompt_to_session errors with session_busy, the target agent is mid-turn. Call wait_for_idle on its session_id, then retry the send.
 - After dispatching, if you need to know when the work is done, call wait_for_idle with since: dispatched_at (returned by the send). This waits for the target's current turn to quiesce, not for any background work the dispatched prompt may have spawned (run_in_background Bash, background subagents, autonomous loops).
 

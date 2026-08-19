@@ -1001,3 +1001,9 @@ This makes provider choice durable at the process and database boundaries before
 Replaced the Codex-specific review route, lifecycle coordinator, SSE event, and app context with provider-neutral peer-review contracts. Claude sessions still reserve Codex reviews, while Codex sessions now reserve Claude reviews through a new `review_with_claude` Patrol MCP tool. The Claude reviewer receives Patrol's immutable `jj` diff over stdin and runs non-interactively with safe mode, no persistence, `dontAsk`, and only Read, Glob, and Grep tools. Provider capability checks now cover both authenticated CLIs.
 
 This keeps the user-triggered reservation and delivery guarantees in one coordinator while making the reviewer a strict inverse of the live session provider. Shared range resolution also removes the prior Codex ownership from provider-neutral diff preparation.
+
+## 2026-08-19 - Add the shared agent provider selector
+
+Added one browser-wide Claude or Codex preference, stored in local storage with Claude as the first-run default. PR workspaces, scratch workspaces, the global terminal header, the global drawer, and command-palette global launch now use that preference for new sessions. Live sessions display and retain their recorded provider until killed. The review control reads the presenter provider from the session and labels, checks, and requests the inverse reviewer. Codex session history remains visible but no longer offers the unsupported Claude transcript viewer, and Codex global sessions omit Claude-only promotion.
+
+This puts provider choice at every launch entry point without pretending a live TUI can switch providers. Capability polling moved into the provider context so review readiness is shared instead of threaded through unrelated components.

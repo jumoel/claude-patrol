@@ -11,7 +11,7 @@ import { SetupMode } from './components/SetupMode/SetupMode.jsx';
 import { WorkspaceDetail } from './components/WorkspaceDetail/WorkspaceDetail.jsx';
 import { useIdleNotification } from './hooks/useIdleNotification.js';
 import { usePRs } from './hooks/usePRs.js';
-import { fetchCodexReviewCapability, fetchConfig, fetchScratchWorkspaces } from './lib/api.js';
+import { fetchConfig, fetchScratchWorkspaces } from './lib/api.js';
 
 /** @typedef {import('./types').PullRequest} PullRequest */
 /** @typedef {import('./types').FilterState} FilterState */
@@ -160,7 +160,7 @@ export default function App() {
   const [selectedPR, setSelectedPR] = useState(/** @type {string | null} */ (null));
   const [selectedWorkspace, setSelectedWorkspace] = useState(/** @type {string | null} */ (null));
   const [terminalOpen, setTerminalOpen] = useState(false);
-  const [hasGlobalSession, setHasGlobalSession] = useState(false);
+  const [globalSession, setGlobalSession] = useState(/** @type {import('./types').Session | null} */ (null));
   const [copied, setCopied] = useState(false);
   const copiedTimeout = useRef(/** @type {ReturnType<typeof setTimeout> | null} */ (null));
   const sortedRowsRef = useRef(/** @type {PullRequest[] | null} */ (null));
@@ -175,15 +175,6 @@ export default function App() {
   const [restartNeeded, setRestartNeeded] = useState(false);
   const [startupSha, setStartupSha] = useState('');
   const [currentSha, setCurrentSha] = useState('');
-  const [codexReviewCapability, setCodexReviewCapability] = useState(
-    /** @type {import('./types').CodexReviewCapability} */ ({
-      available: false,
-      checking: true,
-      reason: null,
-      version: null,
-      checkedAt: null,
-    }),
-  );
 
   const { syncedAt, loading, error, syncing, countdown, triggerSync, ghRateLimit } = prSource;
   const allPRs = prSource.prs;
@@ -204,39 +195,6 @@ export default function App() {
         if (needsSetup === null) setNeedsSetup(false);
       });
   }, [needsSetup]);
-
-  const refreshCodexCapability = useCallback(async (force = false) => {
-    setCodexReviewCapability((current) => ({ ...current, checking: true }));
-    try {
-      setCodexReviewCapability(await fetchCodexReviewCapability(force));
-    } catch (err) {
-      setCodexReviewCapability({
-        available: false,
-        checking: false,
-        reason: err instanceof Error ? err.message : String(err),
-        version: null,
-        checkedAt: null,
-      });
-    }
-  }, []);
-
-  useEffect(() => {
-    refreshCodexCapability();
-  }, [refreshCodexCapability]);
-
-  useEffect(() => {
-    const handleFocus = () => {
-      if (!codexReviewCapability.available) refreshCodexCapability(true);
-    };
-    window.addEventListener('focus', handleFocus);
-    return () => window.removeEventListener('focus', handleFocus);
-  }, [codexReviewCapability.available, refreshCodexCapability]);
-
-  useEffect(() => {
-    if (codexReviewCapability.available || codexReviewCapability.checking) return undefined;
-    const timer = setInterval(() => refreshCodexCapability(), 60_000);
-    return () => clearInterval(timer);
-  }, [codexReviewCapability.available, codexReviewCapability.checking, refreshCodexCapability]);
 
   // Fetch scratch workspaces (refresh on local changes like workspace creation/deletion)
   useEffect(() => {
@@ -400,6 +358,7 @@ export default function App() {
       syncing={syncing}
       onSync={triggerSync}
       terminalOpen={terminalOpen}
+      globalSession={globalSession}
       onToggleTerminal={toggleTerminal}
       onSetup={() => {
         window.location.hash = '/setup';
@@ -414,19 +373,9 @@ export default function App() {
       {showSetup ? (
         <SetupMode onConfigured={handleConfigured} isFirstRun={needsSetup === true} />
       ) : selectedPR ? (
-        <PRDetail
-          prId={selectedPR}
-          onBack={navigateBack}
-          workspaceStates={workspaceStates}
-          codexReviewCapability={codexReviewCapability}
-        />
+        <PRDetail prId={selectedPR} onBack={navigateBack} workspaceStates={workspaceStates} />
       ) : selectedWorkspace ? (
-        <WorkspaceDetail
-          workspaceId={selectedWorkspace}
-          onBack={navigateBack}
-          workspaceStates={workspaceStates}
-          codexReviewCapability={codexReviewCapability}
-        />
+        <WorkspaceDetail workspaceId={selectedWorkspace} onBack={navigateBack} workspaceStates={workspaceStates} />
       ) : (
         <>
           <DashboardSummary
@@ -462,13 +411,13 @@ export default function App() {
           />
         </>
       )}
-      <GlobalTerminal open={terminalOpen} onToggle={toggleTerminal} onSessionChange={setHasGlobalSession} />
+      <GlobalTerminal open={terminalOpen} onToggle={toggleTerminal} onSessionChange={setGlobalSession} />
       <CommandPalette
         prs={allPRs}
         scratchWorkspaces={scratchWorkspaces}
         workspaceStates={workspaceStates}
         dismissedIdle={dismissedIdle}
-        hasGlobalSession={hasGlobalSession}
+        globalSession={globalSession}
         onNavigate={navigateToPR}
         onNavigateWorkspace={navigateToWorkspace}
         onOpenGlobalTerminal={openGlobalTerminal}

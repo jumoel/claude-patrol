@@ -26,7 +26,6 @@ import { Stack } from '../ui/Stack/Stack.jsx';
  *   workspaceId?: string,
  *   prId?: string,
  *   sessionState?: 'working' | 'idle',
- *   codexReviewCapability?: import('../../types').CodexReviewCapability,
  * }} props
  */
 export function TerminalCard({
@@ -41,7 +40,6 @@ export function TerminalCard({
   workspaceId,
   prId,
   sessionState,
-  codexReviewCapability,
 }) {
   const [maximized, setMaximized] = useState(false);
   const [terminalOpen, setTerminalOpen] = useState(true);
@@ -172,7 +170,7 @@ export function TerminalCard({
           workspaceId={workspaceId}
           prId={prId}
           sessionState={sessionState}
-          codexReviewCapability={codexReviewCapability}
+          sessionProvider={session.provider}
         />
       </div>,
       document.body,
@@ -236,7 +234,7 @@ export function TerminalCard({
         workspaceId={workspaceId}
         prId={prId}
         sessionState={sessionState}
-        codexReviewCapability={codexReviewCapability}
+        sessionProvider={session.provider}
       />
       <div style={{ height: termHeight }}>
         <LazyTerminal

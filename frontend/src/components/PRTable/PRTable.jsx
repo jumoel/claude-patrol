@@ -127,7 +127,7 @@ export function PRTable({
           const v = getValue();
           if (v === 5)
             return (
-              <Badge color="violet" title="Claude is actively working">
+              <Badge color="violet" title="Agent is actively working">
                 <span className={styles.spinner} />
                 Working
               </Badge>

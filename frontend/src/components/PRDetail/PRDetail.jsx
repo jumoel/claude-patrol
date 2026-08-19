@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useAgentProvider } from '../../context/AgentProviderContext.jsx';
 import { useSyncEvents } from '../../hooks/useSyncEvents.js';
 import {
   createSession as apiCreateSession,
@@ -26,6 +27,7 @@ import { getErrorMessage } from '../../lib/errors.js';
 import { sendTerminalCommand, whenWsOpen } from '../../lib/terminal.js';
 import { getRelativeTime } from '../../lib/time.js';
 import shared from '../../styles/shared.module.css';
+import { AgentProviderSelect } from '../AgentProviderSelect/AgentProviderSelect.jsx';
 import { CheckLogViewer } from '../CheckLogViewer/CheckLogViewer.jsx';
 import { CommentsList } from '../CommentsList/CommentsList.jsx';
 import { RuleControls } from '../RuleControls/RuleControls.jsx';
@@ -69,10 +71,10 @@ const CHECK_STATUS_LABELS = {
  *   prId: string,
  *   onBack: () => void,
  *   workspaceStates: Map<string, 'working' | 'idle'>,
- *   codexReviewCapability: import('../../types').CodexReviewCapability,
  * }} props
  */
-export function PRDetail({ prId, onBack, workspaceStates, codexReviewCapability }) {
+export function PRDetail({ prId, onBack, workspaceStates }) {
+  const { provider } = useAgentProvider();
   const [pr, setPR] = useState(/** @type {import('../../types').PullRequest | null} */ (null));
   const [workspace, setWorkspace] = useState(/** @type {import('../../types').Workspace | null} */ (null));
   const [session, setSession] = useState(/** @type {import('../../types').Session | null} */ (null));
@@ -81,7 +83,7 @@ export function PRDetail({ prId, onBack, workspaceStates, codexReviewCapability 
   );
   const [commentsLoading, setCommentsLoading] = useState(true);
   const [loading, setLoading] = useState(true);
-  const [openingClaude, setOpeningClaude] = useState(false);
+  const [openingSession, setOpeningSession] = useState(false);
   const [openingStep, setOpeningStep] = useState('');
   const [openingError, setOpeningError] = useState('');
   const [retriggering, setRetriggering] = useState(false);
@@ -125,7 +127,7 @@ export function PRDetail({ prId, onBack, workspaceStates, codexReviewCapability 
 
   /**
    * Get or create a workspace, deduping concurrent requests.
-   * Both "Create Workspace" and "Open in Claude" share this so clicking
+   * Workspace creation and agent launch share this so clicking
    * either one while the other is in-flight reuses the same promise.
    */
   const getOrCreateWorkspace = useCallback(async () => {
@@ -147,7 +149,7 @@ export function PRDetail({ prId, onBack, workspaceStates, codexReviewCapability 
 
   /** Ensure workspace + session exist, creating them if needed. Returns { ws, sess } or null on failure. */
   const ensureWorkspaceAndSession = useCallback(async () => {
-    setOpeningClaude(true);
+    setOpeningSession(true);
     setOpeningError('');
     try {
       setOpeningStep('Creating workspace...');
@@ -155,22 +157,22 @@ export function PRDetail({ prId, onBack, workspaceStates, codexReviewCapability 
       let sess = session;
       if (!sess) {
         setOpeningStep('Starting session...');
-        sess = await apiCreateSession(ws.id);
+        sess = await apiCreateSession(ws.id, provider);
         setSession(sess);
       }
       setOpeningStep('Connecting...');
       return { ws, sess };
     } catch (err) {
       console.error('Failed to set up workspace/session:', err);
-      setOpeningError(getErrorMessage(err, 'Failed to start Claude'));
+      setOpeningError(getErrorMessage(err, `Failed to start ${provider === 'codex' ? 'Codex' : 'Claude'}`));
       return null;
     } finally {
-      setOpeningClaude(false);
+      setOpeningSession(false);
       setOpeningStep('');
     }
-  }, [getOrCreateWorkspace, session]);
+  }, [getOrCreateWorkspace, provider, session]);
 
-  const handleOpenInClaude = useCallback(async () => {
+  const handleOpenInAgent = useCallback(async () => {
     await ensureWorkspaceAndSession();
   }, [ensureWorkspaceAndSession]);
 
@@ -471,20 +473,22 @@ export function PRDetail({ prId, onBack, workspaceStates, codexReviewCapability 
               workspace={workspace}
               onUpdate={loadData}
               getOrCreateWorkspace={getOrCreateWorkspace}
-              claudeWaiting={openingClaude && !workspace}
+              sessionWaiting={openingSession && !workspace}
             />
             {!session && (
-              <Button
-                variant="primary"
-                size="lg"
-                className={styles.openButtonSpaced}
-                onClick={handleOpenInClaude}
-                disabled={openingClaude}
-                aria-busy={openingClaude}
-              >
-                {openingClaude && <span className={shared.buttonSpinner} aria-hidden="true" />}
-                {openingClaude ? openingStep : 'Open in Claude'}
-              </Button>
+              <Stack gap={2} wrap className={styles.openButtonSpaced}>
+                <Button
+                  variant="primary"
+                  size="lg"
+                  onClick={handleOpenInAgent}
+                  disabled={openingSession}
+                  aria-busy={openingSession}
+                >
+                  {openingSession && <span className={shared.buttonSpinner} aria-hidden="true" />}
+                  {openingSession ? openingStep : `Open in ${provider === 'codex' ? 'Codex' : 'Claude'}`}
+                </Button>
+                <AgentProviderSelect disabled={openingSession} />
+              </Stack>
             )}
             {openingError && (
               <p className={styles.launchError} role="alert">
@@ -514,7 +518,6 @@ export function PRDetail({ prId, onBack, workspaceStates, codexReviewCapability 
             workspaceId={workspace?.id}
             prId={pr.id}
             sessionState={workspace ? workspaceStates.get(workspace.id) : undefined}
-            codexReviewCapability={codexReviewCapability}
           />
         )}
 

@@ -1,9 +1,16 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useAgentProvider } from '../../context/AgentProviderContext.jsx';
 import { useEscapeKey } from '../../hooks/useEscapeKey.js';
 import { useResizeHandle } from '../../hooks/useResizeHandle.js';
-import { createSession as apiCreateSession, promoteSession } from '../../lib/api.js';
+import {
+  createSession as apiCreateSession,
+  reattachSession as apiReattachSession,
+  fetchSessions,
+  promoteSession,
+} from '../../lib/api.js';
 import { getErrorMessage } from '../../lib/errors.js';
 import shared from '../../styles/shared.module.css';
+import { AgentProviderSelect } from '../AgentProviderSelect/AgentProviderSelect.jsx';
 import { LazyTerminal } from '../Terminal/LazyTerminal.jsx';
 import { Button } from '../ui/Button/Button.jsx';
 import { RepoCombobox } from '../ui/RepoCombobox/RepoCombobox.jsx';
@@ -40,16 +47,21 @@ function persistHeight(h) {
 /**
  * Persistent global terminal drawer at the bottom of the UI.
  * Stays mounted when closed to preserve the xterm instance and session.
- * @param {{ open: boolean, onToggle: () => void, onSessionChange?: (active: boolean) => void }} props
+ * @param {{ open: boolean, onToggle: () => void, onSessionChange?: (session: import('../../types').Session | null) => void }} props
  */
 export function GlobalTerminal({ open, onToggle, onSessionChange }) {
+  const { provider } = useAgentProvider();
   const [session, setSession] = useState(/** @type {import('../../types').Session | null} */ (null));
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [launchError, setLaunchError] = useState('');
   const [maximized, setMaximized] = useState(false);
   const [showPromote, setShowPromote] = useState(false);
   const [promoteRepo, setPromoteRepo] = useState('');
   const [promoteBranch, setPromoteBranch] = useState('');
   const [promoting, setPromoting] = useState(false);
+  const [reattaching, setReattaching] = useState(false);
+  const autoStartAttempted = useRef(false);
+  const poppingOut = useRef(false);
 
   const { height, setHeight, dragging, handleProps } = useResizeHandle({
     initial: loadHeight(),
@@ -64,26 +76,48 @@ export function GlobalTerminal({ open, onToggle, onSessionChange }) {
     useCallback(() => setMaximized(false), []),
   );
 
+  useEffect(() => {
+    let active = true;
+    fetchSessions()
+      .then((sessions) => {
+        if (active) setSession(sessions.find((candidate) => candidate.workspace_id === null) || null);
+      })
+      .catch((error) => {
+        if (active) setLaunchError(getErrorMessage(error, 'Failed to load the global session'));
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
   // Notify parent when session changes
   useEffect(() => {
-    onSessionChange?.(!!session);
+    onSessionChange?.(session);
   }, [session, onSessionChange]);
 
   const startSession = useCallback(async () => {
     if (session) return;
     setLoading(true);
+    setLaunchError('');
     try {
-      setSession(await apiCreateSession(null));
+      setSession(await apiCreateSession(null, provider));
     } catch (err) {
       console.error('Failed to start global session:', err);
+      setLaunchError(getErrorMessage(err, `Failed to start ${provider === 'codex' ? 'Codex' : 'Claude'}`));
     } finally {
       setLoading(false);
     }
-  }, [session]);
+  }, [provider, session]);
 
   // Auto-start session when opened for the first time
   useEffect(() => {
-    if (open && !session && !loading) {
+    if (!open) {
+      autoStartAttempted.current = false;
+    } else if (!session && !loading && !autoStartAttempted.current) {
+      autoStartAttempted.current = true;
       startSession();
     }
   }, [open, session, loading, startSession]);
@@ -96,15 +130,38 @@ export function GlobalTerminal({ open, onToggle, onSessionChange }) {
   }, [session, onToggle]);
 
   const handleSessionExit = useCallback(() => {
-    setSession(null);
+    if (poppingOut.current) {
+      poppingOut.current = false;
+      setSession((current) => (current ? { ...current, status: 'detached' } : null));
+    } else {
+      setSession(null);
+    }
   }, []);
 
   const popOutSession = useCallback(async () => {
     if (!session) return;
+    poppingOut.current = true;
     try {
-      await fetch(`/api/sessions/${session.id}/popout`, { method: 'POST' });
+      const response = await fetch(`/api/sessions/${session.id}/popout`, { method: 'POST' });
+      if (!response.ok) throw new Error(`Pop out failed: ${response.status}`);
+      setSession((current) => (current ? { ...current, status: 'detached' } : null));
+      setMaximized(false);
     } catch (err) {
+      poppingOut.current = false;
       console.error('Failed to pop out session:', err);
+    }
+  }, [session]);
+
+  const reattachSession = useCallback(async () => {
+    if (!session) return;
+    setReattaching(true);
+    setLaunchError('');
+    try {
+      setSession(await apiReattachSession(session.id));
+    } catch (error) {
+      setLaunchError(getErrorMessage(error, 'Failed to reattach the global session'));
+    } finally {
+      setReattaching(false);
     }
   }, [session]);
 
@@ -155,19 +212,31 @@ export function GlobalTerminal({ open, onToggle, onSessionChange }) {
           </div>
         )}
         <Stack justify="between" className={styles.handle}>
-          <span className={styles.handleText}>Global Terminal</span>
+          <span className={styles.handleText}>
+            Global {(session?.provider ?? provider) === 'codex' ? 'Codex' : 'Claude'}
+          </span>
           <Stack gap={2}>
             {session && (
               <>
-                <Button variant="success" size="xs" dark onClick={() => setShowPromote((s) => !s)}>
-                  Promote
-                </Button>
-                <Button size="xs" dark onClick={() => setMaximized((m) => !m)}>
-                  {maximized ? 'Restore' : 'Maximize'}
-                </Button>
-                <Button variant="primary" size="xs" dark onClick={popOutSession}>
-                  Pop out
-                </Button>
+                {session.status === 'active' && session.provider === 'claude' && (
+                  <Button variant="success" size="xs" dark onClick={() => setShowPromote((s) => !s)}>
+                    Promote
+                  </Button>
+                )}
+                {session.status === 'active' ? (
+                  <>
+                    <Button size="xs" dark onClick={() => setMaximized((m) => !m)}>
+                      {maximized ? 'Restore' : 'Maximize'}
+                    </Button>
+                    <Button variant="primary" size="xs" dark onClick={popOutSession}>
+                      Pop out
+                    </Button>
+                  </>
+                ) : (
+                  <Button variant="primary" size="xs" dark onClick={reattachSession} disabled={reattaching}>
+                    {reattaching ? 'Reattaching...' : 'Reattach'}
+                  </Button>
+                )}
                 <Button variant="danger" size="xs" dark onClick={killSession}>
                   Kill
                 </Button>
@@ -195,7 +264,7 @@ export function GlobalTerminal({ open, onToggle, onSessionChange }) {
             </button>
           </Stack>
         </Stack>
-        {showPromote && (
+        {showPromote && session?.provider === 'claude' && (
           <Stack gap={2} className={styles.promoteForm}>
             <RepoCombobox value={promoteRepo} onChange={setPromoteRepo} disabled={promoting} variant="dark" />
             <input
@@ -223,13 +292,40 @@ export function GlobalTerminal({ open, onToggle, onSessionChange }) {
           </Stack>
         )}
         <div className={styles.content}>
-          {loading && <p className={styles.loading}>Starting session...</p>}
-          {session && <LazyTerminal wsUrl={`/ws/sessions/${session.id}`} focus={open} onExit={handleSessionExit} />}
+          {loading && <p className={styles.loading}>Loading global session...</p>}
+          {session?.status === 'active' && (
+            <LazyTerminal wsUrl={`/ws/sessions/${session.id}`} focus={open} onExit={handleSessionExit} />
+          )}
+          {session?.status === 'detached' && (
+            <div className={styles.placeholder}>
+              <Stack direction="col" gap={3}>
+                <p className={styles.detached}>Session is running in an external terminal.</p>
+                <Button variant="primary" size="lg" dark onClick={reattachSession} disabled={reattaching}>
+                  {reattaching ? 'Reattaching...' : 'Reattach global session'}
+                </Button>
+                {launchError && (
+                  <p className={styles.launchError} role="alert">
+                    {launchError}
+                  </p>
+                )}
+              </Stack>
+            </div>
+          )}
           {!session && !loading && (
             <div className={styles.placeholder}>
-              <Button variant="primary" size="lg" dark onClick={startSession}>
-                Start Global Session
-              </Button>
+              <Stack direction="col" gap={3}>
+                <Stack gap={2}>
+                  <Button variant="primary" size="lg" dark onClick={startSession}>
+                    Start global {provider === 'codex' ? 'Codex' : 'Claude'} session
+                  </Button>
+                  <AgentProviderSelect dark />
+                </Stack>
+                {launchError && (
+                  <p className={styles.launchError} role="alert">
+                    {launchError}
+                  </p>
+                )}
+              </Stack>
             </div>
           )}
         </div>

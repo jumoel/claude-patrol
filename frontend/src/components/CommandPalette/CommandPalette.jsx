@@ -58,7 +58,7 @@ function fuzzyMatchWorkspace(query, ws) {
  *   scratchWorkspaces: import('../../types').Workspace[],
  *   workspaceStates?: Map<string, SessionState>,
  *   dismissedIdle?: Set<string>,
- *   hasGlobalSession: boolean,
+ *   globalSession: import('../../types').Session | null,
  *   onNavigate: (prId: string) => void,
  *   onNavigateWorkspace: (workspaceId: string) => void,
  *   onOpenGlobalTerminal: () => void,
@@ -70,7 +70,7 @@ export function CommandPalette({
   scratchWorkspaces,
   workspaceStates,
   dismissedIdle,
-  hasGlobalSession,
+  globalSession,
   onNavigate,
   onNavigateWorkspace,
   onOpenGlobalTerminal,
@@ -149,7 +149,7 @@ export function CommandPalette({
     // Global terminal entry (only if session is active)
     /** @type {GlobalEntry[]} */
     const globalItems = [];
-    if (hasGlobalSession) {
+    if (globalSession) {
       const gLabel = 'Global Terminal';
       if (!query || gLabel.toLowerCase().includes(query.toLowerCase())) {
         globalItems.push({
@@ -181,7 +181,7 @@ export function CommandPalette({
       if (aPri !== bPri) return bPri - aPri;
       return b.score - a.score;
     });
-  }, [prs, scratchWorkspaces, workspaceStates, hasGlobalSession, query]);
+  }, [prs, scratchWorkspaces, workspaceStates, globalSession, query]);
 
   // Reset selection when results change
   useEffect(() => {
@@ -275,7 +275,7 @@ export function CommandPalette({
                     dismissed={entry.item.workspace_id ? dismissedIdle?.has(entry.item.workspace_id) : false}
                   />
                 ) : entry.type === 'global' ? (
-                  <GlobalResult />
+                  <GlobalResult session={globalSession} />
                 ) : (
                   <WorkspaceResult
                     ws={entry.item}
@@ -296,7 +296,7 @@ export function CommandPalette({
 function SessionStateBadge({ state, dismissed }) {
   if (state === 'working')
     return (
-      <Badge color="violet" title="Claude is actively working">
+      <Badge color="violet" title="Agent is actively working">
         <span className={styles.spinner} />
         Working
       </Badge>
@@ -339,12 +339,13 @@ function PRResult({ pr, sessionState, dismissed }) {
   );
 }
 
-function GlobalResult() {
+/** @param {{session: import('../../types').Session | null}} props */
+function GlobalResult({ session }) {
   return (
     <Stack direction="col" gap={1} className={styles.resultInfo}>
       <div className={styles.resultTitle}>Global Terminal</div>
       <Stack gap={1} className={styles.resultBadges}>
-        <Badge color="green">active session</Badge>
+        <Badge color="green">active {session?.provider || 'agent'} session</Badge>
       </Stack>
     </Stack>
   );
