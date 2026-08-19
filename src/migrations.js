@@ -1,6 +1,6 @@
 /** Schema v7 intentionally resets every pre-v7 database. */
 
-export const CURRENT_SCHEMA_VERSION = 7;
+export const CURRENT_SCHEMA_VERSION = 8;
 
 function resetSchema(db) {
   db.exec(`
@@ -64,6 +64,7 @@ function resetSchema(db) {
       id TEXT PRIMARY KEY,
       workspace_id TEXT,
       pid INTEGER,
+      provider TEXT NOT NULL DEFAULT 'claude' CHECK(provider IN ('claude', 'codex')),
       status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'detached', 'killed')),
       started_at TEXT NOT NULL,
       ended_at TEXT,
@@ -127,8 +128,9 @@ function resetSchema(db) {
 }
 
 /**
- * Upgrade a database to the current schema. The v7 reset and version update
- * happen in one transaction; db.js writes a pre-migration backup first.
+ * Upgrade a database to the current schema. Databases older than v7 still
+ * take the intentional clean reset. The v7 to v8 provider migration preserves
+ * sessions and labels existing rows as Claude.
  */
 export function migrateDb(db) {
   const row = db.prepare('PRAGMA user_version').get();
@@ -140,10 +142,17 @@ export function migrateDb(db) {
 
   db.exec('BEGIN IMMEDIATE');
   try {
-    resetSchema(db);
+    if (version < 7) {
+      resetSchema(db);
+    } else if (version === 7) {
+      db.exec(
+        "ALTER TABLE sessions ADD COLUMN provider TEXT NOT NULL DEFAULT 'claude' CHECK(provider IN ('claude', 'codex'))",
+      );
+    }
     db.exec(`PRAGMA user_version = ${CURRENT_SCHEMA_VERSION}`);
     db.exec('COMMIT');
-    console.log(`[db] Destructive schema reset to version ${CURRENT_SCHEMA_VERSION} complete`);
+    const kind = version < 7 ? 'Destructive schema reset' : 'Schema migration';
+    console.log(`[db] ${kind} to version ${CURRENT_SCHEMA_VERSION} complete`);
   } catch (error) {
     db.exec('ROLLBACK');
     throw error;

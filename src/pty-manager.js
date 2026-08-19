@@ -7,8 +7,8 @@ import { fileURLToPath } from 'node:url';
 import pty from 'node-pty';
 import { appEvents, emitSessionState } from './app-events.js';
 import { getDb } from './db.js';
+import { buildSessionLaunch, mcpConfigPathForSession, normalizeSessionProvider } from './session-launch.js';
 import { archiveTranscript } from './transcripts.js';
-import { expandPath, toClaudeProjectKey } from './utils.js';
 
 const BUFFER_MAX = 50_000;
 // Bumped from 5s to 10s on 2026-05-08. Empirical max mid-turn gap was 1.36s
@@ -85,40 +85,13 @@ export function setMcpPort(port) {
 }
 
 /**
- * Write a per-session MCP config file pointing at /mcp/<sessionId>. Each
- * Claude session gets its own URL so tool handlers can read caller identity
- * from the request path.
- * @param {string} sessionId
- * @returns {string} path to the written config file
- */
-function mcpConfigPathForSession(sessionId) {
-  return resolve(tmpdir(), `patrol-mcp-${sessionId}.json`);
-}
-
-function writeMcpConfigForSession(sessionId) {
-  if (currentPort === null) {
-    throw new Error('writeMcpConfigForSession called before setMcpPort');
-  }
-  const path = mcpConfigPathForSession(sessionId);
-  const configJson = {
-    mcpServers: {
-      patrol: {
-        type: 'http',
-        url: `http://127.0.0.1:${currentPort}/mcp/${sessionId}`,
-        timeout: PATROL_MCP_TIMEOUT_MS,
-      },
-    },
-  };
-  writeFileSync(path, JSON.stringify(configJson, null, 2));
-  return path;
-}
-
-/**
  * Preserved Claude sessions keep the MCP config written when they started.
  * An omitted timeout inherits Claude Code's longer default and is safe. Only
  * an explicit timeout below the review budget requires a restart.
  */
-export function getSessionCodexReviewReadiness(sessionId) {
+export function getSessionPeerReviewReadiness(sessionId) {
+  const row = getDb().prepare('SELECT provider FROM sessions WHERE id = ?').get(sessionId);
+  if (row?.provider === 'codex') return { ready: true, reason: null };
   try {
     const config = JSON.parse(readFileSync(mcpConfigPathForSession(sessionId), 'utf8'));
     const patrol = config?.mcpServers?.patrol;
@@ -134,6 +107,10 @@ export function getSessionCodexReviewReadiness(sessionId) {
     reason: 'session_restart_required',
   };
 }
+
+// Compatibility for the existing review route while it is migrated to the
+// provider-neutral coordinator in the next change.
+export const getSessionCodexReviewReadiness = getSessionPeerReviewReadiness;
 
 /**
  * Fixed-size ring buffer that avoids allocations on append.
@@ -445,7 +422,7 @@ function rollbackFailedSessionStart(sessionId, runtime, tempPaths) {
  * @param {typeof DEFAULT_SESSION_RUNTIME} runtime
  * @returns {object | null}
  */
-function findReusableSession(workspaceId, runtime) {
+function findReusableSession(workspaceId, provider, runtime) {
   const db = getDb();
   const existingRows = workspaceId
     ? db.prepare("SELECT * FROM sessions WHERE workspace_id = ? AND status = 'active'").all(workspaceId)
@@ -453,6 +430,12 @@ function findReusableSession(workspaceId, runtime) {
 
   for (const existing of existingRows) {
     if (sessions.has(existing.id) && isTmuxSessionAlive(existing.id)) {
+      if (existing.provider !== provider) {
+        throw taggedError(
+          'provider_conflict',
+          `${existing.provider} session ${existing.id} is already active for this target`,
+        );
+      }
       return existing;
     }
 
@@ -477,19 +460,20 @@ function findReusableSession(workspaceId, runtime) {
 }
 
 /**
- * Start a tmux-backed Claude session as one transaction. Runtime injection is
+ * Start a tmux-backed agent session as one transaction. Runtime injection is
  * used by the regression test to force PTY failure without starting processes.
  * @param {string | null} workspaceId
  * @param {string} cwd
- * @param {{claudeSessionId?: string | null, runtime?: typeof DEFAULT_SESSION_RUNTIME}} options
+ * @param {{provider?: 'claude'|'codex', claudeSessionId?: string | null, runtime?: typeof DEFAULT_SESSION_RUNTIME}} options
  * @returns {object} session record
  */
 export function createSessionWithRuntime(workspaceId, cwd, options = {}) {
   const { claudeSessionId = null, runtime = DEFAULT_SESSION_RUNTIME } = options;
+  const provider = normalizeSessionProvider(options.provider);
   const db = getDb();
 
   if (!claudeSessionId) {
-    const existing = findReusableSession(workspaceId, runtime);
+    const existing = findReusableSession(workspaceId, provider, runtime);
     if (existing) return existing;
   }
 
@@ -497,46 +481,40 @@ export function createSessionWithRuntime(workspaceId, cwd, options = {}) {
   const tmuxName = `patrol-${id}`;
   const tempPaths = [];
 
-  // Build the claude command with args
-  const claudeArgs = claudeSessionId ? ['claude', '--resume', claudeSessionId] : ['claude'];
   try {
-    if (currentPort !== null) {
-      const mcpConfigPath = writeMcpConfigForSession(id);
-      tempPaths.push(mcpConfigPath);
-      claudeArgs.push('--mcp-config', mcpConfigPath);
-
-      // Write system prompt to a temp file to avoid shell escaping issues
-      const promptFile = resolve(tmpdir(), `patrol-prompt-${id}.txt`);
-      tempPaths.push(promptFile);
-      writeFileSync(promptFile, PATROL_SYSTEM_PROMPT);
-      claudeArgs.push('--append-system-prompt-file', promptFile);
-
-      claudeArgs.push('--allowedTools', 'mcp__patrol__*', 'Bash', 'Read', 'Edit', 'Write', 'Glob', 'Grep', 'Agent');
-    }
+    const launch = buildSessionLaunch({
+      provider,
+      sessionId: id,
+      cwd,
+      port: currentPort,
+      patrolPrompt: PATROL_SYSTEM_PROMPT,
+      mcpTimeoutMs: PATROL_MCP_TIMEOUT_MS,
+      claudeSessionId,
+    });
+    tempPaths.push(...launch.tempPaths);
 
     // Patrol owns a color terminal, so a NO_COLOR value inherited by the
-    // server must not silently disable Claude's ANSI palette. tmux new-session
+    // server must not silently disable the agent's ANSI palette. tmux new-session
     // takes one shell-command string, so shell-escape the complete env command.
-    const launchArgs = ['env', '-u', 'NO_COLOR', ...claudeArgs];
-    const shellCmd = launchArgs.map((a) => `'${a.replace(/'/g, "'\\''")}'`).join(' ');
+    const shellCmd = launch.commandArgs.map((a) => `'${a.replace(/'/g, "'\\''")}'`).join(' ');
     runtime.execFileSync('tmux', ['new-session', '-d', '-s', tmuxName, '-x', '120', '-y', '30', '-c', cwd, shellCmd], {
       timeout: 10_000,
     });
     runtime.execFileSync('tmux', ['set-option', '-t', tmuxName, 'status', 'off'], { timeout: 5_000 });
 
     const now = new Date().toISOString();
-    const claudeProjectDir = resolve(expandPath('~/.claude/projects'), toClaudeProjectKey(cwd));
     db.prepare(
-      'INSERT INTO sessions (id, workspace_id, pid, status, started_at, claude_project_dir) VALUES (?, ?, ?, ?, ?, ?)',
-    ).run(id, workspaceId, 0, 'active', now, claudeProjectDir);
+      'INSERT INTO sessions (id, workspace_id, pid, provider, status, started_at, claude_project_dir) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    ).run(id, workspaceId, 0, provider, 'active', now, launch.claudeProjectDir);
 
-    attachPtyToTmux(id, { claudeProjectDir, startedAt: now }, runtime);
+    attachPtyToTmux(id, { claudeProjectDir: launch.claudeProjectDir, startedAt: now }, runtime);
     return {
       id,
       workspace_id: workspaceId,
+      provider,
       status: 'active',
       started_at: now,
-      claude_project_dir: claudeProjectDir,
+      claude_project_dir: launch.claudeProjectDir,
     };
   } catch (error) {
     rollbackFailedSessionStart(id, runtime, tempPaths);
@@ -550,8 +528,8 @@ export function createSessionWithRuntime(workspaceId, cwd, options = {}) {
  * @param {string} cwd - working directory
  * @returns {object} session record
  */
-export function createSession(workspaceId, cwd) {
-  return createSessionWithRuntime(workspaceId, cwd);
+export function createSession(workspaceId, cwd, provider = 'claude') {
+  return createSessionWithRuntime(workspaceId, cwd, { provider });
 }
 
 /**
@@ -563,7 +541,7 @@ export function createSession(workspaceId, cwd) {
  * @returns {object} session record
  */
 export function createResumedSession(workspaceId, cwd, claudeSessionId) {
-  return createSessionWithRuntime(workspaceId, cwd, { claudeSessionId });
+  return createSessionWithRuntime(workspaceId, cwd, { provider: 'claude', claudeSessionId });
 }
 
 /**

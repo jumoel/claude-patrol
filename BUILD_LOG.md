@@ -989,3 +989,9 @@ Three bug fixes and a documentation file.
 - The poller was fragile against transient GitHub API errors - a single 502 or rate limit would leave PR data stale for an entire poll interval.
 - Nothing prevented multiple concurrent Claude sessions in the same worktree, which could cause conflicting edits.
 - Multi-job workflow failures only showed the first job's log, hiding the other failures.
+
+## 2026-08-19 - Add provider-aware agent sessions
+
+Added an explicit Claude or Codex provider to each session. New Codex sessions launch in the selected workspace with Patrol's session-scoped MCP endpoint and system instructions. Session creation, MCP dispatch, and global sessions now preserve the provider and reject attempts to reuse a live target with the other provider. Schema v8 adds the provider without deleting v7 session data; older databases keep the existing v7 reset policy. Claude-only transcripts and global-session promotion now reject Codex sessions instead of implying support.
+
+This makes provider choice durable at the process and database boundaries before the UI exposes the selector. It also lets either agent send prompts to a missing Claude or Codex target through Patrol MCP.

@@ -36,8 +36,45 @@ test('a new database is migrated to the current schema', () => {
   );
   assert.ok(workspaceColumns.has('operation_state'));
   assert.ok(workspaceColumns.has('operation_error'));
+  const sessionColumns = new Set(
+    db
+      .prepare("PRAGMA table_info('sessions')")
+      .all()
+      .map((column) => column.name),
+  );
+  assert.ok(sessionColumns.has('provider'));
   assert.ok(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'sync_state'").get());
   assert.ok(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'automation_jobs'").get());
+});
+
+test('the v7 to v8 migration preserves sessions as Claude sessions', () => {
+  const path = join(temporaryDirectory(), 'v7.db');
+  const legacy = new DatabaseSync(path);
+  legacy.exec(`
+    CREATE TABLE sessions (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT,
+      pid INTEGER,
+      status TEXT NOT NULL DEFAULT 'active',
+      started_at TEXT NOT NULL,
+      ended_at TEXT,
+      claude_project_dir TEXT,
+      transcript_path TEXT
+    );
+    INSERT INTO sessions (id, status, started_at) VALUES ('session-1', 'active', '2026-01-01T00:00:00.000Z');
+    PRAGMA user_version = 7;
+  `);
+  legacy.close();
+
+  const db = initDb(path);
+  assert.equal(db.prepare('PRAGMA user_version').get().user_version, CURRENT_SCHEMA_VERSION);
+  assert.deepEqual(
+    { ...db.prepare('SELECT id, provider FROM sessions').get() },
+    {
+      id: 'session-1',
+      provider: 'claude',
+    },
+  );
 });
 
 test('a pre-v7 database is backed up and reset to the clean schema', () => {

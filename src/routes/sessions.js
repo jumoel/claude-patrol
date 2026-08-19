@@ -9,6 +9,7 @@ import {
   popOutSession,
   reattachSession,
 } from '../pty-manager.js';
+import { normalizeSessionProvider } from '../session-launch.js';
 import { runTask } from '../tasks.js';
 import {
   claudeProjectDirForWorkspace,
@@ -27,6 +28,12 @@ export function registerSessionRoutes(app) {
   const { getConfig, getDb } = app.appContext;
   app.post('/api/sessions', (request, reply) => {
     const { workspace_id, global: isGlobal } = request.body || {};
+    let provider;
+    try {
+      provider = normalizeSessionProvider(request.body?.provider);
+    } catch (error) {
+      return reply.code(400).send({ error: error.message, code: error.code });
+    }
     const db = getDb();
 
     let cwd;
@@ -45,14 +52,15 @@ export function registerSessionRoutes(app) {
     }
 
     try {
-      const session = createSession(isGlobal ? null : workspace_id, cwd);
+      const session = createSession(isGlobal ? null : workspace_id, cwd, provider);
       emitLocalChange();
       return reply.code(201).send({
         ...session,
         ws_url: `ws://${request.hostname}/ws/sessions/${session.id}`,
       });
     } catch (err) {
-      return reply.code(500).send({ error: `Failed to create session: ${err.message}` });
+      const status = err.code === 'provider_conflict' ? 409 : 500;
+      return reply.code(status).send({ error: `Failed to create session: ${err.message}`, code: err.code });
     }
   });
 
@@ -110,6 +118,9 @@ export function registerSessionRoutes(app) {
     if (!session) {
       return reply.code(404).send({ error: 'Session not found' });
     }
+    if (session.provider !== 'claude') {
+      return reply.code(409).send({ error: 'Transcripts are only available for Claude sessions' });
+    }
 
     // Derive claude_project_dir from workspace path if not stored (pre-migration sessions)
     let claudeProjectDir = session.claude_project_dir;
@@ -163,6 +174,9 @@ export function registerSessionRoutes(app) {
     }
     if (session.workspace_id) {
       return reply.code(400).send({ error: 'Session is already in a workspace' });
+    }
+    if (session.provider !== 'claude') {
+      return reply.code(409).send({ error: 'Only Claude sessions can be promoted' });
     }
 
     const config = getConfig();

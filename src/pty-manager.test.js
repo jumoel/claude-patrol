@@ -21,6 +21,7 @@ it('keeps the outer Claude MCP timeout above the nested Codex review timeout', (
 });
 
 it('accepts legacy MCP configs unless they explicitly set a short tool timeout', () => {
+  initDb(':memory:');
   const sessionId = randomUUID();
   const path = resolve(tmpdir(), `patrol-mcp-${sessionId}.json`);
   try {
@@ -75,6 +76,32 @@ it('removes an inherited NO_COLOR setting from the Claude process', () => {
   assert.throws(() => createSessionWithRuntime(null, process.cwd(), { runtime }), /stop after command capture/);
   const newSession = commands.find(([command, subcommand]) => command === 'tmux' && subcommand === 'new-session');
   assert.match(newSession.at(-1), /^'env' '-u' 'NO_COLOR' 'claude'/);
+});
+
+it('launches Codex with the session-scoped Patrol MCP server and instructions', () => {
+  initDb(':memory:');
+  setMcpPort(4242);
+  const commands = [];
+  const runtime = {
+    randomUUID: () => 'codex-session',
+    execFileSync(command, args) {
+      commands.push([command, ...args]);
+    },
+    spawnPty() {
+      throw new Error('stop after command capture');
+    },
+  };
+
+  assert.throws(
+    () => createSessionWithRuntime(null, '/tmp/patrol-workspace', { provider: 'codex', runtime }),
+    /stop after command capture/,
+  );
+  const newSession = commands.find(([command, subcommand]) => command === 'tmux' && subcommand === 'new-session');
+  const shellCommand = newSession.at(-1);
+  assert.match(shellCommand, /^'env' '-u' 'NO_COLOR' 'codex' '-C' '\/tmp\/patrol-workspace'/);
+  assert.match(shellCommand, /mcp_servers\.patrol\.url=/);
+  assert.match(shellCommand, /mcp_servers\.patrol\.required=true/);
+  assert.match(shellCommand, /developer_instructions=/);
 });
 
 it('writes per-session MCP config with the explicitly recorded port', () => {

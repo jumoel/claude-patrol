@@ -503,12 +503,13 @@ export const actionRegistry = {
 
   send_prompt_to_session: {
     description:
-      "Send a prompt to another Claude session. Target with exactly one of: session_id (direct), pr_id (the PR's workspace session), workspace_id (workspace session), or global: true (the global terminal session). Auto-creates the target session (and workspace, for pr_id) if missing and create_if_missing is true. Returns dispatched_at; pass it to wait_for_idle to wait for the response. Cannot target your own session (errors with self_target). Errors with session_busy if the target is currently working. Single-line prompts only: newlines in `prompt` are stripped at write time.",
+      "Send a prompt to another Claude or Codex session. Target with exactly one of: session_id (direct), pr_id (the PR's workspace session), workspace_id (workspace session), or global: true (the global terminal session). Auto-creates the target session (and workspace, for pr_id) if missing and create_if_missing is true. Set provider when creating a target; an existing target keeps its provider. Returns dispatched_at; pass it to wait_for_idle to wait for the response. Cannot target your own session (errors with self_target). Errors with session_busy if the target is currently working. Single-line prompts only: newlines in `prompt` are stripped at write time.",
     schema: z.object({
       session_id: z.string().optional().describe('Direct session id from list_sessions'),
       pr_id: z.string().optional().describe('PR database id (e.g. "org/repo#42")'),
       workspace_id: z.string().optional().describe('Workspace id'),
       global: z.boolean().optional().describe('Target the global terminal session'),
+      provider: z.enum(['claude', 'codex']).optional().describe('Provider to use when creating a missing session'),
       prompt: z.string().min(1).describe('Prompt text. Single-line; newlines are stripped.'),
       create_if_missing: z
         .boolean()
@@ -523,6 +524,7 @@ export const actionRegistry = {
           pr_id: args.pr_id,
           workspace_id: args.workspace_id,
           global: args.global,
+          provider: args.provider,
           prompt: args.prompt,
           autoCreate: args.create_if_missing ?? true,
           callerSessionId: ctx?.callerSessionId ?? null,
@@ -609,7 +611,7 @@ export const actionRegistry = {
 
   list_sessions: {
     description:
-      'List active Claude sessions known to Patrol. Returns each session id, workspace context (PR id, repo, branch, workspace path), activity state (working, idle, or null when untracked), and started_at. Use this before send_prompt_to_session to pick a target. Detached sessions are not listed because send_prompt_to_session cannot target them.',
+      'List active Claude and Codex sessions known to Patrol. Returns each provider, session id, workspace context (PR id, repo, branch, workspace path), activity state (working, idle, or null when untracked), and started_at. Use this before send_prompt_to_session to pick a target. Detached sessions are not listed because send_prompt_to_session cannot target them.',
     schema: z.object({}),
     ruleFireable: false,
     mcpHandler: async () => {
@@ -618,6 +620,7 @@ export const actionRegistry = {
         .prepare(
           `SELECT s.id            AS session_id,
                   s.workspace_id  AS workspace_id,
+                  s.provider      AS provider,
                   s.started_at    AS started_at,
                   w.pr_id         AS pr_id,
                   w.repo          AS repo,
@@ -632,6 +635,7 @@ export const actionRegistry = {
       const states = new Map(getSessionStates().map((s) => [s.sessionId, s.state]));
       return rows.map((r) => ({
         session_id: r.session_id,
+        provider: r.provider,
         workspace_id: r.workspace_id,
         pr_id: r.pr_id,
         repo: r.repo,
