@@ -1019,3 +1019,7 @@ Darkened PR status labels and update timestamps from gray 400 to gray 500. This 
 ## 2026-08-19 - Integrate provider choice into launch buttons
 
 Replaced the separate provider selects with split action buttons. The main segment still opens or starts the selected agent, while an adjacent chevron opens the native Claude or Codex picker. PR, scratch, and global launch controls now use the same interaction, and live global sessions keep the provider segment locked to the running agent.
+
+## 2026-08-19 - Style the provider menu
+
+Replaced the browser-native provider options with an application-styled menu. Claude and Codex now have distinct marks, secondary CLI labels, hover and focus states, a selected checkmark, dark-mode treatment, click-outside dismissal, Escape handling, and arrow-key navigation.
