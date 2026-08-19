@@ -1,15 +1,22 @@
 @reference "tailwindcss";
 
 .bar {
-  @apply mb-4 text-base text-gray-600;
+  @apply mb-0 text-sm text-gray-600 bg-gray-50;
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
 }
 
 .stat {
   @apply font-medium;
 }
 
+.statValue {
+  @apply text-gray-900 font-semibold;
+  font-variant-numeric: tabular-nums;
+}
+
 .clickable {
-  @apply cursor-pointer hover:text-blue-600 transition-colors bg-transparent border-none text-base text-gray-600 font-medium p-0;
+  @apply cursor-pointer hover:text-blue-600 transition-colors bg-transparent border-none text-sm text-gray-600 font-medium p-0;
 }
 
 .disabled {
@@ -37,7 +44,7 @@
 }
 
 .itemDetail {
-  @apply text-xs text-gray-400 font-mono truncate;
+  @apply text-xs text-gray-500 font-mono truncate;
 }
 
 .actionRow {

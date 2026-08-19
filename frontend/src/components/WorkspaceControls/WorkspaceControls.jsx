@@ -49,8 +49,8 @@ export function WorkspaceControls({ workspace, onUpdate, getOrCreateWorkspace, s
   if (!workspace) {
     return (
       <Stack gap={3} wrap>
-        <Button variant="primary" size="lg" filled onClick={handleCreate} disabled={busy}>
-          {busy ? 'Creating workspace...' : 'Create Workspace'}
+        <Button size="md" onClick={handleCreate} disabled={busy}>
+          {busy ? 'Creating workspace...' : 'Create workspace only'}
         </Button>
         {error && <p className={styles.error}>{error}</p>}
       </Stack>

@@ -1,0 +1,27 @@
+@reference "tailwindcss";
+
+.wrapper {
+  @apply min-w-0;
+}
+
+.clamped {
+  max-height: var(--rendered-html-collapsed-height);
+  overflow: hidden;
+  mask-image: linear-gradient(to bottom, black calc(100% - 3rem), transparent 100%);
+}
+
+.toggle {
+  @apply mt-2 px-2 py-1 text-sm font-medium text-blue-700 bg-transparent border-0 rounded cursor-pointer hover:bg-blue-50;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

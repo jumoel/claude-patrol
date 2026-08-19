@@ -1,11 +1,11 @@
 @reference "tailwindcss";
 
 .sectionTitle {
-  @apply text-sm font-semibold text-gray-400 uppercase tracking-wider;
+  @apply text-sm font-semibold text-gray-600 uppercase tracking-wider;
 }
 
 .loading {
-  @apply text-base text-gray-400 py-4;
+  @apply text-base text-gray-500 py-4;
 }
 
 .author {
@@ -14,7 +14,7 @@
 
 
 .timestamp {
-  @apply text-sm text-gray-400;
+  @apply text-sm text-gray-500;
 }
 
 .commentBody {
@@ -58,6 +58,16 @@
   @apply border-l-2 border-gray-300 pl-3 text-gray-500 my-2;
 }
 
+.commentBody :global(summary) {
+  min-height: 1.5rem;
+  line-height: 1.5rem;
+}
+
+.commentBody :global(summary > a) {
+  @apply inline-flex items-center;
+  min-height: 1.5rem;
+}
+
 .commentBody :global(img) {
   @apply max-w-full rounded my-2;
 }
@@ -95,11 +105,10 @@
 }
 
 .diffPos {
-  @apply text-sm font-mono text-gray-400;
+  @apply text-sm font-mono text-gray-500;
 }
 
 /* Conversation */
 .conversationItem {
   @apply border-l-2 border-gray-200 pl-3 py-1 space-y-1;
 }
-

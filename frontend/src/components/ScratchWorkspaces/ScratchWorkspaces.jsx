@@ -40,9 +40,9 @@ export function ScratchWorkspaces({ scratchWorkspaces, workspaceStates, dismisse
   return (
     <div className={styles.container}>
       <Stack justify="between" className={styles.header}>
-        <h3 className={styles.title}>
+        <h2 className={styles.title}>
           Scratch Workspaces {scratchWorkspaces.length > 0 && `(${scratchWorkspaces.length})`}
-        </h3>
+        </h2>
         <Button variant="primary" size="sm" onClick={() => setShowNewWork(!showNewWork)}>
           + New Work
         </Button>

@@ -3,7 +3,7 @@
 /* ---- Typography ---- */
 
 .sectionTitle {
-  @apply text-base font-semibold text-gray-500 uppercase tracking-wider;
+  @apply text-sm font-semibold text-gray-600 uppercase tracking-wider;
 }
 
 .identityRow {

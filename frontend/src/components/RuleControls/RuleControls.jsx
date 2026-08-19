@@ -143,14 +143,17 @@ export function RuleControls({ prId }) {
           consumeOn === 'fire' ? 'Armed (fires once)' : consumeOn === 'trigger' ? 'Armed (next trigger only)' : null;
         return (
           <div key={rule.id} className={styles.row}>
-            <Stack gap={2} align="center">
+            <div className={styles.identity}>
               <span className={styles.name}>{rule.id}</span>
+              <span className={styles.trigger}>on {rule.on}</span>
+            </div>
+            <Stack gap={2} align="center" className={styles.status}>
               {isManual && <Badge color="gray">Manual only</Badge>}
               {requiresSubscription && isSubscribed && <Badge color="green">{armedLabel ?? 'Subscribed'}</Badge>}
               {requiresSubscription && !isSubscribed && <Badge color="amber">Not subscribed</Badge>}
               {!requiresSubscription && !isManual && <Badge color="violet">Auto on all</Badge>}
             </Stack>
-            <Stack gap={2}>
+            <Stack gap={2} className={styles.actions}>
               {requiresSubscription && (
                 <Button size="sm" onClick={() => toggleSubscription(rule)} disabled={isBusy}>
                   {isSubscribed ? 'Unsubscribe' : isConsumable ? 'Arm' : 'Subscribe'}

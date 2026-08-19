@@ -1,18 +1,38 @@
 .row {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(14rem, 1fr) minmax(10rem, auto) auto;
   align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  padding: 0.5rem 0;
+  gap: 1rem;
+  padding: 0.625rem 0;
   border-bottom: 1px solid rgb(0 0 0 / 0.05);
 }
 .row:last-child {
   border-bottom: none;
 }
+.identity {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 0.75rem;
+}
 .name {
   font-family: ui-monospace, SFMono-Regular, monospace;
   font-size: 0.875rem;
   color: rgb(0 0 0 / 0.85);
+}
+.trigger {
+  overflow: hidden;
+  color: rgb(75 85 99);
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 0.75rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.status {
+  justify-self: start;
+}
+.actions {
+  justify-self: end;
 }
 .empty {
   font-size: 0.875rem;

@@ -58,7 +58,7 @@
 }
 
 .emptyText {
-  @apply text-sm text-gray-400 px-4 py-3;
+  @apply text-sm text-gray-500 px-4 py-3;
 }
 
 /* Repo selection per account */
@@ -96,6 +96,38 @@
 
 .repoList {
   @apply pl-8 pb-2 max-h-64 overflow-y-auto;
+}
+
+.repoTools {
+  @apply flex items-center gap-3 px-12 pb-2;
+}
+
+.searchField {
+  @apply flex flex-1 items-center gap-2 px-2.5 py-1.5 text-gray-400 bg-gray-50 border border-gray-200 rounded-md focus-within:border-blue-300 focus-within:ring-2 focus-within:ring-blue-100;
+}
+
+.searchInput {
+  @apply w-full min-w-0 text-sm text-gray-800 bg-transparent border-0 outline-none;
+}
+
+.searchInput::placeholder {
+  @apply text-gray-400;
+}
+
+.selectionCount {
+  @apply text-xs font-medium text-gray-500 whitespace-nowrap;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .repoRow {

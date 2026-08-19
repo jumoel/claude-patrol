@@ -57,7 +57,7 @@
 }
 
 .filledSuccess {
-  @apply text-white bg-green-600 border-green-600 hover:bg-green-700;
+  @apply text-white bg-green-700 border-green-700 hover:bg-green-800;
 }
 
 .filledPrimary {

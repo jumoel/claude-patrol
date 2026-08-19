@@ -287,7 +287,11 @@ export function AppShell({
                 </>
               ) : restartNeeded || pullResult?.ok ? (
                 <>
-                  New version ready ({startupSha} → {currentSha}). Terminal sessions will be preserved.
+                  <strong>New version ready</strong>
+                  <span className={styles.updateVersion}>
+                    {startupSha} → {currentSha}
+                  </span>
+                  <span>Terminal sessions will be preserved.</span>
                   <Button variant="success" size="xs" onClick={handleRestart}>
                     Restart now
                   </Button>

@@ -6,8 +6,8 @@
   @apply no-underline;
 }
 
-.ghButton {
-  @apply p-2 text-gray-400 hover:text-gray-700 rounded-md hover:bg-gray-100 transition-colors;
+.actionBar {
+  @apply justify-end;
 }
 
 .title {
@@ -26,8 +26,12 @@
   @apply pt-1;
 }
 
-.openButtonSpaced {
-  @apply mt-2;
+.workspaceRow {
+  @apply min-h-10;
+}
+
+.sectionHint {
+  @apply m-0 text-sm text-gray-500;
 }
 
 .launchError {
@@ -38,7 +42,7 @@
 /* Checks */
 
 .summaryPass {
-  @apply text-green-600;
+  @apply text-green-700 font-medium;
 }
 
 .summaryFail {

@@ -105,8 +105,13 @@ export function CommandPalette({
         });
       }
     };
+    const openPalette = () => setOpen(true);
     document.addEventListener('keydown', handler);
-    return () => document.removeEventListener('keydown', handler);
+    document.addEventListener('claude-patrol:open-command-palette', openPalette);
+    return () => {
+      document.removeEventListener('keydown', handler);
+      document.removeEventListener('claude-patrol:open-command-palette', openPalette);
+    };
   }, []);
 
   // Autofocus input when opened

@@ -35,6 +35,7 @@ export function SetupMode({ onConfigured, isFirstRun }) {
   const [repoLists, setRepoLists] = useState(/** @type {Record<string, import('../../types').SetupRepo[]>} */ ({}));
   const [repoLoading, setRepoLoading] = useState(/** @type {Record<string, boolean>} */ ({}));
   const [selectedRepos, setSelectedRepos] = useState(/** @type {Record<string, Set<string>>} */ ({}));
+  const [repoQueries, setRepoQueries] = useState(/** @type {Record<string, string>} */ ({}));
   const [interval, setInterval_] = useState(30);
   const [_existingConfig, setExistingConfig] = useState(
     /** @type {import('../../types').PublicConfig['poll'] | null} */ (null),
@@ -291,6 +292,15 @@ export function SetupMode({ onConfigured, isFirstRun }) {
                 const repos = repoLists[login] || [];
                 const isLoadingRepos = repoLoading[login];
                 const picked = selectedRepos[login] || new Set();
+                const query = repoQueries[login]?.trim().toLowerCase() || '';
+                const visibleRepos = query
+                  ? repos.filter(
+                      (repo) =>
+                        repo.name.toLowerCase().includes(query) ||
+                        repo.nameWithOwner.toLowerCase().includes(query) ||
+                        repo.description?.toLowerCase().includes(query),
+                    )
+                  : repos;
 
                 return (
                   <div key={login} className={styles.repoSection}>
@@ -313,22 +323,52 @@ export function SetupMode({ onConfigured, isFirstRun }) {
                       </div>
                     </div>
                     {mode === 'pick' && (
-                      <div className={styles.repoList}>
-                        {isLoadingRepos && <p className={styles.loadingText}>Loading repos...</p>}
-                        {!isLoadingRepos && repos.length === 0 && <p className={styles.emptyText}>No repos found</p>}
-                        {repos.map((repo) => (
-                          <Stack gap={3} as="label" key={repo.nameWithOwner} className={styles.repoRow}>
+                      <>
+                        <div className={styles.repoTools}>
+                          <label className={styles.searchField}>
+                            <svg
+                              width="14"
+                              height="14"
+                              viewBox="0 0 16 16"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="1.5"
+                              aria-hidden="true"
+                            >
+                              <circle cx="7" cy="7" r="4.5" />
+                              <path d="m10.5 10.5 3 3" />
+                            </svg>
+                            <span className={styles.srOnly}>Search {login} repositories</span>
                             <input
-                              type="checkbox"
-                              className={styles.checkbox}
-                              checked={picked.has(repo.nameWithOwner)}
-                              onChange={() => toggleRepo(login, repo.nameWithOwner)}
+                              className={styles.searchInput}
+                              type="search"
+                              value={repoQueries[login] || ''}
+                              placeholder="Search repositories"
+                              onChange={(event) => setRepoQueries((prev) => ({ ...prev, [login]: event.target.value }))}
                             />
-                            <span className={styles.repoName}>{repo.name}</span>
-                            {repo.description && <span className={styles.repoDesc}>{repo.description}</span>}
-                          </Stack>
-                        ))}
-                      </div>
+                          </label>
+                          <span className={styles.selectionCount}>{picked.size} selected</span>
+                        </div>
+                        <div className={styles.repoList}>
+                          {isLoadingRepos && <p className={styles.loadingText}>Loading repos...</p>}
+                          {!isLoadingRepos && repos.length === 0 && <p className={styles.emptyText}>No repos found</p>}
+                          {!isLoadingRepos && repos.length > 0 && visibleRepos.length === 0 && (
+                            <p className={styles.emptyText}>No repositories match "{repoQueries[login]}"</p>
+                          )}
+                          {visibleRepos.map((repo) => (
+                            <Stack gap={3} as="label" key={repo.nameWithOwner} className={styles.repoRow}>
+                              <input
+                                type="checkbox"
+                                className={styles.checkbox}
+                                checked={picked.has(repo.nameWithOwner)}
+                                onChange={() => toggleRepo(login, repo.nameWithOwner)}
+                              />
+                              <span className={styles.repoName}>{repo.name}</span>
+                              {repo.description && <span className={styles.repoDesc}>{repo.description}</span>}
+                            </Stack>
+                          ))}
+                        </div>
+                      </>
                     )}
                   </div>
                 );

@@ -15,7 +15,7 @@ import styles from './DashboardSummary.module.css';
 
 /**
  * @template T
- * @param {{ label: string, items: T[], renderItem: (item: T, index: number) => React.ReactNode }} props
+ * @param {{ label: React.ReactNode, items: T[], renderItem: (item: T, index: number) => React.ReactNode }} props
  */
 function StatDropdown({ label, items, renderItem }) {
   const [open, setOpen] = useState(false);
@@ -58,6 +58,15 @@ function StatDropdown({ label, items, renderItem }) {
         </div>
       )}
     </span>
+  );
+}
+
+/** @param {{ value: number, children: React.ReactNode }} props */
+function StatLabel({ value, children }) {
+  return (
+    <>
+      <span className={styles.statValue}>{value}</span> {children}
+    </>
   );
 }
 
@@ -166,10 +175,12 @@ export function DashboardSummary({ prCount, onOpenGlobalTerminal, changeToken })
   return (
     <Box px={4} py={2} border rounded="lg" bg="white" className={styles.bar}>
       <Stack gap={3}>
-        <span className={styles.stat}>{prCount} open PRs</span>
+        <span className={styles.stat}>
+          <StatLabel value={prCount}>open PRs</StatLabel>
+        </span>
         <span className={styles.divider} />
         <StatDropdown
-          label={`${workspaces.length} active workspaces`}
+          label={<StatLabel value={workspaces.length}>active workspaces</StatLabel>}
           items={workspaces}
           renderItem={(ws) => {
             const href = ws.pr_id ? `#/pr/${encodeURIComponent(ws.pr_id)}` : `#/workspace/${ws.id}`;
@@ -183,7 +194,7 @@ export function DashboardSummary({ prCount, onOpenGlobalTerminal, changeToken })
         />
         <span className={styles.divider} />
         <StatDropdown
-          label={`${sessions.length} running sessions`}
+          label={<StatLabel value={sessions.length}>running sessions</StatLabel>}
           items={sessions}
           renderItem={(sess) => {
             const ws = sess.workspace_id ? wsById[sess.workspace_id] : null;

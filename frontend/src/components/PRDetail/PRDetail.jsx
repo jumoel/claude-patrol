@@ -30,6 +30,7 @@ import shared from '../../styles/shared.module.css';
 import { AgentProviderButton } from '../AgentProviderButton/AgentProviderButton.jsx';
 import { CheckLogViewer } from '../CheckLogViewer/CheckLogViewer.jsx';
 import { CommentsList } from '../CommentsList/CommentsList.jsx';
+import { RenderedHtml } from '../RenderedHtml/RenderedHtml.jsx';
 import { RuleControls } from '../RuleControls/RuleControls.jsx';
 import { SessionHistory } from '../SessionHistory/SessionHistory.jsx';
 import { StatusBadge } from '../StatusBadge/StatusBadge.jsx';
@@ -320,7 +321,7 @@ export function PRDetail({ prId, onBack, workspaceStates }) {
                 </svg>
                 Back
               </Button>
-              <Stack gap={2}>
+              <Stack gap={2} wrap className={styles.actionBar}>
                 {isMergeReady && (
                   <Button
                     as="a"
@@ -345,6 +346,7 @@ export function PRDetail({ prId, onBack, workspaceStates }) {
                 <Button
                   variant={pr.draft ? 'success' : 'default'}
                   size="sm"
+                  filled={pr.draft}
                   onClick={handleToggleDraft}
                   disabled={togglingDraft}
                   type="button"
@@ -382,17 +384,12 @@ export function PRDetail({ prId, onBack, workspaceStates }) {
                     Terminal
                   </Button>
                 )}
-                <a
-                  href={pr.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className={styles.ghButton}
-                  title="View on GitHub"
-                >
-                  <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                <Button as="a" size="sm" href={pr.url} target="_blank" rel="noopener noreferrer">
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
                     <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z" />
                   </svg>
-                </a>
+                  GitHub
+                </Button>
               </Stack>
             </Stack>
 
@@ -465,30 +462,37 @@ export function PRDetail({ prId, onBack, workspaceStates }) {
         </Box>
 
         {/* Actions row */}
-        <Box p={5} border rounded="lg" bg="white">
-          <Stack direction="col" gap={3}>
-            <h3 className={shared.sectionTitle}>Workspace</h3>
-            <WorkspaceControls
-              prId={prId}
-              workspace={workspace}
-              onUpdate={loadData}
-              getOrCreateWorkspace={getOrCreateWorkspace}
-              sessionWaiting={openingSession && !workspace}
-            />
-            {!session && (
-              <Stack gap={2} wrap className={styles.openButtonSpaced}>
-                <AgentProviderButton
-                  variant="primary"
-                  size="lg"
-                  onClick={handleOpenInAgent}
-                  disabled={openingSession}
-                  busy={openingSession}
-                >
-                  {openingSession && <span className={shared.buttonSpinner} aria-hidden="true" />}
-                  {openingSession ? openingStep : `Open in ${provider === 'codex' ? 'Codex' : 'Claude'}`}
-                </AgentProviderButton>
+        <Box p={4} border rounded="lg" bg="white">
+          <Stack direction="col" gap={2}>
+            <Stack justify="between" gap={4} wrap className={styles.workspaceRow}>
+              <Stack direction="col" gap={1}>
+                <h3 className={shared.sectionTitle}>Workspace</h3>
+                {!workspace && (
+                  <p className={styles.sectionHint}>Start an agent or create the workspace without a session.</p>
+                )}
               </Stack>
-            )}
+              <Stack gap={2} wrap>
+                {!session && (
+                  <AgentProviderButton
+                    variant="primary"
+                    size="md"
+                    onClick={handleOpenInAgent}
+                    disabled={openingSession}
+                    busy={openingSession}
+                  >
+                    {openingSession && <span className={shared.buttonSpinner} aria-hidden="true" />}
+                    {openingSession ? openingStep : `Open in ${provider === 'codex' ? 'Codex' : 'Claude'}`}
+                  </AgentProviderButton>
+                )}
+                <WorkspaceControls
+                  prId={prId}
+                  workspace={workspace}
+                  onUpdate={loadData}
+                  getOrCreateWorkspace={getOrCreateWorkspace}
+                  sessionWaiting={openingSession && !workspace}
+                />
+              </Stack>
+            </Stack>
             {openingError && (
               <p className={styles.launchError} role="alert">
                 {openingError}
@@ -778,7 +782,7 @@ function PRDescription({ bodyHtml }) {
         <span className={styles.descriptionLabel}>Description</span>
         <span className={`${styles.chevron} ${expanded ? styles.chevronOpen : ''}`}>&#x25B8;</span>
       </button>
-      {expanded && <div className={styles.descriptionBody} dangerouslySetInnerHTML={{ __html: bodyHtml }} />}
+      {expanded && <RenderedHtml html={bodyHtml} className={styles.descriptionBody} />}
     </div>
   );
 }

@@ -144,6 +144,10 @@ export function FilterBar({ prs, filters, onFilterChange, onCopyMarkdown, copied
   const isMergeReadyActive = filtersMatch(MERGE_READY_FILTERS);
   const isNeedsWorkActive = !!filters.needsWork;
   const hasAnyFilter = Object.values(filters).some((v) => v === true || (Array.isArray(v) && v.length > 0));
+  const activeFilterCount = Object.values(filters).reduce(
+    (count, value) => count + (value === true ? 1 : Array.isArray(value) ? value.length : 0),
+    0,
+  );
 
   /** @param {FilterState} target @param {boolean} isActive */
   const toggleQuickFilter = (target, isActive) => {
@@ -157,47 +161,71 @@ export function FilterBar({ prs, filters, onFilterChange, onCopyMarkdown, copied
   return (
     <Box px={4} py={3} border rounded="lg" bg="white" className={styles.bar}>
       <Stack direction="col" gap={3}>
-        <Stack gap={3} wrap>
-          <button
-            className={`${styles.quickFilter} ${styles.quickFilterGreen} ${isMergeReadyActive ? styles.quickFilterActive : ''}`}
-            onClick={() => toggleQuickFilter(MERGE_READY_FILTERS, isMergeReadyActive)}
-            type="button"
-          >
-            Merge Ready
-          </button>
-          <button
-            className={`${styles.quickFilter} ${styles.quickFilterOrange} ${isNeedsWorkActive ? styles.quickFilterActive : ''}`}
-            onClick={() => toggleQuickFilter({ needsWork: true }, isNeedsWorkActive)}
-            type="button"
-          >
-            Needs Work
-          </button>
-          <button
-            className={`${styles.quickFilter} ${styles.quickFilterBlue} ${isReviewReadyActive ? styles.quickFilterActive : ''}`}
-            onClick={() => toggleQuickFilter(REVIEW_READY_FILTERS, isReviewReadyActive)}
-            type="button"
-          >
-            Review Ready
-          </button>
-          {hasStacks && (
+        <Stack justify="between" gap={3} wrap>
+          <Stack gap={2} wrap>
             <button
-              className={`${styles.quickFilter} ${styles.quickFilterPurple} ${stackView ? styles.quickFilterActive : ''}`}
-              onClick={() => onStackViewChange?.(!stackView)}
+              className={`${styles.quickFilter} ${styles.quickFilterGreen} ${isMergeReadyActive ? styles.quickFilterActive : ''}`}
+              onClick={() => toggleQuickFilter(MERGE_READY_FILTERS, isMergeReadyActive)}
               type="button"
             >
-              Stacks
+              Merge Ready
             </button>
-          )}
-          <Button variant="danger" size="md" onClick={() => onFilterChange({})} type="button" disabled={!hasAnyFilter}>
-            Clear
-          </Button>
-          {onCopyMarkdown && (
-            <Button size="md" onClick={onCopyMarkdown} type="button">
-              {copied ? 'Copied!' : 'Copy as Markdown'}
+            <button
+              className={`${styles.quickFilter} ${styles.quickFilterOrange} ${isNeedsWorkActive ? styles.quickFilterActive : ''}`}
+              onClick={() => toggleQuickFilter({ needsWork: true }, isNeedsWorkActive)}
+              type="button"
+            >
+              Needs Work
+            </button>
+            <button
+              className={`${styles.quickFilter} ${styles.quickFilterBlue} ${isReviewReadyActive ? styles.quickFilterActive : ''}`}
+              onClick={() => toggleQuickFilter(REVIEW_READY_FILTERS, isReviewReadyActive)}
+              type="button"
+            >
+              Review Ready
+            </button>
+            {hasStacks && (
+              <button
+                className={`${styles.quickFilter} ${styles.quickFilterPurple} ${stackView ? styles.quickFilterActive : ''}`}
+                onClick={() => onStackViewChange?.(!stackView)}
+                type="button"
+              >
+                Stacks
+              </button>
+            )}
+          </Stack>
+          <Stack gap={2} className={styles.utilities}>
+            <button
+              className={styles.searchButton}
+              type="button"
+              onClick={() => document.dispatchEvent(new Event('claude-patrol:open-command-palette'))}
+            >
+              <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <circle cx="7" cy="7" r="4.5" />
+                <path d="m10.5 10.5 3 3" />
+              </svg>
+              Search PRs
+              <kbd className={styles.shortcut}>⌘K</kbd>
+            </button>
+            {onCopyMarkdown && (
+              <Button size="sm" onClick={onCopyMarkdown} type="button">
+                {copied ? 'Copied!' : 'Copy as Markdown'}
+              </Button>
+            )}
+            <Button
+              variant="danger"
+              size="sm"
+              onClick={() => onFilterChange({})}
+              type="button"
+              disabled={!hasAnyFilter}
+            >
+              Clear
             </Button>
-          )}
+          </Stack>
         </Stack>
-        <Stack gap={3} wrap>
+        <Stack gap={2} wrap className={styles.advancedRow}>
+          <span className={styles.filterLabel}>Filters</span>
+          {activeFilterCount > 0 && <span className={styles.activeCount}>{activeFilterCount} active</span>}
           <MultiSelect
             label="All orgs"
             options={orgOptions}

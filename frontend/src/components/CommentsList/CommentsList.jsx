@@ -1,4 +1,5 @@
 import { getRelativeTime } from '../../lib/time.js';
+import { RenderedHtml } from '../RenderedHtml/RenderedHtml.jsx';
 import { Badge } from '../ui/Badge/Badge.jsx';
 import { Box } from '../ui/Box/Box.jsx';
 import { Stack } from '../ui/Stack/Stack.jsx';
@@ -28,7 +29,7 @@ function InlineComment({ comment }) {
         <code className={styles.filePath}>{comment.path}</code>
         {comment.diff_position != null && <span className={styles.diffPos}>diff:{comment.diff_position}</span>}
       </Stack>
-      <div className={styles.commentBody} dangerouslySetInnerHTML={{ __html: comment.body_html }} />
+      <RenderedHtml html={comment.body_html} className={styles.commentBody} />
     </div>
   );
 }
@@ -43,9 +44,7 @@ function ReviewCard({ review }) {
           <ReviewStateBadge state={review.state} />
           {review.submitted_at && <span className={styles.timestamp}>{getRelativeTime(review.submitted_at)}</span>}
         </Stack>
-        {review.body_html && (
-          <div className={styles.commentBody} dangerouslySetInnerHTML={{ __html: review.body_html }} />
-        )}
+        {review.body_html && <RenderedHtml html={review.body_html} className={styles.commentBody} collapsible />}
         {review.comments.length > 0 && (
           <div className={styles.inlineList}>
             {review.comments.map((c, i) => (
@@ -66,7 +65,7 @@ function ConversationComment({ comment }) {
         <span className={styles.author}>{comment.author}</span>
         <span className={styles.timestamp}>{getRelativeTime(comment.created_at)}</span>
       </Stack>
-      <div className={styles.commentBody} dangerouslySetInnerHTML={{ __html: comment.body_html }} />
+      <RenderedHtml html={comment.body_html} className={styles.commentBody} collapsible />
     </div>
   );
 }
