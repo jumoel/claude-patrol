@@ -1015,3 +1015,7 @@ Added a stable form-control name to the shared agent provider selector. Chrome D
 ## 2026-08-19 - Restore PR metadata contrast
 
 Darkened PR status labels and update timestamps from gray 400 to gray 500. This raises their contrast on white backgrounds above the WCAG AA threshold without changing the surrounding layout.
+
+## 2026-08-19 - Integrate provider choice into launch buttons
+
+Replaced the separate provider selects with split action buttons. The main segment still opens or starts the selected agent, while an adjacent chevron opens the native Claude or Codex picker. PR, scratch, and global launch controls now use the same interaction, and live global sessions keep the provider segment locked to the running agent.

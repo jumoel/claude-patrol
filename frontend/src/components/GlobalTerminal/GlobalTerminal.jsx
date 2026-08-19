@@ -10,7 +10,7 @@ import {
 } from '../../lib/api.js';
 import { getErrorMessage } from '../../lib/errors.js';
 import shared from '../../styles/shared.module.css';
-import { AgentProviderSelect } from '../AgentProviderSelect/AgentProviderSelect.jsx';
+import { AgentProviderButton } from '../AgentProviderButton/AgentProviderButton.jsx';
 import { LazyTerminal } from '../Terminal/LazyTerminal.jsx';
 import { Button } from '../ui/Button/Button.jsx';
 import { RepoCombobox } from '../ui/RepoCombobox/RepoCombobox.jsx';
@@ -315,10 +315,9 @@ export function GlobalTerminal({ open, onToggle, onSessionChange }) {
             <div className={styles.placeholder}>
               <Stack direction="col" gap={3}>
                 <Stack gap={2}>
-                  <Button variant="primary" size="lg" dark onClick={startSession}>
+                  <AgentProviderButton variant="primary" size="lg" dark onClick={startSession}>
                     Start global {provider === 'codex' ? 'Codex' : 'Claude'} session
-                  </Button>
-                  <AgentProviderSelect dark />
+                  </AgentProviderButton>
                 </Stack>
                 {launchError && (
                   <p className={styles.launchError} role="alert">

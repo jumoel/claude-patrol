@@ -27,7 +27,7 @@ import { getErrorMessage } from '../../lib/errors.js';
 import { sendTerminalCommand, whenWsOpen } from '../../lib/terminal.js';
 import { getRelativeTime } from '../../lib/time.js';
 import shared from '../../styles/shared.module.css';
-import { AgentProviderSelect } from '../AgentProviderSelect/AgentProviderSelect.jsx';
+import { AgentProviderButton } from '../AgentProviderButton/AgentProviderButton.jsx';
 import { CheckLogViewer } from '../CheckLogViewer/CheckLogViewer.jsx';
 import { CommentsList } from '../CommentsList/CommentsList.jsx';
 import { RuleControls } from '../RuleControls/RuleControls.jsx';
@@ -477,17 +477,16 @@ export function PRDetail({ prId, onBack, workspaceStates }) {
             />
             {!session && (
               <Stack gap={2} wrap className={styles.openButtonSpaced}>
-                <Button
+                <AgentProviderButton
                   variant="primary"
                   size="lg"
                   onClick={handleOpenInAgent}
                   disabled={openingSession}
-                  aria-busy={openingSession}
+                  busy={openingSession}
                 >
                   {openingSession && <span className={shared.buttonSpinner} aria-hidden="true" />}
                   {openingSession ? openingStep : `Open in ${provider === 'codex' ? 'Codex' : 'Claude'}`}
-                </Button>
-                <AgentProviderSelect disabled={openingSession} />
+                </AgentProviderButton>
               </Stack>
             )}
             {openingError && (

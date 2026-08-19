@@ -3,7 +3,7 @@ import logoSvg from '../../assets/logo.svg';
 import { useAgentProvider } from '../../context/AgentProviderContext.jsx';
 import { fetchRestartStatus, triggerRestart, triggerUpdate } from '../../lib/api.js';
 import { getErrorMessage } from '../../lib/errors.js';
-import { AgentProviderSelect } from '../AgentProviderSelect/AgentProviderSelect.jsx';
+import { AgentProviderButton } from '../AgentProviderButton/AgentProviderButton.jsx';
 import { Button } from '../ui/Button/Button.jsx';
 import { Stack } from '../ui/Stack/Stack.jsx';
 import styles from './AppShell.module.css';
@@ -196,33 +196,32 @@ export function AppShell({
               )}
               {syncing ? 'Syncing...' : 'Sync now'}
             </button>
-            <Stack gap={1} className={styles.globalTerminalControl}>
-              <AgentProviderSelect
-                disabled={!!globalSession}
-                value={globalSession?.provider}
-                className={styles.headerProviderSelect}
-              />
-              <button
-                className={`${styles.terminalButton} ${terminalOpen ? styles.terminalButtonActive : ''}`}
-                onClick={onToggleTerminal}
+            <AgentProviderButton
+              variant="default"
+              size="md"
+              onClick={onToggleTerminal}
+              providerDisabled={!!globalSession}
+              value={globalSession?.provider}
+              active={terminalOpen}
+              className={styles.globalTerminalControl}
+              actionClassName={`${styles.terminalButton} ${terminalOpen ? styles.terminalButtonActive : ''}`}
+            >
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 16 16"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
               >
-                <svg
-                  width="16"
-                  height="16"
-                  viewBox="0 0 16 16"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <rect x="1" y="2" width="14" height="12" rx="2" />
-                  <polyline points="5,6 7.5,8.5 5,11" />
-                  <line x1="9" y1="11" x2="12" y2="11" />
-                </svg>
-                Global {(globalSession?.provider ?? provider) === 'codex' ? 'Codex' : 'Claude'}
-              </button>
-            </Stack>
+                <rect x="1" y="2" width="14" height="12" rx="2" />
+                <polyline points="5,6 7.5,8.5 5,11" />
+                <line x1="9" y1="11" x2="12" y2="11" />
+              </svg>
+              Global {(globalSession?.provider ?? provider) === 'codex' ? 'Codex' : 'Claude'}
+            </AgentProviderButton>
             {onSetup && (
               <button className={styles.settingsButton} onClick={onSetup}>
                 <svg

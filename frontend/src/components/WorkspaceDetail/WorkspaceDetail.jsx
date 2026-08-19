@@ -12,7 +12,7 @@ import {
 import { getErrorMessage } from '../../lib/errors.js';
 import { getRelativeTime } from '../../lib/time.js';
 import shared from '../../styles/shared.module.css';
-import { AgentProviderSelect } from '../AgentProviderSelect/AgentProviderSelect.jsx';
+import { AgentProviderButton } from '../AgentProviderButton/AgentProviderButton.jsx';
 import { SessionHistory } from '../SessionHistory/SessionHistory.jsx';
 import { TerminalCard } from '../TerminalCard/TerminalCard.jsx';
 import { Badge } from '../ui/Badge/Badge.jsx';
@@ -176,19 +176,18 @@ export function WorkspaceDetail({ workspaceId, onBack, workspaceStates }) {
                   <h3 className={shared.sectionTitle}>Terminal</h3>
                 </Stack>
                 <Stack gap={2} wrap>
-                  <Button
+                  <AgentProviderButton
                     variant="primary"
                     size="lg"
                     onClick={handleStartSession}
                     disabled={openingSession}
-                    aria-busy={openingSession}
+                    busy={openingSession}
                   >
                     {openingSession && <span className={shared.buttonSpinner} aria-hidden="true" />}
                     {openingSession
                       ? 'Starting session...'
                       : `Start ${provider === 'codex' ? 'Codex' : 'Claude'} session`}
-                  </Button>
-                  <AgentProviderSelect disabled={openingSession} />
+                  </AgentProviderButton>
                 </Stack>
                 {openingError && (
                   <p className={styles.launchError} role="alert">

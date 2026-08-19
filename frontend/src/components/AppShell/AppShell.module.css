@@ -63,10 +63,6 @@
   @apply items-stretch;
 }
 
-.headerProviderSelect {
-  @apply h-9 min-w-24 px-2 text-sm;
-}
-
 
 .settingsButton {
   @apply flex items-center gap-2 px-4 py-2 text-base font-medium text-gray-600 bg-gray-100 border border-gray-200 rounded-lg hover:bg-gray-200 hover:text-gray-800 transition-colors cursor-pointer;
