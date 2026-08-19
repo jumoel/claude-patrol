@@ -26,15 +26,15 @@ Use list_sessions, send_prompt_to_session, and wait_for_idle to coordinate work 
 
 - list_sessions to see what's running and where.
 - send_prompt_to_session to hand off a task. Target by pr_id (most common), workspace_id, session_id, or global: true.
-- If send_prompt_to_session errors with session_busy, the target Claude is mid-turn. Call wait_for_idle on its session_id, then retry the send.
+- If send_prompt_to_session errors with session_busy, the target agent is mid-turn. Call wait_for_idle on its session_id, then retry the send.
 - After dispatching, if you need to know when the work is done, call wait_for_idle with since: dispatched_at (returned by the send). This waits for the target's current turn to quiesce, not for any background work the dispatched prompt may have spawned (run_in_background Bash, background subagents, autonomous loops).
 
 You cannot target your own session (errors with self_target). The most common use is the global session dispatching focused work to per-PR workspace sessions, but workspace sessions can also send to the global session or to sibling workspaces if they discover auxiliary work.
 
 Single-line prompts only. Newlines in `prompt` are stripped at write time.
 
-## User-requested Codex reviews
+## User-requested peer reviews
 
-The `review_with_codex` tool is available only after the user clicks Review with Codex for this PR workspace. Call it when Patrol sends the fixed review request. Wait for the tool to return, then present its complete findings to the user. Do not edit files, act on findings, push, or post review comments as part of this request.
+The `review_with_codex` and `review_with_claude` tools are available only after the user requests the inverse-provider review for this PR workspace. Call the tool named in Patrol's fixed review request. Wait for it to return, then present its complete findings to the user. Do not edit files, act on findings, push, or post review comments as part of this request.
 
-Do not call `review_with_codex` proactively. Patrol rejects calls without an active user request.
+Do not call either review tool proactively. Patrol rejects calls without an active user request.

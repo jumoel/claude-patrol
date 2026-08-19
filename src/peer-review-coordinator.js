@@ -9,6 +9,10 @@ function reviewError(code, message) {
   return error;
 }
 
+function providerName(provider) {
+  return provider === 'codex' ? 'Codex' : 'Claude';
+}
+
 function publicReview(review) {
   if (!review) return null;
   return {
@@ -16,6 +20,8 @@ function publicReview(review) {
     workspaceId: review.workspaceId,
     sessionId: review.sessionId,
     prId: review.prId,
+    presenterProvider: review.presenterProvider,
+    reviewerProvider: review.reviewerProvider,
     status: review.status,
     requestedAt: review.requestedAt,
     startedAt: review.startedAt,
@@ -32,11 +38,8 @@ function normalizeError(error) {
   };
 }
 
-/**
- * Owns the explicit review lifecycle across the HTTP request, Claude MCP call,
- * Codex run, and final delivery into Claude's terminal.
- */
-export class CodexReviewCoordinator {
+/** Owns one user-requested peer review lifecycle per workspace. */
+export class PeerReviewCoordinator {
   constructor({
     events,
     requestTimeoutMs = 2 * 60 * 1000,
@@ -55,10 +58,10 @@ export class CodexReviewCoordinator {
     this.events.on('session-state', this.handleSessionState);
   }
 
-  request({ workspaceId, sessionId, prId }) {
+  request({ workspaceId, sessionId, prId, presenterProvider, reviewerProvider }) {
     const existing = this.reviews.get(workspaceId);
     if (existing && ACTIVE_STATUSES.has(existing.status)) {
-      throw reviewError('review_in_progress', 'A Codex review is already in progress for this workspace');
+      throw reviewError('review_in_progress', 'A peer review is already in progress for this workspace');
     }
 
     const review = {
@@ -66,6 +69,8 @@ export class CodexReviewCoordinator {
       workspaceId,
       sessionId,
       prId,
+      presenterProvider,
+      reviewerProvider,
       status: 'requested',
       requestedAt: new Date(this.now()).toISOString(),
       startedAt: null,
@@ -76,19 +81,31 @@ export class CodexReviewCoordinator {
     };
     this.reviews.set(workspaceId, review);
     this.setTimer(review.id, this.requestTimeoutMs, () => {
-      this.fail(review.id, reviewError('request_timeout', 'Claude did not start the Codex review within two minutes'));
+      this.fail(
+        review.id,
+        reviewError(
+          'request_timeout',
+          `${providerName(presenterProvider)} did not start the ${providerName(reviewerProvider)} review within two minutes`,
+        ),
+      );
     });
     this.emit(review);
     return publicReview(review);
   }
 
-  claim({ workspaceId, sessionId }) {
+  claim({ workspaceId, sessionId, reviewerProvider }) {
     const review = this.reviews.get(workspaceId);
     if (!review || review.status !== 'requested') {
-      throw reviewError('review_not_requested', 'No Codex review was requested for this workspace');
+      throw reviewError('review_not_requested', 'No peer review was requested for this workspace');
     }
     if (review.sessionId !== sessionId) {
-      throw reviewError('review_session_mismatch', 'This Codex review belongs to a different Claude session');
+      throw reviewError('review_session_mismatch', 'This peer review belongs to a different presenter session');
+    }
+    if (review.reviewerProvider !== reviewerProvider) {
+      throw reviewError(
+        'review_provider_mismatch',
+        `This review is reserved for ${providerName(review.reviewerProvider)}`,
+      );
     }
     this.clearTimer(review.id);
     review.status = 'running';
@@ -102,13 +119,11 @@ export class CodexReviewCoordinator {
     if (!review || review.status !== 'running') return null;
     review.status = 'delivering';
     review.resultReadyAt = new Date(this.now()).toISOString();
-    // The tool call itself proves this Claude session is in a turn. Its next
-    // idle transition confirms Claude had a chance to present the result.
     review.observedDeliveryWork = true;
     this.setTimer(review.id, this.deliveryTimeoutMs, () => {
       this.finish(review, 'delivery_unconfirmed', {
         code: 'delivery_unconfirmed',
-        message: 'Codex returned a review, but Patrol could not confirm that Claude presented it',
+        message: `${providerName(review.reviewerProvider)} returned a review, but Patrol could not confirm that ${providerName(review.presenterProvider)} presented it`,
       });
     });
     this.emit(review);
@@ -135,7 +150,7 @@ export class CodexReviewCoordinator {
       } else if (state === 'exited') {
         this.finish(review, 'delivery_unconfirmed', {
           code: 'session_exited',
-          message: 'Claude exited before Patrol could confirm delivery of the Codex review',
+          message: `${providerName(review.presenterProvider)} exited before Patrol could confirm review delivery`,
         });
       }
     }
@@ -150,7 +165,7 @@ export class CodexReviewCoordinator {
     this.setTimer(review.id, this.retentionMs, () => {
       if (this.reviews.get(review.workspaceId)?.id === review.id) {
         this.reviews.delete(review.workspaceId);
-        this.events.emit('codex-review-state', { workspaceId: review.workspaceId, review: null });
+        this.events.emit('peer-review-state', { workspaceId: review.workspaceId, review: null });
       }
       this.clearTimer(review.id);
     });
@@ -165,7 +180,7 @@ export class CodexReviewCoordinator {
   }
 
   emit(review) {
-    this.events.emit('codex-review-state', { workspaceId: review.workspaceId, review: publicReview(review) });
+    this.events.emit('peer-review-state', { workspaceId: review.workspaceId, review: publicReview(review) });
   }
 
   setTimer(reviewId, delay, callback) {

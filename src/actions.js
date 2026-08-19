@@ -61,6 +61,100 @@ function buildQuery(args) {
   return qs ? `?${qs}` : '';
 }
 
+function inverseProvider(provider) {
+  return provider === 'claude' ? 'codex' : 'claude';
+}
+
+function providerName(provider) {
+  return provider === 'codex' ? 'Codex' : 'Claude';
+}
+
+function createPeerReviewAction(reviewerProvider) {
+  const presenterProvider = inverseProvider(reviewerProvider);
+  return {
+    description: `Run the user-requested ${providerName(reviewerProvider)} review for this ${providerName(presenterProvider)} session's full effective PR diff. This tool is reservation-gated and works only after the user clicks Review with ${providerName(reviewerProvider)} in Patrol. It waits for ${providerName(reviewerProvider)} and returns the complete review. Do not edit files while handling this request.`,
+    schema: z.object({}),
+    ruleFireable: false,
+    mcpHandler: async (app, _args, ctx) => {
+      const callerSessionId = ctx?.callerSessionId;
+      if (!callerSessionId) {
+        return { ok: false, error: 'unknown_session', message: 'The calling agent session is unknown' };
+      }
+
+      const { getDb, peerReviewCoordinator, reviewServices } = app.appContext;
+      const row = getDb()
+        .prepare(
+          `SELECT s.id AS session_id,
+                  s.provider AS presenter_provider,
+                  w.id AS workspace_id,
+                  w.path AS workspace_path,
+                  w.pr_id AS pr_id,
+                  p.number,
+                  p.org,
+                  p.repo,
+                  p.base_branch
+             FROM sessions s
+             JOIN workspaces w ON w.id = s.workspace_id
+             JOIN prs p ON p.id = w.pr_id
+            WHERE s.id = ?
+              AND s.status = 'active'
+              AND w.status = 'active'
+              AND w.operation_state = 'ready'`,
+        )
+        .get(callerSessionId);
+      if (!row) {
+        return {
+          ok: false,
+          error: 'review_not_ready',
+          message: 'A ready PR workspace with an attached agent session is required',
+        };
+      }
+      if (row.presenter_provider !== presenterProvider) {
+        return {
+          ok: false,
+          error: 'review_provider_mismatch',
+          message: `${providerName(reviewerProvider)} review must be presented by ${providerName(presenterProvider)}`,
+        };
+      }
+
+      let review;
+      try {
+        review = peerReviewCoordinator.claim({
+          workspaceId: row.workspace_id,
+          sessionId: row.session_id,
+          reviewerProvider,
+        });
+        const response = await reviewServices[reviewerProvider].run({
+          reviewId: review.id,
+          workspace: { id: row.workspace_id, path: row.workspace_path },
+          pr: {
+            id: row.pr_id,
+            number: row.number,
+            org: row.org,
+            repo: row.repo,
+            base_branch: row.base_branch,
+          },
+          signal: ctx?.signal,
+        });
+        peerReviewCoordinator.markDelivering(review.id);
+        return {
+          ok: true,
+          review: response.result,
+          no_changes: response.noChanges,
+          range: { fork: response.range.fork, head: response.range.head },
+        };
+      } catch (error) {
+        if (review) peerReviewCoordinator.fail(review.id, error);
+        return {
+          ok: false,
+          error: error.code || `${reviewerProvider}_review_failed`,
+          message: error.message,
+        };
+      }
+    },
+  };
+}
+
 /**
  * Per-tool metadata. Two ways to handle a call:
  *  1. `dispatch(args) -> { method, path, body? }` - the simple, rules-callable case.
@@ -537,77 +631,9 @@ export const actionRegistry = {
     },
   },
 
-  review_with_codex: {
-    description:
-      "Run the user-requested Codex review for this Claude session's full effective PR diff. This tool is reservation-gated and works only after the user clicks Review with Codex in Patrol. It waits for Codex and returns the complete review. Do not edit files while handling this request.",
-    schema: z.object({}),
-    ruleFireable: false,
-    mcpHandler: async (app, _args, ctx) => {
-      const callerSessionId = ctx?.callerSessionId;
-      if (!callerSessionId) {
-        return { ok: false, error: 'unknown_session', message: 'The calling Claude session is unknown' };
-      }
+  review_with_codex: createPeerReviewAction('codex'),
 
-      const { getDb, codexReviewCoordinator, codexReviewService } = app.appContext;
-      const row = getDb()
-        .prepare(
-          `SELECT s.id AS session_id,
-                  w.id AS workspace_id,
-                  w.path AS workspace_path,
-                  w.pr_id AS pr_id,
-                  p.number,
-                  p.org,
-                  p.repo,
-                  p.base_branch
-             FROM sessions s
-             JOIN workspaces w ON w.id = s.workspace_id
-             JOIN prs p ON p.id = w.pr_id
-            WHERE s.id = ?
-              AND s.status = 'active'
-              AND w.status = 'active'
-              AND w.operation_state = 'ready'`,
-        )
-        .get(callerSessionId);
-      if (!row) {
-        return {
-          ok: false,
-          error: 'review_not_ready',
-          message: 'A ready PR workspace with an attached Claude session is required',
-        };
-      }
-
-      let review;
-      try {
-        review = codexReviewCoordinator.claim({ workspaceId: row.workspace_id, sessionId: row.session_id });
-        const response = await codexReviewService.run({
-          reviewId: review.id,
-          workspace: { id: row.workspace_id, path: row.workspace_path },
-          pr: {
-            id: row.pr_id,
-            number: row.number,
-            org: row.org,
-            repo: row.repo,
-            base_branch: row.base_branch,
-          },
-          signal: ctx?.signal,
-        });
-        codexReviewCoordinator.markDelivering(review.id);
-        return {
-          ok: true,
-          review: response.result,
-          no_changes: response.noChanges,
-          range: { fork: response.range.fork, head: response.range.head },
-        };
-      } catch (error) {
-        if (review) codexReviewCoordinator.fail(review.id, error);
-        return {
-          ok: false,
-          error: error.code || 'codex_review_failed',
-          message: error.message,
-        };
-      }
-    },
-  },
+  review_with_claude: createPeerReviewAction('claude'),
 
   list_sessions: {
     description:

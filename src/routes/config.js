@@ -6,21 +6,30 @@ import { getRestartStatus, getUpdateStatus, pullUpdate, restartServer } from '..
  * @param {import('fastify').FastifyInstance} app
  */
 export function registerConfigRoutes(app) {
-  const { getConfig, updateConfig, codexCapability } = app.appContext;
+  const { getConfig, updateConfig, providerCapabilities } = app.appContext;
   app.get('/api/config', () => {
     const cfg = getConfig();
     return {
       poll: cfg.poll,
       needs_setup: !isConfigured(cfg),
       capabilities: {
-        codex_review: codexCapability.getSnapshot(),
+        providers: Object.fromEntries(
+          Object.entries(providerCapabilities).map(([provider, capability]) => [provider, capability.getSnapshot()]),
+        ),
       },
       ...getUpdateStatus(),
     };
   });
 
-  app.get('/api/capabilities/codex-review', async (request) => {
-    return request.query?.refresh === 'true' ? codexCapability.refresh() : codexCapability.refreshIfStale();
+  app.get('/api/capabilities/providers', async (request) => {
+    const method = request.query?.refresh === 'true' ? 'refresh' : 'refreshIfStale';
+    const entries = await Promise.all(
+      Object.entries(providerCapabilities).map(async ([provider, capability]) => [
+        provider,
+        await capability[method](),
+      ]),
+    );
+    return Object.fromEntries(entries);
   });
 
   app.post('/api/config', (request, reply) => {

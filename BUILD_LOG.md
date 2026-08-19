@@ -995,3 +995,9 @@ Three bug fixes and a documentation file.
 Added an explicit Claude or Codex provider to each session. New Codex sessions launch in the selected workspace with Patrol's session-scoped MCP endpoint and system instructions. Session creation, MCP dispatch, and global sessions now preserve the provider and reject attempts to reuse a live target with the other provider. Schema v8 adds the provider without deleting v7 session data; older databases keep the existing v7 reset policy. Claude-only transcripts and global-session promotion now reject Codex sessions instead of implying support.
 
 This makes provider choice durable at the process and database boundaries before the UI exposes the selector. It also lets either agent send prompts to a missing Claude or Codex target through Patrol MCP.
+
+## 2026-08-19 - Generalize inverse-provider reviews
+
+Replaced the Codex-specific review route, lifecycle coordinator, SSE event, and app context with provider-neutral peer-review contracts. Claude sessions still reserve Codex reviews, while Codex sessions now reserve Claude reviews through a new `review_with_claude` Patrol MCP tool. The Claude reviewer receives Patrol's immutable `jj` diff over stdin and runs non-interactively with safe mode, no persistence, `dontAsk`, and only Read, Glob, and Grep tools. Provider capability checks now cover both authenticated CLIs.
+
+This keeps the user-triggered reservation and delivery guarantees in one coordinator while making the reviewer a strict inverse of the live session provider. Shared range resolution also removes the prior Codex ownership from provider-neutral diff preparation.

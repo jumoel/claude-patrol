@@ -4,20 +4,22 @@ import { readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { afterEach, describe, it } from 'node:test';
+import { CLAUDE_REVIEW_TIMEOUT_MS } from './claude-review.js';
 import { CODEX_REVIEW_TIMEOUT_MS } from './codex-review.js';
 import { closeDb, getDb, initDb } from './db.js';
 import {
   createSessionWithRuntime,
   dispatchWsMessage,
-  getSessionCodexReviewReadiness,
+  getSessionPeerReviewReadiness,
   PATROL_MCP_TIMEOUT_MS,
   setMcpPort,
 } from './pty-manager.js';
 
 afterEach(() => closeDb());
 
-it('keeps the outer Claude MCP timeout above the nested Codex review timeout', () => {
+it('keeps the outer MCP timeout above either nested peer review timeout', () => {
   assert.ok(PATROL_MCP_TIMEOUT_MS > CODEX_REVIEW_TIMEOUT_MS);
+  assert.ok(PATROL_MCP_TIMEOUT_MS > CLAUDE_REVIEW_TIMEOUT_MS);
 });
 
 it('accepts legacy MCP configs unless they explicitly set a short tool timeout', () => {
@@ -26,13 +28,13 @@ it('accepts legacy MCP configs unless they explicitly set a short tool timeout',
   const path = resolve(tmpdir(), `patrol-mcp-${sessionId}.json`);
   try {
     writeFileSync(path, JSON.stringify({ mcpServers: { patrol: { type: 'http', url: 'http://localhost/mcp' } } }));
-    assert.deepEqual(getSessionCodexReviewReadiness(sessionId), { ready: true, reason: null });
+    assert.deepEqual(getSessionPeerReviewReadiness(sessionId), { ready: true, reason: null });
 
     writeFileSync(
       path,
       JSON.stringify({ mcpServers: { patrol: { type: 'http', url: 'http://localhost/mcp', timeout: 1000 } } }),
     );
-    assert.deepEqual(getSessionCodexReviewReadiness(sessionId), {
+    assert.deepEqual(getSessionPeerReviewReadiness(sessionId), {
       ready: false,
       reason: 'session_restart_required',
     });

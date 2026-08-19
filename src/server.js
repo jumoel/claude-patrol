@@ -8,9 +8,9 @@ import Fastify from 'fastify';
 import { createAppContext } from './app-context.js';
 import { createMcpServer } from './mcp-server.js';
 import { registerCheckRoutes } from './routes/checks.js';
-import { registerCodexReviewRoutes } from './routes/codex-reviews.js';
 import { registerCommentRoutes } from './routes/comments.js';
 import { registerConfigRoutes } from './routes/config.js';
+import { registerPeerReviewRoutes } from './routes/peer-reviews.js';
 import { registerPRRoutes } from './routes/prs.js';
 import { registerRuleRoutes } from './routes/rules.js';
 import { registerSessionRoutes } from './routes/sessions.js';
@@ -34,7 +34,7 @@ function sseEvents(context) {
     { name: 'task-update', emitter: context.appEvents },
     { name: 'gh-rate-limit', emitter: context.appEvents },
     { name: 'rule-run', emitter: context.appEvents },
-    { name: 'codex-review-state', emitter: context.appEvents },
+    { name: 'peer-review-state', emitter: context.appEvents },
   ];
 }
 
@@ -48,7 +48,9 @@ export async function createServer(options = {}) {
   const security = options.securityPolicy ?? createSecurityPolicy(config);
   const app = Fastify({ logger: false });
   app.decorate('appContext', context);
-  if (!options.context) context.codexCapability.start();
+  if (!options.context) {
+    for (const capability of Object.values(context.providerCapabilities)) capability.start();
+  }
 
   await app.register(fastifyCors, {
     origin: security.allowedOrigins.length > 0 ? security.allowedOrigins : false,
@@ -80,7 +82,7 @@ export async function createServer(options = {}) {
   registerWorkspaceRoutes(app);
   registerSessionRoutes(app);
   registerCheckRoutes(app);
-  registerCodexReviewRoutes(app);
+  registerPeerReviewRoutes(app);
   registerCommentRoutes(app);
   registerSetupRoutes(app);
   registerTaskRoutes(app);
@@ -184,7 +186,7 @@ export async function createServer(options = {}) {
     for (const { name, emitter, handler } of broadcastHandlers) {
       emitter.removeListener(name, handler);
     }
-    context.codexReviewCoordinator.close();
+    context.peerReviewCoordinator.close();
   });
 
   // Serve frontend build if it exists

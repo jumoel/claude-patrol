@@ -16,8 +16,8 @@ const BUFFER_MAX = 50_000;
 // false-positive idle while a turn is still in flight (lt#17).
 const IDLE_THRESHOLD_MS = 10_000;
 export const BOOT_TIMEOUT_MS_DEFAULT = 30_000;
-// The nested Codex tool may use its full 30 minute budget. Claude's outer
-// Patrol MCP call also includes range setup and process startup.
+// A nested peer-review tool may use its full 30 minute budget. The presenting
+// agent's outer Patrol MCP call also includes range setup and process startup.
 export const PATROL_MCP_TIMEOUT_MS = 35 * 60 * 1000;
 
 const DEFAULT_SESSION_RUNTIME = {
@@ -107,10 +107,6 @@ export function getSessionPeerReviewReadiness(sessionId) {
     reason: 'session_restart_required',
   };
 }
-
-// Compatibility for the existing review route while it is migrated to the
-// provider-neutral coordinator in the next change.
-export const getSessionCodexReviewReadiness = getSessionPeerReviewReadiness;
 
 /**
  * Fixed-size ring buffer that avoids allocations on append.

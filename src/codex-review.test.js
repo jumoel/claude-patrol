@@ -4,7 +4,8 @@ import { mkdtemp, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { createCodexReviewService, resolveReviewRange } from './codex-review.js';
+import { createCodexReviewService } from './codex-review.js';
+import { resolveReviewRange } from './review-range.js';
 
 const BASE = '1'.repeat(40);
 const HEAD = '2'.repeat(40);
