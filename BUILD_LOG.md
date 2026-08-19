@@ -1007,3 +1007,7 @@ This keeps the user-triggered reservation and delivery guarantees in one coordin
 Added one browser-wide Claude or Codex preference, stored in local storage with Claude as the first-run default. PR workspaces, scratch workspaces, the global terminal header, the global drawer, and command-palette global launch now use that preference for new sessions. Live sessions display and retain their recorded provider until killed. The review control reads the presenter provider from the session and labels, checks, and requests the inverse reviewer. Codex session history remains visible but no longer offers the unsupported Claude transcript viewer, and Codex global sessions omit Claude-only promotion.
 
 This puts provider choice at every launch entry point without pretending a live TUI can switch providers. Capability polling moved into the provider context so review readiness is shared instead of threaded through unrelated components.
+
+## 2026-08-19 - Label the provider form control
+
+Added a stable form-control name to the shared agent provider selector. Chrome DevTools now recognizes every rendered selector as an identified form field while the existing accessible label remains unchanged.

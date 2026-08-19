@@ -13,6 +13,7 @@ export function AgentProviderSelect({ disabled = false, value, dark = false, cla
   const { provider, setProvider } = useAgentProvider();
   return (
     <select
+      name="agent-provider"
       className={`${styles.select} ${dark ? styles.dark : ''} ${className}`}
       aria-label="Agent provider for new sessions"
       title={disabled ? 'Kill the current session before changing its provider' : 'Choose the agent for new sessions'}
