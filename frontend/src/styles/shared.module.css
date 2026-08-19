@@ -27,7 +27,7 @@
 }
 
 .updatedText {
-  @apply text-sm text-gray-400;
+  @apply text-sm text-gray-500;
 }
 
 .separator {

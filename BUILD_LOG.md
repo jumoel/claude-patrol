@@ -1011,3 +1011,7 @@ This puts provider choice at every launch entry point without pretending a live 
 ## 2026-08-19 - Label the provider form control
 
 Added a stable form-control name to the shared agent provider selector. Chrome DevTools now recognizes every rendered selector as an identified form field while the existing accessible label remains unchanged.
+
+## 2026-08-19 - Restore PR metadata contrast
+
+Darkened PR status labels and update timestamps from gray 400 to gray 500. This raises their contrast on white backgrounds above the WCAG AA threshold without changing the surrounding layout.

@@ -15,7 +15,7 @@
 }
 
 .statusLabel {
-  @apply text-sm font-medium text-gray-400 uppercase;
+  @apply text-sm font-medium text-gray-500 uppercase;
 }
 
 .label {
