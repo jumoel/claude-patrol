@@ -4,6 +4,7 @@ import { readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { afterEach, describe, it } from 'node:test';
+import { appEvents } from './app-events.js';
 import { CLAUDE_REVIEW_TIMEOUT_MS } from './claude-review.js';
 import { CODEX_REVIEW_TIMEOUT_MS } from './codex-review.js';
 import { closeDb, getDb, initDb } from './db.js';
@@ -11,6 +12,7 @@ import {
   createSessionWithRuntime,
   dispatchWsMessage,
   getSessionPeerReviewReadiness,
+  killSessionAndWait,
   PATROL_MCP_TIMEOUT_MS,
   setMcpPort,
 } from './pty-manager.js';
@@ -57,7 +59,10 @@ it('rolls back tmux and database state when PTY attachment fails', () => {
     },
   };
 
-  assert.throws(() => createSessionWithRuntime(null, process.cwd(), { runtime }), /simulated PTY attach failure/);
+  assert.throws(
+    () => createSessionWithRuntime({ type: 'global' }, process.cwd(), { runtime }),
+    /simulated PTY attach failure/,
+  );
   assert.deepEqual(commands.at(-1), ['tmux', 'kill-session', '-t', `patrol-${sessionId}`]);
   assert.equal(getDb().prepare('SELECT COUNT(*) AS count FROM sessions WHERE id = ?').get(sessionId).count, 0);
 });
@@ -75,7 +80,10 @@ it('removes an inherited NO_COLOR setting from the Claude process', () => {
     },
   };
 
-  assert.throws(() => createSessionWithRuntime(null, process.cwd(), { runtime }), /stop after command capture/);
+  assert.throws(
+    () => createSessionWithRuntime({ type: 'global' }, process.cwd(), { runtime }),
+    /stop after command capture/,
+  );
   const newSession = commands.find(([command, subcommand]) => command === 'tmux' && subcommand === 'new-session');
   assert.match(newSession.at(-1), /^'env' '-u' 'NO_COLOR' 'claude'/);
 });
@@ -95,7 +103,7 @@ it('launches Codex with the session-scoped Patrol MCP server and instructions', 
   };
 
   assert.throws(
-    () => createSessionWithRuntime(null, '/tmp/patrol-workspace', { provider: 'codex', runtime }),
+    () => createSessionWithRuntime({ type: 'global' }, '/tmp/patrol-workspace', { provider: 'codex', runtime }),
     /stop after command capture/,
   );
   const newSession = commands.find(([command, subcommand]) => command === 'tmux' && subcommand === 'new-session');
@@ -123,9 +131,56 @@ it('writes per-session MCP config with the explicitly recorded port', () => {
     },
   };
 
-  assert.throws(() => createSessionWithRuntime(null, process.cwd(), { runtime }), /stop after config capture/);
+  assert.throws(
+    () => createSessionWithRuntime({ type: 'global' }, process.cwd(), { runtime }),
+    /stop after config capture/,
+  );
   assert.equal(mcpConfig.mcpServers.patrol.url, 'http://127.0.0.1:4242/mcp/port-session');
   assert.throws(() => setMcpPort({ port: 3000 }), /Invalid MCP port/);
+});
+
+it('does not close a detached session row when tmux remains alive after a failed kill', async () => {
+  initDb(':memory:');
+  let localChanges = 0;
+  const onLocalChange = () => {
+    localChanges += 1;
+  };
+  appEvents.on('local-change', onLocalChange);
+  const now = new Date().toISOString();
+  getDb()
+    .prepare(
+      `INSERT INTO sessions (id, pid, provider, status, started_at)
+       VALUES ('detached-session', 123, 'claude', 'detached', ?)`,
+    )
+    .run(now);
+
+  try {
+    await assert.rejects(
+      killSessionAndWait('detached-session', 5, {
+        killTmux: () => {
+          throw new Error('injected tmux failure');
+        },
+        isTmuxAlive: () => true,
+      }),
+      (error) => error.code === 'session_stop_timeout',
+    );
+    assert.equal(
+      getDb().prepare('SELECT status FROM sessions WHERE id = ?').get('detached-session').status,
+      'detached',
+    );
+    assert.equal(localChanges, 0);
+
+    await killSessionAndWait('detached-session', 5, {
+      killTmux: () => {
+        throw new Error('tmux already gone');
+      },
+      isTmuxAlive: () => false,
+    });
+    assert.equal(getDb().prepare('SELECT status FROM sessions WHERE id = ?').get('detached-session').status, 'killed');
+    assert.equal(localChanges, 1);
+  } finally {
+    appEvents.off('local-change', onLocalChange);
+  }
 });
 
 /**

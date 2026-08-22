@@ -246,3 +246,61 @@
 .customLabel {
   @apply text-sm text-gray-500;
 }
+
+.workItemFacts {
+  @apply grid gap-3 text-sm;
+}
+
+.workItemFacts div {
+  @apply grid grid-cols-[10rem_1fr] gap-3;
+}
+
+.workItemFacts dt {
+  @apply text-gray-500;
+}
+
+.workItemFacts dd {
+  @apply m-0 font-mono text-gray-900;
+}
+
+.panelTitle {
+  @apply m-0 text-sm font-semibold uppercase tracking-wide text-gray-600;
+}
+
+.candidateList {
+  @apply mb-0 mt-3 list-none space-y-2 p-0 font-mono text-sm text-gray-700;
+}
+
+.capabilityAvailable {
+  @apply text-sm font-medium text-green-700;
+}
+
+.capabilityUnavailable {
+  @apply text-sm font-medium text-red-700;
+}
+
+.capabilityDetail {
+  @apply m-0 text-sm text-gray-500;
+}
+
+.commandList {
+  @apply divide-y divide-gray-100 rounded-lg border border-gray-200;
+}
+
+.commandRow {
+  @apply flex items-center justify-between gap-3 p-3;
+}
+
+.commandRow code {
+  @apply min-w-0 break-all text-xs text-gray-700;
+}
+
+@media (max-width: 640px) {
+  .workItemFacts div {
+    @apply grid-cols-1 gap-0;
+  }
+
+  .commandRow {
+    @apply items-start;
+  }
+}

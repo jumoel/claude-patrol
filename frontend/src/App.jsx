@@ -8,10 +8,18 @@ import { PRDetail } from './components/PRDetail/PRDetail.jsx';
 import { PRTable } from './components/PRTable/PRTable.jsx';
 import { ScratchWorkspaces } from './components/ScratchWorkspaces/ScratchWorkspaces.jsx';
 import { SetupMode } from './components/SetupMode/SetupMode.jsx';
+import { StartWorkLauncher } from './components/StartWorkLauncher/StartWorkLauncher.jsx';
+import { Button } from './components/ui/Button/Button.jsx';
+import { WorkItemDetail } from './components/WorkItemDetail/WorkItemDetail.jsx';
+import { WorkItems } from './components/WorkItems/WorkItems.jsx';
 import { WorkspaceDetail } from './components/WorkspaceDetail/WorkspaceDetail.jsx';
+import { useAgentProvider } from './context/AgentProviderContext.jsx';
 import { useIdleNotification } from './hooks/useIdleNotification.js';
 import { usePRs } from './hooks/usePRs.js';
+import { useWorkItems } from './hooks/useWorkItems.js';
 import { fetchConfig, fetchScratchWorkspaces } from './lib/api.js';
+import { getErrorMessage } from './lib/errors.js';
+import { parseAppRoute } from './lib/routes.js';
 
 /** @typedef {import('./types').PullRequest} PullRequest */
 /** @typedef {import('./types').FilterState} FilterState */
@@ -151,14 +159,16 @@ function writeHashParams(filters, sorting, stackView) {
 }
 
 export default function App() {
+  const { applyInstanceDefault } = useAgentProvider();
   const [needsSetup, setNeedsSetup] = useState(/** @type {boolean | null} */ (null));
-  const [showSetup, setShowSetup] = useState(false);
+  const [publicConfig, setPublicConfig] = useState(/** @type {import('./types').PublicConfig | null} */ (null));
+  const [configError, setConfigError] = useState('');
+  const [route, setRoute] = useState(() => parseAppRoute(window.location.hash));
+  const applicationDataEnabled = route.type !== 'setup';
   const initial = useMemo(() => parseHashParams(), []);
   const [filters, setFilters] = useState(initial.filters);
   const [sorting, setSorting] = useState(initial.sorting);
   const [stackView, setStackView] = useState(initial.stackView);
-  const [selectedPR, setSelectedPR] = useState(/** @type {string | null} */ (null));
-  const [selectedWorkspace, setSelectedWorkspace] = useState(/** @type {string | null} */ (null));
   const [terminalOpen, setTerminalOpen] = useState(false);
   const [globalSession, setGlobalSession] = useState(/** @type {import('./types').Session | null} */ (null));
   const [copied, setCopied] = useState(false);
@@ -167,8 +177,12 @@ export default function App() {
   const toggleTerminal = useCallback(() => setTerminalOpen((prev) => !prev), []);
   const openGlobalTerminal = useCallback(() => setTerminalOpen(true), []);
   const closeGlobalTerminal = useCallback(() => setTerminalOpen(false), []);
-  const prSource = usePRs(DASHBOARD_FILTERS);
-  const { workspaceStates, dismissedIdle, setActiveWorkspace, localChangeCount } = useIdleNotification();
+  const pollConfigured = publicConfig?.poll_configured ?? false;
+  const workItemsConfigured = publicConfig?.work_items.configured ?? false;
+  const prSource = usePRs(DASHBOARD_FILTERS, applicationDataEnabled && pollConfigured);
+  const workItemSource = useWorkItems(applicationDataEnabled);
+  const { targetStates, dismissedIdle, setActiveTarget, localChangeCount } =
+    useIdleNotification(applicationDataEnabled);
   const [scratchWorkspaces, setScratchWorkspaces] = useState(/** @type {import('./types').Workspace[]} */ ([]));
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const [commitsBehind, setCommitsBehind] = useState(0);
@@ -179,30 +193,39 @@ export default function App() {
   const { syncedAt, loading, error, syncing, countdown, triggerSync, ghRateLimit } = prSource;
   const allPRs = prSource.prs;
 
-  // Check whether setup is needed and load update status.
-  useEffect(() => {
+  // Check whether either application mode is configured and load update status.
+  const loadPublicConfig = useCallback(() => {
+    setConfigError('');
     fetchConfig()
       .then((cfg) => {
-        setNeedsSetup((prev) => (prev === null ? cfg.needs_setup : prev));
-        if (cfg.needs_setup && needsSetup === null) setShowSetup(true);
+        applyInstanceDefault(cfg.default_session_provider);
+        setPublicConfig(cfg);
+        setNeedsSetup(cfg.needs_setup);
+        if (cfg.needs_setup && parseAppRoute(window.location.hash).type === 'dashboard') {
+          window.location.hash = '/setup';
+        }
         setUpdateAvailable(cfg.update_available || false);
         setCommitsBehind(cfg.commits_behind || 0);
         setRestartNeeded(cfg.restart_needed || false);
         if (cfg.startup_sha) setStartupSha(cfg.startup_sha);
         if (cfg.current_sha) setCurrentSha(cfg.current_sha);
       })
-      .catch(() => {
-        if (needsSetup === null) setNeedsSetup(false);
+      .catch((nextError) => {
+        setConfigError(getErrorMessage(nextError, 'Failed to load application configuration'));
+        setNeedsSetup(false);
       });
-  }, [needsSetup]);
+  }, [applyInstanceDefault]);
+
+  useEffect(loadPublicConfig, [loadPublicConfig]);
 
   // Fetch scratch workspaces (refresh on local changes like workspace creation/deletion)
   useEffect(() => {
+    if (!applicationDataEnabled) return;
     void localChangeCount;
     fetchScratchWorkspaces()
       .then(setScratchWorkspaces)
       .catch(() => {});
-  }, [localChangeCount]);
+  }, [applicationDataEnabled, localChangeCount]);
 
   // Sync filters + sorting to URL hash
   /** @type {(newFilters: FilterState) => void} */
@@ -263,28 +286,12 @@ export default function App() {
     });
   }, [filteredPRs, stackView]);
 
-  // Simple hash-based routing
+  // Hash-based routing with one discriminated route value.
   useEffect(() => {
     const handleHash = () => {
-      const hash = window.location.hash;
-      const path = hash.split('?')[0];
-      if (path === '#/setup') {
-        setShowSetup(true);
-        setSelectedPR(null);
-        setSelectedWorkspace(null);
-      } else if (path.startsWith('#/pr/')) {
-        setShowSetup(false);
-        setSelectedPR(decodeURIComponent(path.slice(5)));
-        setSelectedWorkspace(null);
-      } else if (path.startsWith('#/workspace/')) {
-        setShowSetup(false);
-        setSelectedWorkspace(path.slice(12));
-        setSelectedPR(null);
-      } else {
-        setShowSetup(needsSetup === true);
-        setSelectedPR(null);
-        setSelectedWorkspace(null);
-        // Restore filters + sorting + stack view from URL when returning to dashboard
+      const nextRoute = parseAppRoute(window.location.hash);
+      setRoute(nextRoute);
+      if (nextRoute.type === 'dashboard') {
         const { filters: f, sorting: s, stackView: sv } = parseHashParams();
         setFilters(f);
         setSorting(s);
@@ -294,19 +301,17 @@ export default function App() {
     handleHash();
     window.addEventListener('hashchange', handleHash);
     return () => window.removeEventListener('hashchange', handleHash);
-  }, [needsSetup]);
+  }, []);
 
-  // Track which workspace the user is viewing for idle suppression
+  // Opening a detail acknowledges idle state only for that target.
   useEffect(() => {
-    if (selectedWorkspace) {
-      setActiveWorkspace(selectedWorkspace);
-    } else if (selectedPR) {
-      const pr = allPRs.find((p) => p.id === selectedPR);
-      setActiveWorkspace(pr?.workspace_id || null);
-    } else {
-      setActiveWorkspace(null);
-    }
-  }, [selectedWorkspace, selectedPR, allPRs, setActiveWorkspace]);
+    if (route.type === 'workspace') setActiveTarget({ type: 'workspace', id: route.id });
+    else if (route.type === 'work_item') setActiveTarget({ type: 'work_item', id: route.id });
+    else if (route.type === 'pr') {
+      const pr = allPRs.find((item) => item.id === route.id);
+      setActiveTarget(pr?.workspace_id ? { type: 'workspace', id: pr.workspace_id } : null);
+    } else setActiveTarget(null);
+  }, [route, allPRs, setActiveTarget]);
 
   const syncTime = syncedAt ? `Last synced: ${new Date(syncedAt).toLocaleTimeString()}` : 'Not synced';
   const nextSync = countdown > 0 ? formatCountdown(countdown) : '';
@@ -321,6 +326,11 @@ export default function App() {
   /** @param {string} wsId */
   const navigateToWorkspace = (wsId) => {
     window.location.hash = `/workspace/${wsId}`;
+  };
+
+  /** @param {string} workItemId */
+  const navigateToWorkItem = (workItemId) => {
+    window.location.hash = `/work-item/${workItemId}`;
   };
 
   const navigateBack = useCallback(() => {
@@ -341,11 +351,19 @@ export default function App() {
 
   const handleConfigured = useCallback(() => {
     setNeedsSetup(false);
-    setShowSetup(false);
     window.location.hash = '';
-  }, []);
+    loadPublicConfig();
+  }, [loadPublicConfig]);
 
   if (needsSetup === null) return null; // still loading config
+  if (configError && !publicConfig) {
+    return (
+      <div role="alert">
+        <p>{configError}</p>
+        <Button onClick={loadPublicConfig}>Retry</Button>
+      </div>
+    );
+  }
 
   // ?update=1 forces the update banner visible for testing
   const forceUpdate = new URLSearchParams(window.location.search).get('update') === '1';
@@ -357,6 +375,7 @@ export default function App() {
       nextSync={nextSync}
       syncing={syncing}
       onSync={triggerSync}
+      pollConfigured={publicConfig?.poll_configured ?? false}
       terminalOpen={terminalOpen}
       globalSession={globalSession}
       onToggleTerminal={toggleTerminal}
@@ -370,59 +389,91 @@ export default function App() {
       currentSha={currentSha}
       ghRateLimit={ghRateLimit}
     >
-      {showSetup ? (
-        <SetupMode onConfigured={handleConfigured} isFirstRun={needsSetup === true} />
-      ) : selectedPR ? (
-        <PRDetail prId={selectedPR} onBack={navigateBack} workspaceStates={workspaceStates} />
-      ) : selectedWorkspace ? (
-        <WorkspaceDetail workspaceId={selectedWorkspace} onBack={navigateBack} workspaceStates={workspaceStates} />
+      {route.type === 'setup' ? (
+        <SetupMode onConfigured={handleConfigured} isFirstRun={needsSetup === true} section={route.section} />
+      ) : route.type === 'pr' ? (
+        <PRDetail prId={route.id} onBack={navigateBack} workspaceStates={targetStates} />
+      ) : route.type === 'workspace' ? (
+        <WorkspaceDetail workspaceId={route.id} onBack={navigateBack} workspaceStates={targetStates} />
+      ) : route.type === 'work_item' ? (
+        <WorkItemDetail key={route.id} workItemId={route.id} onBack={navigateBack} targetStates={targetStates} />
+      ) : route.type === 'not_found' ? (
+        <div role="alert">
+          <p>Page not found</p>
+          <Button as="a" href="#/">
+            Back to dashboard
+          </Button>
+        </div>
       ) : (
         <>
           <DashboardSummary
             prCount={filteredPRs.length}
+            pollConfigured={pollConfigured}
+            workItems={workItemSource.workItems}
             onOpenGlobalTerminal={openGlobalTerminal}
             changeToken={localChangeCount}
           />
-          <FilterBar
-            prs={allPRs}
-            filters={filters}
-            onFilterChange={handleFilterChange}
-            onCopyMarkdown={copyFilteredAsMarkdown}
-            copied={copied}
-            stackView={stackView}
-            onStackViewChange={handleStackViewChange}
-          />
-          {error && <p>{error}</p>}
-          {loading && allPRs.length === 0 && <p>Loading...</p>}
-          <PRTable
-            prs={filteredPRs}
-            onRowClick={navigateToPR}
-            sorting={sorting}
-            onSortingChange={handleSortingChange}
-            workspaceStates={workspaceStates}
-            dismissedIdle={dismissedIdle}
-            stackView={stackView}
-            sortedRowsRef={sortedRowsRef}
-          />
+          <StartWorkLauncher workItemsConfigured={workItemsConfigured} />
+          {(workItemsConfigured || workItemSource.workItems.length > 0) && (
+            <WorkItems
+              workItems={workItemSource.workItems}
+              loading={workItemSource.loading}
+              error={workItemSource.error}
+              onRetry={workItemSource.reload}
+              targetStates={targetStates}
+              dismissedIdle={dismissedIdle}
+            />
+          )}
+          {pollConfigured && (
+            <>
+              <FilterBar
+                prs={allPRs}
+                filters={filters}
+                onFilterChange={handleFilterChange}
+                onCopyMarkdown={copyFilteredAsMarkdown}
+                copied={copied}
+                stackView={stackView}
+                onStackViewChange={handleStackViewChange}
+              />
+              {error && <p>{error}</p>}
+              {loading && allPRs.length === 0 && <p>Loading...</p>}
+              <PRTable
+                prs={filteredPRs}
+                onRowClick={navigateToPR}
+                sorting={sorting}
+                onSortingChange={handleSortingChange}
+                workspaceStates={targetStates}
+                dismissedIdle={dismissedIdle}
+                stackView={stackView}
+                sortedRowsRef={sortedRowsRef}
+              />
+            </>
+          )}
           <ScratchWorkspaces
             scratchWorkspaces={scratchWorkspaces}
-            workspaceStates={workspaceStates}
+            workspaceStates={targetStates}
             dismissedIdle={dismissedIdle}
           />
         </>
       )}
-      <GlobalTerminal open={terminalOpen} onToggle={toggleTerminal} onSessionChange={setGlobalSession} />
-      <CommandPalette
-        prs={allPRs}
-        scratchWorkspaces={scratchWorkspaces}
-        workspaceStates={workspaceStates}
-        dismissedIdle={dismissedIdle}
-        globalSession={globalSession}
-        onNavigate={navigateToPR}
-        onNavigateWorkspace={navigateToWorkspace}
-        onOpenGlobalTerminal={openGlobalTerminal}
-        onCloseGlobalTerminal={closeGlobalTerminal}
-      />
+      {applicationDataEnabled && (
+        <>
+          <GlobalTerminal open={terminalOpen} onToggle={toggleTerminal} onSessionChange={setGlobalSession} />
+          <CommandPalette
+            prs={allPRs}
+            workItems={workItemSource.workItems}
+            scratchWorkspaces={scratchWorkspaces}
+            workspaceStates={targetStates}
+            dismissedIdle={dismissedIdle}
+            globalSession={globalSession}
+            onNavigate={navigateToPR}
+            onNavigateWorkspace={navigateToWorkspace}
+            onNavigateWorkItem={navigateToWorkItem}
+            onOpenGlobalTerminal={openGlobalTerminal}
+            onCloseGlobalTerminal={closeGlobalTerminal}
+          />
+        </>
+      )}
     </AppShell>
   );
 }

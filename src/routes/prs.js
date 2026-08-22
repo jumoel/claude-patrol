@@ -77,14 +77,16 @@ export function registerPRRoutes(app) {
 
     // Enrich with workspace/session indicators
     const activeWorkspaceRows = db
-      .prepare("SELECT id, pr_id FROM workspaces WHERE status = 'active' AND operation_state = 'ready'")
+      .prepare(
+        "SELECT id, pr_id FROM workspaces WHERE work_item_id IS NULL AND status = 'active' AND operation_state = 'ready'",
+      )
       .all();
     const activeWorkspaces = new Set(activeWorkspaceRows.map((r) => r.pr_id));
     const prWorkspaceMap = Object.fromEntries(activeWorkspaceRows.filter((r) => r.pr_id).map((r) => [r.pr_id, r.id]));
     const activeSessions = new Set(
       db
         .prepare(
-          "SELECT w.pr_id FROM sessions s JOIN workspaces w ON s.workspace_id = w.id WHERE s.status = 'active' AND w.operation_state = 'ready'",
+          "SELECT w.pr_id FROM sessions s JOIN workspaces w ON s.workspace_id = w.id WHERE s.status = 'active' AND w.work_item_id IS NULL AND w.operation_state = 'ready'",
         )
         .all()
         .map((r) => r.pr_id),

@@ -6,11 +6,14 @@ import { execFile } from '../utils.js';
  */
 export function registerSetupRoutes(app) {
   const { getConfig } = app.appContext;
-  // List all repos from configured orgs + explicit repos (for workspace creation)
+  // List repositories available to either workspace creation path. Local
+  // repository configuration remains useful when GitHub polling is disabled.
   app.get('/api/repos', async (_request, reply) => {
     const cfg = getConfig();
     const orgs = cfg?.poll?.orgs || [];
     const explicitRepos = cfg?.poll?.repos || [];
+    const configuredRepos = Object.keys(cfg?.repos || {});
+    const workItemRepos = cfg?.work_items?.repositories || [];
 
     try {
       // Fetch repos from all configured orgs in parallel
@@ -35,7 +38,7 @@ export function registerSetupRoutes(app) {
         }),
       );
 
-      const allRepos = new Set(explicitRepos);
+      const allRepos = new Set([...explicitRepos, ...configuredRepos, ...workItemRepos]);
       for (const repos of orgResults) {
         for (const r of repos) allRepos.add(r);
       }

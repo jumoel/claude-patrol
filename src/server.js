@@ -17,6 +17,7 @@ import { registerSessionRoutes } from './routes/sessions.js';
 import { registerSetupRoutes } from './routes/setup.js';
 import { registerSyncRoutes } from './routes/sync.js';
 import { registerTaskRoutes } from './routes/tasks.js';
+import { registerWorkItemRoutes } from './routes/work-items.js';
 import { registerWorkspaceRoutes } from './routes/workspaces.js';
 import { AUTH_COOKIE, createSecurityPolicy, isOriginAllowed, isProtectedPath } from './security.js';
 
@@ -80,6 +81,7 @@ export async function createServer(options = {}) {
   registerSyncRoutes(app);
   registerConfigRoutes(app);
   registerWorkspaceRoutes(app);
+  registerWorkItemRoutes(app);
   registerSessionRoutes(app);
   registerCheckRoutes(app);
   registerPeerReviewRoutes(app);
@@ -117,7 +119,15 @@ export async function createServer(options = {}) {
     const callerSessionId = request.params.sessionId;
     const session = context
       .getDb()
-      .prepare("SELECT id FROM sessions WHERE id = ? AND status IN ('active', 'detached')")
+      .prepare(
+        `SELECT s.id
+         FROM sessions s
+         LEFT JOIN workspaces w ON w.id = s.workspace_id
+         WHERE s.id = ?
+           AND s.work_item_id IS NULL
+           AND (s.workspace_id IS NULL OR w.work_item_id IS NULL)
+           AND s.status IN ('active', 'detached')`,
+      )
       .get(callerSessionId);
     if (!session) {
       return reply.code(404).send({ error: 'unknown session' });

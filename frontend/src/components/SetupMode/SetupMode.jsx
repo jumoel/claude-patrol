@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
-import { fetchConfig, fetchSetupAccounts, fetchSetupRepos, saveConfig } from '../../lib/api.js';
+import {
+  fetchConfig,
+  fetchProviderCapabilities,
+  fetchSetupAccounts,
+  fetchSetupRepos,
+  saveConfig,
+} from '../../lib/api.js';
 import { getErrorMessage } from '../../lib/errors.js';
 import { Box } from '../ui/Box/Box.jsx';
 import { Button } from '../ui/Button/Button.jsx';
@@ -23,9 +29,15 @@ const INTERVAL_PRESETS = [
 /**
  * Setup wizard for configuring poll targets.
  * Steps: accounts -> repos -> settings -> save.
- * @param {{ onConfigured: () => void, isFirstRun: boolean }} props
+ * @param {{ onConfigured: () => void, isFirstRun: boolean, section?: 'poll' | 'work_items' }} props
  */
-export function SetupMode({ onConfigured, isFirstRun }) {
+export function SetupMode({ onConfigured, isFirstRun, section = 'poll' }) {
+  if (section === 'work_items') return <WorkItemsSettings />;
+  return <PollSetupMode onConfigured={onConfigured} isFirstRun={isFirstRun} />;
+}
+
+/** @param {{ onConfigured: () => void, isFirstRun: boolean }} props */
+function PollSetupMode({ onConfigured, isFirstRun }) {
   const [step, setStep] = useState(/** @type {SetupStep} */ ('accounts'));
   const [accounts, setAccounts] = useState(/** @type {import('../../types').SetupAccount[]} */ ([]));
   const [loading, setLoading] = useState(true);
@@ -230,14 +242,19 @@ export function SetupMode({ onConfigured, isFirstRun }) {
           </p>
         </div>
         {!isFirstRun && step === 'accounts' && (
-          <Button
-            size="sm"
-            onClick={() => {
-              window.location.hash = '';
-            }}
-          >
-            Back to dashboard
-          </Button>
+          <Stack gap={2} wrap>
+            <Button as="a" href="#/setup?section=work-items" size="sm">
+              Work Items settings
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => {
+                window.location.hash = '';
+              }}
+            >
+              Back to dashboard
+            </Button>
+          </Stack>
         )}
       </Stack>
 
@@ -438,6 +455,142 @@ export function SetupMode({ onConfigured, isFirstRun }) {
       )}
 
       {step === 'saving' && <p className={styles.loadingText}>Saving configuration...</p>}
+    </Stack>
+  );
+}
+
+function WorkItemsSettings() {
+  const [config, setConfig] = useState(/** @type {import('../../types').PublicConfig | null} */ (null));
+  const [capabilities, setCapabilities] = useState(
+    /** @type {Record<import('../../types').AgentProvider, import('../../types').ProviderCapability> | null} */ (null),
+  );
+  const [error, setError] = useState('');
+  const [copied, setCopied] = useState('');
+
+  const load = useCallback(() => {
+    setError('');
+    Promise.all([fetchConfig(), fetchProviderCapabilities()])
+      .then(([nextConfig, nextCapabilities]) => {
+        setConfig(nextConfig);
+        setCapabilities(nextCapabilities);
+      })
+      .catch((nextError) => setError(getErrorMessage(nextError, 'Failed to load Work Items settings')));
+  }, []);
+
+  useEffect(load, [load]);
+
+  /** @param {string} command */
+  const copy = (command) => {
+    navigator.clipboard.writeText(command).then(() => {
+      setCopied(command);
+      setTimeout(() => setCopied(''), 1500);
+    });
+  };
+
+  return (
+    <Stack direction="col" gap={4} className={styles.setupShell}>
+      <Stack justify="between" gap={3} wrap className={styles.setupHeader}>
+        <div>
+          <h2 className={styles.title}>Work Items settings</h2>
+          <p className={styles.subtitle}>Reference resolution is managed by the instance configuration.</p>
+        </div>
+        <Stack gap={2} wrap>
+          <Button as="a" href="#/setup" size="sm">
+            GitHub monitoring
+          </Button>
+          <Button as="a" href="#/" size="sm">
+            Back to dashboard
+          </Button>
+        </Stack>
+      </Stack>
+      {error && (
+        <Box p={5} border borderColor="red-200" rounded="lg" bg="white">
+          <p className={styles.inlineError}>{error}</p>
+          <Button size="sm" onClick={load}>
+            Retry
+          </Button>
+        </Box>
+      )}
+      {!error && (!config || !capabilities) && <p className={styles.loadingText}>Loading Work Items settings...</p>}
+      {config && capabilities && (
+        <Stack direction="col" gap={4}>
+          <Box p={5} border rounded="lg" bg="white">
+            <dl className={styles.workItemFacts}>
+              <div>
+                <dt>Status</dt>
+                <dd>{config.work_items.configured ? 'Configured' : 'Not configured'}</dd>
+              </div>
+              <div>
+                <dt>Resolver mode</dt>
+                <dd>
+                  {!config.work_items.configured
+                    ? 'Not configured'
+                    : config.work_items.resolver?.provider_mode === 'fixed'
+                      ? 'Fixed provider'
+                      : 'Requested work provider'}
+                </dd>
+              </div>
+              <div>
+                <dt>Resolver provider</dt>
+                <dd>
+                  {!config.work_items.configured
+                    ? 'Not configured'
+                    : config.work_items.resolver?.provider || 'Selected per work item'}
+                </dd>
+              </div>
+              <div>
+                <dt>MCP server</dt>
+                <dd>{config.work_items.resolver?.server_name || 'Not configured'}</dd>
+              </div>
+            </dl>
+          </Box>
+          <Box p={5} border rounded="lg" bg="white">
+            <h3 className={styles.panelTitle}>Candidate repositories</h3>
+            {config.work_items.repositories.length > 0 ? (
+              <ul className={styles.candidateList}>
+                {config.work_items.repositories.map((repository) => (
+                  <li key={repository}>{repository}</li>
+                ))}
+              </ul>
+            ) : (
+              <p className={styles.emptyText}>No candidate repositories configured</p>
+            )}
+          </Box>
+          {['claude', 'codex'].map((provider) => {
+            const typedProvider = /** @type {import('../../types').AgentProvider} */ (provider);
+            const capability = capabilities[typedProvider];
+            const setup = config.work_items.provider_setup[typedProvider];
+            const commands = [setup.model_login_command, ...setup.resolver_mcp_commands];
+            return (
+              <Box key={provider} p={5} border rounded="lg" bg="white">
+                <Stack direction="col" gap={3}>
+                  <Stack justify="between" gap={3} wrap>
+                    <h3 className={styles.panelTitle}>{provider === 'codex' ? 'Codex' : 'Claude'}</h3>
+                    <span className={capability.available ? styles.capabilityAvailable : styles.capabilityUnavailable}>
+                      {capability.checking ? 'Checking' : capability.available ? 'Available' : 'Unavailable'}
+                    </span>
+                  </Stack>
+                  {capability.version && <p className={styles.capabilityDetail}>{capability.version}</p>}
+                  {capability.reason && <p className={styles.capabilityDetail}>{capability.reason}</p>}
+                  <p className={styles.capabilityDetail}>
+                    Capability checks do not prove MCP authentication. A resolver call does.
+                  </p>
+                  <div className={styles.commandList}>
+                    {commands.map((command) => (
+                      <div key={command} className={styles.commandRow}>
+                        <code>{command}</code>
+                        <Button size="xs" onClick={() => copy(command)}>
+                          {copied === command ? 'Copied' : 'Copy'}
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                </Stack>
+              </Box>
+            );
+          })}
+        </Stack>
+      )}
     </Stack>
   );
 }

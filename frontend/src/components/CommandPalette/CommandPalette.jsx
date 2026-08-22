@@ -10,8 +10,9 @@ import styles from './CommandPalette.module.css';
 /** @typedef {{match: boolean, score: number}} MatchResult */
 /** @typedef {MatchResult & {type: 'pr', item: import('../../types').PullRequest}} PullRequestEntry */
 /** @typedef {MatchResult & {type: 'workspace', item: import('../../types').Workspace}} WorkspaceEntry */
+/** @typedef {MatchResult & {type: 'work_item', item: import('../../types').WorkItemListItem}} WorkItemEntry */
 /** @typedef {MatchResult & {type: 'global', item: {id: 'global'}}} GlobalEntry */
-/** @typedef {PullRequestEntry | WorkspaceEntry | GlobalEntry} PaletteEntry */
+/** @typedef {PullRequestEntry | WorkspaceEntry | WorkItemEntry | GlobalEntry} PaletteEntry */
 
 /**
  * @param {string} query
@@ -52,27 +53,42 @@ function fuzzyMatchWorkspace(query, ws) {
   return { match: true, score };
 }
 
+/** @param {string} query @param {import('../../types').WorkItemListItem} item @returns {MatchResult} */
+function fuzzyMatchWorkItem(query, item) {
+  if (!query) return { match: true, score: 0 };
+  const haystack = `${item.title || ''} ${item.reference} ${item.repositories.join(' ')} work item`.toLowerCase();
+  const tokens = query.toLowerCase().split(/\s+/).filter(Boolean);
+  for (const token of tokens) {
+    if (!haystack.includes(token)) return { match: false, score: 0 };
+  }
+  return { match: true, score: tokens.length };
+}
+
 /**
  * @param {{
  *   prs: import('../../types').PullRequest[],
+ *   workItems: import('../../types').WorkItemListItem[],
  *   scratchWorkspaces: import('../../types').Workspace[],
  *   workspaceStates?: Map<string, SessionState>,
  *   dismissedIdle?: Set<string>,
  *   globalSession: import('../../types').Session | null,
  *   onNavigate: (prId: string) => void,
  *   onNavigateWorkspace: (workspaceId: string) => void,
+ *   onNavigateWorkItem: (workItemId: string) => void,
  *   onOpenGlobalTerminal: () => void,
  *   onCloseGlobalTerminal?: () => void,
  * }} props
  */
 export function CommandPalette({
   prs,
+  workItems,
   scratchWorkspaces,
   workspaceStates,
   dismissedIdle,
   globalSession,
   onNavigate,
   onNavigateWorkspace,
+  onNavigateWorkItem,
   onOpenGlobalTerminal,
   onCloseGlobalTerminal,
 }) {
@@ -151,6 +167,11 @@ export function CommandPalette({
             }))
         : [];
 
+    /** @type {WorkItemEntry[]} */
+    const workItemItems = workItems
+      .map((item) => ({ ...fuzzyMatchWorkItem(query, item), type: /** @type {'work_item'} */ ('work_item'), item }))
+      .filter((entry) => entry.match);
+
     // Global terminal entry (only if session is active)
     /** @type {GlobalEntry[]} */
     const globalItems = [];
@@ -166,15 +187,22 @@ export function CommandPalette({
       }
     }
 
-    const all = [...prItems, ...wsItems, ...globalItems];
+    const all = [...prItems, ...workItemItems, ...wsItems, ...globalItems];
 
     // Boost items with active sessions to top (idle first, then working), then sort by score
     /** @param {PaletteEntry} entry */
     const sessionPriority = (entry) => {
       if (!workspaceStates?.size) return 0;
-      const wsId = entry.type === 'workspace' ? entry.item.id : entry.type === 'pr' ? entry.item.workspace_id : null;
-      if (!wsId) return 0;
-      const state = workspaceStates.get(wsId);
+      const targetKey =
+        entry.type === 'work_item'
+          ? `work-item:${entry.item.id}`
+          : entry.type === 'workspace'
+            ? `workspace:${entry.item.id}`
+            : entry.type === 'pr' && entry.item.workspace_id
+              ? `workspace:${entry.item.workspace_id}`
+              : null;
+      if (!targetKey) return 0;
+      const state = workspaceStates.get(targetKey);
       if (state === 'idle') return 2;
       if (state === 'working') return 1;
       return 0;
@@ -186,19 +214,16 @@ export function CommandPalette({
       if (aPri !== bPri) return bPri - aPri;
       return b.score - a.score;
     });
-  }, [prs, scratchWorkspaces, workspaceStates, globalSession, query]);
+  }, [prs, workItems, scratchWorkspaces, workspaceStates, globalSession, query]);
 
-  // Reset selection when results change
-  useEffect(() => {
-    setSelectedIndex(0);
-  }, []);
+  const activeIndex = Math.min(selectedIndex, Math.max(filtered.length - 1, 0));
 
   // Scroll selected item into view
   useEffect(() => {
     if (!resultsRef.current) return;
-    const selected = resultsRef.current.children[selectedIndex];
+    const selected = resultsRef.current.children[activeIndex];
     if (selected) selected.scrollIntoView({ block: 'nearest' });
-  }, [selectedIndex]);
+  }, [activeIndex]);
 
   const handleSelect = useCallback(
     /** @param {PaletteEntry} entry */
@@ -209,26 +234,28 @@ export function CommandPalette({
         onCloseGlobalTerminal?.();
         if (entry.type === 'pr') {
           onNavigate(entry.item.id);
+        } else if (entry.type === 'work_item') {
+          onNavigateWorkItem(entry.item.id);
         } else {
           onNavigateWorkspace(entry.item.id);
         }
       }
       close();
     },
-    [onNavigate, onNavigateWorkspace, onOpenGlobalTerminal, onCloseGlobalTerminal, close],
+    [onNavigate, onNavigateWorkspace, onNavigateWorkItem, onOpenGlobalTerminal, onCloseGlobalTerminal, close],
   );
 
   /** @param {import('react').KeyboardEvent<HTMLDivElement>} e */
   const handleKeyDown = (e) => {
     if (e.key === 'ArrowDown') {
       e.preventDefault();
-      setSelectedIndex((i) => Math.min(i + 1, filtered.length - 1));
+      setSelectedIndex(Math.min(activeIndex + 1, Math.max(filtered.length - 1, 0)));
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
-      setSelectedIndex((i) => Math.max(i - 1, 0));
-    } else if (e.key === 'Enter' && filtered[selectedIndex]) {
+      setSelectedIndex(Math.max(activeIndex - 1, 0));
+    } else if (e.key === 'Enter' && filtered[activeIndex]) {
       e.preventDefault();
-      handleSelect(filtered[selectedIndex]);
+      handleSelect(filtered[activeIndex]);
     }
   };
 
@@ -256,9 +283,12 @@ export function CommandPalette({
             ref={inputRef}
             className={styles.input}
             type="text"
-            placeholder="Search PRs and workspaces..."
+            placeholder="Search PRs, work items, and workspaces..."
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setSelectedIndex(0);
+            }}
           />
           <span className={styles.hint}>esc</span>
         </div>
@@ -268,24 +298,40 @@ export function CommandPalette({
           ) : (
             filtered.map((entry, i) => (
               <div
-                key={entry.type === 'pr' ? entry.item.id : entry.type === 'global' ? 'global' : `ws-${entry.item.id}`}
-                className={`${styles.result} ${i === selectedIndex ? styles.resultSelected : ''}`}
+                key={
+                  entry.type === 'pr'
+                    ? entry.item.id
+                    : entry.type === 'global'
+                      ? 'global'
+                      : `${entry.type}-${entry.item.id}`
+                }
+                className={`${styles.result} ${i === activeIndex ? styles.resultSelected : ''}`}
                 onClick={() => handleSelect(entry)}
                 onMouseEnter={() => setSelectedIndex(i)}
               >
                 {entry.type === 'pr' ? (
                   <PRResult
                     pr={entry.item}
-                    sessionState={entry.item.workspace_id ? workspaceStates?.get(entry.item.workspace_id) : undefined}
-                    dismissed={entry.item.workspace_id ? dismissedIdle?.has(entry.item.workspace_id) : false}
+                    sessionState={
+                      entry.item.workspace_id ? workspaceStates?.get(`workspace:${entry.item.workspace_id}`) : undefined
+                    }
+                    dismissed={
+                      entry.item.workspace_id ? dismissedIdle?.has(`workspace:${entry.item.workspace_id}`) : false
+                    }
                   />
                 ) : entry.type === 'global' ? (
                   <GlobalResult session={globalSession} />
+                ) : entry.type === 'work_item' ? (
+                  <WorkItemResult
+                    item={entry.item}
+                    sessionState={workspaceStates?.get(`work-item:${entry.item.id}`)}
+                    dismissed={dismissedIdle?.has(`work-item:${entry.item.id}`)}
+                  />
                 ) : (
                   <WorkspaceResult
                     ws={entry.item}
-                    sessionState={workspaceStates?.get(entry.item.id)}
-                    dismissed={dismissedIdle?.has(entry.item.id)}
+                    sessionState={workspaceStates?.get(`workspace:${entry.item.id}`)}
+                    dismissed={dismissedIdle?.has(`workspace:${entry.item.id}`)}
                   />
                 )}
               </div>
@@ -366,6 +412,25 @@ function WorkspaceResult({ ws, sessionState, dismissed }) {
       </Stack>
       <Stack gap={1} className={styles.resultBadges}>
         <Badge color="purple">scratch workspace</Badge>
+        <SessionStateBadge state={sessionState} dismissed={dismissed} />
+      </Stack>
+    </Stack>
+  );
+}
+
+/** @param {{item: import('../../types').WorkItemListItem, sessionState?: SessionState, dismissed?: boolean}} props */
+function WorkItemResult({ item, sessionState, dismissed }) {
+  return (
+    <Stack direction="col" gap={1} className={styles.resultInfo}>
+      <div className={styles.resultTitle}>{item.title || item.reference}</div>
+      <Stack gap={2} className={styles.resultMeta}>
+        <span className={styles.resultRepo}>{item.reference}</span>
+        {item.repositories.slice(0, 2).map((repository) => (
+          <span key={repository}>{repository}</span>
+        ))}
+      </Stack>
+      <Stack gap={1} className={styles.resultBadges}>
+        <Badge color={item.state === 'error' ? 'red' : 'indigo'}>{item.state}</Badge>
         <SessionStateBadge state={sessionState} dismissed={dismissed} />
       </Stack>
     </Stack>

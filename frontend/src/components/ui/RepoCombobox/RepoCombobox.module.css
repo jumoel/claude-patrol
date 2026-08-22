@@ -5,7 +5,7 @@
 }
 
 .trigger {
-  @apply flex items-center justify-between gap-2 py-1.5 px-2 rounded-md text-sm cursor-pointer;
+  @apply flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-sm cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500;
   min-width: 180px;
 }
 
@@ -62,7 +62,7 @@
 }
 
 .item {
-  @apply py-1.5 px-3 text-sm cursor-pointer;
+  @apply block w-full border-0 bg-transparent px-3 py-1.5 text-left text-sm cursor-pointer;
 }
 
 .dropdownLight .item {
@@ -90,5 +90,9 @@
 }
 
 .status {
-  @apply py-3 px-3 text-sm text-gray-400 text-center;
+  @apply flex flex-col items-center gap-2 px-3 py-3 text-center text-sm text-gray-400;
+}
+
+.retry {
+  @apply rounded border border-current bg-transparent px-2 py-1 text-xs font-medium cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2;
 }

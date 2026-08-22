@@ -78,9 +78,9 @@ export function GlobalTerminal({ open, onToggle, onSessionChange }) {
 
   useEffect(() => {
     let active = true;
-    fetchSessions()
+    fetchSessions({ type: 'global' })
       .then((sessions) => {
-        if (active) setSession(sessions.find((candidate) => candidate.workspace_id === null) || null);
+        if (active) setSession(sessions[0] || null);
       })
       .catch((error) => {
         if (active) setLaunchError(getErrorMessage(error, 'Failed to load the global session'));
@@ -103,7 +103,7 @@ export function GlobalTerminal({ open, onToggle, onSessionChange }) {
     setLoading(true);
     setLaunchError('');
     try {
-      setSession(await apiCreateSession(null, provider));
+      setSession(await apiCreateSession({ type: 'global' }, provider));
     } catch (err) {
       console.error('Failed to start global session:', err);
       setLaunchError(getErrorMessage(err, `Failed to start ${provider === 'codex' ? 'Codex' : 'Claude'}`));

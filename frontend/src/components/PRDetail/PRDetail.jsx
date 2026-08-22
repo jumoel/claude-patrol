@@ -103,7 +103,7 @@ export function PRDetail({ prId, onBack, workspaceStates }) {
       const active = workspaces[0] || null;
       setWorkspace(active);
       if (active) {
-        const sessions = await fetchSessions(active.id);
+        const sessions = await fetchSessions({ type: 'workspace', id: active.id });
         setSession(sessions[0] || null);
       } else {
         setSession(null);
@@ -158,7 +158,7 @@ export function PRDetail({ prId, onBack, workspaceStates }) {
       let sess = session;
       if (!sess) {
         setOpeningStep('Starting session...');
-        sess = await apiCreateSession(ws.id, provider);
+        sess = await apiCreateSession({ type: 'workspace', id: ws.id }, provider);
         setSession(sess);
       }
       setOpeningStep('Connecting...');
@@ -517,12 +517,12 @@ export function PRDetail({ prId, onBack, workspaceStates }) {
             baseBranch={pr.base_branch}
             workspaceId={workspace?.id}
             prId={pr.id}
-            sessionState={workspace ? workspaceStates.get(workspace.id) : undefined}
+            sessionState={workspace ? workspaceStates.get(`workspace:${workspace.id}`) : undefined}
           />
         )}
 
         {/* Past Sessions */}
-        {workspace && <SessionHistory key={workspace.id} workspaceId={workspace.id} />}
+        {workspace && <SessionHistory key={workspace.id} target={{ type: 'workspace', id: workspace.id }} />}
 
         {/* Checks */}
         {pr.checks.length > 0 && (

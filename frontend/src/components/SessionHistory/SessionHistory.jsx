@@ -17,8 +17,10 @@ function formatSessionDuration(start, end) {
   return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 }
 
-/** @param {{workspaceId: string}} props */
-export function SessionHistory({ workspaceId }) {
+/** @param {{target: import('../../types').SessionTarget}} props */
+export function SessionHistory({ target }) {
+  const targetType = target.type;
+  const targetId = target.type === 'global' ? null : target.id;
   const [history, setHistory] = useState(/** @type {import('../../types').Session[] | null} */ (null));
   const [loading, setLoading] = useState(false);
   const [historyError, setHistoryError] = useState('');
@@ -34,11 +36,13 @@ export function SessionHistory({ workspaceId }) {
     if (!expanded || history) return;
     setLoading(true);
     setHistoryError('');
-    fetchSessionHistory(workspaceId)
+    const stableTarget =
+      targetType === 'global' ? { type: /** @type {'global'} */ ('global') } : { type: targetType, id: targetId || '' };
+    fetchSessionHistory(stableTarget)
       .then(setHistory)
       .catch((error) => setHistoryError(getErrorMessage(error, 'Failed to load past sessions')))
       .finally(() => setLoading(false));
-  }, [expanded, history, workspaceId]);
+  }, [expanded, history, targetType, targetId]);
 
   const handleViewTranscript = useCallback(
     /** @param {string} sessionId */

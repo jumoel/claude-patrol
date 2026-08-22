@@ -114,8 +114,9 @@ export function PRTable({
         id: 'local',
         header: 'Local',
         accessorFn: (row) => {
-          const wsState = row.has_session && row.workspace_id && workspaceStates?.get(row.workspace_id);
-          const isDismissed = row.workspace_id && dismissedIdle?.has(row.workspace_id);
+          const targetKey = row.workspace_id ? `workspace:${row.workspace_id}` : null;
+          const wsState = row.has_session && targetKey && workspaceStates?.get(targetKey);
+          const isDismissed = targetKey && dismissedIdle?.has(targetKey);
           if (wsState === 'working') return 5;
           if (wsState === 'idle' && !isDismissed) return 4; // waiting - needs attention
           if (wsState === 'idle' && isDismissed) return 3; // idle - seen by user

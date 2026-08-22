@@ -1,0 +1,105 @@
+@reference "tailwindcss";
+
+.container {
+  @apply my-4 px-4;
+}
+.card {
+  @apply max-w-4xl;
+}
+
+.header {
+  @apply gap-3;
+}
+
+.title {
+  @apply m-0 text-base font-semibold text-gray-900;
+}
+
+.subtitle,
+.helper {
+  @apply m-0 text-sm text-gray-500;
+}
+
+.modeGroup {
+  @apply m-0 border-0 p-0;
+}
+
+.legend {
+  @apply mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500;
+}
+
+.modeOptions {
+  @apply items-stretch;
+}
+
+.modeOption {
+  @apply flex min-w-60 flex-1 cursor-pointer items-start gap-3 rounded-lg border border-gray-200 p-3 text-sm text-gray-700;
+}
+
+.modeOption:focus-within {
+  @apply outline-2 outline-offset-2 outline-blue-500;
+}
+
+.modeOptionActive {
+  @apply border-blue-400 bg-blue-50;
+}
+
+.modeOption input {
+  @apply mt-1;
+}
+
+.modeOption span {
+  @apply flex flex-col gap-1;
+}
+
+.modeOption strong {
+  @apply text-gray-900;
+}
+
+.modeOption small {
+  @apply text-xs text-gray-500;
+}
+
+.fields {
+  @apply items-end;
+}
+
+.field {
+  @apply flex min-w-56 flex-col gap-1 text-xs font-medium text-gray-600;
+}
+
+.branchField {
+  @apply flex-1;
+}
+
+.field input {
+  @apply min-h-9 rounded-md border border-gray-300 px-3 py-2 text-sm font-normal text-gray-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100;
+}
+
+.error {
+  @apply m-0 text-sm text-red-600;
+}
+
+.unconfigured {
+  @apply rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900;
+}
+
+.unconfigured p {
+  @apply m-0;
+}
+
+.unconfigured a {
+  @apply mt-2 inline-block font-medium text-blue-700 underline;
+}
+
+@media (max-width: 640px) {
+  .modeOptions,
+  .fields {
+    @apply flex-col items-stretch;
+  }
+
+  .modeOption,
+  .field {
+    @apply min-w-0 w-full;
+  }
+}

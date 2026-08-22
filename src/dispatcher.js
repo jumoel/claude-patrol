@@ -27,7 +27,7 @@ import { createWorkspace } from './workspace.js';
  *    `autoCreate`, missing workspace and missing session are both created.
  *  - `workspace_id` resolves to the workspace's session. The workspace
  *    itself must already exist (we don't create workspaces from raw ids).
- *  - `global: true` resolves to the global session (workspace_id IS NULL).
+ *  - `global: true` resolves to the global session (both target IDs are null).
  *    `autoCreate` spawns one in `global_terminal_cwd` if missing.
  *
  * After resolution, if `callerSessionId` matches the resolved target,
@@ -92,6 +92,15 @@ export async function ensureSessionAndSend({
   if (session_id) {
     const row = db.prepare('SELECT * FROM sessions WHERE id = ?').get(session_id);
     if (!row || row.status === 'killed') throw taggedError('no_session', `session ${session_id} not found`);
+    if (row.work_item_id) {
+      throw taggedError('unsupported_target', 'Patrol dispatch is unavailable for work-item sessions');
+    }
+    if (row.workspace_id) {
+      const workspace = db.prepare('SELECT work_item_id FROM workspaces WHERE id = ?').get(row.workspace_id);
+      if (workspace?.work_item_id) {
+        throw taggedError('unsupported_target', 'Patrol dispatch is unavailable for work-item child sessions');
+      }
+    }
     if (row.status === 'detached') throw taggedError('session_detached', `session ${session_id} is detached`);
     resolvedSessionId = row.id;
     resolvedWorkspaceId = row.workspace_id;
@@ -103,7 +112,9 @@ export async function ensureSessionAndSend({
     let workspace = null;
     if (pr_id) {
       workspace = db
-        .prepare("SELECT * FROM workspaces WHERE pr_id = ? AND status = 'active' AND operation_state = 'ready'")
+        .prepare(
+          "SELECT * FROM workspaces WHERE pr_id = ? AND work_item_id IS NULL AND status = 'active' AND operation_state = 'ready'",
+        )
         .get(pr_id);
       if (!workspace) {
         if (!autoCreate) throw taggedError('no_workspace', `no active workspace for pr ${pr_id}`);
@@ -112,7 +123,9 @@ export async function ensureSessionAndSend({
       }
     } else if (workspace_id) {
       workspace = db
-        .prepare("SELECT * FROM workspaces WHERE id = ? AND status = 'active' AND operation_state = 'ready'")
+        .prepare(
+          "SELECT * FROM workspaces WHERE id = ? AND work_item_id IS NULL AND status = 'active' AND operation_state = 'ready'",
+        )
         .get(workspace_id);
       if (!workspace) throw taggedError('no_workspace', `workspace ${workspace_id} not found or not active`);
     }
@@ -126,7 +139,9 @@ export async function ensureSessionAndSend({
       resolvedWorkspaceId = workspace.id;
     } else {
       sessionRow = db
-        .prepare("SELECT * FROM sessions WHERE workspace_id IS NULL AND status IN ('active', 'detached')")
+        .prepare(
+          "SELECT * FROM sessions WHERE workspace_id IS NULL AND work_item_id IS NULL AND status IN ('active', 'detached')",
+        )
         .get();
     }
 
@@ -144,7 +159,8 @@ export async function ensureSessionAndSend({
     if (!sessionRow) {
       if (!autoCreate) throw taggedError('no_session', 'no active session at target');
       const cwd = workspace ? workspace.path : getCurrentConfig().global_terminal_cwd || process.cwd();
-      const created = createSession(workspace ? workspace.id : null, cwd, requestedProvider ?? 'claude');
+      const target = workspace ? { type: 'workspace', id: workspace.id } : { type: 'global' };
+      const created = createSession(target, cwd, requestedProvider ?? 'claude');
       resolvedSessionId = created.id;
       resolvedProvider = created.provider;
       isFresh = true;

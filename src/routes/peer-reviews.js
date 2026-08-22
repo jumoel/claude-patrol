@@ -31,7 +31,7 @@ function findWorkspaceSession(db, workspaceId, requireReady = false) {
               s.provider AS presenter_provider
          FROM workspaces w
          LEFT JOIN sessions s ON s.workspace_id = w.id AND s.status = 'active'
-        WHERE w.id = ? ${stateFilter}
+        WHERE w.id = ? AND w.work_item_id IS NULL ${stateFilter}
         ORDER BY s.started_at DESC
         LIMIT 1`,
     )
@@ -50,6 +50,10 @@ export function registerPeerReviewRoutes(app) {
   } = app.appContext;
 
   app.get('/api/workspaces/:id/peer-review', (request, reply) => {
+    const child = getDb().prepare('SELECT work_item_id FROM workspaces WHERE id = ?').get(request.params.id);
+    if (child?.work_item_id) {
+      return sendError(reply, 409, 'work_item_child_managed', 'Work-item children do not support peer review');
+    }
     const workspace = findWorkspaceSession(getDb(), request.params.id);
     if (!workspace) return sendError(reply, 404, 'workspace_not_found', 'Workspace not found');
     const reviewerProvider = workspace.presenter_provider ? inverseProvider(workspace.presenter_provider) : null;
@@ -68,6 +72,10 @@ export function registerPeerReviewRoutes(app) {
   });
 
   app.post('/api/workspaces/:id/peer-review', async (request, reply) => {
+    const child = getDb().prepare('SELECT work_item_id FROM workspaces WHERE id = ?').get(request.params.id);
+    if (child?.work_item_id) {
+      return sendError(reply, 409, 'work_item_child_managed', 'Work-item children do not support peer review');
+    }
     const body = request.body;
     if (
       body !== undefined &&

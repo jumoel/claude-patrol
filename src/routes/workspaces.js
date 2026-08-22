@@ -37,7 +37,7 @@ export function registerWorkspaceRoutes(app) {
       sql += ' LEFT JOIN prs p ON w.pr_id = p.id';
     }
 
-    sql += ' WHERE 1=1';
+    sql += ' WHERE w.work_item_id IS NULL';
 
     if (status) {
       sql += ' AND w.status = ?';
@@ -66,7 +66,7 @@ export function registerWorkspaceRoutes(app) {
   app.get('/api/workspaces/operations', () => {
     return getDb()
       .prepare(
-        "SELECT * FROM workspaces WHERE operation_state NOT IN ('ready', 'destroyed') ORDER BY operation_updated_at DESC",
+        "SELECT * FROM workspaces WHERE work_item_id IS NULL AND operation_state NOT IN ('ready', 'destroyed') ORDER BY operation_updated_at DESC",
       )
       .all();
   });
@@ -77,6 +77,11 @@ export function registerWorkspaceRoutes(app) {
     if (!workspace) {
       return reply.code(404).send({ error: 'Workspace not found' });
     }
+    if (workspace.work_item_id) {
+      return reply
+        .code(409)
+        .send({ error: 'Work-item child is managed by its work item', code: 'work_item_child_managed' });
+    }
     return workspace;
   });
 
@@ -86,13 +91,20 @@ export function registerWorkspaceRoutes(app) {
       emitLocalChange();
       return result;
     } catch (err) {
-      return reply.code(400).send({ error: err.message });
+      return reply
+        .code(err.code === 'work_item_child_managed' ? 409 : 400)
+        .send({ error: err.message, code: err.code });
     }
   });
 
   app.post('/api/workspaces/:id/retry-cleanup', async (request, reply) => {
     const workspace = getDb().prepare('SELECT * FROM workspaces WHERE id = ?').get(request.params.id);
     if (!workspace) return reply.code(404).send({ error: 'Workspace not found' });
+    if (workspace.work_item_id) {
+      return reply
+        .code(409)
+        .send({ error: 'Work-item child is managed by its work item', code: 'work_item_child_managed' });
+    }
     if (['ready', 'destroyed'].includes(workspace.operation_state)) {
       return reply.code(409).send({ error: 'Workspace does not have an interrupted operation to clean up' });
     }
@@ -105,9 +117,13 @@ export function registerWorkspaceRoutes(app) {
 
   app.post('/api/workspaces/:id/terminal', (request, reply) => {
     const db = getDb();
-    const workspace = db
-      .prepare("SELECT * FROM workspaces WHERE id = ? AND status = 'active' AND operation_state = 'ready'")
-      .get(request.params.id);
+    const candidate = db.prepare('SELECT * FROM workspaces WHERE id = ?').get(request.params.id);
+    if (candidate?.work_item_id) {
+      return reply
+        .code(409)
+        .send({ error: 'Work-item child is managed by its work item', code: 'work_item_child_managed' });
+    }
+    const workspace = candidate?.status === 'active' && candidate.operation_state === 'ready' ? candidate : null;
     if (!workspace) {
       return reply.code(404).send({ error: 'Workspace not found or not active' });
     }
@@ -127,7 +143,7 @@ export function registerWorkspaceRoutes(app) {
       SELECT w.id AS workspace_id, p.id, p.number, p.title, p.repo, p.org, p.author, p.url, p.branch, p.draft, p.mergeable, p.checks, p.reviews, p.labels, p.created_at, p.updated_at, p.synced_at
       FROM workspaces w
       JOIN prs p ON w.pr_id = p.id
-      WHERE w.status = 'active' AND w.operation_state = 'ready'
+      WHERE w.work_item_id IS NULL AND w.status = 'active' AND w.operation_state = 'ready'
     `)
       .all();
 

@@ -36,6 +36,7 @@ function formatResetCountdown(resetAt) {
  *   nextSync: string,
  *   syncing: boolean,
  *   onSync: () => void | Promise<void>,
+ *   pollConfigured: boolean,
  *   terminalOpen: boolean,
  *   globalSession: import('../../types').Session | null,
  *   onToggleTerminal: () => void,
@@ -55,6 +56,7 @@ export function AppShell({
   nextSync,
   syncing,
   onSync,
+  pollConfigured,
   terminalOpen,
   globalSession,
   onToggleTerminal,
@@ -165,42 +167,47 @@ export function AppShell({
             <h1 className={styles.title}>{title}</h1>
           </a>
           <Stack gap={3} className={styles.headerActions}>
-            <span className={styles.syncStatus}>
-              {syncTime}
-              {nextSync && (
-                <>
-                  {' \u00b7 Next in '}
-                  <span className={styles.countdown}>{nextSync}</span>
-                </>
-              )}
-            </span>
-            <button className={styles.syncButton} onClick={onSync} disabled={syncing}>
-              {syncing ? (
-                <span className={styles.spinner} />
-              ) : (
-                <svg
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <polyline points="23 4 23 10 17 10" />
-                  <polyline points="1 20 1 14 7 14" />
-                  <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10" />
-                  <path d="M20.49 15a9 9 0 0 1-14.85 3.36L1 14" />
-                </svg>
-              )}
-              {syncing ? 'Syncing...' : 'Sync now'}
-            </button>
+            {pollConfigured && (
+              <>
+                <span className={styles.syncStatus}>
+                  {syncTime}
+                  {nextSync && (
+                    <>
+                      {' \u00b7 Next in '}
+                      <span className={styles.countdown}>{nextSync}</span>
+                    </>
+                  )}
+                </span>
+                <button className={styles.syncButton} onClick={onSync} disabled={syncing}>
+                  {syncing ? (
+                    <span className={styles.spinner} />
+                  ) : (
+                    <svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <polyline points="23 4 23 10 17 10" />
+                      <polyline points="1 20 1 14 7 14" />
+                      <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10" />
+                      <path d="M20.49 15a9 9 0 0 1-14.85 3.36L1 14" />
+                    </svg>
+                  )}
+                  {syncing ? 'Syncing...' : 'Sync now'}
+                </button>
+              </>
+            )}
             <AgentProviderButton
               variant="default"
               size="md"
               onClick={onToggleTerminal}
               providerDisabled={!!globalSession}
+              providerDisabledTitle="Kill the current session before changing its provider"
               value={globalSession?.provider}
               active={terminalOpen}
               className={styles.globalTerminalControl}

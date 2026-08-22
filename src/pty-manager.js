@@ -5,9 +5,15 @@ import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import pty from 'node-pty';
-import { appEvents, emitSessionState } from './app-events.js';
+import { appEvents, emitLocalChange, emitSessionState } from './app-events.js';
 import { getDb } from './db.js';
 import { buildSessionLaunch, mcpConfigPathForSession, normalizeSessionProvider } from './session-launch.js';
+import {
+  normalizeSessionTarget,
+  sessionTargetColumns,
+  sessionTargetFromRow,
+  sessionTargetWhere,
+} from './session-target.js';
 import { archiveTranscript } from './transcripts.js';
 
 const BUFFER_MAX = 50_000;
@@ -171,9 +177,8 @@ function attachPtyToTmux(sessionId, meta = {}, runtime = DEFAULT_SESSION_RUNTIME
 
   db.prepare('UPDATE sessions SET pid = ?, status = ? WHERE id = ?').run(proc.pid, 'active', sessionId);
 
-  // Look up workspace_id once for idle event payloads
-  const sessionRow = db.prepare('SELECT workspace_id FROM sessions WHERE id = ?').get(sessionId);
-  const workspaceId = sessionRow?.workspace_id || null;
+  const sessionRow = db.prepare('SELECT workspace_id, work_item_id FROM sessions WHERE id = ?').get(sessionId);
+  const target = sessionTargetFromRow(sessionRow);
 
   // Activity state: null (untracked) | 'working' | 'idle'
   //   null -> working:  first substantial output (>= BURST_BYTE_THRESHOLD)
@@ -193,7 +198,7 @@ function attachPtyToTmux(sessionId, meta = {}, runtime = DEFAULT_SESSION_RUNTIME
     else if (s === 'idle') entry.lastIdleAt = Date.now();
     state = s;
     entry.activityState = s;
-    emitSessionState(sessionId, workspaceId, s);
+    emitSessionState(sessionId, target, s);
   }
   // Force-set state to working at dispatch time. Used by the dispatcher
   // (lt#12) so wait_for_idle.since has a deterministic anchor regardless of
@@ -225,7 +230,7 @@ function attachPtyToTmux(sessionId, meta = {}, runtime = DEFAULT_SESSION_RUNTIME
     websockets: new Set(),
     resizeSuppressUntil: Date.now() + 500,
     activityState: state, // exposed for getSessionStates()
-    workspaceId, // exposed for getSessionStates()
+    target,
     lastWorkingAt: null, // ms timestamp of most recent null|idle -> working transition
     lastIdleAt: null, // ms timestamp of most recent working -> idle transition
     markWorking, // dispatcher's deterministic anchor for wait_for_idle (lt#12)
@@ -275,7 +280,6 @@ function attachPtyToTmux(sessionId, meta = {}, runtime = DEFAULT_SESSION_RUNTIME
   proc.onExit(({ exitCode }) => {
     if (idleTimer) clearTimeout(idleTimer);
     if (momentTimer) clearTimeout(momentTimer);
-    emitSessionState(sessionId, workspaceId, 'exited');
     const exitMsg = JSON.stringify({ type: 'exit', code: exitCode });
     for (const ws of entry.websockets) {
       if (ws.readyState === 1) {
@@ -286,6 +290,8 @@ function attachPtyToTmux(sessionId, meta = {}, runtime = DEFAULT_SESSION_RUNTIME
     sessions.delete(sessionId);
     const endedAt = new Date().toISOString();
     db.prepare("UPDATE sessions SET status = 'killed', ended_at = ? WHERE id = ?").run(endedAt, sessionId);
+    emitSessionState(sessionId, target, 'exited');
+    emitLocalChange();
 
     if (meta.claudeProjectDir) {
       setTimeout(() => {
@@ -414,18 +420,19 @@ function rollbackFailedSessionStart(sessionId, runtime, tempPaths) {
  * Mark active database rows without a live in-memory PTY as killed before a
  * replacement is created. This prevents a partial start from being returned
  * to the terminal UI on the next sync.
- * @param {string | null} workspaceId
+ * @param {{type: 'global'} | {type: 'workspace'|'work_item', id: string}} target
  * @param {typeof DEFAULT_SESSION_RUNTIME} runtime
  * @returns {object | null}
  */
-function findReusableSession(workspaceId, provider, runtime) {
+function findReusableSession(target, provider, runtime) {
   const db = getDb();
-  const existingRows = workspaceId
-    ? db.prepare("SELECT * FROM sessions WHERE workspace_id = ? AND status = 'active'").all(workspaceId)
-    : db.prepare("SELECT * FROM sessions WHERE workspace_id IS NULL AND status = 'active'").all();
+  const where = sessionTargetWhere(target);
+  const existingRows = db
+    .prepare(`SELECT * FROM sessions WHERE ${where.sql} AND status IN ('active', 'detached')`)
+    .all(...where.params);
 
   for (const existing of existingRows) {
-    if (sessions.has(existing.id) && isTmuxSessionAlive(existing.id)) {
+    if (isTmuxSessionAlive(existing.id)) {
       if (existing.provider !== provider) {
         throw taggedError(
           'provider_conflict',
@@ -458,18 +465,25 @@ function findReusableSession(workspaceId, provider, runtime) {
 /**
  * Start a tmux-backed agent session as one transaction. Runtime injection is
  * used by the regression test to force PTY failure without starting processes.
- * @param {string | null} workspaceId
+ * @param {{type: 'global'} | {type: 'workspace'|'work_item', id: string}} target
  * @param {string} cwd
- * @param {{provider?: 'claude'|'codex', claudeSessionId?: string | null, runtime?: typeof DEFAULT_SESSION_RUNTIME}} options
+ * @param {{provider?: 'claude'|'codex', claudeSessionId?: string | null, enablePatrolMcp?: boolean, initialPrompt?: string|null, runtime?: typeof DEFAULT_SESSION_RUNTIME}} options
  * @returns {object} session record
  */
-export function createSessionWithRuntime(workspaceId, cwd, options = {}) {
-  const { claudeSessionId = null, runtime = DEFAULT_SESSION_RUNTIME } = options;
+export function createSessionWithRuntime(target, cwd, options = {}) {
+  const {
+    claudeSessionId = null,
+    enablePatrolMcp = true,
+    initialPrompt = null,
+    runtime = DEFAULT_SESSION_RUNTIME,
+  } = options;
+  const normalizedTarget = normalizeSessionTarget(target);
+  const { workspaceId, workItemId } = sessionTargetColumns(normalizedTarget);
   const provider = normalizeSessionProvider(options.provider);
   const db = getDb();
 
   if (!claudeSessionId) {
-    const existing = findReusableSession(workspaceId, provider, runtime);
+    const existing = findReusableSession(normalizedTarget, provider, runtime);
     if (existing) return existing;
   }
 
@@ -486,6 +500,8 @@ export function createSessionWithRuntime(workspaceId, cwd, options = {}) {
       patrolPrompt: PATROL_SYSTEM_PROMPT,
       mcpTimeoutMs: PATROL_MCP_TIMEOUT_MS,
       claudeSessionId,
+      enablePatrolMcp,
+      initialPrompt,
     });
     tempPaths.push(...launch.tempPaths);
 
@@ -500,13 +516,17 @@ export function createSessionWithRuntime(workspaceId, cwd, options = {}) {
 
     const now = new Date().toISOString();
     db.prepare(
-      'INSERT INTO sessions (id, workspace_id, pid, provider, status, started_at, claude_project_dir) VALUES (?, ?, ?, ?, ?, ?, ?)',
-    ).run(id, workspaceId, 0, provider, 'active', now, launch.claudeProjectDir);
+      `INSERT INTO sessions
+        (id, workspace_id, work_item_id, pid, provider, status, started_at, claude_project_dir)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(id, workspaceId, workItemId, 0, provider, 'active', now, launch.claudeProjectDir);
 
     attachPtyToTmux(id, { claudeProjectDir: launch.claudeProjectDir, startedAt: now }, runtime);
     return {
       id,
       workspace_id: workspaceId,
+      work_item_id: workItemId,
+      target: normalizedTarget,
       provider,
       status: 'active',
       started_at: now,
@@ -520,24 +540,24 @@ export function createSessionWithRuntime(workspaceId, cwd, options = {}) {
 
 /**
  * Spawn a new PTY session.
- * @param {string | null} workspaceId - null for global session
+ * @param {{type: 'global'} | {type: 'workspace'|'work_item', id: string}} target
  * @param {string} cwd - working directory
  * @returns {object} session record
  */
-export function createSession(workspaceId, cwd, provider = 'claude') {
-  return createSessionWithRuntime(workspaceId, cwd, { provider });
+export function createSession(target, cwd, provider = 'claude', options = {}) {
+  return createSessionWithRuntime(target, cwd, { ...options, provider });
 }
 
 /**
  * Create a session that resumes an existing Claude conversation.
  * Same as createSession but adds `--resume <claudeSessionId>` to the claude args.
- * @param {string | null} workspaceId
+ * @param {{type: 'workspace', id: string}} target
  * @param {string} cwd
  * @param {string} claudeSessionId - Claude CLI session UUID to resume
  * @returns {object} session record
  */
-export function createResumedSession(workspaceId, cwd, claudeSessionId) {
-  return createSessionWithRuntime(workspaceId, cwd, { provider: 'claude', claudeSessionId });
+export function createResumedSession(target, cwd, claudeSessionId) {
+  return createSessionWithRuntime(target, cwd, { provider: 'claude', claudeSessionId });
 }
 
 /**
@@ -656,34 +676,76 @@ export function attachSession(sessionId, ws) {
   });
 }
 
+function sessionKillRuntime(overrides = {}) {
+  return {
+    killTmux:
+      overrides.killTmux ??
+      ((sessionId) =>
+        execFileSync('tmux', ['kill-session', '-t', `patrol-${sessionId}`], {
+          timeout: 5000,
+        })),
+    isTmuxAlive: overrides.isTmuxAlive ?? isTmuxSessionAlive,
+  };
+}
+
+function finalizeDetachedSessionStop(sessionId, runtime) {
+  if (sessions.has(sessionId) || runtime.isTmuxAlive(sessionId)) return false;
+  const result = getDb()
+    .prepare("UPDATE sessions SET status = 'killed', ended_at = ? WHERE id = ? AND status != 'killed'")
+    .run(new Date().toISOString(), sessionId);
+  if (result.changes > 0) {
+    const row = getDb().prepare('SELECT workspace_id, work_item_id FROM sessions WHERE id = ?').get(sessionId);
+    emitSessionState(sessionId, sessionTargetFromRow(row), 'exited');
+    emitLocalChange();
+  }
+  return true;
+}
+
 /**
- * Kill a session by ID.
+ * Request a session stop without claiming success while tmux is still alive.
+ * Attached sessions are closed durably by their PTY exit handler. Detached
+ * sessions are closed here only after tmux confirms the process is gone.
  * @param {string} sessionId
+ * @param {{killTmux?: (sessionId: string) => void, isTmuxAlive?: (sessionId: string) => boolean}} [runtimeOverrides]
+ * @returns {boolean} whether tmux is confirmed stopped
  */
-export function killSession(sessionId) {
-  const tmuxName = `patrol-${sessionId}`;
+export function killSession(sessionId, runtimeOverrides = {}) {
+  const runtime = sessionKillRuntime(runtimeOverrides);
   try {
-    execFileSync('tmux', ['kill-session', '-t', tmuxName], { timeout: 5000 });
+    runtime.killTmux(sessionId);
   } catch {
-    // tmux session already dead - kill the pty directly as fallback
-    const entry = sessions.get(sessionId);
-    if (entry) {
+    // The follow-up liveness check distinguishes an already-dead session from
+    // a failed kill. Do not detach the PTY while its agent is still alive.
+  }
+  if (runtime.isTmuxAlive(sessionId)) return false;
+
+  const entry = sessions.get(sessionId);
+  if (entry) {
+    try {
       entry.proc.kill();
+    } catch {
+      // The attached PTY is already delivering its exit event.
     }
   }
-  // Always clear state - for attached sessions proc.onExit handles it,
-  // but for detached sessions (not in the sessions map) we must do it here.
-  const wsRow = getDb().prepare('SELECT workspace_id FROM sessions WHERE id = ?').get(sessionId);
-  emitSessionState(sessionId, wsRow?.workspace_id || null, 'exited');
-  // For detached sessions (not in the sessions map), the proc.onExit
-  // handler won't fire, so update the DB directly.
-  if (!sessions.has(sessionId)) {
-    const db = getDb();
-    db.prepare("UPDATE sessions SET status = 'killed', ended_at = ? WHERE id = ? AND status != 'killed'").run(
-      new Date().toISOString(),
-      sessionId,
-    );
+  finalizeDetachedSessionStop(sessionId, runtime);
+  return true;
+}
+
+/** Kill a tmux-backed session and wait until the durable session row is closed. */
+export async function killSessionAndWait(sessionId, timeoutMs = 10_000, runtimeOverrides = {}) {
+  const db = getDb();
+  const existing = db.prepare('SELECT status FROM sessions WHERE id = ?').get(sessionId);
+  if (!existing || existing.status === 'killed') return;
+  const runtime = sessionKillRuntime(runtimeOverrides);
+  killSession(sessionId, runtime);
+  const started = Date.now();
+  while (Date.now() - started <= timeoutMs) {
+    finalizeDetachedSessionStop(sessionId, runtime);
+    const row = db.prepare('SELECT status FROM sessions WHERE id = ?').get(sessionId);
+    if (!row || row.status === 'killed') return;
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 50));
   }
+  throw taggedError('session_stop_timeout', `Session ${sessionId} did not stop within ${timeoutMs}ms`);
 }
 
 /**
@@ -717,7 +779,7 @@ export function getSessionSnapshot(sessionId) {
 /**
  * Get the current activity state for all tracked sessions.
  * Used to seed new SSE clients with the current state.
- * @returns {Array<{ sessionId: string, workspaceId: string | null, state: 'working' | 'idle' }>}
+ * @returns {Array<{ sessionId: string, target: object, workspaceId: string | null, workItemId: string | null, state: 'working' | 'idle' }>}
  */
 export function getSessionStates() {
   const results = [];
@@ -725,7 +787,9 @@ export function getSessionStates() {
     if (entry.activityState) {
       results.push({
         sessionId,
-        workspaceId: entry.workspaceId ?? null,
+        target: entry.target,
+        workspaceId: entry.target.type === 'workspace' ? entry.target.id : null,
+        workItemId: entry.target.type === 'work_item' ? entry.target.id : null,
         state: entry.activityState,
       });
     }

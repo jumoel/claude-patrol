@@ -18,8 +18,9 @@ function calcRemaining(syncedAt, intervalSeconds) {
 /**
  * Hook to fetch PRs and auto-refresh via SSE.
  * @param {Record<string, string>} filters
+ * @param {boolean} [enabled]
  */
-export function usePRs(filters) {
+export function usePRs(filters, enabled = true) {
   const [prs, setPRs] = useState(/** @type {import('../types').PullRequest[]} */ ([]));
   const [syncedAt, setSyncedAt] = useState(/** @type {string | null} */ (null));
   const [loading, setLoading] = useState(true);
@@ -34,6 +35,7 @@ export function usePRs(filters) {
   filtersRef.current = filters;
 
   const loadPRs = useCallback(async () => {
+    if (!enabled) return;
     try {
       const data = await fetchPRs(filtersRef.current);
       setPRs(data.prs);
@@ -47,10 +49,11 @@ export function usePRs(filters) {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [enabled]);
 
   // Fetch config for poll interval
   useEffect(() => {
+    if (!enabled) return undefined;
     fetchConfig()
       .then((cfg) => {
         pollIntervalRef.current = cfg.poll.interval_seconds;
@@ -60,23 +63,25 @@ export function usePRs(filters) {
         }
       })
       .catch(() => {});
-  }, []);
+  }, [enabled]);
 
   // Countdown timer
   useEffect(() => {
+    if (!enabled) return undefined;
     const id = setInterval(() => {
       setCountdown((prev) => (prev > 0 ? prev - 1 : 0));
     }, 1000);
     return () => clearInterval(id);
-  }, []);
+  }, [enabled]);
 
   // Initial fetch. Live updates below refresh the same stable filter set.
   useEffect(() => {
-    loadPRs();
-  }, [loadPRs]);
+    if (enabled) loadPRs();
+  }, [enabled, loadPRs]);
 
   // SSE for live updates (sync from GitHub + local workspace/session changes)
   useEffect(() => {
+    if (!enabled) return undefined;
     const unsubscribers = [
       subscribeAppEvent('sync', () => {
         setSyncing(false);
@@ -106,7 +111,7 @@ export function usePRs(filters) {
       unsubscribers.forEach((unsubscribe) => {
         unsubscribe();
       });
-  }, [loadPRs]);
+  }, [enabled, loadPRs]);
 
   const triggerSync = useCallback(async () => {
     setSyncing(true);

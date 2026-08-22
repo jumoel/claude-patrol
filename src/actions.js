@@ -655,6 +655,8 @@ export const actionRegistry = {
              FROM sessions s
              LEFT JOIN workspaces w ON w.id = s.workspace_id
             WHERE s.status = 'active'
+              AND s.work_item_id IS NULL
+              AND (s.workspace_id IS NULL OR w.work_item_id IS NULL)
             ORDER BY s.started_at DESC`,
         )
         .all();

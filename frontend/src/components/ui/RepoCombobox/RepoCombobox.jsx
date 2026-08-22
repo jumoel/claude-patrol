@@ -1,34 +1,51 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { fetchAllRepos } from '../../../lib/api.js';
 import styles from './RepoCombobox.module.css';
 
 /**
  * Filterable repo selector. Fetches all repos from configured orgs on first open.
- * @param {{ value: string, onChange: (repo: string) => void, disabled?: boolean, variant?: 'light' | 'dark' }} props
+ * @param {{ value: string, onChange: (repo: string) => void, disabled?: boolean, variant?: 'light' | 'dark', ariaLabel?: string, ariaLabelledBy?: string }} props
  */
-export function RepoCombobox({ value, onChange, disabled = false, variant = 'light' }) {
+export function RepoCombobox({
+  value,
+  onChange,
+  disabled = false,
+  variant = 'light',
+  ariaLabel = 'Repository',
+  ariaLabelledBy,
+}) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [repos, setRepos] = useState(/** @type {string[]} */ ([]));
   const [loading, setLoading] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const [error, setError] = useState('');
   const [highlighted, setHighlighted] = useState(0);
   const containerRef = useRef(/** @type {HTMLDivElement | null} */ (null));
+  const triggerRef = useRef(/** @type {HTMLButtonElement | null} */ (null));
   const inputRef = useRef(/** @type {HTMLInputElement | null} */ (null));
   const listRef = useRef(/** @type {HTMLDivElement | null} */ (null));
+  const listboxId = useId();
+  const valueId = `${listboxId}-value`;
 
-  // Fetch repos on first open
-  useEffect(() => {
-    if (!open || loaded) return;
+  const loadRepositories = useCallback(() => {
     setLoading(true);
+    setError('');
     fetchAllRepos()
       .then(({ repos }) => {
         setRepos(repos);
+        setHighlighted(0);
         setLoaded(true);
       })
-      .catch(() => {})
+      .catch(() => setError('Failed to load repositories'))
       .finally(() => setLoading(false));
-  }, [open, loaded]);
+  }, []);
+
+  const openPicker = useCallback(() => {
+    setOpen(true);
+    if (!loaded && !loading) loadRepositories();
+    requestAnimationFrame(() => inputRef.current?.focus());
+  }, [loadRepositories, loaded, loading]);
 
   // Close on outside click
   useEffect(() => {
@@ -46,11 +63,6 @@ export function RepoCombobox({ value, onChange, disabled = false, variant = 'lig
 
   const filtered = repos.filter((r) => r.toLowerCase().includes(query.toLowerCase()));
 
-  // Keep highlighted index in bounds
-  useEffect(() => {
-    setHighlighted(0);
-  }, []);
-
   // Scroll highlighted item into view
   useEffect(() => {
     if (!listRef.current) return;
@@ -64,6 +76,7 @@ export function RepoCombobox({ value, onChange, disabled = false, variant = 'lig
       onChange(repo);
       setOpen(false);
       setQuery('');
+      triggerRef.current?.focus();
     },
     [onChange],
   );
@@ -96,6 +109,7 @@ export function RepoCombobox({ value, onChange, disabled = false, variant = 'lig
           e.preventDefault();
           setOpen(false);
           setQuery('');
+          triggerRef.current?.focus();
           break;
       }
     },
@@ -106,16 +120,27 @@ export function RepoCombobox({ value, onChange, disabled = false, variant = 'lig
 
   return (
     <div className={styles.container} ref={containerRef}>
-      <div
+      <button
+        ref={triggerRef}
+        type="button"
         className={`${styles.trigger} ${isDark ? styles.triggerDark : styles.triggerLight} ${disabled ? styles.disabled : ''}`}
-        onClick={() => {
-          if (!disabled) {
-            setOpen(true);
-            setTimeout(() => inputRef.current?.focus(), 0);
+        disabled={disabled}
+        aria-label={ariaLabelledBy ? undefined : `${ariaLabel}${value ? `, ${value}` : ''}`}
+        aria-labelledby={ariaLabelledBy ? `${ariaLabelledBy} ${valueId}` : undefined}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-controls={listboxId}
+        onClick={openPicker}
+        onKeyDown={(event) => {
+          if (event.key === 'ArrowDown') {
+            event.preventDefault();
+            openPicker();
           }
         }}
       >
-        {value || <span className={styles.placeholder}>Select repo...</span>}
+        <span id={valueId} className={value ? undefined : styles.placeholder}>
+          {value || 'Select repo...'}
+        </span>
         <svg
           className={styles.chevron}
           width="10"
@@ -129,31 +154,54 @@ export function RepoCombobox({ value, onChange, disabled = false, variant = 'lig
         >
           <path d="M1 1L5 5L9 1" />
         </svg>
-      </div>
+      </button>
       {open && (
         <div className={`${styles.dropdown} ${isDark ? styles.dropdownDark : styles.dropdownLight}`}>
           <input
             ref={inputRef}
+            id={`${listboxId}-filter`}
+            name="repository-filter"
             className={`${styles.searchInput} ${isDark ? styles.searchInputDark : styles.searchInputLight}`}
             type="text"
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setHighlighted(0);
+            }}
             onKeyDown={handleKeyDown}
             placeholder="Filter repos..."
+            role="combobox"
+            aria-label="Filter repositories"
+            aria-controls={listboxId}
+            aria-expanded="true"
+            aria-activedescendant={filtered[highlighted] ? `${listboxId}-option-${highlighted}` : undefined}
             autoFocus
           />
-          <div className={styles.list} ref={listRef}>
+          <div className={styles.list} ref={listRef} id={listboxId} role="listbox" aria-label="Repositories">
             {loading && <div className={styles.status}>Loading repos...</div>}
-            {!loading && filtered.length === 0 && <div className={styles.status}>No matches</div>}
+            {!loading && error && (
+              <div className={styles.status} role="alert">
+                <span>{error}</span>
+                <button type="button" className={styles.retry} onClick={loadRepositories}>
+                  Retry
+                </button>
+              </div>
+            )}
+            {!loading && !error && filtered.length === 0 && <div className={styles.status}>No matches</div>}
             {filtered.map((repo, i) => (
-              <div
+              <button
                 key={repo}
+                id={`${listboxId}-option-${i}`}
+                type="button"
+                role="option"
+                aria-selected={repo === value}
+                tabIndex={-1}
                 className={`${styles.item} ${i === highlighted ? styles.itemHighlighted : ''} ${repo === value ? styles.itemSelected : ''}`}
                 onMouseEnter={() => setHighlighted(i)}
                 onClick={() => select(repo)}
               >
                 {repo}
-              </div>
+              </button>
             ))}
           </div>
         </div>

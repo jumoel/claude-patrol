@@ -19,11 +19,17 @@ export function emitLocalChange() {
 /**
  * Notify clients of a session state change.
  * @param {string} sessionId
- * @param {string | null} workspaceId
+ * @param {{type: 'global'} | {type: 'workspace'|'work_item', id: string}} target
  * @param {'working' | 'idle' | 'exited'} state
  */
-export function emitSessionState(sessionId, workspaceId, state) {
-  appEvents.emit('session-state', { sessionId, workspaceId: workspaceId ?? null, state });
+export function emitSessionState(sessionId, target, state) {
+  appEvents.emit('session-state', {
+    sessionId,
+    target,
+    workspaceId: target.type === 'workspace' ? target.id : null,
+    workItemId: target.type === 'work_item' ? target.id : null,
+    state,
+  });
 }
 
 /**

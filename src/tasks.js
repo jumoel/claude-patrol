@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { appEvents } from './app-events.js';
+import { sanitizePublicText, sanitizePublicValue } from './public-errors.js';
 
 /**
  * In-memory registry of long-running async operations (workspace destroy,
@@ -29,6 +30,7 @@ const tasks = new Map();
  * @property {string[]} warnings - non-fatal issues collected during the run
  * @property {string | null} error - fatal error message, if any
  * @property {object | null} context - free-form bag, e.g. { workspaceId, prId, repo }
+ * @property {{current: number, total: number} | null} progress
  */
 
 function pruneIfNeeded() {
@@ -57,18 +59,30 @@ export function createTask({ kind, label, context = null }) {
   /** @type {Task} */
   const task = {
     id: randomUUID(),
-    kind,
-    label,
+    kind: sanitizePublicText(kind, { maxBytes: 128 }),
+    label: sanitizePublicText(label, { maxBytes: 512 }),
     status: 'running',
     startedAt: new Date().toISOString(),
     endedAt: null,
     warnings: [],
     error: null,
-    context,
+    context: context === null ? null : sanitizePublicValue(context),
+    progress: null,
   };
   tasks.set(task.id, task);
   appEvents.emit('task-update', task);
   return task;
+}
+
+/** Update observable task progress without exposing raw operation output. */
+export function updateTaskProgress(id, { current, total }) {
+  const task = tasks.get(id);
+  if (!task) return;
+  if (!Number.isInteger(current) || !Number.isInteger(total) || current < 0 || total < 0 || current > total) {
+    throw new TypeError('Task progress requires integers with 0 <= current <= total');
+  }
+  task.progress = { current, total };
+  appEvents.emit('task-update', task);
 }
 
 /**
@@ -80,10 +94,12 @@ export function completeTask(id, { error = null, warnings = [] } = {}) {
   const task = tasks.get(id);
   if (!task) return;
   task.endedAt = new Date().toISOString();
-  if (warnings.length) task.warnings.push(...warnings);
+  if (warnings.length) {
+    task.warnings.push(...warnings.slice(0, 32).map((warning) => sanitizePublicText(warning, { maxBytes: 4096 })));
+  }
   if (error) {
     task.status = 'error';
-    task.error = error;
+    task.error = sanitizePublicText(error, { maxBytes: 16 * 1024 });
   } else if (task.warnings.length > 0) {
     task.status = 'warning';
   } else {

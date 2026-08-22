@@ -1,0 +1,109 @@
+@reference "tailwindcss";
+
+.title {
+  @apply m-0 text-2xl font-semibold text-gray-900;
+}
+.identity {
+  @apply text-sm text-gray-500;
+}
+
+.reference,
+.repositoryName,
+.repositoryFacts dd,
+.rootPath {
+  @apply font-mono;
+}
+
+.resolver,
+.actionNote,
+.empty {
+  @apply m-0 text-sm text-gray-500;
+}
+
+.progress {
+  @apply m-0 flex list-none flex-wrap gap-4 p-0 text-sm;
+}
+
+.progress li {
+  @apply flex items-center gap-1.5 text-gray-400;
+}
+
+.progress .done {
+  @apply text-green-700;
+}
+
+.progress .active {
+  @apply font-medium text-blue-700;
+}
+
+.progress .failed {
+  @apply font-medium text-red-700;
+}
+
+.summary,
+.errorDetail {
+  @apply whitespace-pre-wrap text-sm leading-6 text-gray-700;
+}
+
+.failure {
+  @apply border-red-200;
+}
+
+.errorFacts,
+.repositoryFacts {
+  @apply grid gap-2 text-sm;
+}
+
+.errorFacts div,
+.repositoryFacts div {
+  @apply grid grid-cols-[8rem_1fr] gap-2;
+}
+
+.errorFacts dt,
+.repositoryFacts dt {
+  @apply text-gray-500;
+}
+
+.errorFacts dd,
+.repositoryFacts dd {
+  @apply m-0 break-all text-gray-800;
+}
+
+.repositoryList {
+  @apply divide-y divide-gray-100 rounded-lg border border-gray-200;
+}
+
+.repositoryRow {
+  @apply p-4;
+}
+
+.repositoryName {
+  @apply text-sm font-semibold text-gray-900;
+}
+
+.warnings {
+  @apply mb-0 mt-3 list-disc pl-5 text-sm text-amber-800;
+}
+
+.requestError {
+  @apply m-0 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700;
+}
+
+.rootPath {
+  @apply break-all text-xs text-gray-600;
+}
+
+.notFound {
+  @apply flex items-center justify-between gap-4 text-sm text-gray-700;
+}
+
+@media (max-width: 640px) {
+  .errorFacts div,
+  .repositoryFacts div {
+    @apply grid-cols-1 gap-0;
+  }
+
+  .progress {
+    @apply flex-col gap-2;
+  }
+}

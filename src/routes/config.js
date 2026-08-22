@@ -1,4 +1,5 @@
-import { isConfigured } from '../config.js';
+import { isConfigured, isPollConfigured, isWorkItemsConfigured } from '../config.js';
+import { providerSetup } from '../provider-setup.js';
 import { getRestartStatus, getUpdateStatus, pullUpdate, restartServer } from '../update-check.js';
 
 /**
@@ -9,9 +10,26 @@ export function registerConfigRoutes(app) {
   const { getConfig, updateConfig, providerCapabilities } = app.appContext;
   app.get('/api/config', () => {
     const cfg = getConfig();
+    const workItemsConfigured = isWorkItemsConfigured(cfg);
+    const resolver = cfg.work_items?.resolver;
+    const setup = providerSetup(cfg);
     return {
       poll: cfg.poll,
+      poll_configured: isPollConfigured(cfg),
+      default_session_provider: cfg.default_session_provider,
       needs_setup: !isConfigured(cfg),
+      work_items: {
+        configured: workItemsConfigured,
+        resolver: workItemsConfigured
+          ? {
+              provider_mode: resolver.provider ? 'fixed' : 'requested_provider',
+              provider: resolver.provider ?? null,
+              server_name: resolver.server.name,
+            }
+          : null,
+        repositories: cfg.work_items?.repositories ?? [],
+        provider_setup: setup,
+      },
       capabilities: {
         providers: Object.fromEntries(
           Object.entries(providerCapabilities).map(([provider, capability]) => [provider, capability.getSnapshot()]),

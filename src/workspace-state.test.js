@@ -1,9 +1,35 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { afterEach, test } from 'node:test';
 import { closeDb, getDb, initDb } from './db.js';
-import { destroyWorkspace, inspectWorkspaceState } from './workspace.js';
+import { createScratchWorkspace, destroyWorkspace, inspectWorkspaceState } from './workspace.js';
 
-afterEach(() => closeDb());
+const temporaryDirectories = [];
+
+afterEach(() => {
+  closeDb();
+  for (const directory of temporaryDirectories.splice(0)) rmSync(directory, { recursive: true, force: true });
+});
+
+function createScratchConfig() {
+  const root = mkdtempSync(join(tmpdir(), 'patrol-workspace-state-'));
+  temporaryDirectories.push(root);
+  const source = join(root, 'sources', 'example', 'project');
+  mkdirSync(source, { recursive: true });
+  execFileSync('jj', ['git', 'init', '--colocate', source], { stdio: 'ignore' });
+  return {
+    source,
+    config: {
+      work_dir: join(root, 'sources'),
+      workspace_base_path: join(root, 'workspaces'),
+      symlink_memory: false,
+      repos: { 'example/project': {} },
+    },
+  };
+}
 
 function insertWorkspace(overrides = {}) {
   const now = new Date().toISOString();
@@ -91,5 +117,56 @@ test('destroying an already-complete workspace is idempotent', async () => {
       pr_id: null,
       repo: 'example/project',
     },
+  );
+});
+
+test('concurrent scratch creation rejects a duplicate repo and bookmark claim', async () => {
+  initDb(':memory:');
+  const { config } = createScratchConfig();
+
+  const results = await Promise.allSettled([
+    createScratchWorkspace('example/project', 'feature-race', config, { startRevision: '@' }),
+    createScratchWorkspace('example/project', 'feature-race', config, { startRevision: '@' }),
+  ]);
+  const fulfilled = results.filter((result) => result.status === 'fulfilled');
+  const rejected = results.filter((result) => result.status === 'rejected');
+
+  assert.equal(fulfilled.length, 1);
+  assert.equal(rejected.length, 1);
+  assert.equal(rejected[0].reason.code, 'workspace_conflict');
+  assert.deepEqual(getDb().prepare('SELECT * FROM workspace_claims').all(), []);
+
+  await destroyWorkspace(fulfilled[0].value.id, config);
+});
+
+test('destroy waits for an in-flight create of the same workspace', async () => {
+  initDb(':memory:');
+  const { source, config } = createScratchConfig();
+
+  const creation = createScratchWorkspace('example/project', 'feature-create-destroy', config, {
+    startRevision: '@',
+  });
+  const reserved = getDb()
+    .prepare("SELECT id FROM workspaces WHERE repo = ? AND bookmark = ? AND operation_state = 'creating'")
+    .get('example/project', 'feature-create-destroy');
+  assert.ok(reserved);
+
+  const destruction = destroyWorkspace(reserved.id, config);
+  const [created, destroyed] = await Promise.all([creation, destruction]);
+
+  assert.equal(created.id, reserved.id);
+  assert.deepEqual(destroyed, { ok: true, warnings: [] });
+  assert.deepEqual(
+    {
+      ...getDb()
+        .prepare('SELECT status, operation_state, operation_step FROM workspaces WHERE id = ?')
+        .get(reserved.id),
+    },
+    { status: 'destroyed', operation_state: 'destroyed', operation_step: 'destroy:complete' },
+  );
+  assert.deepEqual(getDb().prepare('SELECT * FROM workspace_claims').all(), []);
+  assert.doesNotMatch(
+    execFileSync('jj', ['workspace', 'list', '-R', source], { encoding: 'utf8' }),
+    /scratch-feature-create-destroy/,
   );
 });

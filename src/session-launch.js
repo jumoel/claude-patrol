@@ -57,6 +57,8 @@ export function buildSessionLaunch({
   patrolPrompt,
   mcpTimeoutMs,
   claudeSessionId = null,
+  enablePatrolMcp = true,
+  initialPrompt = null,
 }) {
   const provider = normalizeSessionProvider(rawProvider);
   if (claudeSessionId && provider !== 'claude') {
@@ -66,7 +68,7 @@ export function buildSessionLaunch({
   }
 
   const tempPaths = [];
-  const mcpUrl = port === null ? null : `http://127.0.0.1:${port}/mcp/${sessionId}`;
+  const mcpUrl = enablePatrolMcp && port !== null ? `http://127.0.0.1:${port}/mcp/${sessionId}` : null;
   let commandArgs;
   let claudeProjectDir = null;
 
@@ -85,6 +87,7 @@ export function buildSessionLaunch({
       commandArgs.push('--append-system-prompt-file', promptFile);
       commandArgs.push('--allowedTools', 'mcp__patrol__*', 'Bash', 'Read', 'Edit', 'Write', 'Glob', 'Grep', 'Agent');
     }
+    if (initialPrompt) commandArgs.push(initialPrompt);
   } else {
     commandArgs = ['codex', '-C', cwd];
     if (mcpUrl) {
@@ -99,6 +102,7 @@ export function buildSessionLaunch({
         `developer_instructions=${JSON.stringify(patrolPrompt)}`,
       );
     }
+    if (initialPrompt) commandArgs.push(initialPrompt);
   }
 
   return {

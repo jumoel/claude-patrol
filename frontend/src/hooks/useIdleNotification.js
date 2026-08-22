@@ -1,30 +1,28 @@
 import { useCallback, useEffect, useSyncExternalStore } from 'react';
 import { subscribeAppEvent } from '../lib/event-stream.js';
+import { sessionTargetKey } from '../lib/session-target.js';
 
 /**
- * Tracks session activity state (working/idle) per workspace via SSE.
- * Fires browser notifications when a session goes idle and the tab is hidden.
+ * Tracks session activity state per workspace or work item via SSE.
  *
- * workspaceStates always reflects the true backend state.
- * dismissedIdle tracks workspaces whose idle state the user has already seen,
- * so the UI can downgrade "Waiting" to "Session" after acknowledgment.
+ * targetStates always reflects the true backend state.
+ * dismissedIdle tracks targets whose idle state the user has already seen,
+ * so the UI can downgrade "Waiting" to "Idle" after acknowledgment.
  *
  * @returns {{
- *   workspaceStates: Map<string, 'working' | 'idle'>,
+ *   targetStates: Map<string, 'working' | 'idle'>,
  *   dismissedIdle: Set<string>,
- *   dismissWorkspace: (workspaceId: string) => void,
- *   setActiveWorkspace: (workspaceId: string | null) => void,
+ *   dismissTarget: (target: import('../types').SessionTarget) => void,
+ *   setActiveTarget: (target: import('../types').SessionTarget | null) => void,
  *   localChangeCount: number,
  * }}
  */
 
 // Module-level state shared across all hook instances.
 /** @type {Map<string, 'working' | 'idle'>} */
-let workspaceStates = new Map();
-/** @type {Set<string>} workspaceIds whose idle state was acknowledged */
+let targetStates = new Map();
+/** @type {Set<string>} target keys whose idle state was acknowledged */
 let dismissedIdle = new Set();
-/** @type {Map<string, string | null>} sessionId → workspaceId */
-const sessionWorkspaceMap = new Map();
 /** Monotonic counter incremented on each local-change SSE event. */
 let localChangeCount = 0;
 
@@ -39,7 +37,7 @@ function subscribe(cb) {
   return () => listeners.delete(cb);
 }
 
-let statesSnapshot = workspaceStates;
+let statesSnapshot = targetStates;
 let dismissedSnapshot = dismissedIdle;
 function getStatesSnapshot() {
   return statesSnapshot;
@@ -60,11 +58,10 @@ function startSSE() {
 
   // Clear stale state on reconnect.
   const onOpen = subscribeAppEvent('open', () => {
-    if (workspaceStates.size > 0 || dismissedIdle.size > 0) {
-      workspaceStates = new Map();
+    if (targetStates.size > 0 || dismissedIdle.size > 0) {
+      targetStates = new Map();
       dismissedIdle = new Set();
-      sessionWorkspaceMap.clear();
-      statesSnapshot = workspaceStates;
+      statesSnapshot = targetStates;
       dismissedSnapshot = dismissedIdle;
       notify();
     }
@@ -76,21 +73,28 @@ function startSSE() {
   });
 
   const onSessionState = subscribeAppEvent('session-state', (event) => {
-    /** @type {{sessionId: string, workspaceId: string | null, state: 'working' | 'idle' | 'exited'}} */
-    const { sessionId, workspaceId, state } = JSON.parse(event.data);
+    /** @type {{sessionId: string, target: import('../types').SessionTarget, state: 'working' | 'idle' | 'exited'}} */
+    let payload;
+    try {
+      payload = JSON.parse(event.data);
+    } catch {
+      return;
+    }
+    const { target, state } = payload;
+    if (!['working', 'idle', 'exited'].includes(state)) return;
+    const targetKey = sessionTargetKey(target);
 
     if (state === 'exited') {
-      sessionWorkspaceMap.delete(sessionId);
       let changed = false;
-      if (workspaceId && workspaceStates.has(workspaceId)) {
-        workspaceStates = new Map(workspaceStates);
-        workspaceStates.delete(workspaceId);
-        statesSnapshot = workspaceStates;
+      if (targetKey && targetStates.has(targetKey)) {
+        targetStates = new Map(targetStates);
+        targetStates.delete(targetKey);
+        statesSnapshot = targetStates;
         changed = true;
       }
-      if (workspaceId && dismissedIdle.has(workspaceId)) {
+      if (targetKey && dismissedIdle.has(targetKey)) {
         dismissedIdle = new Set(dismissedIdle);
-        dismissedIdle.delete(workspaceId);
+        dismissedIdle.delete(targetKey);
         dismissedSnapshot = dismissedIdle;
         changed = true;
       }
@@ -98,23 +102,22 @@ function startSSE() {
       return;
     }
 
-    sessionWorkspaceMap.set(sessionId, workspaceId);
-    if (!workspaceId) return;
+    if (!targetKey) return;
 
     let changed = false;
 
-    if (workspaceStates.get(workspaceId) !== state) {
-      workspaceStates = new Map(workspaceStates);
-      workspaceStates.set(workspaceId, state);
-      statesSnapshot = workspaceStates;
+    if (targetStates.get(targetKey) !== state) {
+      targetStates = new Map(targetStates);
+      targetStates.set(targetKey, state);
+      statesSnapshot = targetStates;
       changed = true;
     }
 
-    // When a workspace goes back to working, clear its dismissal
+    // When a target goes back to working, clear its dismissal
     // so the next idle shows "Waiting" fresh.
-    if (state === 'working' && dismissedIdle.has(workspaceId)) {
+    if (state === 'working' && dismissedIdle.has(targetKey)) {
       dismissedIdle = new Set(dismissedIdle);
-      dismissedIdle.delete(workspaceId);
+      dismissedIdle.delete(targetKey);
       dismissedSnapshot = dismissedIdle;
       changed = true;
     }
@@ -129,25 +132,27 @@ function stopSSE() {
   sseUnsubscribers = [];
 }
 
-export function useIdleNotification() {
+export function useIdleNotification(enabled = true) {
   useEffect(() => {
+    if (!enabled) return undefined;
     refCount++;
     startSSE();
     return () => {
       refCount--;
       if (refCount === 0) stopSSE();
     };
-  }, []);
+  }, [enabled]);
 
   const states = useSyncExternalStore(subscribe, getStatesSnapshot);
   const dismissed = useSyncExternalStore(subscribe, getDismissedSnapshot);
   const localChanges = useSyncExternalStore(subscribe, getLocalChangeSnapshot);
 
-  const dismissWorkspace = useCallback(
-    /** @param {string} workspaceId */ (workspaceId) => {
-      if (workspaceId && workspaceStates.get(workspaceId) === 'idle' && !dismissedIdle.has(workspaceId)) {
+  const dismissTarget = useCallback(
+    /** @param {import('../types').SessionTarget} target */ (target) => {
+      const targetKey = sessionTargetKey(target);
+      if (targetKey && targetStates.get(targetKey) === 'idle' && !dismissedIdle.has(targetKey)) {
         dismissedIdle = new Set(dismissedIdle);
-        dismissedIdle.add(workspaceId);
+        dismissedIdle.add(targetKey);
         dismissedSnapshot = dismissedIdle;
         notify();
       }
@@ -155,19 +160,19 @@ export function useIdleNotification() {
     [],
   );
 
-  const setActiveWorkspace = useCallback(
-    /** @param {string | null} wsId */
-    (wsId) => {
-      if (wsId) dismissWorkspace(wsId);
+  const setActiveTarget = useCallback(
+    /** @param {import('../types').SessionTarget | null} target */
+    (target) => {
+      if (target) dismissTarget(target);
     },
-    [dismissWorkspace],
+    [dismissTarget],
   );
 
   return {
-    workspaceStates: states,
+    targetStates: states,
     dismissedIdle: dismissed,
-    dismissWorkspace,
-    setActiveWorkspace,
+    dismissTarget,
+    setActiveTarget,
     localChangeCount: localChanges,
   };
 }

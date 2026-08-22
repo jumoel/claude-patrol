@@ -3,7 +3,7 @@ import { emitLocalChange } from './app-events.js';
 import {
   configEvents,
   ensureConfig,
-  isConfigured,
+  isPollConfigured,
   loadConfig,
   setCurrentConfig,
   unwatchConfig,
@@ -26,7 +26,8 @@ import { createServer } from './server.js';
 import { validateStartup } from './startup.js';
 import { destroyTui, initTui, setHeader } from './tui.js';
 import { startUpdateChecks, stopUpdateChecks } from './update-check.js';
-import { inspectWorkspaceState, pruneStaleComposeStacks } from './workspace.js';
+import { recoverInterruptedWorkItems } from './work-items.js';
+import { inspectWorkspaceState, pruneStaleComposeStacks, recoverInterruptedWorkspaceOperations } from './workspace.js';
 
 /**
  * Start the claude-patrol server.
@@ -63,17 +64,20 @@ export async function startServer(options = {}) {
 
   console.log('[claude-patrol] Starting up...');
 
+  const config = loadConfig();
   try {
-    await validateStartup();
+    await validateStartup(config);
   } catch (err) {
     console.error(`[claude-patrol] ${err.message}`);
     process.exit(1);
   }
-
-  const config = loadConfig();
   setCurrentConfig(config);
   initDb(config.db_path);
 
+  const interruptedWorkspaces = recoverInterruptedWorkspaceOperations();
+  if (interruptedWorkspaces.length > 0) {
+    console.warn(`[claude-patrol] Recovered ${interruptedWorkspaces.length} interrupted workspace operation(s)`);
+  }
   const workspaceIssues = inspectWorkspaceState();
   if (workspaceIssues.length > 0) {
     console.warn(
@@ -91,6 +95,10 @@ export async function startServer(options = {}) {
     const count = reattachOrphanedSessions();
     if (count > 0) console.log(`[claude-patrol] Reattached ${count} surviving session(s)`);
   }
+  const interruptedWorkItems = recoverInterruptedWorkItems();
+  if (interruptedWorkItems.length > 0) {
+    console.warn(`[claude-patrol] Recovered ${interruptedWorkItems.length} interrupted work-item operation(s)`);
+  }
 
   // Tear down compose stacks orphaned by past workspace destroys. Runs in the
   // background so a slow docker daemon doesn't delay startup.
@@ -104,11 +112,15 @@ export async function startServer(options = {}) {
     .catch((err) => console.warn(`[claude-patrol] Stale compose prune failed: ${err.message}`));
 
   let pollerRunning = false;
-  if (isConfigured(config)) {
+  if (isPollConfigured(config)) {
     startPoller(config);
     pollerRunning = true;
   } else {
-    console.log('[claude-patrol] No poll targets configured - skipping poller (setup mode)');
+    console.log(
+      config.work_items
+        ? '[claude-patrol] No poll targets configured - work-item mode remains available'
+        : '[claude-patrol] No poll targets configured - skipping poller (setup mode)',
+    );
   }
   startHealthChecks();
   startUpdateChecks();
@@ -158,7 +170,9 @@ export async function startServer(options = {}) {
     );
     const headerMsg = pollTargets
       ? `${serverUrl}  |  polling ${pollTargets} every ${config.poll.interval_seconds}s`
-      : `${serverUrl}  |  setup mode - open browser to configure`;
+      : config.work_items
+        ? `${serverUrl}  |  work items enabled`
+        : `${serverUrl}  |  setup mode - open browser to configure`;
     initTui({
       header: headerMsg,
       footer: '[space] open browser  [ctrl-c] quit',
@@ -182,7 +196,7 @@ export async function startServer(options = {}) {
   configEvents.on('change', (newConfig) => {
     setCurrentConfig(newConfig);
     resetStatements();
-    if (isConfigured(newConfig)) {
+    if (isPollConfigured(newConfig)) {
       console.log(`Config changed, ${pollerRunning ? 'restarting' : 'starting'} poller`);
       startPoller(newConfig);
       pollerRunning = true;
@@ -201,7 +215,13 @@ export async function startServer(options = {}) {
         ...newConfig.poll.orgs.map((o) => `org:${o}`),
         ...newConfig.poll.repos.map((r) => `repo:${r}`),
       ].join(', ');
-      setHeader(`${serverUrl}  |  polling ${targets} every ${newConfig.poll.interval_seconds}s`);
+      setHeader(
+        targets
+          ? `${serverUrl}  |  polling ${targets} every ${newConfig.poll.interval_seconds}s`
+          : newConfig.work_items
+            ? `${serverUrl}  |  work items enabled`
+            : `${serverUrl}  |  setup mode - open browser to configure`,
+      );
     }
   });
 

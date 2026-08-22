@@ -72,15 +72,15 @@ function StatLabel({ value, children }) {
 
 /**
  * Summary stats bar above the PR table.
- * @param {{ prCount: number, onOpenGlobalTerminal?: () => void, changeToken?: number }} props
+ * @param {{ prCount: number, pollConfigured: boolean, workItems: import('../../types').WorkItemListItem[], onOpenGlobalTerminal?: () => void, changeToken?: number }} props
  */
-export function DashboardSummary({ prCount, onOpenGlobalTerminal, changeToken }) {
+export function DashboardSummary({ prCount, pollConfigured, workItems, onOpenGlobalTerminal, changeToken }) {
   const [workspaces, setWorkspaces] = useState(/** @type {import('../../types').Workspace[]} */ ([]));
   const [sessions, setSessions] = useState(/** @type {import('../../types').Session[]} */ ([]));
   const [ruleErrors, setRuleErrors] = useState(/** @type {import('../../types').RuleLoadError[]} */ ([]));
   const [ruleDefs, setRuleDefs] = useState(/** @type {import('../../types').RuleDefinition[]} */ ([]));
   const tasks = useTasks();
-  const ruleRuns = useRuleRuns();
+  const ruleRuns = useRuleRuns(pollConfigured);
 
   useEffect(() => {
     void changeToken;
@@ -90,16 +90,22 @@ export function DashboardSummary({ prCount, onOpenGlobalTerminal, changeToken })
     fetchSessions()
       .then(setSessions)
       .catch(() => {});
-    fetchRules()
-      .then((data) => {
-        setRuleDefs(data.rules || []);
-        setRuleErrors(data.errors || []);
-      })
-      .catch(() => {});
-  }, [changeToken]);
+    if (pollConfigured) {
+      fetchRules()
+        .then((data) => {
+          setRuleDefs(data.rules || []);
+          setRuleErrors(data.errors || []);
+        })
+        .catch(() => {});
+    } else {
+      setRuleDefs([]);
+      setRuleErrors([]);
+    }
+  }, [changeToken, pollConfigured]);
 
   // Build a workspace_id -> workspace lookup for session labels
   const wsById = Object.fromEntries(workspaces.map((ws) => [ws.id, ws]));
+  const workItemById = Object.fromEntries(workItems.map((item) => [item.id, item]));
 
   const runningTasks = tasks.filter((t) => t.status === 'running').length;
   const taskLabel =
@@ -175,9 +181,24 @@ export function DashboardSummary({ prCount, onOpenGlobalTerminal, changeToken })
   return (
     <Box px={4} py={2} border rounded="lg" bg="white" className={styles.bar}>
       <Stack gap={3}>
-        <span className={styles.stat}>
-          <StatLabel value={prCount}>open PRs</StatLabel>
-        </span>
+        {pollConfigured && (
+          <>
+            <span className={styles.stat}>
+              <StatLabel value={prCount}>open PRs</StatLabel>
+            </span>
+            <span className={styles.divider} />
+          </>
+        )}
+        <StatDropdown
+          label={<StatLabel value={workItems.length}>Work items</StatLabel>}
+          items={workItems}
+          renderItem={(item) => (
+            <a key={item.id} className={styles.dropdownItem} href={`#/work-item/${item.id}`}>
+              <span className={styles.itemName}>{item.title || item.reference}</span>
+              <span className={styles.itemDetail}>{item.repositories.join(', ') || 'Resolving repositories'}</span>
+            </a>
+          )}
+        />
         <span className={styles.divider} />
         <StatDropdown
           label={<StatLabel value={workspaces.length}>active workspaces</StatLabel>}
@@ -198,10 +219,17 @@ export function DashboardSummary({ prCount, onOpenGlobalTerminal, changeToken })
           items={sessions}
           renderItem={(sess) => {
             const ws = sess.workspace_id ? wsById[sess.workspace_id] : null;
-            const label = ws ? ws.name : 'Global session';
+            const workItem = sess.work_item_id ? workItemById[sess.work_item_id] : null;
+            const label = workItem ? workItem.title || workItem.reference : ws ? ws.name : 'Global session';
             const provider = sess.provider === 'codex' ? 'Codex' : 'Claude';
             const detail = `${provider} - PID ${sess.pid} - started ${new Date(sess.started_at).toLocaleTimeString()}`;
-            const href = ws ? (ws.pr_id ? `#/pr/${encodeURIComponent(ws.pr_id)}` : `#/workspace/${ws.id}`) : null;
+            const href = workItem
+              ? `#/work-item/${workItem.id}`
+              : ws
+                ? ws.pr_id
+                  ? `#/pr/${encodeURIComponent(ws.pr_id)}`
+                  : `#/workspace/${ws.id}`
+                : null;
             if (!href) {
               return (
                 <a

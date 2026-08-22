@@ -1,9 +1,11 @@
 import { randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, readdirSync, rmSync, symlinkSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, realpathSync, rmSync, symlinkSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
-import { dirname, resolve } from 'node:path';
+import { dirname, isAbsolute, relative, resolve } from 'node:path';
 import { emitLocalChange } from './app-events.js';
 import { getDb } from './db.js';
+import { killSessionAndWait } from './pty-manager.js';
+import { sanitizePublicText, sanitizeWorkspaceWarnings } from './public-errors.js';
 import { runTask } from './tasks.js';
 import { archiveTranscript } from './transcripts.js';
 import { execFile, expandPath, toClaudeProjectKey } from './utils.js';
@@ -34,6 +36,108 @@ async function ensureJjInit(repoPath) {
 
 /** @type {Map<string, Promise<unknown>>} */
 const workspaceLocks = new Map();
+
+function workspaceError(code, message) {
+  const error = new Error(message);
+  error.code = code;
+  return error;
+}
+
+function inTransaction(db, fn) {
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const result = fn();
+    db.exec('COMMIT');
+    return result;
+  } catch (error) {
+    db.exec('ROLLBACK');
+    throw error;
+  }
+}
+
+function reserveWorkspaceRow(workspace) {
+  const db = getDb();
+  inTransaction(db, () => {
+    const conflict = db
+      .prepare(
+        `SELECT id FROM workspaces
+         WHERE repo = ? AND bookmark = ? AND status = 'active'
+         LIMIT 1`,
+      )
+      .get(workspace.repo, workspace.bookmark);
+    if (conflict) {
+      throw workspaceError(
+        'workspace_conflict',
+        `Active workspace ${conflict.id} already owns ${workspace.repo} bookmark ${workspace.bookmark}`,
+      );
+    }
+    const claim = db
+      .prepare('SELECT workspace_id FROM workspace_claims WHERE repo = ? AND bookmark = ?')
+      .get(workspace.repo, workspace.bookmark);
+    if (claim) {
+      throw workspaceError(
+        'workspace_busy',
+        `Workspace operation ${claim.workspace_id} already owns ${workspace.repo} bookmark ${workspace.bookmark}`,
+      );
+    }
+    db.prepare(
+      `INSERT INTO workspaces (
+        id, pr_id, work_item_id, name, path, bookmark, repo, status, created_at,
+        operation_state, operation_step, operation_updated_at, start_revision, base_commit,
+        setup_warnings_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, 'creating', 'create:reserved', ?, ?, ?, ?)`,
+    ).run(
+      workspace.id,
+      workspace.prId ?? null,
+      workspace.workItemId ?? null,
+      workspace.name,
+      workspace.path,
+      workspace.bookmark,
+      workspace.repo,
+      workspace.now,
+      workspace.now,
+      workspace.startRevision ?? null,
+      workspace.baseCommit ?? null,
+      JSON.stringify([]),
+    );
+    db.prepare(
+      `INSERT INTO workspace_claims (repo, bookmark, workspace_id, operation, created_at)
+       VALUES (?, ?, ?, 'create', ?)`,
+    ).run(workspace.repo, workspace.bookmark, workspace.id, workspace.now);
+  });
+}
+
+function finishWorkspaceOperation(id, state, step, error, extra = {}) {
+  const db = getDb();
+  inTransaction(db, () => {
+    updateWorkspaceOperation(id, state, step, error, extra);
+    db.prepare('DELETE FROM workspace_claims WHERE workspace_id = ?').run(id);
+  });
+}
+
+function claimWorkspaceForDestroy(workspace) {
+  const db = getDb();
+  inTransaction(db, () => {
+    const current = db
+      .prepare('SELECT workspace_id FROM workspace_claims WHERE repo = ? AND bookmark = ?')
+      .get(workspace.repo, workspace.bookmark);
+    if (current && current.workspace_id !== workspace.id) {
+      throw workspaceError(
+        'workspace_busy',
+        `Another workspace operation owns ${workspace.repo} ${workspace.bookmark}`,
+      );
+    }
+    if (!current) {
+      db.prepare(
+        `INSERT INTO workspace_claims (repo, bookmark, workspace_id, operation, created_at)
+         VALUES (?, ?, ?, 'destroy', ?)`,
+      ).run(workspace.repo, workspace.bookmark, workspace.id, new Date().toISOString());
+    } else {
+      db.prepare("UPDATE workspace_claims SET operation = 'destroy' WHERE workspace_id = ?").run(workspace.id);
+    }
+    updateWorkspaceOperation(workspace.id, 'destroying', 'destroy:reserved');
+  });
+}
 
 function isAlreadyForgotten(error) {
   if (error?.code === 'ENOENT') return false;
@@ -81,6 +185,35 @@ export function inspectWorkspaceState() {
     }
   }
   return issues;
+}
+
+/** Convert abandoned process-owned operations into explicit retryable errors. */
+export function recoverInterruptedWorkspaceOperations() {
+  const db = getDb();
+  const interrupted = db
+    .prepare(
+      "SELECT id, operation_state, operation_step FROM workspaces WHERE operation_state IN ('creating', 'destroying')",
+    )
+    .all();
+  if (interrupted.length === 0) return [];
+  inTransaction(db, () => {
+    const now = new Date().toISOString();
+    const update = db.prepare(
+      `UPDATE workspaces
+       SET operation_state = 'error', operation_error = ?, operation_updated_at = ?
+       WHERE id = ?`,
+    );
+    const release = db.prepare('DELETE FROM workspace_claims WHERE workspace_id = ?');
+    for (const workspace of interrupted) {
+      update.run(
+        sanitizePublicText(`Interrupted during ${workspace.operation_step ?? workspace.operation_state}`),
+        now,
+        workspace.id,
+      );
+      release.run(workspace.id);
+    }
+  });
+  return interrupted;
 }
 
 /**
@@ -140,23 +273,24 @@ export async function createWorkspace(prId, config) {
   const mainRepoPath = resolve(expandPath(config.work_dir), pr.org, pr.repo);
   const now = new Date().toISOString();
 
-  return withWorkspaceLock(`pr:${prId}`, async () => {
-    // Insert inside the lock so the row only becomes visible after we hold it.
-    // Unique index on (pr_id) WHERE status='active' still guards against
-    // concurrent creates for the same PR.
-    try {
-      db.prepare(
-        `INSERT INTO workspaces
-          (id, pr_id, name, path, bookmark, status, created_at, operation_state, operation_step, operation_updated_at)
-         VALUES (?, ?, ?, ?, ?, 'active', ?, 'creating', 'create:reserved', ?)`,
-      ).run(id, prId, name, workspacePath, pr.branch, now, now);
-    } catch (err) {
-      if (err.message.includes('UNIQUE')) {
-        throw new Error(`Active workspace already exists for ${prId}`);
-      }
-      throw err;
-    }
+  try {
+    reserveWorkspaceRow({
+      id,
+      prId,
+      name,
+      path: workspacePath,
+      bookmark: pr.branch,
+      repo: `${pr.org}/${pr.repo}`,
+      now,
+      startRevision: pr.branch,
+    });
+  } catch (error) {
+    if (error.message.includes('UNIQUE'))
+      throw workspaceError('workspace_conflict', `Active workspace already exists for ${prId}`);
+    throw error;
+  }
 
+  return withWorkspaceLock(id, async () => {
     try {
       await runTask(
         {
@@ -181,23 +315,30 @@ export async function createWorkspace(prId, config) {
             mainRepoPath,
           ]);
           updateWorkspaceOperation(id, 'creating', 'create:post_setup');
-          await runPostCreateSetup(workspacePath, mainRepoPath, name, config, `${pr.org}/${pr.repo}`);
+          const warnings = await runPostCreateSetup(workspacePath, mainRepoPath, name, config, `${pr.org}/${pr.repo}`);
+          const safeWarnings = sanitizeWorkspaceWarnings(warnings);
+          db.prepare('UPDATE workspaces SET setup_warnings_json = ? WHERE id = ?').run(
+            JSON.stringify(safeWarnings),
+            id,
+          );
+          return { warnings: safeWarnings };
         },
       );
     } catch (err) {
-      await rollbackWorkspace({
+      await compensateWorkspaceCreation({
         id,
         name,
         workspacePath,
         mainRepoPath,
         repo: `${pr.org}/${pr.repo}`,
         error: err,
+        deleteBookmark: false,
       });
       emitLocalChange();
-      throw new Error(`Workspace creation failed: ${err.message}`);
+      throw workspaceError('workspace_create_failed', `Workspace creation failed: ${sanitizePublicText(err.message)}`);
     }
 
-    updateWorkspaceOperation(id, 'ready', 'create:complete');
+    finishWorkspaceOperation(id, 'ready', 'create:complete', null);
     return db.prepare('SELECT * FROM workspaces WHERE id = ?').get(id);
   });
 }
@@ -228,20 +369,9 @@ export async function createScratchWorkspace(repo, branch, config, { startRevisi
     throw new Error(`Main repo does not exist: ${mainRepoPath}`);
   }
 
-  return withWorkspaceLock(`scratch:${repo}:${branch}`, async () => {
-    try {
-      db.prepare(
-        `INSERT INTO workspaces
-          (id, pr_id, name, path, bookmark, repo, status, created_at, operation_state, operation_step, operation_updated_at)
-         VALUES (?, NULL, ?, ?, ?, ?, 'active', ?, 'creating', 'create:reserved', ?)`,
-      ).run(id, name, workspacePath, branch, repo, now, now);
-    } catch (err) {
-      if (err.message.includes('UNIQUE')) {
-        throw new Error(`Active scratch workspace already exists for ${branch}`);
-      }
-      throw err;
-    }
+  reserveWorkspaceRow({ id, name, path: workspacePath, bookmark: branch, repo, now, startRevision });
 
+  return withWorkspaceLock(id, async () => {
     try {
       await runTask(
         {
@@ -267,24 +397,146 @@ export async function createScratchWorkspace(repo, branch, config, { startRevisi
           ]);
 
           // Create bookmark for the branch (non-fatal - may already exist)
+          const warnings = [];
           try {
             await execFile('jj', ['bookmark', 'create', branch, '-R', workspacePath]);
           } catch (err) {
-            console.warn(`[workspace] Bookmark create failed (may already exist): ${err.message}`);
+            warnings.push(`Bookmark create failed: ${err.message}`);
           }
 
           updateWorkspaceOperation(id, 'creating', 'create:post_setup');
-          await runPostCreateSetup(workspacePath, mainRepoPath, name, config, repo);
+          warnings.push(...(await runPostCreateSetup(workspacePath, mainRepoPath, name, config, repo)));
+          const safeWarnings = sanitizeWorkspaceWarnings(warnings);
+          db.prepare('UPDATE workspaces SET setup_warnings_json = ? WHERE id = ?').run(
+            JSON.stringify(safeWarnings),
+            id,
+          );
+          return { warnings: safeWarnings };
         },
       );
     } catch (err) {
-      await rollbackWorkspace({ id, name, workspacePath, mainRepoPath, repo, error: err });
+      await compensateWorkspaceCreation({
+        id,
+        name,
+        workspacePath,
+        mainRepoPath,
+        repo,
+        error: err,
+        deleteBookmark: false,
+      });
       emitLocalChange();
-      throw new Error(`Workspace creation failed: ${err.message}`);
+      throw workspaceError('workspace_create_failed', `Workspace creation failed: ${sanitizePublicText(err.message)}`);
     }
 
-    updateWorkspaceOperation(id, 'ready', 'create:complete');
+    finishWorkspaceOperation(id, 'ready', 'create:complete', null);
     return db.prepare('SELECT * FROM workspaces WHERE id = ?').get(id);
+  });
+}
+
+export function sourceRepositoryPath(repo, config) {
+  const [owner, name, extra] = String(repo).split('/');
+  if (!owner || !name || extra) throw workspaceError('invalid_repository', `Invalid repository identifier: ${repo}`);
+  let workDir;
+  let source;
+  try {
+    workDir = realpathSync(expandPath(config.work_dir));
+    source = realpathSync(resolve(workDir, owner, name));
+  } catch {
+    throw workspaceError('repository_unavailable', `Configured source repository is unavailable: ${repo}`);
+  }
+  const relation = relative(workDir, source);
+  if (
+    relation === '..' ||
+    relation.startsWith(`..${process.platform === 'win32' ? '\\' : '/'}`) ||
+    isAbsolute(relation)
+  ) {
+    throw workspaceError('unsafe_repository_path', `Configured source repository escapes work_dir: ${repo}`);
+  }
+  if (!existsSync(resolve(source, '.jj'))) {
+    throw workspaceError('jj_required', `Configured source repository is not a jj repository: ${repo}`);
+  }
+  return source;
+}
+
+export async function resolveWorkspaceRevision(repo, revision, config) {
+  const sourcePath = sourceRepositoryPath(repo, config);
+  let stdout;
+  try {
+    ({ stdout } = await execFile(
+      'jj',
+      ['log', '--no-graph', '-r', revision, '-T', 'commit_id ++ "\\n"', '-R', sourcePath],
+      {
+        encoding: 'utf8',
+      },
+    ));
+  } catch (error) {
+    throw workspaceError(
+      'revision_unresolved',
+      sanitizePublicText(`Could not resolve configured revision for ${repo}: ${error.message}`),
+    );
+  }
+  const commits = String(stdout)
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (commits.length !== 1 || !/^[0-9a-f]{40,64}$/i.test(commits[0])) {
+    throw workspaceError('revision_ambiguous', `Configured revision for ${repo} did not resolve to exactly one commit`);
+  }
+  return { sourcePath, commitId: commits[0] };
+}
+
+export async function createWorkItemChild({ id, workItemId, repo, name, workspacePath, bookmark, config }) {
+  const startRevision = config.repos[repo].defaultRevision;
+  const { sourcePath, commitId } = await resolveWorkspaceRevision(repo, startRevision, config);
+  const now = new Date().toISOString();
+  reserveWorkspaceRow({
+    id,
+    workItemId,
+    name,
+    path: workspacePath,
+    bookmark,
+    repo,
+    now,
+    startRevision,
+    baseCommit: commitId,
+  });
+
+  return withWorkspaceLock(id, async () => {
+    let bookmarkCreated = false;
+    try {
+      updateWorkspaceOperation(id, 'creating', 'create:check_bookmark');
+      const { stdout } = await execFile('jj', ['bookmark', 'list', bookmark, '-T', 'name ++ "\\n"', '-R', sourcePath], {
+        encoding: 'utf8',
+      });
+      if (String(stdout).trim()) {
+        throw workspaceError('bookmark_exists', `Bookmark already exists in ${repo}: ${bookmark}`);
+      }
+
+      mkdirSync(dirname(workspacePath), { recursive: true });
+      updateWorkspaceOperation(id, 'creating', 'create:add_workspace');
+      await execFile('jj', ['workspace', 'add', workspacePath, '--name', name, '-r', commitId, '-R', sourcePath]);
+      updateWorkspaceOperation(id, 'creating', 'create:bookmark');
+      await execFile('jj', ['bookmark', 'create', bookmark, '-r', '@', '-R', workspacePath]);
+      bookmarkCreated = true;
+      updateWorkspaceOperation(id, 'creating', 'create:post_setup');
+      const warnings = sanitizeWorkspaceWarnings(
+        await runPostCreateSetup(workspacePath, sourcePath, name, config, repo),
+      );
+      getDb().prepare('UPDATE workspaces SET setup_warnings_json = ? WHERE id = ?').run(JSON.stringify(warnings), id);
+      finishWorkspaceOperation(id, 'ready', 'create:complete', null);
+      return getDb().prepare('SELECT * FROM workspaces WHERE id = ?').get(id);
+    } catch (error) {
+      await compensateWorkspaceCreation({
+        id,
+        name,
+        workspacePath,
+        mainRepoPath: sourcePath,
+        repo,
+        error,
+        deleteBookmark: bookmarkCreated ? bookmark : false,
+      });
+      throw workspaceError(error.code ?? 'setup_failed', sanitizePublicText(error.message));
+    }
   });
 }
 
@@ -418,39 +670,88 @@ export async function pruneStaleComposeStacks(workspaceBasePath) {
  * @param {string} opts.mainRepoPath
  * @param {string} opts.repo
  */
-async function rollbackWorkspace({ id, name, workspacePath, mainRepoPath, repo, error }) {
-  const warnings = [];
-  updateWorkspaceOperation(id, 'creating', 'create:rollback', error?.message ?? String(error));
+async function compensateWorkspaceCreation({ id, name, workspacePath, mainRepoPath, repo, error, deleteBookmark }) {
+  const originalError = sanitizePublicText(error?.message ?? String(error));
+  updateWorkspaceOperation(id, 'creating', 'create:compensation_docker', originalError);
 
-  // Docker compose down before removing the directory (compose file may still be needed)
-  const dockerWarning = await dockerComposeDown(workspacePath).catch((caught) => caught.message);
-  if (dockerWarning) warnings.push(dockerWarning);
+  try {
+    const dockerWarning = await dockerComposeDown(workspacePath);
+    if (dockerWarning) throw new Error(dockerWarning);
+  } catch (caught) {
+    finishWorkspaceOperation(
+      id,
+      'error',
+      'create:compensation_docker',
+      sanitizePublicText(`${originalError}; ${caught.message}`),
+    );
+    return false;
+  }
 
+  updateWorkspaceOperation(id, 'creating', 'create:compensation_forget');
   try {
     await execFile('jj', ['workspace', 'forget', name, '-R', mainRepoPath]);
   } catch (caught) {
-    if (!isAlreadyForgotten(caught)) warnings.push(caught.message);
+    if (!isAlreadyForgotten(caught)) {
+      finishWorkspaceOperation(
+        id,
+        'error',
+        'create:compensation_forget',
+        sanitizePublicText(`${originalError}; ${caught.message}`),
+      );
+      return false;
+    }
   }
 
-  await rm(workspacePath, { recursive: true, force: true }).catch((caught) => warnings.push(caught.message));
+  updateWorkspaceOperation(id, 'creating', 'create:compensation_directory');
+  try {
+    await rm(workspacePath, { recursive: true, force: true });
+  } catch (caught) {
+    finishWorkspaceOperation(
+      id,
+      'error',
+      'create:compensation_directory',
+      sanitizePublicText(`${originalError}; ${caught.message}`),
+    );
+    return false;
+  }
 
+  updateWorkspaceOperation(id, 'creating', 'create:compensation_claude_project');
   try {
     const claudeProjects = expandPath('~/.claude/projects');
-    const wsKey = toClaudeProjectKey(workspacePath);
-    const wsProjectDir = resolve(claudeProjects, wsKey);
-    await rm(wsProjectDir, { recursive: true, force: true });
+    const workspaceKey = toClaudeProjectKey(workspacePath);
+    await rm(resolve(claudeProjects, workspaceKey), { recursive: true, force: true });
   } catch (caught) {
-    warnings.push(caught.message);
+    finishWorkspaceOperation(
+      id,
+      'error',
+      'create:compensation_claude_project',
+      sanitizePublicText(`${originalError}; ${caught.message}`),
+    );
+    return false;
   }
 
-  const message = [error?.message ?? String(error), ...warnings].filter(Boolean).join('; ');
-  const current = getDb().prepare('SELECT pr_id FROM workspaces WHERE id = ?').get(id);
-  updateWorkspaceOperation(id, 'error', 'create:rollback_complete', message, {
-    status: warnings.length > 0 ? 'active' : 'destroyed',
-    destroyed_at: warnings.length > 0 ? null : new Date().toISOString(),
-    pr_id: warnings.length > 0 ? (current?.pr_id ?? null) : null,
+  if (deleteBookmark) {
+    updateWorkspaceOperation(id, 'creating', 'create:compensation_bookmark');
+    try {
+      await execFile('jj', ['bookmark', 'delete', deleteBookmark, '-R', mainRepoPath]);
+    } catch (caught) {
+      finishWorkspaceOperation(
+        id,
+        'error',
+        'create:compensation_bookmark',
+        sanitizePublicText(`${originalError}; ${caught.message}`),
+      );
+      return false;
+    }
+  }
+
+  finishWorkspaceOperation(id, 'destroyed', 'create:compensated', originalError, {
+    status: 'destroyed',
+    destroyed_at: new Date().toISOString(),
+    pr_id: null,
     repo,
   });
+  return true;
 }
 
 /**
@@ -464,6 +765,7 @@ async function rollbackWorkspace({ id, name, workspacePath, mainRepoPath, repo, 
  */
 async function runPostCreateSetup(workspacePath, mainRepoPath, name, config, repoKey) {
   const repoConfig = config.repos?.[repoKey] || {};
+  const warnings = [];
 
   if (config.symlink_memory) {
     symlinkMemory(workspacePath, mainRepoPath);
@@ -478,10 +780,11 @@ async function runPostCreateSetup(workspacePath, mainRepoPath, name, config, rep
       try {
         await execFile('/bin/sh', ['-c', cmd], { cwd: workspacePath, timeout: 120_000 });
       } catch (err) {
-        console.warn(`[workspace] Init command failed in ${name}: ${cmd} - ${err.message}`);
+        warnings.push(`Init command failed in ${name}: ${err.message}`);
       }
     }
   }
+  return warnings;
 }
 
 /**
@@ -542,10 +845,25 @@ function symlinkMemory(workspacePath, mainRepoPath) {
  * @returns {Promise<{ok: boolean, warnings: string[]}>}
  */
 export async function destroyWorkspace(workspaceId, config) {
-  return withWorkspaceLock(workspaceId, () => destroyWorkspaceLocked(workspaceId, config));
+  const workspace = getDb().prepare('SELECT work_item_id FROM workspaces WHERE id = ?').get(workspaceId);
+  if (workspace?.work_item_id) {
+    throw workspaceError(
+      'work_item_child_managed',
+      'Work-item child workspaces can only be removed through their work item',
+    );
+  }
+  return destroyWorkspaceInternal(workspaceId, config, { deleteBookmark: false });
 }
 
-async function destroyWorkspaceLocked(workspaceId, config) {
+export async function destroyWorkItemChild(workspaceId, config, { deleteBookmark = false, runExec = execFile } = {}) {
+  return destroyWorkspaceInternal(workspaceId, config, { deleteBookmark, runExec });
+}
+
+async function destroyWorkspaceInternal(workspaceId, config, { deleteBookmark, runExec = execFile }) {
+  return withWorkspaceLock(workspaceId, () => destroyWorkspaceLocked(workspaceId, config, { deleteBookmark, runExec }));
+}
+
+async function destroyWorkspaceLocked(workspaceId, config, { deleteBookmark, runExec }) {
   const db = getDb();
   const workspace = db.prepare('SELECT * FROM workspaces WHERE id = ?').get(workspaceId);
   if (!workspace) {
@@ -558,8 +876,6 @@ async function destroyWorkspaceLocked(workspaceId, config) {
     return { ok: true, warnings: [] };
   }
 
-  const warnings = [];
-  // Derive repo path from PR data or scratch workspace repo column
   let mainRepoPath;
   let workspaceRepo = workspace.repo;
   if (workspace.pr_id) {
@@ -567,16 +883,14 @@ async function destroyWorkspaceLocked(workspaceId, config) {
     if (pr) workspaceRepo = `${pr.org}/${pr.repo}`;
     mainRepoPath = pr ? resolve(expandPath(config.work_dir), pr.org, pr.repo) : expandPath(config.work_dir);
   } else if (workspace.repo) {
-    const [org, repoName] = workspace.repo.split('/');
-    mainRepoPath = resolve(expandPath(config.work_dir), org, repoName);
+    mainRepoPath = sourceRepositoryPath(workspace.repo, config);
   } else {
-    mainRepoPath = expandPath(config.work_dir);
+    throw workspaceError('workspace_repository_missing', `Workspace ${workspaceId} has no repository identifier`);
   }
+  workspace.repo = workspaceRepo;
+  db.prepare('UPDATE workspaces SET repo = ? WHERE id = ?').run(workspaceRepo, workspaceId);
 
-  // The public active list filters on operation_state, so this removes the
-  // workspace from the UI immediately while retaining the active uniqueness
-  // guard until every external cleanup step succeeds.
-  updateWorkspaceOperation(workspaceId, 'destroying', 'destroy:reserved');
+  claimWorkspaceForDestroy(workspace);
 
   // Notify clients now so the UI removes the workspace from active lists
   // immediately, instead of waiting for filesystem cleanup (which can take
@@ -598,51 +912,25 @@ async function destroyWorkspaceLocked(workspaceId, config) {
           .prepare("SELECT * FROM sessions WHERE workspace_id = ? AND status IN ('active', 'detached')")
           .all(workspaceId);
         for (const session of sessions) {
-          if (session.pid) {
-            try {
-              process.kill(session.pid, 'SIGTERM');
-              await waitForExit(session.pid, 5000);
-            } catch {
-              try {
-                process.kill(session.pid, 'SIGKILL');
-              } catch {
-                /* already dead */
-              }
-            }
-          }
-          db.prepare("UPDATE sessions SET status = 'killed', ended_at = ? WHERE id = ?").run(
-            new Date().toISOString(),
-            session.id,
-          );
+          await killSessionAndWait(session.id);
         }
 
         // Step 2: Docker compose down if applicable
         updateWorkspaceOperation(workspaceId, 'destroying', 'destroy:docker');
         const dockerWarning = await dockerComposeDown(workspace.path);
-        if (dockerWarning) {
-          warnings.push(dockerWarning);
-        }
+        if (dockerWarning) throw workspaceError('docker_cleanup_failed', dockerWarning);
 
         // Step 3: jj workspace forget
         updateWorkspaceOperation(workspaceId, 'destroying', 'destroy:forget_workspace');
         try {
-          await execFile('jj', ['workspace', 'forget', workspace.name, '-R', mainRepoPath]);
+          await runExec('jj', ['workspace', 'forget', workspace.name, '-R', mainRepoPath]);
         } catch (err) {
           if (!isAlreadyForgotten(err)) {
-            warnings.push(`jj workspace forget failed: ${err.message}`);
+            throw workspaceError('workspace_forget_failed', `jj workspace forget failed: ${err.message}`);
           }
         }
 
-        // Step 4: Remove workspace directory (async - can take seconds for large
-        // trees like node_modules, so we must not block the event loop here)
-        updateWorkspaceOperation(workspaceId, 'destroying', 'destroy:directory');
-        try {
-          await rm(workspace.path, { recursive: true, force: true });
-        } catch (err) {
-          warnings.push(`Directory cleanup failed: ${err.message}`);
-        }
-
-        // Step 4.5: Archive session transcripts before Claude folder is deleted
+        // Step 4: Archive session transcripts before removing provider state.
         updateWorkspaceOperation(workspaceId, 'destroying', 'destroy:transcripts');
         const allSessions = db.prepare('SELECT * FROM sessions WHERE workspace_id = ?').all(workspaceId);
         for (const sess of allSessions) {
@@ -650,12 +938,23 @@ async function destroyWorkspaceLocked(workspaceId, config) {
             try {
               archiveTranscript(sess.id, sess.claude_project_dir, sess.started_at, sess.ended_at);
             } catch (err) {
-              warnings.push(`Transcript archive failed for ${sess.id}: ${err.message}`);
+              throw workspaceError(
+                'transcript_archive_failed',
+                `Transcript archive failed for ${sess.id}: ${err.message}`,
+              );
             }
           }
         }
 
-        // Step 5: Clean up Claude project memory symlink
+        // Step 5: Remove the directory only after jj forget succeeded.
+        updateWorkspaceOperation(workspaceId, 'destroying', 'destroy:directory');
+        try {
+          await rm(workspace.path, { recursive: true, force: true });
+        } catch (err) {
+          throw workspaceError('directory_cleanup_failed', `Directory cleanup failed: ${err.message}`);
+        }
+
+        // Step 6: Clean up Claude project memory symlink.
         updateWorkspaceOperation(workspaceId, 'destroying', 'destroy:claude_project');
         try {
           const claudeProjects = expandPath('~/.claude/projects');
@@ -663,52 +962,37 @@ async function destroyWorkspaceLocked(workspaceId, config) {
           const wsProjectDir = resolve(claudeProjects, wsKey);
           await rm(wsProjectDir, { recursive: true, force: true });
         } catch (err) {
-          warnings.push(`Claude memory cleanup failed: ${err.message}`);
+          throw workspaceError('provider_state_cleanup_failed', `Claude memory cleanup failed: ${err.message}`);
         }
 
-        if (warnings.length > 0) {
-          updateWorkspaceOperation(workspaceId, 'error', 'destroy:incomplete', warnings.join('; '));
-        } else {
-          updateWorkspaceOperation(workspaceId, 'destroyed', 'destroy:complete', null, {
-            status: 'destroyed',
-            destroyed_at: new Date().toISOString(),
-            pr_id: null,
-            repo: workspaceRepo,
-          });
+        if (deleteBookmark) {
+          updateWorkspaceOperation(workspaceId, 'destroying', 'destroy:bookmark');
+          try {
+            await runExec('jj', ['bookmark', 'delete', workspace.bookmark, '-R', mainRepoPath]);
+          } catch (error) {
+            throw workspaceError('bookmark_cleanup_failed', `Bookmark cleanup failed: ${error.message}`);
+          }
         }
+
+        finishWorkspaceOperation(workspaceId, 'destroyed', 'destroy:complete', null, {
+          status: 'destroyed',
+          destroyed_at: new Date().toISOString(),
+          pr_id: null,
+          repo: workspaceRepo,
+        });
         emitLocalChange();
-        return { ok: warnings.length === 0, warnings };
+        return { ok: true, warnings: [] };
       },
     );
   } catch (error) {
-    updateWorkspaceOperation(workspaceId, 'error', 'destroy:failed', error.message);
+    const current = db.prepare('SELECT operation_step FROM workspaces WHERE id = ?').get(workspaceId);
+    finishWorkspaceOperation(
+      workspaceId,
+      'error',
+      current?.operation_step ?? 'destroy:failed',
+      sanitizePublicText(error.message),
+    );
     emitLocalChange();
-    throw error;
+    throw workspaceError(error.code ?? 'workspace_cleanup_failed', sanitizePublicText(error.message));
   }
-}
-
-/**
- * Wait for a process to exit, up to a timeout.
- * Note: uses process.kill(pid, 0) polling since we don't have a child process handle.
- * @param {number} pid
- * @param {number} timeoutMs
- * @returns {Promise<void>}
- */
-function waitForExit(pid, timeoutMs) {
-  return new Promise((resolve, reject) => {
-    const start = Date.now();
-    const check = () => {
-      try {
-        process.kill(pid, 0);
-        if (Date.now() - start > timeoutMs) {
-          reject(new Error('timeout'));
-        } else {
-          setTimeout(check, 200);
-        }
-      } catch {
-        resolve();
-      }
-    };
-    check();
-  });
 }

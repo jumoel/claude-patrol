@@ -42,7 +42,7 @@ export function WorkspaceDetail({ workspaceId, onBack, workspaceStates }) {
       const ws = await fetchWorkspace(workspaceId);
       setWorkspace(ws);
       if (ws.status === 'active') {
-        const sessions = await fetchSessions(ws.id);
+        const sessions = await fetchSessions({ type: 'workspace', id: ws.id });
         setSession(sessions[0] || null);
       } else {
         setSession(null);
@@ -64,7 +64,7 @@ export function WorkspaceDetail({ workspaceId, onBack, workspaceStates }) {
     setOpeningSession(true);
     setOpeningError('');
     try {
-      const sess = await apiCreateSession(workspace.id, provider);
+      const sess = await apiCreateSession({ type: 'workspace', id: workspace.id }, provider);
       setSession(sess);
     } catch (err) {
       console.error('Failed to create session:', err);
@@ -167,7 +167,7 @@ export function WorkspaceDetail({ workspaceId, onBack, workspaceStates }) {
               onReattach={handleReattach}
               workspaceId={workspace.id}
               prId={workspace.pr_id || undefined}
-              sessionState={workspaceStates.get(workspace.id)}
+              sessionState={workspaceStates.get(`workspace:${workspace.id}`)}
             />
           ) : (
             <Box p={5} border rounded="lg" bg="white">
@@ -199,7 +199,7 @@ export function WorkspaceDetail({ workspaceId, onBack, workspaceStates }) {
           ))}
 
         {/* Past Sessions */}
-        <SessionHistory key={workspaceId} workspaceId={workspaceId} />
+        <SessionHistory key={workspaceId} target={{ type: 'workspace', id: workspaceId }} />
       </Stack>
     </Box>
   );

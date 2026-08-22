@@ -9,7 +9,64 @@ const CONFIG_PATH = configPath();
 
 const PATH_FIELDS = ['db_path', 'workspace_base_path', 'work_dir', 'global_terminal_cwd'];
 
-const OWNER_REPO_RE = /^[^/]+\/[^/]+$/;
+const OWNER_REPO_RE =
+  /^(?!\.{1,2}\/)(?![^/]+\/\.{1,2}$)[^\s/\\\u0000-\u001f\u007f-\u009f]+\/[^\s/\\\u0000-\u001f\u007f-\u009f]+$/u;
+const MCP_NAME_RE = /^[A-Za-z0-9_-]+$/;
+const MCP_TOOL_RE = /^[A-Za-z0-9_.-]+$/;
+
+function hasAllowedResolverUrl(value) {
+  try {
+    if (value !== value.trim() || /[\u0000-\u001f\u007f-\u009f]/u.test(value)) return false;
+    const url = new URL(value);
+    if (url.username || url.password) return false;
+    if (url.protocol === 'https:') return true;
+    if (url.protocol !== 'http:') return false;
+    const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+    return host === 'localhost' || host === '::1' || host.startsWith('127.');
+  } catch {
+    return false;
+  }
+}
+
+const repoConfigSchema = z
+  .object({
+    symlinks: z.array(z.string()).optional(),
+    initCommands: z.array(z.string()).optional(),
+    defaultRevision: z.string().trim().min(1).optional(),
+  })
+  .strict();
+
+const workItemsSchema = z
+  .object({
+    repositories: z
+      .array(z.string().regex(OWNER_REPO_RE, 'must be "owner/repo" format'))
+      .min(1)
+      .max(32)
+      .refine((items) => new Set(items).size === items.length, 'must contain unique repositories'),
+    resolver: z
+      .object({
+        provider: z.enum(['claude', 'codex']).optional(),
+        server: z
+          .object({
+            name: z.string().min(1).max(64).regex(MCP_NAME_RE),
+            transport: z.literal('http'),
+            url: z.string().refine(hasAllowedResolverUrl, 'must be HTTPS or loopback HTTP'),
+            enabled_tools: z
+              .array(z.string().min(1).max(128).regex(MCP_TOOL_RE))
+              .min(1)
+              .max(16)
+              .refine((items) => new Set(items).size === items.length, 'must contain unique tool names'),
+          })
+          .strict(),
+        instructions: z
+          .string()
+          .trim()
+          .min(1)
+          .refine((value) => Buffer.byteLength(value, 'utf8') <= 16 * 1024, 'must be at most 16 KiB'),
+      })
+      .strict(),
+  })
+  .strict();
 
 export const configSchema = z
   .object({
@@ -19,6 +76,7 @@ export const configSchema = z
     workspace_base_path: z.string().default('~/.claude-patrol/workspaces'),
     work_dir: z.string().default('~/.claude-patrol/workspaces'),
     global_terminal_cwd: z.string().optional(),
+    default_session_provider: z.enum(['claude', 'codex']).default('claude'),
     symlink_memory: z.boolean().default(false),
     poll: z
       .object({
@@ -38,18 +96,25 @@ export const configSchema = z
         concurrency: z.number().int().min(1).max(16).default(2),
       })
       .default({ concurrency: 2 }),
-    repos: z
-      .record(
-        z.string(),
-        z.object({
-          symlinks: z.array(z.string()).optional(),
-          initCommands: z.array(z.string()).optional(),
-        }),
-      )
-      .optional(),
+    repos: z.record(z.string().regex(OWNER_REPO_RE, 'must be "owner/repo" format'), repoConfigSchema).optional(),
+    work_items: workItemsSchema.optional(),
     // pass-through for unknown keys (rules array etc.)
   })
-  .passthrough();
+  .passthrough()
+  .superRefine((config, ctx) => {
+    for (const repo of config.work_items?.repositories ?? []) {
+      const repoConfig = config.repos?.[repo];
+      if (!repoConfig) {
+        ctx.addIssue({ code: 'custom', path: ['work_items', 'repositories'], message: `missing repos.${repo}` });
+      } else if (!repoConfig.defaultRevision) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['repos', repo, 'defaultRevision'],
+          message: 'is required for work-item repositories',
+        });
+      }
+    }
+  });
 
 /**
  * Ensure a config file exists. If not, write a starter template and return false.
@@ -77,8 +142,16 @@ export function ensureConfig(path = CONFIG_PATH) {
  * @param {Record<string, unknown>} cfg
  * @returns {boolean}
  */
+export function isPollConfigured(cfg) {
+  return (cfg?.poll?.orgs?.length ?? 0) > 0 || (cfg?.poll?.repos?.length ?? 0) > 0;
+}
+
+export function isWorkItemsConfigured(cfg) {
+  return Boolean(cfg?.work_items);
+}
+
 export function isConfigured(cfg) {
-  return cfg.poll.orgs.length > 0 || cfg.poll.repos.length > 0;
+  return isPollConfigured(cfg) || isWorkItemsConfigured(cfg);
 }
 
 /**

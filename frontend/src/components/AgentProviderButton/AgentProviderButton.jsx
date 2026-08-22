@@ -32,6 +32,7 @@ const PROVIDERS = [
  *   onClick: () => void,
  *   disabled?: boolean,
  *   providerDisabled?: boolean,
+ *   providerDisabledTitle?: string,
  *   value?: import('../../types').AgentProvider,
  *   dark?: boolean,
  *   active?: boolean,
@@ -47,6 +48,7 @@ export function AgentProviderButton({
   onClick,
   disabled = false,
   providerDisabled = disabled,
+  providerDisabledTitle = 'Provider selection is unavailable',
   value,
   dark = false,
   active = false,
@@ -123,6 +125,7 @@ export function AgentProviderButton({
       }}
     >
       <Button
+        type="button"
         size={size}
         variant={variant}
         dark={dark}
@@ -140,7 +143,7 @@ export function AgentProviderButton({
         aria-haspopup="menu"
         aria-expanded={menuOpen}
         aria-label={`Choose agent provider, currently ${providerName}`}
-        title={providerDisabled ? 'Kill the current session before changing its provider' : 'Choose agent provider'}
+        title={providerDisabled ? providerDisabledTitle : 'Choose agent provider'}
         disabled={providerDisabled}
         onClick={() => setMenuOpen((open) => !open)}
         onKeyDown={(event) => {

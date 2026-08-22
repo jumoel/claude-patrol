@@ -5,11 +5,13 @@ import {
   attachSession,
   createResumedSession,
   createSession,
-  killSession,
+  killSessionAndWait,
   popOutSession,
   reattachSession,
 } from '../pty-manager.js';
+import { sanitizePublicText } from '../public-errors.js';
 import { normalizeSessionProvider } from '../session-launch.js';
+import { sessionTargetFromRow } from '../session-target.js';
 import { runTask } from '../tasks.js';
 import {
   claudeProjectDirForWorkspace,
@@ -18,6 +20,7 @@ import {
   parseTranscript,
 } from '../transcripts.js';
 import { execFile, expandPath, toClaudeProjectKey } from '../utils.js';
+import { WORK_ITEM_INITIAL_PROMPT } from '../work-item-files.js';
 import { createScratchWorkspace } from '../workspace.js';
 
 /**
@@ -25,58 +28,172 @@ import { createScratchWorkspace } from '../workspace.js';
  * @param {import('fastify').FastifyInstance} app
  */
 export function registerSessionRoutes(app) {
-  const { getConfig, getDb } = app.appContext;
+  const { getConfig, getDb, getSessionStates } = app.appContext;
+  const formatSession = (row) => {
+    const workItem = row.work_item_id
+      ? getDb().prepare('SELECT title, reference, path FROM work_items WHERE id = ?').get(row.work_item_id)
+      : null;
+    return {
+      ...row,
+      target: sessionTargetFromRow(row),
+      activity_state: getSessionStates().find((entry) => entry.sessionId === row.id)?.state ?? null,
+      work_item_title: workItem?.title ?? null,
+      work_item_reference: workItem?.reference ?? null,
+      root_path: workItem?.path ?? null,
+    };
+  };
+  const targetError = (reply, code, message, status = 400) =>
+    reply.code(status).send({
+      error: {
+        code,
+        message: sanitizePublicText(message, { maxBytes: 4096 }),
+        detail: null,
+        failed_provider: null,
+        retry_action: null,
+        recovery_actions: [],
+      },
+    });
+
   app.post('/api/sessions', (request, reply) => {
-    const { workspace_id, global: isGlobal } = request.body || {};
+    const { workspace_id, work_item_id, global: isGlobal } = request.body || {};
     let provider;
     try {
-      provider = normalizeSessionProvider(request.body?.provider);
+      provider = request.body?.provider === undefined ? null : normalizeSessionProvider(request.body.provider);
     } catch (error) {
-      return reply.code(400).send({ error: error.message, code: error.code });
+      return targetError(reply, 'invalid_provider', error.message);
     }
     const db = getDb();
 
+    const keys = request.body && typeof request.body === 'object' ? Object.keys(request.body) : [];
+    const targetCount = (workspace_id ? 1 : 0) + (work_item_id ? 1 : 0) + (isGlobal === true ? 1 : 0);
+    if (targetCount !== 1) {
+      return targetError(reply, 'invalid_request', 'Exactly one session target is required');
+    }
+
     let cwd;
-    if (isGlobal) {
+    let target;
+    let sessionOptions = {};
+    if (isGlobal === true) {
+      if (keys.some((key) => !['global', 'provider'].includes(key)) || provider === null) {
+        return targetError(reply, 'invalid_request', 'Global sessions require global: true and provider');
+      }
       cwd = getConfig().global_terminal_cwd || process.cwd();
+      target = { type: 'global' };
     } else if (workspace_id) {
+      if (keys.some((key) => !['workspace_id', 'provider'].includes(key)) || provider === null) {
+        return targetError(reply, 'invalid_request', 'Workspace sessions require workspace_id and provider');
+      }
       const workspace = db
-        .prepare("SELECT * FROM workspaces WHERE id = ? AND status = 'active' AND operation_state = 'ready'")
+        .prepare(
+          "SELECT * FROM workspaces WHERE id = ? AND work_item_id IS NULL AND status = 'active' AND operation_state = 'ready'",
+        )
         .get(workspace_id);
       if (!workspace) {
-        return reply.code(404).send({ error: 'Workspace not found or not active' });
+        const child = db.prepare('SELECT work_item_id FROM workspaces WHERE id = ?').get(workspace_id);
+        if (child?.work_item_id) {
+          return targetError(
+            reply,
+            'work_item_child_managed',
+            'Work-item child workspaces do not have independent sessions',
+            409,
+          );
+        }
+        return targetError(reply, 'invalid_state', 'Workspace not found or not active', 409);
       }
       cwd = workspace.path;
+      target = { type: 'workspace', id: workspace_id };
+    } else if (work_item_id) {
+      if (keys.length !== 1 || provider !== null) {
+        return targetError(reply, 'invalid_request', 'Work-item sessions accept only work_item_id');
+      }
+      const workItem = db.prepare('SELECT * FROM work_items WHERE id = ?').get(work_item_id);
+      if (!workItem) return targetError(reply, 'work_item_not_found', 'Work item not found', 404);
+      if (workItem.state !== 'ready') return targetError(reply, 'invalid_state', 'Work item is not ready', 409);
+      const live = db
+        .prepare("SELECT id FROM sessions WHERE work_item_id = ? AND status IN ('active', 'detached')")
+        .get(work_item_id);
+      if (live) return targetError(reply, 'session_exists', 'A work-item session is already running', 409);
+      provider = workItem.work_provider;
+      cwd = workItem.path;
+      target = { type: 'work_item', id: work_item_id };
+      sessionOptions = {
+        enablePatrolMcp: false,
+        initialPrompt: WORK_ITEM_INITIAL_PROMPT,
+      };
     } else {
-      return reply.code(400).send({ error: 'workspace_id or global: true is required' });
+      return targetError(reply, 'invalid_request', 'Session target is required');
     }
 
     try {
-      const session = createSession(isGlobal ? null : workspace_id, cwd, provider);
+      const session = createSession(target, cwd, provider, sessionOptions);
       emitLocalChange();
       return reply.code(201).send({
-        ...session,
+        ...formatSession(session),
         ws_url: `ws://${request.hostname}/ws/sessions/${session.id}`,
       });
     } catch (err) {
       const status = err.code === 'provider_conflict' ? 409 : 500;
-      return reply.code(status).send({ error: `Failed to create session: ${err.message}`, code: err.code });
+      return targetError(
+        reply,
+        err.code ?? 'session_launch_failed',
+        `Failed to create session: ${err.message}`,
+        status,
+      );
     }
   });
 
-  app.get('/api/sessions', (request) => {
+  app.get('/api/sessions', (request, reply) => {
     const db = getDb();
-    const { workspace_id } = request.query;
+    const { workspace_id, work_item_id, global: isGlobal } = request.query;
+    const filterCount = (workspace_id ? 1 : 0) + (work_item_id ? 1 : 0) + (isGlobal === 'true' ? 1 : 0);
+    if (filterCount > 1) return targetError(reply, 'invalid_request', 'Session filters are mutually exclusive');
     if (workspace_id) {
+      const child = db.prepare('SELECT work_item_id FROM workspaces WHERE id = ?').get(workspace_id);
+      if (child?.work_item_id) {
+        return targetError(
+          reply,
+          'work_item_child_managed',
+          'Work-item child workspaces do not have independent sessions',
+          409,
+        );
+      }
       return db
         .prepare("SELECT * FROM sessions WHERE workspace_id = ? AND status IN ('active', 'detached')")
-        .all(workspace_id);
+        .all(workspace_id)
+        .map(formatSession);
     }
-    return db.prepare("SELECT * FROM sessions WHERE status IN ('active', 'detached')").all();
+    if (work_item_id) {
+      return db
+        .prepare("SELECT * FROM sessions WHERE work_item_id = ? AND status IN ('active', 'detached')")
+        .all(work_item_id)
+        .map(formatSession);
+    }
+    if (isGlobal === 'true') {
+      return db
+        .prepare(
+          "SELECT * FROM sessions WHERE workspace_id IS NULL AND work_item_id IS NULL AND status IN ('active', 'detached')",
+        )
+        .all()
+        .map(formatSession);
+    }
+    return db
+      .prepare(
+        `SELECT s.*
+         FROM sessions s
+         LEFT JOIN workspaces w ON w.id = s.workspace_id
+         WHERE s.status IN ('active', 'detached')
+           AND (s.workspace_id IS NULL OR w.work_item_id IS NULL)`,
+      )
+      .all()
+      .map(formatSession);
   });
 
-  app.delete('/api/sessions/:id', (request) => {
-    killSession(request.params.id);
+  app.delete('/api/sessions/:id', async (request, reply) => {
+    try {
+      await killSessionAndWait(request.params.id);
+    } catch (error) {
+      return targetError(reply, error.code ?? 'session_stop_failed', error.message, 500);
+    }
     emitLocalChange();
     return { ok: true };
   });
@@ -95,20 +212,56 @@ export function registerSessionRoutes(app) {
     try {
       const session = reattachSession(request.params.id);
       emitLocalChange();
-      return session;
+      return formatSession(session);
     } catch (err) {
       return reply.code(400).send({ error: err.message });
     }
   });
 
   // Session history (all sessions - active and killed)
-  app.get('/api/sessions/history', (request) => {
+  app.get('/api/sessions/history', (request, reply) => {
     const db = getDb();
-    const { workspace_id } = request.query;
+    const { workspace_id, work_item_id, global: isGlobal } = request.query;
+    const filterCount = (workspace_id ? 1 : 0) + (work_item_id ? 1 : 0) + (isGlobal === 'true' ? 1 : 0);
+    if (filterCount > 1) return targetError(reply, 'invalid_request', 'Session filters are mutually exclusive');
     if (workspace_id) {
-      return db.prepare('SELECT * FROM sessions WHERE workspace_id = ? ORDER BY started_at DESC').all(workspace_id);
+      const child = db.prepare('SELECT work_item_id FROM workspaces WHERE id = ?').get(workspace_id);
+      if (child?.work_item_id) {
+        return targetError(
+          reply,
+          'work_item_child_managed',
+          'Work-item child workspaces do not have independent history',
+          409,
+        );
+      }
+      return db
+        .prepare('SELECT * FROM sessions WHERE workspace_id = ? ORDER BY started_at DESC')
+        .all(workspace_id)
+        .map(formatSession);
     }
-    return db.prepare("SELECT * FROM sessions WHERE status = 'killed' ORDER BY started_at DESC LIMIT 100").all();
+    if (work_item_id) {
+      return db
+        .prepare('SELECT * FROM sessions WHERE work_item_id = ? ORDER BY started_at DESC')
+        .all(work_item_id)
+        .map(formatSession);
+    }
+    if (isGlobal === 'true') {
+      return db
+        .prepare('SELECT * FROM sessions WHERE workspace_id IS NULL AND work_item_id IS NULL ORDER BY started_at DESC')
+        .all()
+        .map(formatSession);
+    }
+    return db
+      .prepare(
+        `SELECT s.*
+         FROM sessions s
+         LEFT JOIN workspaces w ON w.id = s.workspace_id
+         WHERE s.status = 'killed'
+           AND (s.workspace_id IS NULL OR w.work_item_id IS NULL)
+         ORDER BY s.started_at DESC LIMIT 100`,
+      )
+      .all()
+      .map(formatSession);
   });
 
   // Session transcript
@@ -129,6 +282,9 @@ export function registerSessionRoutes(app) {
       if (ws) {
         claudeProjectDir = claudeProjectDirForWorkspace(ws.path);
       }
+    } else if (!claudeProjectDir && session.work_item_id) {
+      const item = db.prepare('SELECT path FROM work_items WHERE id = ?').get(session.work_item_id);
+      if (item) claudeProjectDir = claudeProjectDirForWorkspace(item.path);
     }
 
     let jsonlPath = null;
@@ -172,7 +328,7 @@ export function registerSessionRoutes(app) {
     if (!session) {
       return reply.code(404).send({ error: 'Session not found or not active' });
     }
-    if (session.workspace_id) {
+    if (session.workspace_id || session.work_item_id) {
       return reply.code(400).send({ error: 'Session is already in a workspace' });
     }
     if (session.provider !== 'claude') {
@@ -223,12 +379,12 @@ export function registerSessionRoutes(app) {
           }
 
           // 4. Kill the old global session
-          killSession(session.id);
+          await killSessionAndWait(session.id);
 
           // 5. Create new session in workspace with --resume
           const newSession = claudeSessionUuid
-            ? createResumedSession(workspace.id, workspace.path, claudeSessionUuid)
-            : createSession(workspace.id, workspace.path);
+            ? createResumedSession({ type: 'workspace', id: workspace.id }, workspace.path, claudeSessionUuid)
+            : createSession({ type: 'workspace', id: workspace.id }, workspace.path);
 
           return { workspace, session: newSession };
         },

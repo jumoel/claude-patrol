@@ -1,0 +1,474 @@
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useWorkItem } from '../../hooks/useWorkItems.js';
+import {
+  createSession,
+  destroyWorkItem,
+  fetchSessions,
+  killSession,
+  reattachSession,
+  retryWorkItem,
+} from '../../lib/api.js';
+import { getErrorMessage } from '../../lib/errors.js';
+import { getRelativeTime } from '../../lib/time.js';
+import shared from '../../styles/shared.module.css';
+import { SessionHistory } from '../SessionHistory/SessionHistory.jsx';
+import { TerminalCard } from '../TerminalCard/TerminalCard.jsx';
+import { Badge } from '../ui/Badge/Badge.jsx';
+import { Box } from '../ui/Box/Box.jsx';
+import { Button } from '../ui/Button/Button.jsx';
+import { Stack } from '../ui/Stack/Stack.jsx';
+import styles from './WorkItemDetail.module.css';
+
+const RETRY_LABELS = {
+  resolution: 'Retry resolution',
+  preparation: 'Retry preparation',
+  cleanup: 'Retry cleanup',
+  terminal: 'Retry terminal',
+};
+
+const STATE_LABELS = {
+  resolving: 'Resolving',
+  preparing: 'Preparing',
+  ready: 'Ready',
+  error: 'Failed',
+  destroying: 'Destroying',
+  destroyed: 'Destroyed',
+};
+
+/** @param {{state: import('../../types').WorkItemState}} props */
+function LifecycleBadge({ state }) {
+  const color = state === 'error' ? 'red' : state === 'ready' ? 'green' : state === 'destroyed' ? 'gray' : 'blue';
+  return <Badge color={color}>{STATE_LABELS[state]}</Badge>;
+}
+
+/** @param {{item: import('../../types').WorkItemDetail}} props */
+function WorkItemProgress({ item }) {
+  const destruction =
+    ['destroying', 'destroyed'].includes(item.state) ||
+    ['session_stop', 'transcript_archive', 'child_destruction', 'root_destruction'].includes(item.stage);
+  if (destruction) {
+    const steps = [
+      { label: 'Stop terminal', stages: ['session_stop'] },
+      { label: 'Archive session history', stages: ['transcript_archive'] },
+      {
+        label:
+          `Remove repositories ${item.stage === 'child_destruction' ? `${item.progress.current}/${item.progress.total}` : ''}`.trim(),
+        stages: ['child_destruction'],
+      },
+      { label: 'Remove root', stages: ['root_destruction'] },
+    ];
+    const current =
+      item.state === 'destroyed'
+        ? steps.length
+        : Math.max(
+            0,
+            steps.findIndex((step) => step.stages.includes(item.stage)),
+          );
+    return (
+      <ProgressSteps
+        steps={steps.map((step, index) => ({
+          label: step.label,
+          status:
+            item.state === 'destroyed' || index < current
+              ? 'done'
+              : index === current
+                ? item.state === 'error'
+                  ? 'failed'
+                  : 'active'
+                : 'pending',
+        }))}
+      />
+    );
+  }
+
+  const prepareProgress = item.progress.total > 0 ? `${item.progress.current}/${item.progress.total}` : '';
+  const phase = ['provider_check', 'reference_resolution'].includes(item.stage)
+    ? 0
+    : ['root_generation', 'child_creation', 'child_compensation'].includes(item.stage)
+      ? 1
+      : 2;
+  const complete = item.state === 'ready';
+  const failed = item.state === 'error';
+  return (
+    <ProgressSteps
+      steps={[
+        {
+          label: 'Resolve reference',
+          status: complete || phase > 0 ? 'done' : phase === 0 ? (failed ? 'failed' : 'active') : 'pending',
+        },
+        {
+          label: `Prepare repositories ${prepareProgress}`.trim(),
+          status: complete || phase > 1 ? 'done' : phase === 1 ? (failed ? 'failed' : 'active') : 'pending',
+        },
+        {
+          label: 'Start terminal',
+          status: complete ? 'done' : phase === 2 ? (failed ? 'failed' : 'active') : 'pending',
+        },
+      ]}
+    />
+  );
+}
+
+/** @param {{steps: {label: string, status: string}[]}} props */
+function ProgressSteps({ steps }) {
+  return (
+    <ol className={styles.progress} aria-label="Work item progress">
+      {steps.map((step) => (
+        <li
+          key={step.label}
+          className={styles[step.status]}
+          aria-current={step.status === 'active' ? 'step' : undefined}
+        >
+          <span aria-hidden="true">
+            {step.status === 'done' ? '\u2713' : step.status === 'failed' ? '!' : '\u2022'}
+          </span>
+          {step.label}
+          {step.status === 'failed' ? ' failed' : ''}
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+/** @param {{repository: import('../../types').WorkItemRepository}} props */
+function RepositoryRow({ repository }) {
+  const [copied, setCopied] = useState(false);
+  const copyPath = useCallback(() => {
+    if (!repository.checkout_available || !repository.path) return;
+    navigator.clipboard.writeText(repository.path).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  }, [repository.checkout_available, repository.path]);
+
+  return (
+    <div className={styles.repositoryRow}>
+      <Stack justify="between" gap={3} wrap>
+        <span className={styles.repositoryName}>{repository.identifier}</span>
+        <Badge color={repository.state === 'error' ? 'red' : repository.state === 'ready' ? 'green' : 'gray'}>
+          {repository.state}
+        </Badge>
+      </Stack>
+      <dl className={styles.repositoryFacts}>
+        <div>
+          <dt>Bookmark</dt>
+          <dd>{repository.bookmark}</dd>
+        </div>
+        <div>
+          <dt>Start revision</dt>
+          <dd>{repository.start_revision}</dd>
+        </div>
+        <div>
+          <dt>Base commit</dt>
+          <dd>{repository.base_commit ? repository.base_commit.slice(0, 12) : 'Not resolved'}</dd>
+        </div>
+      </dl>
+      {repository.checkout_available && repository.path && (
+        <Button size="xs" onClick={copyPath}>
+          {copied ? 'Copied' : 'Copy path'}
+        </Button>
+      )}
+      {repository.warnings.length > 0 && (
+        <ul className={styles.warnings}>
+          {repository.warnings.map((warning, index) => (
+            <li key={`${index}:${warning}`}>{warning}</li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/** @param {{recovery: import('../../types').RecoveryAction}} props */
+function RecoveryCommandButton({ recovery }) {
+  const [copied, setCopied] = useState(false);
+  const copy = useCallback(async () => {
+    if (!recovery.command) return;
+    await navigator.clipboard.writeText(recovery.command);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  }, [recovery.command]);
+
+  return (
+    <Button size="sm" onClick={copy}>
+      {copied ? 'Copied' : recovery.label}
+    </Button>
+  );
+}
+
+/**
+ * @param {{workItemId: string, onBack: () => void, targetStates: Map<string, 'working' | 'idle'>}} props
+ */
+export function WorkItemDetail({ workItemId, onBack, targetStates }) {
+  const { workItem, loading, error, reload } = useWorkItem(workItemId);
+  const target = useMemo(() => ({ type: /** @type {'work_item'} */ ('work_item'), id: workItemId }), [workItemId]);
+  const [session, setSession] = useState(/** @type {import('../../types').Session | null} */ (null));
+  const [sessionLoading, setSessionLoading] = useState(true);
+  const [sessionError, setSessionError] = useState('');
+  const [actionError, setActionError] = useState('');
+  const [actionPending, setActionPending] = useState(false);
+  const workItemState = workItem?.state;
+  const expectedSessionId = workItem?.session?.id;
+
+  useEffect(() => {
+    if (!workItemState) return undefined;
+    if (workItemState === 'destroyed') {
+      setSession(null);
+      setSessionLoading(false);
+      return undefined;
+    }
+    let active = true;
+    setSessionLoading(true);
+    fetchSessions(target)
+      .then((sessions) => {
+        if (active) {
+          setSessionError('');
+          setSession(sessions.find((candidate) => candidate.id === expectedSessionId) ?? sessions[0] ?? null);
+        }
+      })
+      .catch((nextError) => {
+        if (active) setSessionError(getErrorMessage(nextError, 'Failed to load terminal state'));
+      })
+      .finally(() => {
+        if (active) setSessionLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [expectedSessionId, target, workItemState]);
+
+  const runAction = useCallback(
+    async (/** @type {() => Promise<unknown>} */ action, /** @type {string} */ fallback) => {
+      setActionPending(true);
+      setActionError('');
+      try {
+        await action();
+        reload();
+      } catch (nextError) {
+        setActionError(getErrorMessage(nextError, fallback));
+      } finally {
+        setActionPending(false);
+      }
+    },
+    [reload],
+  );
+
+  const handleRetry = useCallback(() => {
+    void runAction(() => retryWorkItem(workItemId), 'Failed to retry work item');
+  }, [runAction, workItemId]);
+
+  const handleDestroy = useCallback(() => {
+    if (!workItem) return;
+    const count = workItem.repository_workspaces.filter((repository) => repository.checkout_available).length;
+    if (
+      !window.confirm(
+        `Remove ${count} checkout directories and their jj workspace registrations. Patrol will leave repository bookmarks and commits in the source repositories.`,
+      )
+    )
+      return;
+    void runAction(() => destroyWorkItem(workItemId), 'Failed to destroy work item');
+  }, [runAction, workItem, workItemId]);
+
+  const handleStartSession = useCallback(async () => {
+    setSessionLoading(true);
+    setActionError('');
+    try {
+      setSession(await createSession(target));
+      reload();
+    } catch (nextError) {
+      setActionError(getErrorMessage(nextError, 'Failed to restart terminal'));
+    } finally {
+      setSessionLoading(false);
+    }
+  }, [reload, target]);
+
+  const handleKillSession = useCallback(async () => {
+    if (!session) return;
+    setActionError('');
+    try {
+      await killSession(session.id);
+      setSession(null);
+      reload();
+    } catch (nextError) {
+      setActionError(getErrorMessage(nextError, 'Failed to stop terminal'));
+    }
+  }, [reload, session]);
+
+  const handleReattach = useCallback(async () => {
+    if (!session) return;
+    setSession(await reattachSession(session.id));
+  }, [session]);
+
+  if (loading) return <div className={shared.loading}>Loading work item...</div>;
+  if (!workItem) {
+    return (
+      <Box p={6} border rounded="lg" bg="white" className={styles.notFound}>
+        <p>{getErrorMessage(error, 'Work item not found')}</p>
+        <Button as="a" href="#/" size="sm">
+          Back to dashboard
+        </Button>
+      </Box>
+    );
+  }
+
+  const retryAction = workItem.error?.retry_action ?? null;
+  const creationBusy = workItem.state === 'resolving' || workItem.state === 'preparing';
+  const destroying = workItem.state === 'destroying';
+  const destroyed = workItem.state === 'destroyed';
+  const canDestroy = (workItem.state === 'ready' || workItem.state === 'error') && retryAction !== 'cleanup';
+  const providerName = workItem.work_provider === 'codex' ? 'Codex' : 'Claude';
+  const resolverName = workItem.resolver_provider === 'codex' ? 'Codex' : 'Claude';
+
+  return (
+    <Box pb={16}>
+      <Stack direction="col" gap={4}>
+        <Box p={5} border rounded="lg" bg="white">
+          <Stack direction="col" gap={3}>
+            <Stack justify="between" gap={3} wrap>
+              <Button size="md" onClick={onBack}>
+                &larr; Back
+              </Button>
+              <Stack gap={2} wrap>
+                {retryAction && (
+                  <Button variant="primary" size="sm" onClick={handleRetry} disabled={actionPending || destroying}>
+                    {RETRY_LABELS[retryAction]}
+                  </Button>
+                )}
+                {canDestroy && (
+                  <Button variant="danger" size="sm" onClick={handleDestroy} disabled={actionPending}>
+                    Destroy
+                  </Button>
+                )}
+              </Stack>
+            </Stack>
+            <h2 className={styles.title}>{workItem.title || workItem.reference}</h2>
+            <Stack gap={2} wrap className={styles.identity}>
+              <LifecycleBadge state={workItem.state} />
+              <span className={styles.reference}>{workItem.reference}</span>
+              <span>{providerName}</span>
+              <span>Created {getRelativeTime(workItem.created_at)}</span>
+              <span>Updated {getRelativeTime(workItem.updated_at)}</span>
+            </Stack>
+            {workItem.error && workItem.resolver_provider !== workItem.work_provider && (
+              <p className={styles.resolver}>Reference resolver: {resolverName}</p>
+            )}
+            {(creationBusy || destroying) && (
+              <p className={styles.actionNote}>
+                {destroying ? 'Destruction is in progress.' : 'Destroy is unavailable while creation is in progress.'}
+              </p>
+            )}
+            <WorkItemProgress item={workItem} />
+          </Stack>
+        </Box>
+
+        {workItem.summary && (
+          <Box p={5} border rounded="lg" bg="white">
+            <h3 className={shared.sectionTitle}>Task</h3>
+            {workItem.summary && <p className={styles.summary}>{workItem.summary}</p>}
+          </Box>
+        )}
+
+        {workItem.error && (
+          <Box p={5} border borderColor="red-200" rounded="lg" bg="white" className={styles.failure}>
+            <h3 className={shared.sectionTitle}>Failure</h3>
+            <dl className={styles.errorFacts}>
+              <div>
+                <dt>Code</dt>
+                <dd>{workItem.error.code}</dd>
+              </div>
+              {workItem.error.failed_provider && (
+                <div>
+                  <dt>Failed provider</dt>
+                  <dd>{workItem.error.failed_provider}</dd>
+                </div>
+              )}
+            </dl>
+            {workItem.error.detail && <p className={styles.errorDetail}>{workItem.error.detail}</p>}
+            {workItem.error.recovery_actions.length > 0 && (
+              <Stack gap={2} wrap>
+                {workItem.error.recovery_actions.map((recovery, index) =>
+                  recovery.kind === 'settings' && recovery.href ? (
+                    <Button key={`${recovery.kind}:${index}`} as="a" href={recovery.href} size="sm">
+                      {recovery.label}
+                    </Button>
+                  ) : recovery.command ? (
+                    <RecoveryCommandButton key={`${recovery.kind}:${index}`} recovery={recovery} />
+                  ) : null,
+                )}
+              </Stack>
+            )}
+          </Box>
+        )}
+
+        <Box p={5} border rounded="lg" bg="white">
+          <Stack direction="col" gap={3}>
+            <Stack justify="between">
+              <h3 className={shared.sectionTitle}>Repositories</h3>
+            </Stack>
+            <div className={styles.repositoryList}>
+              {workItem.repository_workspaces.map((repository) => (
+                <RepositoryRow key={repository.identifier} repository={repository} />
+              ))}
+              {workItem.repository_workspaces.length === 0 && (
+                <p className={styles.empty}>Repositories have not been resolved.</p>
+              )}
+            </div>
+          </Stack>
+        </Box>
+
+        {!destroyed &&
+          workItem.state === 'ready' &&
+          (session ? (
+            <TerminalCard
+              session={session}
+              title={`Terminal - ${workItem.title || workItem.reference}`}
+              onKill={handleKillSession}
+              onExit={() => {
+                setSession(null);
+                reload();
+              }}
+              onReattach={handleReattach}
+              sessionState={targetStates.get(`work-item:${workItem.id}`)}
+            />
+          ) : (
+            <Box p={5} border rounded="lg" bg="white">
+              <Stack direction="col" gap={3}>
+                <h3 className={shared.sectionTitle}>Terminal</h3>
+                <p className={styles.actionNote}>This work item uses {providerName} for every terminal session.</p>
+                <Button
+                  variant="primary"
+                  size="md"
+                  onClick={handleStartSession}
+                  disabled={sessionLoading || actionPending}
+                >
+                  {sessionLoading ? 'Starting terminal...' : 'Restart terminal'}
+                </Button>
+              </Stack>
+            </Box>
+          ))}
+
+        {actionError && (
+          <p className={styles.requestError} role="alert">
+            {actionError}
+          </p>
+        )}
+        {sessionError && (
+          <p className={styles.requestError} role="alert">
+            {sessionError}
+          </p>
+        )}
+        {error ? (
+          <p className={styles.requestError} role="alert">
+            {getErrorMessage(error, 'Failed to refresh work item')}
+          </p>
+        ) : null}
+        {retryAction === 'cleanup' && (
+          <Box p={4} border rounded="lg" bg="white">
+            <span className={styles.rootPath}>Retained root: {workItem.root_path}</span>
+          </Box>
+        )}
+        <SessionHistory key={workItemId} target={target} />
+      </Stack>
+    </Box>
+  );
+}

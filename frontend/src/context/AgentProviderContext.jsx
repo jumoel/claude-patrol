@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { fetchProviderCapabilities } from '../lib/api.js';
 
 const STORAGE_KEY = 'claude-patrol-agent-provider';
@@ -11,21 +11,24 @@ const EMPTY_CAPABILITY = Object.freeze({
   checkedAt: null,
 });
 
-/** @returns {import('../types').AgentProvider} */
-function loadProvider() {
+/** @returns {{ provider: import('../types').AgentProvider, stored: boolean }} */
+function loadProviderPreference() {
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored && PROVIDERS.has(stored)) return /** @type {import('../types').AgentProvider} */ (stored);
+    if (stored && PROVIDERS.has(stored)) {
+      return { provider: /** @type {import('../types').AgentProvider} */ (stored), stored: true };
+    }
   } catch {
     // Storage can be disabled without preventing session launch.
   }
-  return 'claude';
+  return { provider: 'claude', stored: false };
 }
 
 const AgentProviderContext = createContext(
   /** @type {null | {
    *   provider: import('../types').AgentProvider,
    *   setProvider: (provider: import('../types').AgentProvider) => void,
+   *   applyInstanceDefault: (provider: import('../types').AgentProvider) => void,
    *   capabilities: Record<import('../types').AgentProvider, import('../types').ProviderCapability>,
    *   refreshCapabilities: (force?: boolean) => Promise<void>,
    * }} */ (null),
@@ -33,7 +36,10 @@ const AgentProviderContext = createContext(
 
 /** @param {{children: React.ReactNode}} props */
 export function AgentProviderProvider({ children }) {
-  const [provider, setProviderState] = useState(loadProvider);
+  const [initialPreference] = useState(loadProviderPreference);
+  const [provider, setProviderState] = useState(initialPreference.provider);
+  const hasStoredProvider = useRef(initialPreference.stored);
+  const instanceDefaultProvider = useRef(/** @type {import('../types').AgentProvider} */ ('claude'));
   const [capabilities, setCapabilities] = useState(
     /** @type {Record<import('../types').AgentProvider, import('../types').ProviderCapability>} */ ({
       claude: { ...EMPTY_CAPABILITY },
@@ -44,12 +50,22 @@ export function AgentProviderProvider({ children }) {
   const setProvider = useCallback(
     /** @param {import('../types').AgentProvider} nextProvider */ (nextProvider) => {
       if (!PROVIDERS.has(nextProvider)) return;
+      hasStoredProvider.current = true;
       setProviderState(nextProvider);
       try {
         localStorage.setItem(STORAGE_KEY, nextProvider);
       } catch {
         // The in-memory preference still works for this tab.
       }
+    },
+    [],
+  );
+
+  const applyInstanceDefault = useCallback(
+    /** @param {import('../types').AgentProvider} nextProvider */ (nextProvider) => {
+      if (!PROVIDERS.has(nextProvider)) return;
+      instanceDefaultProvider.current = nextProvider;
+      if (!hasStoredProvider.current) setProviderState(nextProvider);
     },
     [],
   );
@@ -80,8 +96,13 @@ export function AgentProviderProvider({ children }) {
     };
     /** @param {StorageEvent} event */
     const handleStorage = (event) => {
-      if (event.key === STORAGE_KEY && event.newValue && PROVIDERS.has(event.newValue)) {
+      if (event.key !== STORAGE_KEY && event.key !== null) return;
+      if (event.newValue && PROVIDERS.has(event.newValue)) {
+        hasStoredProvider.current = true;
         setProviderState(/** @type {import('../types').AgentProvider} */ (event.newValue));
+      } else if (event.newValue === null) {
+        hasStoredProvider.current = false;
+        setProviderState(instanceDefaultProvider.current);
       }
     };
     window.addEventListener('focus', handleFocus);
@@ -101,8 +122,8 @@ export function AgentProviderProvider({ children }) {
   }, [capabilities, refreshCapabilities]);
 
   const value = useMemo(
-    () => ({ provider, setProvider, capabilities, refreshCapabilities }),
-    [provider, setProvider, capabilities, refreshCapabilities],
+    () => ({ provider, setProvider, applyInstanceDefault, capabilities, refreshCapabilities }),
+    [provider, setProvider, applyInstanceDefault, capabilities, refreshCapabilities],
   );
   return <AgentProviderContext.Provider value={value}>{children}</AgentProviderContext.Provider>;
 }

@@ -1,3 +1,4 @@
+import { isPollConfigured } from './config.js';
 import { execFile } from './utils.js';
 
 /**
@@ -18,13 +19,12 @@ async function checkCommand(cmd, args) {
  * Validate that all required tools are available before starting.
  * Throws with a clear message if anything is missing.
  */
-export async function validateStartup() {
+export async function validateStartup(config = {}) {
   const checks = [
-    { cmd: 'gh', args: ['--version'], label: 'GitHub CLI (gh)' },
     { cmd: 'jj', args: ['--version'], label: 'Jujutsu (jj)' },
-    { cmd: 'claude', args: ['--version'], label: 'Claude CLI' },
     { cmd: 'tmux', args: ['-V'], label: 'tmux' },
   ];
+  if (isPollConfigured(config)) checks.unshift({ cmd: 'gh', args: ['--version'], label: 'GitHub CLI (gh)' });
 
   const errors = [];
   for (const { cmd, args, label } of checks) {
@@ -39,10 +39,11 @@ export async function validateStartup() {
     throw new Error(`Startup validation failed. Missing required tools:\n${errors.join('\n')}`);
   }
 
-  // Verify gh is authenticated
-  try {
-    await checkCommand('gh', ['auth', 'status']);
-  } catch {
-    throw new Error('GitHub CLI is not authenticated. Run "gh auth login" first.');
+  if (isPollConfigured(config)) {
+    try {
+      await checkCommand('gh', ['auth', 'status']);
+    } catch {
+      throw new Error('GitHub CLI is not authenticated. Run "gh auth login" first.');
+    }
   }
 }

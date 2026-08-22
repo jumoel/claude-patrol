@@ -344,6 +344,7 @@ async function handlePrChanged(event) {
  * @param {{sessionId: string, workspaceId: string|null, state: string}} event
  */
 async function handleSessionIdle(event) {
+  if (event.target?.type === 'work_item' || event.workItemId) return;
   const { sessionId, workspaceId } = event;
 
   // Resolve workspace_repo from workspaces (scratch) or via prs (PR-attached).
@@ -565,7 +566,9 @@ async function dispatchClaude(ctx, prompt, runRow) {
   // will pick it up from the dispatcher's return value.
   const db = getDb();
   const existing = db
-    .prepare("SELECT id FROM workspaces WHERE pr_id = ? AND status = 'active' AND operation_state = 'ready'")
+    .prepare(
+      "SELECT id FROM workspaces WHERE pr_id = ? AND work_item_id IS NULL AND status = 'active' AND operation_state = 'ready'",
+    )
     .get(ctx.pr_id);
   if (existing) updateRunRow(runRow, { workspace_id: existing.id });
 
@@ -583,7 +586,9 @@ async function dispatchClaude(ctx, prompt, runRow) {
     // up so the rule_run row reflects the partial state.
     if (!runRow.workspace_id) {
       const ws = db
-        .prepare("SELECT id FROM workspaces WHERE pr_id = ? AND status = 'active' AND operation_state = 'ready'")
+        .prepare(
+          "SELECT id FROM workspaces WHERE pr_id = ? AND work_item_id IS NULL AND status = 'active' AND operation_state = 'ready'",
+        )
         .get(ctx.pr_id);
       if (ws) updateRunRow(runRow, { workspace_id: ws.id });
     }
@@ -646,8 +651,18 @@ export async function manualRunRule(ruleId, options = {}) {
 
   if (rule.on === 'session.idle') {
     if (!options.session_id) throw new Error('session_id required for session.idle rules');
-    const sess = db.prepare('SELECT id, workspace_id FROM sessions WHERE id = ?').get(options.session_id);
+    const sess = db
+      .prepare(
+        `SELECT s.id, s.workspace_id, s.work_item_id, w.work_item_id AS workspace_work_item_id
+         FROM sessions s
+         LEFT JOIN workspaces w ON w.id = s.workspace_id
+         WHERE s.id = ?`,
+      )
+      .get(options.session_id);
     if (!sess) throw new Error(`session not found: ${options.session_id}`);
+    if (sess.work_item_id || sess.workspace_work_item_id) {
+      throw new Error('work-item sessions do not participate in rules');
+    }
     let workspaceRepo = null;
     let prId = null;
     if (sess.workspace_id) {

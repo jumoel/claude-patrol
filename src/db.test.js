@@ -47,10 +47,62 @@ test('a new database is migrated to the current schema', () => {
   assert.ok(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'automation_jobs'").get());
 });
 
-test('the v7 to v8 migration preserves sessions as Claude sessions', () => {
+test('the v7 to v9 migration preserves workspaces and sessions', () => {
   const path = join(temporaryDirectory(), 'v7.db');
   const legacy = new DatabaseSync(path);
   legacy.exec(`
+    PRAGMA foreign_keys = ON;
+    CREATE TABLE prs (
+      id TEXT PRIMARY KEY,
+      number INTEGER NOT NULL,
+      title TEXT NOT NULL,
+      body TEXT NOT NULL DEFAULT '',
+      body_html TEXT NOT NULL DEFAULT '',
+      repo TEXT NOT NULL,
+      org TEXT NOT NULL,
+      author TEXT NOT NULL,
+      url TEXT NOT NULL,
+      branch TEXT NOT NULL,
+      base_branch TEXT NOT NULL DEFAULT 'main',
+      is_fork INTEGER NOT NULL DEFAULT 0,
+      draft INTEGER NOT NULL DEFAULT 0,
+      mergeable TEXT NOT NULL DEFAULT 'UNKNOWN',
+      checks JSON NOT NULL DEFAULT '[]',
+      reviews JSON NOT NULL DEFAULT '[]',
+      labels JSON NOT NULL DEFAULT '[]',
+      comments JSON NOT NULL DEFAULT '[]',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      synced_at TEXT NOT NULL
+    );
+    INSERT INTO prs (
+      id, number, title, repo, org, author, url, branch, created_at, updated_at, synced_at
+    ) VALUES (
+      'acme/widgets#1', 1, 'Preserved PR', 'widgets', 'acme', 'octocat',
+      'https://example.test/1', 'feature', '2026-01-01T00:00:00.000Z',
+      '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z'
+    );
+    CREATE TABLE workspaces (
+      id TEXT PRIMARY KEY,
+      pr_id TEXT REFERENCES prs(id),
+      name TEXT NOT NULL,
+      path TEXT NOT NULL,
+      bookmark TEXT NOT NULL,
+      repo TEXT,
+      status TEXT NOT NULL DEFAULT 'active',
+      created_at TEXT NOT NULL,
+      destroyed_at TEXT,
+      operation_state TEXT NOT NULL DEFAULT 'ready',
+      operation_step TEXT,
+      operation_error TEXT,
+      operation_updated_at TEXT
+    );
+    INSERT INTO workspaces (
+      id, pr_id, name, path, bookmark, repo, created_at, operation_updated_at
+    ) VALUES (
+      'workspace-1', 'acme/widgets#1', 'acme-widgets-1', '/tmp/workspace-1',
+      'feature', 'acme/widgets', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z'
+    );
     CREATE TABLE sessions (
       id TEXT PRIMARY KEY,
       workspace_id TEXT,
@@ -61,7 +113,8 @@ test('the v7 to v8 migration preserves sessions as Claude sessions', () => {
       claude_project_dir TEXT,
       transcript_path TEXT
     );
-    INSERT INTO sessions (id, status, started_at) VALUES ('session-1', 'active', '2026-01-01T00:00:00.000Z');
+    INSERT INTO sessions (id, workspace_id, status, started_at)
+    VALUES ('session-1', 'workspace-1', 'active', '2026-01-01T00:00:00.000Z');
     PRAGMA user_version = 7;
   `);
   legacy.close();
@@ -69,12 +122,19 @@ test('the v7 to v8 migration preserves sessions as Claude sessions', () => {
   const db = initDb(path);
   assert.equal(db.prepare('PRAGMA user_version').get().user_version, CURRENT_SCHEMA_VERSION);
   assert.deepEqual(
-    { ...db.prepare('SELECT id, provider FROM sessions').get() },
+    { ...db.prepare('SELECT id, workspace_id, work_item_id, provider FROM sessions').get() },
     {
       id: 'session-1',
+      workspace_id: 'workspace-1',
+      work_item_id: null,
       provider: 'claude',
     },
   );
+  assert.deepEqual(
+    { ...db.prepare('SELECT id, pr_id, work_item_id, repo FROM workspaces').get() },
+    { id: 'workspace-1', pr_id: 'acme/widgets#1', work_item_id: null, repo: 'acme/widgets' },
+  );
+  assert.deepEqual(db.prepare('PRAGMA foreign_key_check').all(), []);
 });
 
 test('a pre-v7 database is backed up and reset to the clean schema', () => {
@@ -139,4 +199,82 @@ test('configuration updates are validated before replacing the file', () => {
   assert.equal(readFileSync(path, 'utf8'), beforeInvalidUpdate);
   assert.throws(() => updateConfig({ poll: null }, path), /Invalid config/);
   assert.equal(readFileSync(path, 'utf8'), beforeInvalidUpdate);
+});
+
+test('schema v9 enforces work-item progress and exclusive workspace and session targets', () => {
+  const db = initDb(':memory:');
+  const now = new Date().toISOString();
+  db.prepare(
+    `INSERT INTO work_items (
+      id, reference, path, work_provider, resolver_provider, state, stage,
+      progress_current, progress_total, created_at, updated_at
+    ) VALUES ('item-1', 'PROJECT-1', '/tmp/item-1', 'claude', 'claude',
+      'ready', 'complete', 0, 0, ?, ?)`,
+  ).run(now, now);
+  db.prepare(
+    `INSERT INTO workspaces (
+      id, work_item_id, name, path, bookmark, repo, status, created_at,
+      operation_state, operation_updated_at
+    ) VALUES ('child-1', 'item-1', 'child-1', '/tmp/child-1', 'patrol/work-item-1',
+      'acme/widgets', 'active', ?, 'ready', ?)`,
+  ).run(now, now);
+  db.prepare(
+    `INSERT INTO prs (
+      id, number, title, repo, org, author, url, branch, created_at, updated_at, synced_at
+    ) VALUES ('acme/widgets#1', 1, 'PR', 'widgets', 'acme', 'octocat',
+      'https://example.test/1', 'feature', ?, ?, ?)`,
+  ).run(now, now, now);
+  assert.throws(() => db.prepare("UPDATE workspaces SET pr_id = 'acme/widgets#1' WHERE id = 'child-1'").run());
+
+  assert.throws(() =>
+    db
+      .prepare(
+        `INSERT INTO sessions (id, workspace_id, work_item_id, provider, status, started_at)
+       VALUES ('invalid-target', 'child-1', 'item-1', 'claude', 'active', ?)`,
+      )
+      .run(now),
+  );
+  db.prepare(
+    `INSERT INTO sessions (id, work_item_id, provider, status, started_at)
+     VALUES ('session-1', 'item-1', 'claude', 'active', ?)`,
+  ).run(now);
+  assert.throws(() =>
+    db
+      .prepare(
+        `INSERT INTO sessions (id, work_item_id, provider, status, started_at)
+       VALUES ('session-2', 'item-1', 'claude', 'detached', ?)`,
+      )
+      .run(now),
+  );
+  db.prepare("UPDATE sessions SET status = 'killed' WHERE id = 'session-1'").run();
+  db.prepare(
+    `INSERT INTO sessions (id, work_item_id, provider, status, started_at)
+     VALUES ('session-2', 'item-1', 'claude', 'active', ?)`,
+  ).run(now);
+  assert.throws(() =>
+    db.prepare('UPDATE work_items SET progress_current = 2, progress_total = 1 WHERE id = ?').run('item-1'),
+  );
+  assert.deepEqual(db.prepare('PRAGMA foreign_key_check').all(), []);
+});
+
+test('schema v9 allows one active child per work-item repository', () => {
+  const db = initDb(':memory:');
+  const now = new Date().toISOString();
+  db.prepare(
+    `INSERT INTO work_items (
+      id, reference, path, work_provider, resolver_provider, state, stage,
+      progress_current, progress_total, created_at, updated_at
+    ) VALUES ('item-1', 'PROJECT-1', '/tmp/item-1', 'codex', 'codex',
+      'preparing', 'child_creation', 0, 1, ?, ?)`,
+  ).run(now, now);
+  const insert = db.prepare(
+    `INSERT INTO workspaces (
+      id, work_item_id, name, path, bookmark, repo, status, created_at,
+      operation_state, operation_updated_at
+    ) VALUES (?, 'item-1', ?, ?, 'patrol/work-item-1', 'acme/widgets', ?, ?, 'ready', ?)`,
+  );
+  insert.run('child-1', 'child-1', '/tmp/child-1', 'active', now, now);
+  assert.throws(() => insert.run('child-2', 'child-2', '/tmp/child-2', 'active', now, now));
+  insert.run('child-2', 'child-2', '/tmp/child-2', 'destroyed', now, now);
+  assert.deepEqual(db.prepare('PRAGMA foreign_key_check').all(), []);
 });

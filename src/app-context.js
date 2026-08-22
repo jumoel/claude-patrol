@@ -15,6 +15,7 @@ import {
   triggerPoll,
 } from './poller.js';
 import { dispatchToSession, getSessionPeerReviewReadiness, getSessionStates, waitForFirstIdle } from './pty-manager.js';
+import { createWorkItemService } from './work-items.js';
 
 /**
  * Construct the runtime dependencies used by the HTTP boundary. Defaults keep
@@ -38,6 +39,15 @@ export function createAppContext(overrides = {}) {
     overrides.reviewServices?.codex ??
     createCodexReviewService({ capability: codexCapability });
   const reviewServices = Object.freeze({ claude: claudeReviewService, codex: codexReviewService });
+  const sessionStates = overrides.getSessionStates ?? getSessionStates;
+  const workItemService =
+    overrides.workItemService ??
+    createWorkItemService({
+      getConfig: overrides.getConfig ?? getCurrentConfig,
+      providerCapabilities,
+      getSessionStates: sessionStates,
+      resolver: overrides.workItemResolver,
+    });
 
   return Object.freeze({
     getConfig: getCurrentConfig,
@@ -50,13 +60,14 @@ export function createAppContext(overrides = {}) {
     appEvents: events,
     pollerEvents,
     getGhRateLimitState,
-    getSessionStates,
+    getSessionStates: sessionStates,
     dispatchToSession,
     waitForFirstIdle,
     getSessionPeerReviewReadiness,
     providerCapabilities,
     peerReviewCoordinator,
     reviewServices,
+    workItemService,
     ...overrides,
   });
 }

@@ -9,12 +9,17 @@ const MAX_VISIBLE = 50;
  * Subscribe to rule-run events. Initial state from /api/rules/runs, live updates
  * via the `rule-run` SSE event (emitted on insert and on each persisted update).
  * Sorted: running first, most recent completed next.
+ * @param {boolean} [enabled]
  * @returns {import('../types').RuleRun[]}
  */
-export function useRuleRuns() {
+export function useRuleRuns(enabled = true) {
   const [runs, setRuns] = useState(/** @type {import('../types').RuleRun[]} */ ([]));
 
   useEffect(() => {
+    if (!enabled) {
+      setRuns([]);
+      return undefined;
+    }
     let cancelled = false;
     fetchRuleRuns({ limit: MAX_VISIBLE })
       .then((initial) => {
@@ -36,7 +41,7 @@ export function useRuleRuns() {
       cancelled = true;
       unsubscribe();
     };
-  }, []);
+  }, [enabled]);
 
   return runs;
 }

@@ -10,3 +10,12 @@ export function getErrorMessage(error, fallback = 'Unknown error') {
   if (typeof error === 'string') return error;
   return fallback;
 }
+export class ApiError extends Error {
+  /** @param {number} status @param {import('../types').ApiErrorEnvelope} envelope */
+  constructor(status, envelope) {
+    super(envelope.message);
+    this.name = 'ApiError';
+    this.status = status;
+    this.envelope = envelope;
+  }
+}

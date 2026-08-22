@@ -1,3 +1,5 @@
+import { ApiError } from './errors.js';
+
 const BASE = '';
 
 /**
@@ -22,6 +24,10 @@ async function readError(response) {
   const body = await response.json().catch(/** @returns {null} */ () => null);
   if (body && typeof body === 'object' && 'error' in body && typeof body.error === 'string') {
     return body.error;
+  }
+  if (body && typeof body === 'object' && 'error' in body && body.error && typeof body.error === 'object') {
+    const envelope = /** @type {import('../types').ApiErrorEnvelope} */ (body.error);
+    throw new ApiError(response.status, envelope);
   }
   return null;
 }
@@ -185,7 +191,7 @@ export async function requestPeerReview(workspaceId) {
  */
 export async function fetchScratchWorkspaces() {
   const res = await fetch(`${BASE}/api/workspaces?type=scratch`);
-  if (!res.ok) throw new Error(`Failed to fetch scratch workspaces: ${res.status}`);
+  if (!res.ok) throw new Error((await readError(res)) || `Failed to fetch scratch workspaces: ${res.status}`);
   return readJson(res);
 }
 
@@ -196,30 +202,35 @@ export async function fetchScratchWorkspaces() {
  */
 export async function destroyWorkspace(workspaceId) {
   const res = await fetch(`${BASE}/api/workspaces/${workspaceId}`, { method: 'DELETE' });
-  if (!res.ok) throw new Error(`Failed to destroy workspace: ${res.status}`);
+  if (!res.ok) throw new Error((await readError(res)) || `Failed to destroy workspace: ${res.status}`);
   return readJson(res);
 }
 
 /**
- * Fetch sessions, optionally filtered by workspace ID.
- * @param {string} [workspaceId]
+ * Fetch sessions for one explicit target.
+ * @param {import('../types').SessionTarget} [target]
  * @returns {Promise<import('../types').Session[]>}
  */
-export async function fetchSessions(workspaceId) {
-  const url = workspaceId ? `${BASE}/api/sessions?workspace_id=${workspaceId}` : `${BASE}/api/sessions`;
+export async function fetchSessions(target) {
+  const url = `${BASE}/api/sessions${target ? `?${sessionTargetQuery(target)}` : ''}`;
   const res = await fetch(url);
-  if (!res.ok) throw new Error(`Failed to fetch sessions: ${res.status}`);
+  if (!res.ok) throw new Error((await readError(res)) || `Failed to fetch sessions: ${res.status}`);
   return readJson(res);
 }
 
 /**
  * Create a session.
- * @param {string | null} workspaceId
- * @param {import('../types').AgentProvider} provider
+ * @param {import('../types').SessionTarget} target
+ * @param {import('../types').AgentProvider} [provider]
  * @returns {Promise<import('../types').Session>}
  */
-export async function createSession(workspaceId, provider) {
-  const body = workspaceId ? { workspace_id: workspaceId, provider } : { global: true, provider };
+export async function createSession(target, provider) {
+  const body =
+    target.type === 'workspace'
+      ? { workspace_id: target.id, provider }
+      : target.type === 'work_item'
+        ? { work_item_id: target.id }
+        : { global: true, provider };
   const res = await fetch(`${BASE}/api/sessions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -262,7 +273,7 @@ export async function fetchPRComments(prId) {
  */
 export async function killSession(sessionId) {
   const res = await fetch(`${BASE}/api/sessions/${sessionId}`, { method: 'DELETE' });
-  if (!res.ok) throw new Error(`Failed to kill session: ${res.status}`);
+  if (!res.ok) throw new Error((await readError(res)) || `Failed to kill session: ${res.status}`);
   return readJson(res);
 }
 
@@ -291,20 +302,80 @@ export async function promoteSession(sessionId, repo, branch) {
  */
 export async function reattachSession(sessionId) {
   const res = await fetch(`${BASE}/api/sessions/${sessionId}/reattach`, { method: 'POST' });
-  if (!res.ok) throw new Error(`Failed to reattach session: ${res.status}`);
+  if (!res.ok) throw new Error((await readError(res)) || `Failed to reattach session: ${res.status}`);
   return readJson(res);
 }
 
 /**
- * Fetch session history (killed sessions).
- * @param {string} [workspaceId]
+ * Fetch session history (killed sessions) for one explicit target.
+ * @param {import('../types').SessionTarget} target
  * @returns {Promise<import('../types').Session[]>}
  */
-export async function fetchSessionHistory(workspaceId) {
-  const url = workspaceId ? `${BASE}/api/sessions/history?workspace_id=${workspaceId}` : `${BASE}/api/sessions/history`;
+export async function fetchSessionHistory(target) {
+  const url = `${BASE}/api/sessions/history?${sessionTargetQuery(target)}`;
   const res = await fetch(url);
-  if (!res.ok) throw new Error(`Failed to fetch session history: ${res.status}`);
+  if (!res.ok) throw new Error((await readError(res)) || `Failed to fetch session history: ${res.status}`);
   return readJson(res);
+}
+
+/** @param {import('../types').SessionTarget} target */
+function sessionTargetQuery(target) {
+  const params = new URLSearchParams();
+  if (target.type === 'workspace') params.set('workspace_id', target.id);
+  else if (target.type === 'work_item') params.set('work_item_id', target.id);
+  else params.set('global', 'true');
+  return params.toString();
+}
+
+/** @param {AbortSignal} [signal] @returns {Promise<import('../types').WorkItemListResponse>} */
+export async function fetchWorkItems(signal) {
+  const response = await fetch(`${BASE}/api/work-items`, { signal });
+  if (!response.ok) throw new Error((await readError(response)) || `Failed to fetch work items: ${response.status}`);
+  return readJson(response);
+}
+
+/** @param {string} id @param {AbortSignal} [signal] @returns {Promise<{work_item: import('../types').WorkItemDetail}>} */
+export async function fetchWorkItem(id, signal) {
+  const response = await fetch(`${BASE}/api/work-items/${encodeURIComponent(id)}`, { signal });
+  if (!response.ok) {
+    throw new Error((await readError(response)) || `Failed to fetch work item: ${response.status}`);
+  }
+  return readJson(response);
+}
+
+/** @param {string} reference @param {import('../types').AgentProvider} workProvider */
+export async function createWorkItem(reference, workProvider) {
+  const response = await fetch(`${BASE}/api/work-items`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ reference, work_provider: workProvider }),
+  });
+  if (!response.ok) {
+    throw new Error((await readError(response)) || `Failed to create work item: ${response.status}`);
+  }
+  return /** @type {Promise<{work_item: import('../types').WorkItemListItem}>} */ (readJson(response));
+}
+
+/** @param {string} id */
+export async function retryWorkItem(id) {
+  const response = await fetch(`${BASE}/api/work-items/${encodeURIComponent(id)}/retry`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+  });
+  if (!response.ok) {
+    throw new Error((await readError(response)) || `Failed to retry work item: ${response.status}`);
+  }
+  return /** @type {Promise<{work_item: import('../types').WorkItemListItem}>} */ (readJson(response));
+}
+
+/** @param {string} id */
+export async function destroyWorkItem(id) {
+  const response = await fetch(`${BASE}/api/work-items/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  if (!response.ok) {
+    throw new Error((await readError(response)) || `Failed to destroy work item: ${response.status}`);
+  }
+  return /** @type {Promise<{work_item: import('../types').WorkItemDetail}>} */ (readJson(response));
 }
 
 /**

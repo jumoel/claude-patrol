@@ -13,7 +13,9 @@
     "watch": "bash scripts/build-if-stale.sh && node src/watch.js",
     "lint": "biome check .",
     "typecheck": "tsc --project frontend/tsconfig.json",
-    "test": "node --test src/**/*.test.js"
+    "test:backend": "node --test src/**/*.test.js",
+    "test:frontend": "pnpm --filter claude-patrol-frontend test",
+    "test": "pnpm run test:backend && pnpm run test:frontend"
   },
   "license": "ISC",
   "packageManager": "pnpm@10.28.0",

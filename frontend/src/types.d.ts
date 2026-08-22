@@ -100,11 +100,23 @@ export interface Workspace {
   operation_step: string | null;
   operation_error: string | null;
   operation_updated_at: string | null;
+  work_item_id: string | null;
+  start_revision: string | null;
+  base_commit: string | null;
+  setup_warnings_json: string | null;
 }
+
+export type SessionTarget =
+  | { type: 'global' }
+  | { type: 'workspace'; id: string }
+  | { type: 'work_item'; id: string };
 
 export interface Session {
   id: string;
   workspace_id: string | null;
+  work_item_id: string | null;
+  target: SessionTarget;
+  activity_state: 'working' | 'idle' | null;
   pid: number | null;
   provider: AgentProvider;
   status: 'active' | 'detached' | 'killed';
@@ -113,6 +125,91 @@ export interface Session {
   claude_project_dir: string | null;
   transcript_path: string | null;
   ws_url?: string;
+}
+
+export type WorkItemState = 'resolving' | 'preparing' | 'ready' | 'error' | 'destroying' | 'destroyed';
+export type WorkItemStage =
+  | 'provider_check'
+  | 'reference_resolution'
+  | 'root_generation'
+  | 'child_creation'
+  | 'child_compensation'
+  | 'session_launch'
+  | 'session_stop'
+  | 'transcript_archive'
+  | 'child_destruction'
+  | 'root_destruction'
+  | 'complete';
+export type WorkItemRetryAction = 'resolution' | 'preparation' | 'cleanup' | 'terminal';
+
+export interface RecoveryAction {
+  kind: 'command' | 'settings';
+  label: string;
+  command?: string;
+  href?: string;
+}
+
+export interface WorkItemListItem {
+  id: string;
+  reference: string;
+  title: string | null;
+  work_provider: AgentProvider;
+  resolver_provider: AgentProvider;
+  state: WorkItemState;
+  stage: WorkItemStage;
+  progress: { current: number; total: number };
+  repositories: string[];
+  updated_at: string;
+  session: null | {
+    id: string;
+    status: 'active' | 'detached';
+    activity_state: 'working' | 'idle' | null;
+  };
+  error: null | {
+    code: string;
+    failed_provider: AgentProvider | null;
+    retry_action: WorkItemRetryAction | null;
+  };
+}
+
+export interface WorkItemRepository {
+  identifier: string;
+  workspace_id: string | null;
+  state: 'pending' | 'ready' | 'removing' | 'removed' | 'error';
+  path: string | null;
+  checkout_available: boolean;
+  bookmark: string;
+  start_revision: string;
+  base_commit: string | null;
+  warnings: string[];
+}
+
+export interface WorkItemDetail extends Omit<WorkItemListItem, 'error'> {
+  summary: string | null;
+  root_path: string;
+  created_at: string;
+  destroyed_at: string | null;
+  error: null | {
+    code: string;
+    detail: string | null;
+    failed_provider: AgentProvider | null;
+    retry_action: WorkItemRetryAction | null;
+    recovery_actions: RecoveryAction[];
+  };
+  repository_workspaces: WorkItemRepository[];
+}
+
+export interface WorkItemListResponse {
+  work_items: WorkItemListItem[];
+}
+
+export interface ApiErrorEnvelope {
+  code: string;
+  message: string;
+  detail: string | null;
+  failed_provider: AgentProvider | null;
+  retry_action: WorkItemRetryAction | null;
+  recovery_actions: RecoveryAction[];
 }
 
 export interface CheckLog {
@@ -179,6 +276,7 @@ export interface Task {
   warnings: string[];
   error: string | null;
   context: ExtensiblePayload | null;
+  progress: { current: number; total: number } | null;
 }
 
 export type RuleRunStatus = 'running' | 'success' | 'error';
@@ -240,7 +338,22 @@ export interface PublicConfig {
     repos: string[];
     interval_seconds: number;
   };
+  default_session_provider: AgentProvider;
   needs_setup: boolean;
+  poll_configured: boolean;
+  work_items: {
+    configured: boolean;
+    resolver: null | {
+      provider_mode: 'fixed' | 'requested_provider';
+      provider: AgentProvider | null;
+      server_name: string;
+    };
+    repositories: string[];
+    provider_setup: Record<
+      AgentProvider,
+      { model_login_command: string; resolver_mcp_commands: string[] }
+    >;
+  };
   update_available?: boolean;
   commits_behind?: number;
   restart_needed?: boolean;
