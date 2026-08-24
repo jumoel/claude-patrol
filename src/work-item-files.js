@@ -1,9 +1,6 @@
 import { mkdirSync, renameSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-export const WORK_ITEM_INITIAL_PROMPT =
-  'Read AGENTS.md, CLAUDE.md, and TASK.json. Work from the relevant child repositories and begin the requested task.';
-
 const ROOT_FILES = Object.freeze(['AGENTS.md', 'CLAUDE.md', 'TASK.json']);
 
 function repositoryMap(children) {

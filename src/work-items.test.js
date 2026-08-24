@@ -117,7 +117,7 @@ function fixture({ resolver, sessionAlive = true, stopSession } = {}) {
   return { service, config, childPolicies, sessionOptions };
 }
 
-test('a two-repository item creates sibling children and one root session', async () => {
+test('a two-repository item creates sibling children and waits for the root session', async () => {
   const { service, sessionOptions } = fixture();
   const created = service.create({ reference: '  ECO-3632  ', workProvider: 'codex' });
   assert.equal(created.reference, 'ECO-3632');
@@ -131,12 +131,8 @@ test('a two-repository item creates sibling children and one root session', asyn
   assert.equal(detail.repository_workspaces.length, 2);
   assert.equal(new Set(detail.repository_workspaces.map((child) => child.bookmark)).size, 1);
   assert.equal(detail.repository_workspaces[0].bookmark, deterministicBookmark(created.id));
-  assert.equal(sessionOptions.length, 1);
-  assert.deepEqual(sessionOptions[0].target, { type: 'work_item', id: created.id });
-  assert.equal(sessionOptions[0].cwd, detail.root_path);
-  assert.equal(sessionOptions[0].provider, 'codex');
-  assert.equal(sessionOptions[0].options.enablePatrolMcp, false);
-  assert.match(sessionOptions[0].options.initialPrompt, /TASK\.json/);
+  assert.equal(detail.has_session_history, false);
+  assert.equal(sessionOptions.length, 0);
   assert.equal(getDb().prepare('SELECT COUNT(*) AS count FROM sessions WHERE workspace_id IS NOT NULL').get().count, 0);
 
   const agents = readFileSync(join(detail.root_path, 'AGENTS.md'), 'utf8');
@@ -161,7 +157,7 @@ test('destruction removes owned checkouts, preserves bookmark policy, and retain
     getDb()
       .prepare("SELECT COUNT(*) AS count FROM sessions WHERE work_item_id = ? AND status = 'killed'")
       .get(created.id).count,
-    1,
+    0,
   );
   assert.deepEqual(
     childPolicies.map((entry) => entry.deleteBookmark),
@@ -217,13 +213,11 @@ test('detail DTO sanitizes persisted warnings and lifecycle errors at the API bo
 });
 
 test('terminal retry cleans a stale failed launch and starts its replacement once', async () => {
-  let launchHealthy = false;
   let stopAttempts = 0;
   const { service, sessionOptions } = fixture({
-    sessionAlive: () => launchHealthy,
+    sessionAlive: true,
     stopSession: async (id) => {
       stopAttempts += 1;
-      if (stopAttempts === 1) throw new Error('tmux did not stop');
       getDb()
         .prepare("UPDATE sessions SET status = 'killed', ended_at = ? WHERE id = ?")
         .run(new Date().toISOString(), id);
@@ -231,19 +225,35 @@ test('terminal retry cleans a stale failed launch and starts its replacement onc
   });
   const created = service.create({ reference: 'PROJECT-TERMINAL', workProvider: 'codex' });
   await service.waitForIdle(created.id);
+  const now = new Date().toISOString();
+  getDb()
+    .prepare(
+      `INSERT INTO sessions (id, work_item_id, pid, provider, status, started_at)
+       VALUES ('stale-session', ?, 123, 'codex', 'active', ?)`,
+    )
+    .run(created.id, now);
+  getDb()
+    .prepare(
+      `UPDATE work_items
+       SET state = 'error', stage = 'session_launch', error_code = 'session_launch_failed',
+           error_detail = 'Interrupted session launch', updated_at = ?
+       WHERE id = ?`,
+    )
+    .run(now, created.id);
   let detail = service.detail(created.id);
   assert.equal(detail.state, 'error');
   assert.equal(detail.stage, 'session_launch');
-  assert.equal(detail.error.code, 'cleanup_failed');
+  assert.equal(detail.error.code, 'session_launch_failed');
   assert.equal(detail.error.retry_action, 'terminal');
 
-  launchHealthy = true;
   service.retry(created.id);
   await service.waitForIdle(created.id);
   detail = service.detail(created.id);
   assert.equal(detail.state, 'ready');
-  assert.equal(stopAttempts, 2);
-  assert.equal(sessionOptions.length, 2);
+  assert.equal(detail.has_session_history, true);
+  assert.equal(stopAttempts, 1);
+  assert.equal(sessionOptions.length, 1);
+  assert.deepEqual(sessionOptions[0].options, { enablePatrolMcp: false });
   assert.equal(
     getDb()
       .prepare("SELECT COUNT(*) AS count FROM sessions WHERE work_item_id = ? AND status IN ('active', 'detached')")

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, test, vi } from 'vitest';
+import { AgentProviderProvider } from '../../context/AgentProviderContext.jsx';
 import { WorkItemDetail } from './WorkItemDetail.jsx';
 
 const hook = vi.hoisted(() => ({
@@ -15,6 +16,7 @@ const api = vi.hoisted(() => ({
   createSession: vi.fn(),
   destroyWorkItem: vi.fn(),
   fetchSessions: vi.fn(),
+  fetchProviderCapabilities: vi.fn(),
   killSession: vi.fn(),
   reattachSession: vi.fn(),
   retryWorkItem: vi.fn(),
@@ -45,6 +47,7 @@ function detail() {
     progress: { current: 0, total: 0 },
     repositories: ['acme/alpha', 'acme/beta'],
     updated_at: '2026-08-22T00:00:00.000Z',
+    has_session_history: false,
     created_at: '2026-08-21T00:00:00.000Z',
     destroyed_at: null,
     root_path: '/tmp/work-item',
@@ -77,13 +80,26 @@ function detail() {
   };
 }
 
+function renderDetail() {
+  return render(
+    <AgentProviderProvider>
+      <WorkItemDetail workItemId="item-1" onBack={vi.fn()} targetStates={new Map()} />
+    </AgentProviderProvider>,
+  );
+}
+
 beforeEach(() => {
   hook.workItem = detail();
   hook.loading = false;
   hook.error = null;
   hook.reload.mockReset();
   for (const fn of Object.values(api)) fn.mockReset();
+  localStorage.clear();
   api.fetchSessions.mockResolvedValue([]);
+  api.fetchProviderCapabilities.mockResolvedValue({
+    claude: { available: true, checking: false, reason: null, version: 'test', checkedAt: null },
+    codex: { available: true, checking: false, reason: null, version: 'test', checkedAt: null },
+  });
   api.retryWorkItem.mockResolvedValue({});
   api.destroyWorkItem.mockResolvedValue({});
 });
@@ -101,10 +117,14 @@ test('ready detail renders one root terminal and no child controls', async () =>
     ended_at: null,
     activity_state: null,
   };
-  hook.workItem = { ...detail(), session: { id: 'session-1', status: 'active', activity_state: null } };
+  hook.workItem = {
+    ...detail(),
+    has_session_history: true,
+    session: { id: 'session-1', status: 'active', activity_state: null },
+  };
   api.fetchSessions.mockResolvedValue([liveSession]);
 
-  render(<WorkItemDetail workItemId="item-1" onBack={vi.fn()} targetStates={new Map()} />);
+  renderDetail();
 
   assert.equal((await screen.findAllByTestId('root-terminal')).length, 1);
   assert.ok(screen.getByText(/Update both repositories\.\s+Keep their changes aligned\./));
@@ -128,7 +148,7 @@ test('cleanup failure shows one retry, retained root, and copy feedback', async 
   hook.workItem = failed;
   const user = userEvent.setup();
 
-  render(<WorkItemDetail workItemId="item-1" onBack={vi.fn()} targetStates={new Map()} />);
+  renderDetail();
 
   assert.ok(screen.getByRole('button', { name: 'Retry cleanup' }));
   assert.ok(screen.getByText('Remove repositories 1/2 failed'));
@@ -143,7 +163,7 @@ test('destroy uses the bookmark-preservation confirmation and keeps request fail
   const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
   api.destroyWorkItem.mockRejectedValue(new Error('cleanup request rejected'));
 
-  render(<WorkItemDetail workItemId="item-1" onBack={vi.fn()} targetStates={new Map()} />);
+  renderDetail();
   await user.click(screen.getByRole('button', { name: 'Destroy' }));
 
   assert.equal(
@@ -166,12 +186,41 @@ test('destroyed detail retains history without terminal or repository actions', 
   }));
   hook.workItem = destroyed;
 
-  render(<WorkItemDetail workItemId="item-1" onBack={vi.fn()} targetStates={new Map()} />);
+  renderDetail();
 
   assert.ok(screen.getByText('Destroyed'));
   assert.equal(screen.queryByTestId('root-terminal'), null);
-  assert.equal(screen.queryByRole('button', { name: 'Restart terminal' }), null);
+  assert.equal(screen.queryByRole('button', { name: /Open terminal with|Reopen terminal with/ }), null);
   assert.equal(screen.queryByRole('button', { name: 'Copy path' }), null);
   await waitFor(() => assert.equal(api.fetchSessions.mock.calls.length, 0));
   assert.ok(screen.getByTestId('session-history'));
+});
+
+test('a ready work item can switch providers before opening an idle terminal', async () => {
+  const user = userEvent.setup();
+  localStorage.setItem('claude-patrol-agent-provider', 'codex');
+  const launched = {
+    id: 'session-2',
+    workspace_id: null,
+    work_item_id: 'item-1',
+    target: { type: /** @type {'work_item'} */ ('work_item'), id: 'item-1' },
+    pid: 321,
+    provider: /** @type {'claude'} */ ('claude'),
+    status: /** @type {'active'} */ ('active'),
+    started_at: '2026-08-22T01:00:00.000Z',
+    ended_at: null,
+    activity_state: null,
+  };
+  api.createSession.mockResolvedValue(launched);
+
+  renderDetail();
+
+  assert.ok(await screen.findByRole('button', { name: 'Open terminal with Codex' }));
+  await user.click(screen.getByRole('button', { name: /Choose agent provider, currently Codex/ }));
+  await user.click(screen.getByRole('menuitemradio', { name: /Claude/ }));
+  await user.click(screen.getByRole('button', { name: 'Open terminal with Claude' }));
+
+  assert.deepEqual(api.createSession.mock.calls, [[{ type: 'work_item', id: 'item-1' }, 'claude']]);
+  assert.ok(await screen.findByTestId('root-terminal'));
+  assert.equal(hook.reload.mock.calls.length, 1);
 });

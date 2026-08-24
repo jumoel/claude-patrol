@@ -20,7 +20,6 @@ import {
   parseTranscript,
 } from '../transcripts.js';
 import { execFile, expandPath, toClaudeProjectKey } from '../utils.js';
-import { WORK_ITEM_INITIAL_PROMPT } from '../work-item-files.js';
 import { createScratchWorkspace } from '../workspace.js';
 
 /**
@@ -29,6 +28,7 @@ import { createScratchWorkspace } from '../workspace.js';
  */
 export function registerSessionRoutes(app) {
   const { getConfig, getDb, getSessionStates } = app.appContext;
+  const launchSession = app.appContext.createSession ?? createSession;
   const formatSession = (row) => {
     const workItem = row.work_item_id
       ? getDb().prepare('SELECT title, reference, path FROM work_items WHERE id = ?').get(row.work_item_id)
@@ -103,8 +103,8 @@ export function registerSessionRoutes(app) {
       cwd = workspace.path;
       target = { type: 'workspace', id: workspace_id };
     } else if (work_item_id) {
-      if (keys.length !== 1 || provider !== null) {
-        return targetError(reply, 'invalid_request', 'Work-item sessions accept only work_item_id');
+      if (keys.some((key) => !['work_item_id', 'provider'].includes(key)) || provider === null) {
+        return targetError(reply, 'invalid_request', 'Work-item sessions require work_item_id and provider');
       }
       const workItem = db.prepare('SELECT * FROM work_items WHERE id = ?').get(work_item_id);
       if (!workItem) return targetError(reply, 'work_item_not_found', 'Work item not found', 404);
@@ -113,19 +113,24 @@ export function registerSessionRoutes(app) {
         .prepare("SELECT id FROM sessions WHERE work_item_id = ? AND status IN ('active', 'detached')")
         .get(work_item_id);
       if (live) return targetError(reply, 'session_exists', 'A work-item session is already running', 409);
-      provider = workItem.work_provider;
       cwd = workItem.path;
       target = { type: 'work_item', id: work_item_id };
       sessionOptions = {
         enablePatrolMcp: false,
-        initialPrompt: WORK_ITEM_INITIAL_PROMPT,
       };
     } else {
       return targetError(reply, 'invalid_request', 'Session target is required');
     }
 
     try {
-      const session = createSession(target, cwd, provider, sessionOptions);
+      const session = launchSession(target, cwd, provider, sessionOptions);
+      if (work_item_id) {
+        db.prepare('UPDATE work_items SET work_provider = ?, updated_at = ? WHERE id = ?').run(
+          provider,
+          new Date().toISOString(),
+          work_item_id,
+        );
+      }
       emitLocalChange();
       return reply.code(201).send({
         ...formatSession(session),

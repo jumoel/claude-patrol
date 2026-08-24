@@ -40,12 +40,13 @@ function listItem(id = 'item-1') {
     progress: { current: 0, total: 0 },
     repositories: [],
     updated_at: '2026-08-22T00:00:00.000Z',
+    has_session_history: false,
     session: null,
     error: null,
   };
 }
 
-async function serverFixture(workItemService) {
+async function serverFixture(workItemService, overrides = {}) {
   initDb(':memory:');
   const config = configFixture();
   const context = createAppContext({
@@ -56,6 +57,7 @@ async function serverFixture(workItemService) {
     getSessionStates: () => [],
     getGhRateLimitState: () => ({ limited: false }),
     workItemService,
+    ...overrides,
   });
   return createServer({ context, config });
 }
@@ -95,6 +97,63 @@ test('work-item routes use the fixed asynchronous DTO and structured errors', as
     const missing = await server.inject({ method: 'GET', url: '/api/work-items/missing' });
     assert.equal(missing.statusCode, 404);
     assert.equal(missing.json().error.code, 'work_item_not_found');
+  } finally {
+    await server.close();
+  }
+});
+
+test('work-item session creation accepts a selected provider and persists it', async () => {
+  const service = { create() {}, list: () => [], detail: () => null, retry() {}, destroy() {} };
+  const launches = [];
+  const server = await serverFixture(service, {
+    createSession: (target, cwd, provider, options) => {
+      launches.push({ target, cwd, provider, options });
+      return {
+        id: 'selected-provider-session',
+        workspace_id: null,
+        work_item_id: target.id,
+        pid: 123,
+        provider,
+        status: 'active',
+        started_at: '2026-08-22T00:00:00.000Z',
+      };
+    },
+  });
+  const now = new Date().toISOString();
+  getDb()
+    .prepare(
+      `INSERT INTO work_items (
+        id, reference, path, work_provider, resolver_provider, state, stage,
+        progress_current, progress_total, created_at, updated_at
+      ) VALUES ('provider-item', 'PROJECT-PROVIDER', '/tmp/provider-item', 'codex', 'codex',
+        'ready', 'complete', 0, 0, ?, ?)`,
+    )
+    .run(now, now);
+
+  try {
+    const missingProvider = await server.inject({
+      method: 'POST',
+      url: '/api/sessions',
+      payload: { work_item_id: 'provider-item' },
+    });
+    assert.equal(missingProvider.statusCode, 400);
+    assert.equal(missingProvider.json().error.code, 'invalid_request');
+
+    const response = await server.inject({
+      method: 'POST',
+      url: '/api/sessions',
+      payload: { work_item_id: 'provider-item', provider: 'claude' },
+    });
+    assert.equal(response.statusCode, 201);
+    assert.equal(response.json().provider, 'claude');
+    assert.deepEqual(launches[0].target, { type: 'work_item', id: 'provider-item' });
+    assert.equal(launches[0].cwd, '/tmp/provider-item');
+    assert.equal(launches[0].provider, 'claude');
+    assert.deepEqual(launches[0].options, { enablePatrolMcp: false });
+    assert.equal(
+      getDb().prepare('SELECT work_provider FROM work_items WHERE id = ?').get('provider-item').work_provider,
+      'claude',
+    );
   } finally {
     await server.close();
   }

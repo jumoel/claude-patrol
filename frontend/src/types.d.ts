@@ -160,6 +160,7 @@ export interface WorkItemListItem {
   progress: { current: number; total: number };
   repositories: string[];
   updated_at: string;
+  has_session_history: boolean;
   session: null | {
     id: string;
     status: 'active' | 'detached';

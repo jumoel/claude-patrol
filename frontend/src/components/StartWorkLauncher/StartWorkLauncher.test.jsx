@@ -134,7 +134,7 @@ test('a pending launch locks mode, cancel, and repeat submission', async () => {
 
   await user.click(screen.getByRole('button', { name: '+ Start work' }));
   await user.type(screen.getByLabelText('Reference'), 'PROJECT-LOCK');
-  await user.click(screen.getByRole('button', { name: 'Start work item' }));
+  await user.click(screen.getByRole('button', { name: 'Create work item' }));
 
   assert.equal(api.createWorkItem.mock.calls.length, 1);
   assert.equal(/** @type {HTMLButtonElement} */ (screen.getByRole('button', { name: 'Cancel' })).disabled, true);
@@ -143,7 +143,7 @@ test('a pending launch locks mode, cancel, and repeat submission', async () => {
     true,
   );
   assert.equal(
-    /** @type {HTMLButtonElement} */ (screen.getByRole('button', { name: 'Starting work item...' })).disabled,
+    /** @type {HTMLButtonElement} */ (screen.getByRole('button', { name: 'Creating work item...' })).disabled,
     true,
   );
   assert.equal(
@@ -162,7 +162,7 @@ test('validates the reference using the backend UTF-8 byte limit', async () => {
 
   await user.click(screen.getByRole('button', { name: '+ Start work' }));
   await user.type(screen.getByLabelText('Reference'), 'é'.repeat(300));
-  await user.click(screen.getByRole('button', { name: 'Start work item' }));
+  await user.click(screen.getByRole('button', { name: 'Create work item' }));
 
   assert.ok(screen.getByRole('alert').textContent?.includes('512 UTF-8 bytes'));
   assert.equal(api.createWorkItem.mock.calls.length, 0);

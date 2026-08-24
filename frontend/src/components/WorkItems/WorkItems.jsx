@@ -19,7 +19,7 @@ const LIFECYCLE_LABELS = {
  */
 export function workItemStatus(item, targetStates, dismissedIdle) {
   if (item.state !== 'ready') return LIFECYCLE_LABELS[item.state] ?? item.state;
-  if (!item.session) return 'Stopped';
+  if (!item.session) return item.has_session_history ? 'Stopped' : 'Ready';
   const key = `work-item:${item.id}`;
   const activity = targetStates?.get(key) ?? item.session.activity_state;
   if (activity === 'working') return 'Working';
@@ -34,13 +34,15 @@ function StatusBadge({ status }) {
       ? 'violet'
       : status === 'Waiting'
         ? 'amber'
-        : status === 'Failed'
-          ? 'red'
-          : status === 'Stopped' || status === 'Idle'
-            ? 'gray'
-            : status === 'Resolving' || status === 'Preparing' || status === 'Destroying'
-              ? 'blue'
-              : 'green';
+        : status === 'Ready'
+          ? 'green'
+          : status === 'Failed'
+            ? 'red'
+            : status === 'Stopped' || status === 'Idle'
+              ? 'gray'
+              : status === 'Resolving' || status === 'Preparing' || status === 'Destroying'
+                ? 'blue'
+                : 'green';
   return (
     <Badge color={color} pulse={status === 'Waiting'}>
       {status}

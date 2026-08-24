@@ -221,7 +221,7 @@ export async function fetchSessions(target) {
 /**
  * Create a session.
  * @param {import('../types').SessionTarget} target
- * @param {import('../types').AgentProvider} [provider]
+ * @param {import('../types').AgentProvider} provider
  * @returns {Promise<import('../types').Session>}
  */
 export async function createSession(target, provider) {
@@ -229,7 +229,7 @@ export async function createSession(target, provider) {
     target.type === 'workspace'
       ? { workspace_id: target.id, provider }
       : target.type === 'work_item'
-        ? { work_item_id: target.id }
+        ? { work_item_id: target.id, provider }
         : { global: true, provider };
   const res = await fetch(`${BASE}/api/sessions`, {
     method: 'POST',

@@ -10,12 +10,7 @@ import { sanitizePublicText } from './public-errors.js';
 import { runTask, updateTaskProgress } from './tasks.js';
 import { archiveTranscript } from './transcripts.js';
 import { expandPath, toClaudeProjectKey } from './utils.js';
-import {
-  generatedRootFileNames,
-  publishRootFiles,
-  WORK_ITEM_INITIAL_PROMPT,
-  writeTemporaryRootFiles,
-} from './work-item-files.js';
+import { generatedRootFileNames, publishRootFiles, writeTemporaryRootFiles } from './work-item-files.js';
 import { createWorkItemResolver } from './work-item-resolver.js';
 import { createWorkItemChild, destroyWorkItemChild } from './workspace.js';
 
@@ -128,12 +123,17 @@ function latestSession(db, workItemId) {
     .get(workItemId);
 }
 
+function hasSessionHistory(db, workItemId) {
+  return Boolean(db.prepare('SELECT 1 FROM sessions WHERE work_item_id = ? LIMIT 1').get(workItemId));
+}
+
 function activityMap(getSessionStates) {
   return new Map(getSessionStates().map((entry) => [entry.sessionId, entry.state]));
 }
 
 export function workItemListItem(row, { getSessionStates = () => [] } = {}) {
-  const session = latestSession(getDb(), row.id);
+  const db = getDb();
+  const session = latestSession(db, row.id);
   const activities = activityMap(getSessionStates);
   return {
     id: row.id,
@@ -146,6 +146,7 @@ export function workItemListItem(row, { getSessionStates = () => [] } = {}) {
     progress: { current: row.progress_current, total: row.progress_total },
     repositories: repositoriesFor(row),
     updated_at: row.updated_at,
+    has_session_history: hasSessionHistory(db, row.id),
     session: session
       ? { id: session.id, status: session.status, activity_state: activities.get(session.id) ?? null }
       : null,
@@ -395,7 +396,6 @@ export function createWorkItemService({
       }
       session = launchSession({ type: 'work_item', id }, item.path, item.work_provider, {
         enablePatrolMcp: false,
-        initialPrompt: WORK_ITEM_INITIAL_PROMPT,
       });
       await startupDelay(1000);
       if (!sessionAlive(session.id))
@@ -517,18 +517,23 @@ export function createWorkItemService({
         updateTaskProgress(task.id, { current, total: repositories.length });
       }
       publishRootFiles(rootPath);
+      mutateWorkItem(id, {
+        state: 'ready',
+        stage: 'complete',
+        progress_current: 0,
+        progress_total: 0,
+        ...clearErrorPatch(),
+      });
     } catch (error) {
       if (childCreationStarted) await compensateChildren(id, error, task);
       else recordFailure(id, error, { stage: 'root_generation' });
       throw error;
     }
-    await launchTerminal(id);
   };
 
   const resolveAndPrepare = async (id, task) => {
     try {
       let item = getDb().prepare('SELECT * FROM work_items WHERE id = ?').get(id);
-      const providers = new Set([item.work_provider, item.resolver_provider]);
       mutateWorkItem(id, {
         state: 'resolving',
         stage: 'provider_check',
@@ -536,7 +541,7 @@ export function createWorkItemService({
         progress_total: 0,
         ...clearErrorPatch(),
       });
-      for (const provider of providers) await checkProvider(provider, providerCapabilities);
+      await checkProvider(item.resolver_provider, providerCapabilities);
       mutateWorkItem(id, { state: 'resolving', stage: 'reference_resolution' });
       const result = await resolver.resolve({
         reference: item.reference,

@@ -9,7 +9,7 @@ A self-hosted coding dashboard that watches GitHub pull requests and starts isol
 - **PR dashboard** - live-updating table of open PRs across your GitHub orgs and repos. Filter by org, repo, CI status, review state, merge readiness, draft. Quick filters for "Merge Ready", "Review Ready", and "Needs Work".
 - **Workspace management** - create jj workspaces for any PR with one click. Supports per-repo symlinks, init commands, and Claude memory linking.
 - **Reference-based work items** - resolve one opaque project reference into one or more repository workspaces and work across them from one terminal rooted at a non-repository parent.
-- **Terminal sessions** - embedded xterm.js terminals running Claude Code inside tmux. Multiple browser tabs or a native Ghostty window can share the same session. Pop out to Ghostty at any time.
+- **Terminal sessions** - embedded xterm.js terminals running Claude Code or Codex inside tmux. Multiple browser tabs or a native Ghostty window can share the same session. Pop out to Ghostty at any time.
 - **Session transcripts** - Claude Code JSONL transcripts are archived when sessions end. View past conversations with searchable, structured output (tool calls, thinking blocks, results).
 - **CI diagnostics** - view failed check logs inline, extract error context from GitHub Actions, retrigger failed checks.
 - **MCP server** - exposes PR data, workspace ops, and CI logs as tools for Claude Code. Claude can triage PRs, create workspaces, and investigate failures autonomously.
@@ -120,6 +120,8 @@ Binding and security changes require a restart.
 ### Reference-based work items
 
 Work Items are independent of any issue tracker. Patrol passes the reference to the configured read-only MCP resolver and accepts only a title, summary, and subset of configured repositories. The resolver cannot select paths, revisions, bookmarks, commands, or Patrol operations.
+
+Patrol prepares the selected repository workspaces without starting an agent. When the work item is ready, choose Claude or Codex on its detail page and open a terminal explicitly. The agent starts idle and waits for your first prompt.
 
 Every candidate source repository must already exist as a jj repository below `work_dir`. Patrol does not clone repositories. A minimal configuration using Linear as the instance-specific resolver looks like this:
 

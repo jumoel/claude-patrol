@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import styles from './App.module.css';
 import { AppShell } from './components/AppShell/AppShell.jsx';
 import { CommandPalette } from './components/CommandPalette/CommandPalette.jsx';
 import { DashboardSummary } from './components/DashboardSummary/DashboardSummary.jsx';
@@ -425,7 +426,10 @@ export default function App() {
             />
           )}
           {pollConfigured && (
-            <>
+            <section className={styles.prSection} aria-labelledby="open-prs-heading">
+              <h2 id="open-prs-heading" className={styles.prTitle}>
+                Open PRs ({filteredPRs.length})
+              </h2>
               <FilterBar
                 prs={allPRs}
                 filters={filters}
@@ -447,7 +451,7 @@ export default function App() {
                 stackView={stackView}
                 sortedRowsRef={sortedRowsRef}
               />
-            </>
+            </section>
           )}
           <ScratchWorkspaces
             scratchWorkspaces={scratchWorkspaces}

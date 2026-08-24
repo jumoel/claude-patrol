@@ -16,6 +16,7 @@ import {
   PATROL_MCP_TIMEOUT_MS,
   setMcpPort,
 } from './pty-manager.js';
+import { buildSessionLaunch } from './session-launch.js';
 
 afterEach(() => closeDb());
 
@@ -86,6 +87,32 @@ it('removes an inherited NO_COLOR setting from the Claude process', () => {
   );
   const newSession = commands.find(([command, subcommand]) => command === 'tmux' && subcommand === 'new-session');
   assert.match(newSession.at(-1), /^'env' '-u' 'NO_COLOR' 'claude'/);
+});
+
+it('launches MCP-free provider sessions without submitting an initial prompt', () => {
+  const common = {
+    sessionId: 'idle-session',
+    cwd: '/tmp/patrol-work-item',
+    port: 4242,
+    patrolPrompt: 'unused',
+    mcpTimeoutMs: PATROL_MCP_TIMEOUT_MS,
+    enablePatrolMcp: false,
+  };
+
+  assert.deepEqual(buildSessionLaunch({ ...common, provider: 'claude' }).commandArgs, [
+    'env',
+    '-u',
+    'NO_COLOR',
+    'claude',
+  ]);
+  assert.deepEqual(buildSessionLaunch({ ...common, provider: 'codex' }).commandArgs, [
+    'env',
+    '-u',
+    'NO_COLOR',
+    'codex',
+    '-C',
+    '/tmp/patrol-work-item',
+  ]);
 });
 
 it('launches Codex with the session-scoped Patrol MCP server and instructions', () => {

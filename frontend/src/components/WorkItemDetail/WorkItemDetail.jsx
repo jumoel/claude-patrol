@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useAgentProvider } from '../../context/AgentProviderContext.jsx';
 import { useWorkItem } from '../../hooks/useWorkItems.js';
 import {
   createSession,
@@ -11,6 +12,7 @@ import {
 import { getErrorMessage } from '../../lib/errors.js';
 import { getRelativeTime } from '../../lib/time.js';
 import shared from '../../styles/shared.module.css';
+import { AgentProviderButton } from '../AgentProviderButton/AgentProviderButton.jsx';
 import { SessionHistory } from '../SessionHistory/SessionHistory.jsx';
 import { TerminalCard } from '../TerminalCard/TerminalCard.jsx';
 import { Badge } from '../ui/Badge/Badge.jsx';
@@ -101,7 +103,7 @@ function WorkItemProgress({ item }) {
           status: complete || phase > 1 ? 'done' : phase === 1 ? (failed ? 'failed' : 'active') : 'pending',
         },
         {
-          label: 'Start terminal',
+          label: 'Ready to open terminal',
           status: complete ? 'done' : phase === 2 ? (failed ? 'failed' : 'active') : 'pending',
         },
       ]}
@@ -200,6 +202,7 @@ function RecoveryCommandButton({ recovery }) {
  * @param {{workItemId: string, onBack: () => void, targetStates: Map<string, 'working' | 'idle'>}} props
  */
 export function WorkItemDetail({ workItemId, onBack, targetStates }) {
+  const { provider } = useAgentProvider();
   const { workItem, loading, error, reload } = useWorkItem(workItemId);
   const target = useMemo(() => ({ type: /** @type {'work_item'} */ ('work_item'), id: workItemId }), [workItemId]);
   const [session, setSession] = useState(/** @type {import('../../types').Session | null} */ (null));
@@ -273,14 +276,14 @@ export function WorkItemDetail({ workItemId, onBack, targetStates }) {
     setSessionLoading(true);
     setActionError('');
     try {
-      setSession(await createSession(target));
+      setSession(await createSession(target, provider));
       reload();
     } catch (nextError) {
       setActionError(getErrorMessage(nextError, 'Failed to restart terminal'));
     } finally {
       setSessionLoading(false);
     }
-  }, [reload, target]);
+  }, [provider, reload, target]);
 
   const handleKillSession = useCallback(async () => {
     if (!session) return;
@@ -317,6 +320,7 @@ export function WorkItemDetail({ workItemId, onBack, targetStates }) {
   const destroyed = workItem.state === 'destroyed';
   const canDestroy = (workItem.state === 'ready' || workItem.state === 'error') && retryAction !== 'cleanup';
   const providerName = workItem.work_provider === 'codex' ? 'Codex' : 'Claude';
+  const selectedProviderName = provider === 'codex' ? 'Codex' : 'Claude';
   const resolverName = workItem.resolver_provider === 'codex' ? 'Codex' : 'Claude';
 
   return (
@@ -434,15 +438,23 @@ export function WorkItemDetail({ workItemId, onBack, targetStates }) {
             <Box p={5} border rounded="lg" bg="white">
               <Stack direction="col" gap={3}>
                 <h3 className={shared.sectionTitle}>Terminal</h3>
-                <p className={styles.actionNote}>This work item uses {providerName} for every terminal session.</p>
-                <Button
+                <p className={styles.actionNote}>
+                  Choose Claude or Codex before{' '}
+                  {workItem.has_session_history ? 'reopening the terminal' : 'opening the terminal'}.
+                </p>
+                <AgentProviderButton
                   variant="primary"
-                  size="md"
+                  size="lg"
                   onClick={handleStartSession}
                   disabled={sessionLoading || actionPending}
+                  busy={sessionLoading}
                 >
-                  {sessionLoading ? 'Starting terminal...' : 'Restart terminal'}
-                </Button>
+                  {sessionLoading
+                    ? 'Opening terminal...'
+                    : workItem.has_session_history
+                      ? `Reopen terminal with ${selectedProviderName}`
+                      : `Open terminal with ${selectedProviderName}`}
+                </AgentProviderButton>
               </Stack>
             </Box>
           ))}

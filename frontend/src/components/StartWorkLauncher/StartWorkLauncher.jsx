@@ -170,7 +170,7 @@ export function StartWorkLauncher({ workItemsConfigured }) {
                       providerDisabledTitle="Provider cannot be changed while the work item is starting"
                       busy={pending}
                     >
-                      {pending ? 'Starting work item...' : 'Start work item'}
+                      {pending ? 'Creating work item...' : 'Create work item'}
                     </AgentProviderButton>
                   </Stack>
                 </form>

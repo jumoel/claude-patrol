@@ -16,12 +16,14 @@ const base = {
   progress: { current: 0, total: 0 },
   repositories: ['chainguard-dev/mono'],
   updated_at: '2026-08-22T00:00:00.000Z',
+  has_session_history: false,
   session: null,
   error: null,
 };
 
 test('maps every ready session state without relying on color', () => {
-  assert.equal(workItemStatus(base), 'Stopped');
+  assert.equal(workItemStatus(base), 'Ready');
+  assert.equal(workItemStatus({ ...base, has_session_history: true }), 'Stopped');
   assert.equal(workItemStatus({ ...base, session: { id: 's', status: 'active', activity_state: null } }), 'Running');
   /** @type {Map<string, 'working' | 'idle'>} */
   const working = new Map([['work-item:item-1', 'working']]);
