@@ -485,8 +485,16 @@ export async function resolveWorkspaceRevision(repo, revision, config) {
   return { sourcePath, commitId: commits[0] };
 }
 
-export async function createWorkItemChild({ id, workItemId, repo, name, workspacePath, bookmark, config }) {
-  const startRevision = config.repos[repo].defaultRevision;
+export async function createWorkItemChild({
+  id,
+  workItemId,
+  repo,
+  name,
+  workspacePath,
+  bookmark,
+  config,
+  startRevision = config.repos[repo].defaultRevision,
+}) {
   const { sourcePath, commitId } = await resolveWorkspaceRevision(repo, startRevision, config);
   const now = new Date().toISOString();
   reserveWorkspaceRow({
@@ -968,7 +976,14 @@ async function destroyWorkspaceLocked(workspaceId, config, { deleteBookmark, run
         if (deleteBookmark) {
           updateWorkspaceOperation(workspaceId, 'destroying', 'destroy:bookmark');
           try {
-            await runExec('jj', ['bookmark', 'delete', workspace.bookmark, '-R', mainRepoPath]);
+            const { stdout } = await runExec(
+              'jj',
+              ['bookmark', 'list', workspace.bookmark, '-T', 'name ++ "\\n"', '-R', mainRepoPath],
+              { encoding: 'utf8' },
+            );
+            if (String(stdout).trim()) {
+              await runExec('jj', ['bookmark', 'delete', workspace.bookmark, '-R', mainRepoPath]);
+            }
           } catch (error) {
             throw workspaceError('bookmark_cleanup_failed', `Bookmark cleanup failed: ${error.message}`);
           }

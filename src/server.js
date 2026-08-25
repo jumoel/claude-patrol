@@ -124,7 +124,6 @@ export async function createServer(options = {}) {
          FROM sessions s
          LEFT JOIN workspaces w ON w.id = s.workspace_id
          WHERE s.id = ?
-           AND s.work_item_id IS NULL
            AND (s.workspace_id IS NULL OR w.work_item_id IS NULL)
            AND s.status IN ('active', 'detached')`,
       )

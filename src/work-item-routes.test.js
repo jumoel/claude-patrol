@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { afterEach, test } from 'node:test';
+import { actionRegistry } from './actions.js';
 import { createAppContext } from './app-context.js';
 import { parseConfig } from './config.js';
 import { closeDb, getDb, initDb } from './db.js';
@@ -70,6 +71,7 @@ test('work-item routes use the fixed asynchronous DTO and structured errors', as
     detail: (id) => (id === item.id ? { ...item, root_path: '/tmp/item-1', repository_workspaces: [] } : null),
     retry: () => item,
     destroy: () => ({ accepted: true }),
+    waitForIdle: async () => {},
   };
   const server = await serverFixture(service);
   try {
@@ -89,6 +91,20 @@ test('work-item routes use the fixed asynchronous DTO and structured errors', as
     assert.equal(created.statusCode, 202);
     assert.equal(created.headers.location, '/api/work-items/item-1');
     assert.equal(created.json().work_item.reference, 'PROJECT-1');
+    const startAction = actionRegistry.start_work_item;
+    const startArgs = startAction.schema.parse({ reference: 'PROJECT-1', work_provider: 'codex' });
+    assert.deepEqual(startAction.dispatch(startArgs), {
+      method: 'POST',
+      path: '/api/work-items',
+      body: { reference: 'PROJECT-1', work_provider: 'codex' },
+    });
+    assert.deepEqual(startAction.transform(created.json()), created.json().work_item);
+    const started = await startAction.mcpHandler(server, {
+      reference: 'PROJECT-1',
+      work_provider: 'codex',
+    });
+    assert.equal(started.id, 'item-1');
+    assert.equal(started.root_path, '/tmp/item-1');
 
     const list = await server.inject({ method: 'GET', url: '/api/work-items' });
     assert.deepEqual(list.json(), { work_items: [item] });
@@ -97,6 +113,66 @@ test('work-item routes use the fixed asynchronous DTO and structured errors', as
     const missing = await server.inject({ method: 'GET', url: '/api/work-items/missing' });
     assert.equal(missing.statusCode, 404);
     assert.equal(missing.json().error.code, 'work_item_not_found');
+  } finally {
+    await server.close();
+  }
+});
+
+test('repository workspace MCP calls support inferred and explicit work-item targets', async () => {
+  const calls = [];
+  const service = {
+    create() {},
+    list: () => [],
+    detail: () => null,
+    retry() {},
+    destroy() {},
+    addRepository: async (id, repository, revision) => {
+      calls.push({ id, repository, revision });
+      return { added: true, work_item: { id }, repository_workspace: { identifier: repository } };
+    },
+  };
+  const server = await serverFixture(service);
+  const now = new Date().toISOString();
+  getDb()
+    .prepare(
+      `INSERT INTO work_items (
+        id, reference, path, work_provider, resolver_provider, state, stage,
+        progress_current, progress_total, created_at, updated_at
+      ) VALUES ('item-1', 'PROJECT-1', '/tmp/item-1', 'codex', 'codex',
+        'ready', 'complete', 0, 0, ?, ?)`,
+    )
+    .run(now, now);
+  getDb()
+    .prepare(
+      `INSERT INTO sessions (id, work_item_id, pid, provider, status, started_at)
+       VALUES ('work-session', 'item-1', 1, 'codex', 'active', ?)`,
+    )
+    .run(now);
+
+  try {
+    const inferred = await actionRegistry.add_repo_workspace.mcpHandler(
+      server,
+      { repo: 'acme/widgets' },
+      { callerSessionId: 'work-session' },
+    );
+    assert.equal(inferred.added, true);
+    const explicit = await actionRegistry.add_repo_workspace.mcpHandler(
+      server,
+      { repo: 'acme/widgets', revision: 'feature@git', work_item_id: 'item-2' },
+      { callerSessionId: 'outside-session' },
+    );
+    assert.equal(explicit.work_item.id, 'item-2');
+    assert.deepEqual(calls, [
+      { id: 'item-1', repository: 'acme/widgets', revision: undefined },
+      { id: 'item-2', repository: 'acme/widgets', revision: 'feature@git' },
+    ]);
+
+    const missingTarget = await actionRegistry.add_repo_workspace.mcpHandler(
+      server,
+      { repo: 'acme/widgets' },
+      { callerSessionId: 'outside-session' },
+    );
+    assert.equal(missingTarget.error, 'work_item_id_required');
   } finally {
     await server.close();
   }
@@ -149,7 +225,7 @@ test('work-item session creation accepts a selected provider and persists it', a
     assert.deepEqual(launches[0].target, { type: 'work_item', id: 'provider-item' });
     assert.equal(launches[0].cwd, '/tmp/provider-item');
     assert.equal(launches[0].provider, 'claude');
-    assert.deepEqual(launches[0].options, { enablePatrolMcp: false });
+    assert.deepEqual(launches[0].options, { enablePatrolMcp: true });
     assert.equal(
       getDb().prepare('SELECT work_provider FROM work_items WHERE id = ?').get('provider-item').work_provider,
       'claude',
@@ -243,6 +319,23 @@ test('session filters distinguish global, work-item, and managed child targets',
 
     const childMcp = await server.inject({ method: 'POST', url: '/mcp/child-session', payload: {} });
     assert.equal(childMcp.statusCode, 404);
+
+    const workItemMcp = await server.inject({
+      method: 'POST',
+      url: '/mcp/work-session',
+      headers: { accept: 'application/json, text/event-stream' },
+      payload: {
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: {
+          protocolVersion: '2025-06-18',
+          capabilities: {},
+          clientInfo: { name: 'test', version: '1.0.0' },
+        },
+      },
+    });
+    assert.equal(workItemMcp.statusCode, 200);
 
     const workspaceList = await server.inject({ method: 'GET', url: '/api/workspaces' });
     assert.deepEqual(workspaceList.json(), []);

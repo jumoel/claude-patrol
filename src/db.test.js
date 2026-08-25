@@ -45,9 +45,18 @@ test('a new database is migrated to the current schema', () => {
   assert.ok(sessionColumns.has('provider'));
   assert.ok(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'sync_state'").get());
   assert.ok(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'automation_jobs'").get());
+  assert.ok(
+    db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'work_item_repository_additions'").get(),
+  );
+  assert.ok(
+    db
+      .prepare("PRAGMA table_info('work_item_repository_additions')")
+      .all()
+      .some((column) => column.name === 'start_revision'),
+  );
 });
 
-test('the v7 to v9 migration preserves workspaces and sessions', () => {
+test('the v7 to current migration preserves workspaces and sessions', () => {
   const path = join(temporaryDirectory(), 'v7.db');
   const legacy = new DatabaseSync(path);
   legacy.exec(`
@@ -201,7 +210,7 @@ test('configuration updates are validated before replacing the file', () => {
   assert.equal(readFileSync(path, 'utf8'), beforeInvalidUpdate);
 });
 
-test('schema v9 enforces work-item progress and exclusive workspace and session targets', () => {
+test('the current schema enforces work-item progress and exclusive workspace and session targets', () => {
   const db = initDb(':memory:');
   const now = new Date().toISOString();
   db.prepare(
@@ -257,7 +266,7 @@ test('schema v9 enforces work-item progress and exclusive workspace and session 
   assert.deepEqual(db.prepare('PRAGMA foreign_key_check').all(), []);
 });
 
-test('schema v9 allows one active child per work-item repository', () => {
+test('the current schema allows one active child per work-item repository', () => {
   const db = initDb(':memory:');
   const now = new Date().toISOString();
   db.prepare(

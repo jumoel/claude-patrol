@@ -1,6 +1,6 @@
 /** Schema v7 intentionally resets every pre-v7 database. */
 
-export const CURRENT_SCHEMA_VERSION = 9;
+export const CURRENT_SCHEMA_VERSION = 10;
 
 function createWorkItemTables(db) {
   db.exec(`
@@ -96,11 +96,24 @@ function createWorkspaceTablesV9(db) {
   `);
 }
 
+function createWorkItemRepositoryAdditionTable(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS work_item_repository_additions (
+      work_item_id TEXT PRIMARY KEY REFERENCES work_items(id),
+      repository TEXT NOT NULL,
+      start_revision TEXT NOT NULL,
+      workspace_id TEXT NOT NULL UNIQUE,
+      created_at TEXT NOT NULL
+    );
+  `);
+}
+
 function resetSchema(db) {
   db.exec(`
     DROP TABLE IF EXISTS automation_jobs;
     DROP TABLE IF EXISTS rule_subscriptions;
     DROP TABLE IF EXISTS rule_runs;
+    DROP TABLE IF EXISTS work_item_repository_additions;
     DROP TABLE IF EXISTS workspace_claims;
     DROP TABLE IF EXISTS sessions;
     DROP TABLE IF EXISTS workspaces;
@@ -188,6 +201,7 @@ function resetSchema(db) {
   `);
   createWorkItemTables(db);
   createWorkspaceTablesV9(db);
+  createWorkItemRepositoryAdditionTable(db);
 }
 
 function v8InvalidReferences(db) {
@@ -283,6 +297,7 @@ export function migrateDb(db) {
     } else if (version === 8) {
       migrateV8ToV9(db);
     }
+    createWorkItemRepositoryAdditionTable(db);
     db.exec(`PRAGMA user_version = ${CURRENT_SCHEMA_VERSION}`);
     db.exec('COMMIT');
     const kind = version < 7 ? 'Destructive schema reset' : 'Schema migration';

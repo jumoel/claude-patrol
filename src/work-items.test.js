@@ -1,10 +1,16 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, test } from 'node:test';
 import { closeDb, getDb, initDb } from './db.js';
-import { createWorkItemService, deterministicBookmark, recoverInterruptedWorkItems } from './work-items.js';
+import {
+  createWorkItemService,
+  deterministicBookmark,
+  recoverInterruptedWorkItems,
+  removeWorkItemRoot,
+} from './work-items.js';
 
 const temporaryDirectories = [];
 
@@ -13,7 +19,13 @@ afterEach(() => {
   for (const directory of temporaryDirectories.splice(0)) rmSync(directory, { recursive: true, force: true });
 });
 
-function fixture({ resolver, sessionAlive = true, stopSession, logger = { log() {}, warn() {} } } = {}) {
+function fixture({
+  resolver,
+  sessionAlive = true,
+  stopSession,
+  addedRepositoryError = null,
+  logger = { log() {}, warn() {} },
+} = {}) {
   initDb(':memory:');
   const root = mkdtempSync(join(tmpdir(), 'patrol-work-items-'));
   temporaryDirectories.push(root);
@@ -23,6 +35,7 @@ function fixture({ resolver, sessionAlive = true, stopSession, logger = { log() 
     repos: {
       'acme/alpha': { defaultRevision: 'main@origin' },
       'acme/beta': { defaultRevision: 'main@origin' },
+      'acme/gamma': {},
     },
     work_items: {
       repositories: ['acme/alpha', 'acme/beta'],
@@ -55,7 +68,17 @@ function fixture({ resolver, sessionAlive = true, stopSession, logger = { log() 
         repositories: ['acme/alpha', 'acme/beta'],
       }),
     },
-    createChild: async ({ id, workItemId, repo, name, workspacePath, bookmark, config: childConfig }) => {
+    createChild: async ({
+      id,
+      workItemId,
+      repo,
+      name,
+      workspacePath,
+      bookmark,
+      config: childConfig,
+      startRevision,
+    }) => {
+      if (repo === 'acme/beta' && addedRepositoryError) throw addedRepositoryError;
       mkdirSync(workspacePath, { recursive: true });
       const now = new Date().toISOString();
       getDb()
@@ -75,7 +98,7 @@ function fixture({ resolver, sessionAlive = true, stopSession, logger = { log() 
           repo,
           now,
           now,
-          childConfig.repos[repo].defaultRevision,
+          startRevision ?? childConfig.repos[repo].defaultRevision,
           repo === 'acme/alpha' ? 'a'.repeat(64) : 'b'.repeat(64),
         );
       return getDb().prepare('SELECT * FROM workspaces WHERE id = ?').get(id);
@@ -160,16 +183,117 @@ test('a two-repository item creates sibling children and waits for the root sess
   ]);
 });
 
+test('a repository can be added to a ready work item and duplicate additions are no-ops', async () => {
+  const { service } = fixture({
+    resolver: {
+      resolve: async () => ({
+        title: 'Expand the repair',
+        summary: 'Start in alpha and add beta when needed.',
+        repositories: ['acme/alpha'],
+      }),
+    },
+  });
+  const created = service.create({ reference: 'PROJECT-ADD', workProvider: 'codex' });
+  await service.waitForIdle(created.id);
+
+  const result = await service.addRepository(created.id, 'acme/beta');
+  assert.equal(result.added, true);
+  assert.equal(result.repository_workspace.identifier, 'acme/beta');
+  assert.equal(result.repository_workspace.state, 'ready');
+  assert.deepEqual(result.work_item.repositories, ['acme/alpha', 'acme/beta']);
+  assert.match(readFileSync(join(result.work_item.root_path, 'AGENTS.md'), 'utf8'), /acme\/beta/);
+  assert.match(readFileSync(join(result.work_item.root_path, 'CLAUDE.md'), 'utf8'), /acme\/beta/);
+
+  const duplicate = await service.addRepository(created.id, 'acme/beta');
+  assert.equal(duplicate.added, false);
+  assert.equal(
+    getDb()
+      .prepare("SELECT COUNT(*) AS count FROM workspaces WHERE work_item_id = ? AND repo = 'acme/beta'")
+      .get(created.id).count,
+    1,
+  );
+});
+
+test('repository additions reject repositories outside the configured repos', async () => {
+  const { service } = fixture({
+    resolver: {
+      resolve: async () => ({
+        title: 'Scoped repair',
+        summary: 'Only alpha is needed.',
+        repositories: ['acme/alpha'],
+      }),
+    },
+  });
+  const created = service.create({ reference: 'PROJECT-SCOPE', workProvider: 'claude' });
+  await service.waitForIdle(created.id);
+
+  await assert.rejects(
+    service.addRepository(created.id, 'acme/unconfigured'),
+    (error) => error.code === 'repository_not_configured',
+  );
+  assert.deepEqual(service.detail(created.id).repositories, ['acme/alpha']);
+});
+
+test('a configured repository outside the resolver candidates can be added from an explicit revision', async () => {
+  const { service } = fixture({
+    resolver: {
+      resolve: async () => ({
+        title: 'Cross-repository follow-up',
+        summary: 'Add gamma only when the agent discovers it is needed.',
+        repositories: ['acme/alpha'],
+      }),
+    },
+  });
+  const created = service.create({ reference: 'PROJECT-REVISION', workProvider: 'codex' });
+  await service.waitForIdle(created.id);
+
+  await assert.rejects(service.addRepository(created.id, 'acme/gamma'), (error) => error.code === 'revision_required');
+  const result = await service.addRepository(created.id, 'acme/gamma', 'feature@git');
+  assert.equal(result.added, true);
+  assert.equal(result.repository_workspace.start_revision, 'feature@git');
+  assert.deepEqual(result.work_item.repositories, ['acme/alpha', 'acme/gamma']);
+});
+
+test('a failed repository addition restores the ready work item and its root files', async () => {
+  const failure = Object.assign(new Error('beta source is unavailable'), { code: 'repository_unavailable' });
+  const { service } = fixture({
+    addedRepositoryError: failure,
+    resolver: {
+      resolve: async () => ({
+        title: 'Resilient repair',
+        summary: 'Keep alpha usable if beta cannot be added.',
+        repositories: ['acme/alpha'],
+      }),
+    },
+  });
+  const created = service.create({ reference: 'PROJECT-ROLLBACK', workProvider: 'codex' });
+  await service.waitForIdle(created.id);
+
+  await assert.rejects(service.addRepository(created.id, 'acme/beta'), failure);
+  const detail = service.detail(created.id);
+  assert.equal(detail.state, 'ready');
+  assert.deepEqual(detail.repositories, ['acme/alpha']);
+  assert.doesNotMatch(readFileSync(join(detail.root_path, 'AGENTS.md'), 'utf8'), /acme\/beta/);
+  assert.equal(getDb().prepare('SELECT COUNT(*) AS count FROM work_item_repository_additions').get().count, 0);
+});
+
 test('destruction removes owned checkouts, preserves bookmark policy, and retains detail and history', async () => {
   const { service, childPolicies } = fixture();
   const created = service.create({ reference: 'PROJECT-1', workProvider: 'claude' });
   await service.waitForIdle(created.id);
+  const ready = service.detail(created.id);
+  const dirtyDirectory = join(ready.root_path, 'repos', 'unmanaged-checkout');
+  mkdirSync(dirtyDirectory, { recursive: true });
+  writeFileSync(join(dirtyDirectory, 'dirty.txt'), 'uncommitted work\n');
+  mkdirSync(join(ready.root_path, '.pnpm-store'), { recursive: true });
+  writeFileSync(join(ready.root_path, '.pnpm-store', 'index.db'), 'cache\n');
   assert.equal(service.destroy(created.id).accepted, true);
   await service.waitForIdle(created.id);
 
   const detail = service.detail(created.id);
   assert.equal(detail.state, 'destroyed');
   assert.equal(detail.stage, 'complete');
+  assert.equal(existsSync(ready.root_path), false);
   assert.equal(service.list().length, 0);
   assert.equal(
     getDb()
@@ -185,6 +309,65 @@ test('destruction removes owned checkouts, preserves bookmark policy, and retain
     detail.repository_workspaces.every((child) => child.state === 'removed'),
     true,
   );
+});
+
+test('dirty-root cleanup removes nested Git worktrees even when deregistration warns', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'patrol-dirty-root-'));
+  temporaryDirectories.push(root);
+  const worktree = join(root, 'repos', 'manual-worktree');
+  mkdirSync(worktree, { recursive: true });
+  writeFileSync(join(worktree, '.git'), 'gitdir: /tmp/source/.git/worktrees/manual-worktree\n');
+  writeFileSync(join(worktree, 'dirty.txt'), 'uncommitted work\n');
+  mkdirSync(join(root, '.pnpm-store'), { recursive: true });
+  const calls = [];
+
+  const warnings = await removeWorkItemRoot(root, {
+    runExec: async (command, args) => {
+      calls.push([command, args]);
+      throw new Error('injected deregistration failure');
+    },
+  });
+
+  assert.deepEqual(calls, [['git', ['-C', worktree, 'worktree', 'remove', '--force', worktree]]]);
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0], /injected deregistration failure/);
+  assert.equal(existsSync(root), false);
+});
+
+test('dirty-root cleanup force-removes and deregisters a dirty nested Git worktree', async () => {
+  const fixtureRoot = mkdtempSync(join(tmpdir(), 'patrol-dirty-git-root-'));
+  temporaryDirectories.push(fixtureRoot);
+  const source = join(fixtureRoot, 'source');
+  const root = join(fixtureRoot, 'work-item');
+  const worktree = join(root, 'repos', 'manual-worktree');
+  mkdirSync(join(root, 'repos'), { recursive: true });
+  execFileSync('git', ['init', source], { stdio: 'ignore' });
+  execFileSync(
+    'git',
+    [
+      '-C',
+      source,
+      '-c',
+      'user.name=Patrol Test',
+      '-c',
+      'user.email=patrol@example.test',
+      '-c',
+      'commit.gpgsign=false',
+      'commit',
+      '--allow-empty',
+      '-m',
+      'initial',
+    ],
+    { stdio: 'ignore' },
+  );
+  execFileSync('git', ['-C', source, 'worktree', 'add', '-b', 'feature', worktree], { stdio: 'ignore' });
+  writeFileSync(join(worktree, 'dirty.txt'), 'uncommitted work\n');
+
+  const warnings = await removeWorkItemRoot(root);
+
+  assert.deepEqual(warnings, []);
+  assert.equal(existsSync(root), false);
+  assert.doesNotMatch(execFileSync('git', ['-C', source, 'worktree', 'list'], { encoding: 'utf8' }), /manual-worktree/);
 });
 
 test('resolver failure creates no child rows and is retryable as resolution', async () => {
@@ -279,7 +462,7 @@ test('terminal retry cleans a stale failed launch and starts its replacement onc
   assert.equal(detail.has_session_history, true);
   assert.equal(stopAttempts, 1);
   assert.equal(sessionOptions.length, 1);
-  assert.deepEqual(sessionOptions[0].options, { enablePatrolMcp: false });
+  assert.deepEqual(sessionOptions[0].options, { enablePatrolMcp: true });
   assert.equal(
     getDb()
       .prepare("SELECT COUNT(*) AS count FROM sessions WHERE work_item_id = ? AND status IN ('active', 'detached')")

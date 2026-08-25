@@ -116,7 +116,7 @@ export function registerSessionRoutes(app) {
       cwd = workItem.path;
       target = { type: 'work_item', id: work_item_id };
       sessionOptions = {
-        enablePatrolMcp: false,
+        enablePatrolMcp: true,
       };
     } else {
       return targetError(reply, 'invalid_request', 'Session target is required');

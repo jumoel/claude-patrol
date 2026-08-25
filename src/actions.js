@@ -178,6 +178,68 @@ function createPeerReviewAction(reviewerProvider) {
 
 /** @type {Record<string, ActionEntry>} */
 export const actionRegistry = {
+  start_work_item: {
+    description:
+      'Start a reference-based work item and wait for Patrol to prepare its repository workspaces. Returns the ready work item, or its structured error state when preparation fails.',
+    schema: z.object({
+      reference: z.string().min(1).max(512).describe('Issue or task reference understood by the configured resolver'),
+      work_provider: z.enum(['claude', 'codex']).describe('Agent provider to use for the work item'),
+    }),
+    ruleFireable: false,
+    dispatch: ({ reference, work_provider }) => ({
+      method: 'POST',
+      path: '/api/work-items',
+      body: { reference, work_provider },
+    }),
+    transform: (result) => result.work_item,
+    mcpHandler: async (app, { reference, work_provider }) => {
+      const result = await inject(app, {
+        method: 'POST',
+        path: '/api/work-items',
+        body: { reference, work_provider },
+      });
+      await app.appContext.workItemService.waitForIdle(result.work_item.id);
+      return app.appContext.workItemService.detail(result.work_item.id);
+    },
+  },
+
+  add_repo_workspace: {
+    description:
+      "Add a configured repository workspace to a ready work item. Omit work_item_id when calling from that work item's own session; provide it when calling from another Patrol session. Repositories without a configured defaultRevision require revision. Waits for workspace creation and returns the updated work item. Re-adding an existing repository is a no-op.",
+    schema: z.object({
+      repo: z.string().min(3).describe('Configured repository in owner/repo format'),
+      revision: z
+        .string()
+        .min(1)
+        .max(512)
+        .optional()
+        .describe('Starting jj revision; required when the repository has no configured defaultRevision'),
+      work_item_id: z.string().min(1).optional().describe('Target work-item ID; inferred from a work-item caller'),
+    }),
+    ruleFireable: false,
+    mcpHandler: async (app, { repo, revision, work_item_id }, ctx) => {
+      let targetId = work_item_id;
+      if (!targetId && ctx?.callerSessionId) {
+        targetId = app.appContext
+          .getDb()
+          .prepare('SELECT work_item_id FROM sessions WHERE id = ?')
+          .get(ctx.callerSessionId)?.work_item_id;
+      }
+      if (!targetId) {
+        return {
+          ok: false,
+          error: 'work_item_id_required',
+          message: 'work_item_id is required outside a work-item session',
+        };
+      }
+      return inject(app, {
+        method: 'POST',
+        path: `/api/work-items/${encodeURIComponent(targetId)}/repositories`,
+        body: { repository: repo, ...(revision === undefined ? {} : { revision }) },
+      });
+    },
+  },
+
   list_prs: {
     description:
       'List all tracked pull requests. Optional filters: org, repo, draft, ci status, review status, merge status.',

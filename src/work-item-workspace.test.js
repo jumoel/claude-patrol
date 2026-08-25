@@ -115,14 +115,14 @@ test('work-item children are independent jj workspaces under one non-repository 
     { operation_state: 'error', operation_step: 'destroy:forget_workspace' },
   );
 
-  for (const child of children) {
-    await destroyWorkItemChild(child.id, config, { deleteBookmark: false });
-  }
+  execFileSync('jj', ['bookmark', 'delete', bookmark, '-R', alphaSource]);
+  await destroyWorkItemChild(children[0].id, config, { deleteBookmark: true });
+  await destroyWorkItemChild(children[1].id, config, { deleteBookmark: false });
   assert.equal(existsSync(children[0].path), false);
   assert.equal(existsSync(children[1].path), false);
   assert.doesNotMatch(execFileSync('jj', ['workspace', 'list', '-R', alphaSource], { encoding: 'utf8' }), /item-alpha/);
   assert.doesNotMatch(execFileSync('jj', ['workspace', 'list', '-R', betaSource], { encoding: 'utf8' }), /item-beta/);
-  assert.match(
+  assert.doesNotMatch(
     execFileSync('jj', ['bookmark', 'list', bookmark, '-R', alphaSource], { encoding: 'utf8' }),
     /patrol\/work-item-item1/,
   );

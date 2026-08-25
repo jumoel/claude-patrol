@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { existsSync, readdirSync } from 'node:fs';
-import { mkdir, readdir, rm, rmdir, unlink } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { existsSync } from 'node:fs';
+import { mkdir, readdir, readFile, rm, unlink } from 'node:fs/promises';
+import { basename, resolve } from 'node:path';
 import { emitLocalChange } from './app-events.js';
 import { getDb } from './db.js';
 import { providerSetup } from './provider-setup.js';
@@ -9,7 +9,7 @@ import { createSession, isSessionAlive, killSessionAndWait } from './pty-manager
 import { sanitizePublicText } from './public-errors.js';
 import { runTask, updateTaskProgress } from './tasks.js';
 import { archiveTranscript } from './transcripts.js';
-import { expandPath, toClaudeProjectKey } from './utils.js';
+import { execFile, expandPath, toClaudeProjectKey } from './utils.js';
 import { generatedRootFileNames, publishRootFiles, writeTemporaryRootFiles } from './work-item-files.js';
 import { createWorkItemResolver } from './work-item-resolver.js';
 import { createWorkItemChild, destroyWorkItemChild } from './workspace.js';
@@ -93,6 +93,9 @@ function clearErrorPatch() {
 
 function retryAction(row) {
   if (!row || row.state !== 'error') return null;
+  if (['child_creation', 'child_compensation'].includes(row.stage) && pendingRepositoryAddition(row)) {
+    return 'repository_addition';
+  }
   if (['provider_check', 'reference_resolution'].includes(row.stage)) return 'resolution';
   if (['root_generation', 'child_creation'].includes(row.stage)) return 'preparation';
   if (row.stage === 'child_compensation') return 'cleanup';
@@ -103,6 +106,20 @@ function retryAction(row) {
   return null;
 }
 
+function pendingRepositoryAddition(row) {
+  return getDb()
+    .prepare(
+      `SELECT a.repository AS repo, a.workspace_id AS id,
+              a.start_revision,
+              w.id AS persisted_workspace_id, w.status, w.operation_state,
+              w.operation_step, w.operation_error
+       FROM work_item_repository_additions a
+       LEFT JOIN workspaces w ON w.id = a.workspace_id
+       WHERE a.work_item_id = ?`,
+    )
+    .get(row.id);
+}
+
 function repositoriesFor(row) {
   if (!row?.resolved_repositories_json) return [];
   try {
@@ -111,6 +128,65 @@ function repositoriesFor(row) {
   } catch {
     return [];
   }
+}
+
+function validateRepository(value, config) {
+  if (typeof value !== 'string') throw workItemError('invalid_repository', 'Repository must be a string');
+  const repository = value.trim();
+  if (!/^[^\s/\\\u0000-\u001f\u007f-\u009f]+\/[^\s/\\\u0000-\u001f\u007f-\u009f]+$/u.test(repository)) {
+    throw workItemError('invalid_repository', 'Repository must use owner/repo format');
+  }
+  if (!config.repos?.[repository]) {
+    throw workItemError('repository_not_configured', `Repository is not configured in repos: ${repository}`);
+  }
+  return repository;
+}
+
+function validateRevision(value, repository, config) {
+  const rawRevision = value ?? config.repos?.[repository]?.defaultRevision;
+  if (rawRevision === undefined) {
+    throw workItemError('revision_required', `revision is required for ${repository}`);
+  }
+  if (typeof rawRevision !== 'string') throw workItemError('invalid_revision', 'Revision must be a string');
+  const revision = rawRevision.trim();
+  const bytes = Buffer.byteLength(revision, 'utf8');
+  if (bytes < 1 || bytes > 512 || /[\u0000-\u001f\u007f-\u009f]/u.test(revision)) {
+    throw workItemError('invalid_revision', 'Revision must contain 1 to 512 UTF-8 bytes and no control characters');
+  }
+  return revision;
+}
+
+export async function removeWorkItemRoot(rootPath, { runExec = execFile } = {}) {
+  const warnings = [];
+  const reposPath = resolve(rootPath, 'repos');
+  let entries = [];
+  try {
+    entries = await readdir(reposPath, { withFileTypes: true });
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+  }
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const childPath = resolve(reposPath, entry.name);
+    let gitFile;
+    try {
+      gitFile = await readFile(resolve(childPath, '.git'), 'utf8');
+    } catch {
+      continue;
+    }
+    if (!/^gitdir:\s*\S+/mu.test(gitFile)) continue;
+    try {
+      await runExec('git', ['-C', childPath, 'worktree', 'remove', '--force', childPath]);
+    } catch (error) {
+      warnings.push(
+        sanitizePublicText(`Git worktree deregistration failed for ${entry.name}: ${error.message}`, {
+          maxBytes: 4096,
+        }),
+      );
+    }
+  }
+  await rm(rootPath, { recursive: true, force: true });
+  return warnings;
 }
 
 function latestSession(db, workItemId) {
@@ -384,6 +460,91 @@ export function createWorkItemService({
     logger.warn(`[work-items] ${workItemLogId(id)} ${stage} failed: ${message}`);
   };
 
+  const rootFileChildren = (item, repositories = repositoriesFor(item)) => {
+    const rows = getDb()
+      .prepare(
+        `SELECT rowid, * FROM workspaces
+         WHERE work_item_id = ? AND status = 'active'
+         ORDER BY created_at DESC, rowid DESC`,
+      )
+      .all(item.id);
+    const byRepository = new Map();
+    for (const row of rows) {
+      if (!byRepository.has(row.repo)) byRepository.set(row.repo, row);
+    }
+    return repositories.map((repository) => {
+      const row = byRepository.get(repository);
+      if (!row) throw workItemError('setup_failed', `Repository workspace is missing: ${repository}`);
+      return { repo: repository, directory: basename(row.path) };
+    });
+  };
+
+  const publishCurrentRootFiles = (item, repositories) => {
+    writeTemporaryRootFiles(item.path, rootFileChildren(item, repositories), {
+      reference: item.reference,
+      title: item.title,
+      summary: item.summary,
+    });
+    publishRootFiles(item.path);
+  };
+
+  const clearTemporaryRootFiles = async (rootPath) => {
+    for (const name of generatedRootFileNames().filter((fileName) => fileName.startsWith('.'))) {
+      await unlink(resolve(rootPath, name)).catch((error) => {
+        if (error.code !== 'ENOENT') throw error;
+      });
+    }
+  };
+
+  const beginRepositoryAddition = (item, child, startRevision) => {
+    const db = getDb();
+    const now = new Date().toISOString();
+    transaction(db, () => {
+      db.prepare(
+        `INSERT INTO work_item_repository_additions (
+           work_item_id, repository, start_revision, workspace_id, created_at
+         ) VALUES (?, ?, ?, ?, ?)`,
+      ).run(item.id, child.repo, startRevision, child.id, now);
+      const result = db
+        .prepare(
+          `UPDATE work_items
+           SET state = 'preparing', stage = 'child_creation', progress_current = 0, progress_total = 1,
+               error_code = NULL, error_detail = NULL, error_provider = NULL, updated_at = ?
+           WHERE id = ? AND state = 'ready'`,
+        )
+        .run(now, item.id);
+      if (result.changes !== 1) {
+        throw workItemError('invalid_state', 'Work item state changed before repository creation could start');
+      }
+    });
+    emitLocalChange();
+  };
+
+  const finishRepositoryAddition = (id, repositories = null) => {
+    const db = getDb();
+    const now = new Date().toISOString();
+    transaction(db, () => {
+      if (repositories) {
+        db.prepare(
+          `UPDATE work_items
+           SET resolved_repositories_json = ?, state = 'ready', stage = 'complete',
+               progress_current = 0, progress_total = 0,
+               error_code = NULL, error_detail = NULL, error_provider = NULL, updated_at = ?
+           WHERE id = ?`,
+        ).run(JSON.stringify(repositories), now, id);
+      } else {
+        db.prepare(
+          `UPDATE work_items
+           SET state = 'ready', stage = 'complete', progress_current = 0, progress_total = 0,
+               error_code = NULL, error_detail = NULL, error_provider = NULL, updated_at = ?
+           WHERE id = ?`,
+        ).run(now, id);
+      }
+      db.prepare('DELETE FROM work_item_repository_additions WHERE work_item_id = ?').run(id);
+    });
+    emitLocalChange();
+  };
+
   const queue = (id, kind, operation) => {
     schedule(() => {
       const promise = withWorkItemLock(id, () =>
@@ -423,7 +584,7 @@ export function createWorkItemService({
         await stopSession(existing.id);
       }
       session = launchSession({ type: 'work_item', id }, item.path, item.work_provider, {
-        enablePatrolMcp: false,
+        enablePatrolMcp: true,
       });
       await startupDelay(1000);
       if (!sessionAlive(session.id))
@@ -565,6 +726,80 @@ export function createWorkItemService({
     }
   };
 
+  const addRepositoryLifecycle = async (id, repository, startRevision, task) => {
+    const item = getDb().prepare('SELECT * FROM work_items WHERE id = ?').get(id);
+    const repositories = repositoriesFor(item);
+    const child = childDescriptor(item, repository);
+    beginRepositoryAddition(item, child, startRevision);
+    logStage(id, 'child_creation', `adding ${repository}`);
+    updateTaskProgress(task.id, { current: 0, total: 1 });
+
+    try {
+      await createChild({
+        id: child.id,
+        workItemId: id,
+        repo: repository,
+        name: child.name,
+        workspacePath: resolve(item.path, 'repos', child.directory),
+        bookmark: deterministicBookmark(id),
+        config: getConfig(),
+        startRevision,
+      });
+      const updatedRepositories = [...repositories, repository];
+      publishCurrentRootFiles(item, updatedRepositories);
+      finishRepositoryAddition(id, updatedRepositories);
+      updateTaskProgress(task.id, { current: 1, total: 1 });
+      logStage(id, 'complete', `ready with ${workspaceCount(updatedRepositories.length)}`);
+      const workItem = workItemDetail(getDb().prepare('SELECT * FROM work_items WHERE id = ?').get(id), {
+        config: getConfig(),
+        getSessionStates,
+      });
+      return {
+        added: true,
+        work_item: workItem,
+        repository_workspace: workItem.repository_workspaces.find((workspace) => workspace.identifier === repository),
+      };
+    } catch (error) {
+      let cleanupError = null;
+      try {
+        await clearTemporaryRootFiles(item.path);
+        const workspace = getDb().prepare('SELECT * FROM workspaces WHERE id = ?').get(child.id);
+        if (workspace && (workspace.status !== 'destroyed' || workspace.operation_state !== 'destroyed')) {
+          await destroyChild(child.id, getConfig(), { deleteBookmark: true });
+        }
+        publishCurrentRootFiles(item, repositories);
+      } catch (caught) {
+        cleanupError = caught;
+      }
+      if (cleanupError) {
+        const failure = workItemError(
+          'compensation_failed',
+          `Failed to clean up repository workspace ${repository}: ${cleanupError.message}`,
+        );
+        recordFailure(id, failure, { code: 'compensation_failed', stage: 'child_compensation' });
+        throw failure;
+      }
+      finishRepositoryAddition(id);
+      throw error;
+    }
+  };
+
+  const recoverRepositoryAddition = async (id, repository, startRevision, task) => {
+    const item = getDb().prepare('SELECT * FROM work_items WHERE id = ?').get(id);
+    const pendingWorkspace = pendingRepositoryAddition(item);
+    try {
+      if (pendingWorkspace?.persisted_workspace_id) {
+        await destroyChild(pendingWorkspace.id, getConfig(), { deleteBookmark: true });
+      }
+      publishCurrentRootFiles(item, repositoriesFor(item));
+      finishRepositoryAddition(id);
+    } catch (error) {
+      recordFailure(id, error, { code: 'compensation_failed', stage: 'child_compensation' });
+      throw error;
+    }
+    return addRepositoryLifecycle(id, repository, startRevision, task);
+  };
+
   const resolveAndPrepare = async (id, task) => {
     try {
       let item = getDb().prepare('SELECT * FROM work_items WHERE id = ?').get(id);
@@ -698,22 +933,7 @@ export function createWorkItemService({
         progress_current: 0,
         progress_total: 0,
       });
-      for (const name of generatedRootFileNames()) {
-        await unlink(resolve(item.path, name)).catch((error) => {
-          if (error.code !== 'ENOENT') throw error;
-        });
-      }
-      const reposPath = resolve(item.path, 'repos');
-      if (existsSync(reposPath)) {
-        const childrenLeft = await readdir(reposPath);
-        if (childrenLeft.length > 0)
-          throw workItemError('root_not_empty', 'The work-item repository directory is not empty');
-        await rmdir(reposPath);
-      }
-      const unexpected = existsSync(item.path) ? readdirSync(item.path) : [];
-      if (unexpected.length > 0)
-        throw workItemError('root_not_empty', 'The work-item root contains files not owned by Patrol');
-      if (existsSync(item.path)) await rmdir(item.path);
+      const warnings = await removeWorkItemRoot(item.path);
       mutateWorkItem(id, {
         state: 'destroyed',
         stage: 'complete',
@@ -722,10 +942,12 @@ export function createWorkItemService({
         destroyed_at: new Date().toISOString(),
         ...clearErrorPatch(),
       });
+      getDb().prepare('DELETE FROM work_item_repository_additions WHERE work_item_id = ?').run(id);
+      return { warnings };
     } catch (error) {
       const row = getDb().prepare('SELECT stage FROM work_items WHERE id = ?').get(id);
       recordFailure(id, error, {
-        code: error.code === 'root_not_empty' ? 'root_not_empty' : 'cleanup_failed',
+        code: 'cleanup_failed',
         stage: row?.stage,
       });
       throw error;
@@ -773,6 +995,12 @@ export function createWorkItemService({
       } else if (action === 'terminal') {
         mutateWorkItem(id, { state: 'preparing', stage: 'session_launch', ...clearErrorPatch() }, ['error']);
         queue(id, 'work-item.create', () => launchTerminal(id, { replaceExisting: true }));
+      } else if (action === 'repository_addition') {
+        const pendingWorkspace = pendingRepositoryAddition(row);
+        mutateWorkItem(id, { state: 'preparing', stage: 'child_compensation', ...clearErrorPatch() }, ['error']);
+        queue(id, 'work-item.create', (task) =>
+          recoverRepositoryAddition(id, pendingWorkspace.repo, pendingWorkspace.start_revision, task),
+        );
       } else if (row.stage === 'child_compensation') {
         mutateWorkItem(id, { state: 'preparing', ...clearErrorPatch() }, ['error']);
         queue(id, 'work-item.create', (task) => finishCompensation(id, task));
@@ -782,6 +1010,51 @@ export function createWorkItemService({
       }
       return workItemListItem(getDb().prepare('SELECT * FROM work_items WHERE id = ?').get(id), {
         getSessionStates,
+      });
+    },
+
+    async addRepository(id, rawRepository, rawRevision) {
+      const config = getConfig();
+      const repository = validateRepository(rawRepository, config);
+      return withWorkItemLock(id, async () => {
+        const row = getDb().prepare('SELECT * FROM work_items WHERE id = ?').get(id);
+        if (!row) throw workItemError('work_item_not_found', 'Work item not found');
+        const existingRepositories = repositoriesFor(row);
+        if (existingRepositories.includes(repository)) {
+          const workItem = workItemDetail(row, { config: getConfig(), getSessionStates });
+          const repositoryWorkspace = workItem.repository_workspaces.find(
+            (workspace) => workspace.identifier === repository,
+          );
+          if (repositoryWorkspace?.state !== 'ready') {
+            throw workItemError('invalid_state', `Repository workspace is not ready: ${repository}`);
+          }
+          return {
+            added: false,
+            work_item: workItem,
+            repository_workspace: repositoryWorkspace,
+          };
+        }
+        const pendingWorkspace = pendingRepositoryAddition(row);
+        if (row.state === 'error' && pendingWorkspace?.repo === repository) {
+          return runTask(
+            {
+              kind: 'work-item.add-repository',
+              label: `Add ${repository}`,
+              context: { workItemId: id, repo: repository },
+            },
+            (task) => recoverRepositoryAddition(id, repository, pendingWorkspace.start_revision, task),
+          );
+        }
+        if (row.state !== 'ready') throw workItemError('work_item_busy', 'Work item is not ready');
+        const startRevision = validateRevision(rawRevision, repository, config);
+        return runTask(
+          {
+            kind: 'work-item.add-repository',
+            label: `Add ${repository}`,
+            context: { workItemId: id, repo: repository },
+          },
+          (task) => addRepositoryLifecycle(id, repository, startRevision, task),
+        );
       });
     },
 

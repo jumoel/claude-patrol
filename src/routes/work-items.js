@@ -16,7 +16,18 @@ function recoveryActions(error, config) {
 function errorStatus(code) {
   if (code === 'work_item_not_found') return 404;
   if (['work_item_busy', 'invalid_state', 'session_exists', 'work_item_child_managed'].includes(code)) return 409;
-  if (['invalid_request', 'invalid_reference', 'invalid_provider', 'work_items_not_configured'].includes(code)) {
+  if (
+    [
+      'invalid_request',
+      'invalid_reference',
+      'invalid_repository',
+      'repository_not_configured',
+      'invalid_revision',
+      'revision_required',
+      'invalid_provider',
+      'work_items_not_configured',
+    ].includes(code)
+  ) {
     return 400;
   }
   return 500;
@@ -73,6 +84,24 @@ export function registerWorkItemRoutes(app) {
       return sendError(reply, { code: 'work_item_not_found', message: 'Work item not found' }, getConfig());
     }
     return { work_item: workItem };
+  });
+
+  app.post('/api/work-items/:id/repositories', async (request, reply) => {
+    const body = request.body;
+    if (
+      !body ||
+      typeof body !== 'object' ||
+      Array.isArray(body) ||
+      Object.keys(body).some((key) => !['repository', 'revision'].includes(key)) ||
+      !Object.hasOwn(body, 'repository')
+    ) {
+      return sendError(reply, { code: 'invalid_request', message: 'Expected repository' }, getConfig());
+    }
+    try {
+      return await workItemService.addRepository(request.params.id, body.repository, body.revision);
+    } catch (error) {
+      return sendError(reply, error, getConfig());
+    }
   });
 
   app.post('/api/work-items/:id/retry', (request, reply) => {
