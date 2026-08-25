@@ -32,7 +32,7 @@
 }
 
 .dropdown {
-  @apply absolute top-full left-0 mt-2 bg-white border border-gray-200 rounded-lg shadow-lg z-30 py-1 min-w-64 max-h-80 overflow-y-auto;
+  @apply min-w-64 max-h-80 overflow-y-auto rounded-lg border border-gray-200 bg-white py-1 shadow-lg;
 }
 
 .dropdownItem {

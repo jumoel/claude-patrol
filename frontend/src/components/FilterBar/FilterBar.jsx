@@ -2,6 +2,7 @@ import { useCallback, useId, useRef, useState } from 'react';
 import { useClickOutside } from '../../hooks/useClickOutside.js';
 import { Box } from '../ui/Box/Box.jsx';
 import { Button } from '../ui/Button/Button.jsx';
+import { FloatingPanel } from '../ui/FloatingPanel/FloatingPanel.jsx';
 import { Stack } from '../ui/Stack/Stack.jsx';
 import styles from './FilterBar.module.css';
 
@@ -36,11 +37,12 @@ const DRAFT_OPTIONS = [
 function MultiSelect({ label, options, selected, onChange }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(/** @type {HTMLDivElement | null} */ (null));
+  const dropdownLayerRef = useRef(/** @type {HTMLDivElement | null} */ (null));
   const triggerRef = useRef(/** @type {HTMLButtonElement | null} */ (null));
   const dropdownId = useId();
 
   useClickOutside(
-    ref,
+    [ref, dropdownLayerRef],
     useCallback(() => setOpen(false), []),
   );
 
@@ -81,7 +83,15 @@ function MultiSelect({ label, options, selected, onChange }) {
         {displayLabel}
       </button>
       {open && (
-        <div id={dropdownId} className={styles.dropdown} role="group" aria-label={`${label} options`}>
+        <FloatingPanel
+          anchorRef={ref}
+          layerRef={dropdownLayerRef}
+          matchAnchorWidth
+          id={dropdownId}
+          className={styles.dropdown}
+          role="group"
+          aria-label={`${label} options`}
+        >
           {options.map((opt) => (
             <label key={opt.value} className={styles.option}>
               <input
@@ -93,7 +103,7 @@ function MultiSelect({ label, options, selected, onChange }) {
               {opt.label}
             </label>
           ))}
-        </div>
+        </FloatingPanel>
       )}
     </div>
   );

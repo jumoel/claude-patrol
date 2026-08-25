@@ -3,6 +3,7 @@ import { useAgentProvider } from '../../context/AgentProviderContext.jsx';
 import { useClickOutside } from '../../hooks/useClickOutside.js';
 import { useEscapeKey } from '../../hooks/useEscapeKey.js';
 import { Button } from '../ui/Button/Button.jsx';
+import { FloatingPanel } from '../ui/FloatingPanel/FloatingPanel.jsx';
 import styles from './AgentProviderButton.module.css';
 
 const SIZE_CLASSES = {
@@ -61,6 +62,7 @@ export function AgentProviderButton({
   const { provider, setProvider } = useAgentProvider();
   const [menuOpen, setMenuOpen] = useState(false);
   const groupRef = useRef(/** @type {HTMLDivElement | null} */ (null));
+  const menuLayerRef = useRef(/** @type {HTMLDivElement | null} */ (null));
   const triggerRef = useRef(/** @type {HTMLButtonElement | null} */ (null));
   const optionRefs = useRef(/** @type {(HTMLButtonElement | null)[]} */ ([]));
   const selectedProvider = value ?? provider;
@@ -77,7 +79,7 @@ export function AgentProviderButton({
     .join(' ');
 
   const closeMenu = useCallback(() => setMenuOpen(false), []);
-  useClickOutside(groupRef, closeMenu);
+  useClickOutside([groupRef, menuLayerRef], closeMenu);
   useEscapeKey(
     menuOpen,
     useCallback(() => {
@@ -121,7 +123,8 @@ export function AgentProviderButton({
       ref={groupRef}
       className={`${styles.group} ${className}`}
       onBlur={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget)) setMenuOpen(false);
+        if (!event.currentTarget.contains(event.relatedTarget) && !menuLayerRef.current?.contains(event.relatedTarget))
+          setMenuOpen(false);
       }}
     >
       <Button
@@ -169,7 +172,15 @@ export function AgentProviderButton({
         </svg>
       </button>
       {menuOpen && (
-        <div className={`${styles.menu} ${dark ? styles.menuDark : ''}`} role="menu" aria-label="Agent provider">
+        <FloatingPanel
+          anchorRef={groupRef}
+          layerRef={menuLayerRef}
+          align="end"
+          gap={8}
+          className={`${styles.menu} ${dark ? styles.menuDark : ''}`}
+          role="menu"
+          aria-label="Agent provider"
+        >
           {PROVIDERS.map((option, index) => {
             const selected = option.id === selectedProvider;
             return (
@@ -211,7 +222,7 @@ export function AgentProviderButton({
               </button>
             );
           })}
-        </div>
+        </FloatingPanel>
       )}
     </div>
   );

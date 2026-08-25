@@ -22,7 +22,7 @@
 }
 
 .dropdown {
-  @apply absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-md shadow-lg z-30 py-1 min-w-full max-h-60 overflow-y-auto;
+  @apply min-w-full max-h-60 overflow-y-auto rounded-md border border-gray-200 bg-white py-1 shadow-lg;
 }
 
 .option {

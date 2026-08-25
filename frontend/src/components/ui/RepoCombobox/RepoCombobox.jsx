@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import { useClickOutside } from '../../../hooks/useClickOutside.js';
 import { fetchAllRepos } from '../../../lib/api.js';
+import { FloatingPanel } from '../FloatingPanel/FloatingPanel.jsx';
 import styles from './RepoCombobox.module.css';
 
 /**
@@ -22,6 +24,7 @@ export function RepoCombobox({
   const [error, setError] = useState('');
   const [highlighted, setHighlighted] = useState(0);
   const containerRef = useRef(/** @type {HTMLDivElement | null} */ (null));
+  const dropdownLayerRef = useRef(/** @type {HTMLDivElement | null} */ (null));
   const triggerRef = useRef(/** @type {HTMLButtonElement | null} */ (null));
   const inputRef = useRef(/** @type {HTMLInputElement | null} */ (null));
   const listRef = useRef(/** @type {HTMLDivElement | null} */ (null));
@@ -47,19 +50,11 @@ export function RepoCombobox({
     requestAnimationFrame(() => inputRef.current?.focus());
   }, [loadRepositories, loaded, loading]);
 
-  // Close on outside click
-  useEffect(() => {
-    if (!open) return undefined;
-    /** @param {MouseEvent} e */
-    const handler = (e) => {
-      if (containerRef.current && e.target instanceof Node && !containerRef.current.contains(e.target)) {
-        setOpen(false);
-        setQuery('');
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [open]);
+  const closePicker = useCallback(() => {
+    setOpen(false);
+    setQuery('');
+  }, []);
+  useClickOutside([containerRef, dropdownLayerRef], closePicker);
 
   const filtered = repos.filter((r) => r.toLowerCase().includes(query.toLowerCase()));
 
@@ -156,7 +151,12 @@ export function RepoCombobox({
         </svg>
       </button>
       {open && (
-        <div className={`${styles.dropdown} ${isDark ? styles.dropdownDark : styles.dropdownLight}`}>
+        <FloatingPanel
+          anchorRef={containerRef}
+          layerRef={dropdownLayerRef}
+          matchAnchorWidth
+          className={`${styles.dropdown} ${isDark ? styles.dropdownDark : styles.dropdownLight}`}
+        >
           <input
             ref={inputRef}
             id={`${listboxId}-filter`}
@@ -204,7 +204,7 @@ export function RepoCombobox({
               </button>
             ))}
           </div>
-        </div>
+        </FloatingPanel>
       )}
     </div>
   );

@@ -8,6 +8,7 @@ import { getRelativeTime } from '../../lib/time.js';
 import { Badge } from '../ui/Badge/Badge.jsx';
 import { Box } from '../ui/Box/Box.jsx';
 import { Button } from '../ui/Button/Button.jsx';
+import { FloatingPanel } from '../ui/FloatingPanel/FloatingPanel.jsx';
 import { Stack } from '../ui/Stack/Stack.jsx';
 import styles from './DashboardSummary.module.css';
 
@@ -20,11 +21,12 @@ import styles from './DashboardSummary.module.css';
 function StatDropdown({ label, items, renderItem }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(/** @type {HTMLSpanElement | null} */ (null));
+  const dropdownLayerRef = useRef(/** @type {HTMLDivElement | null} */ (null));
   const triggerRef = useRef(/** @type {HTMLButtonElement | null} */ (null));
   const dropdownId = useId();
 
   useClickOutside(
-    ref,
+    [ref, dropdownLayerRef],
     useCallback(() => setOpen(false), []),
   );
 
@@ -53,9 +55,9 @@ function StatDropdown({ label, items, renderItem }) {
         {label}
       </button>
       {open && items.length > 0 && (
-        <div id={dropdownId} className={styles.dropdown}>
+        <FloatingPanel anchorRef={ref} layerRef={dropdownLayerRef} gap={8} id={dropdownId} className={styles.dropdown}>
           {items.map(renderItem)}
-        </div>
+        </FloatingPanel>
       )}
     </span>
   );

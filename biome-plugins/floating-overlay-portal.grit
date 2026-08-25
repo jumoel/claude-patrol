@@ -1,0 +1,13 @@
+engine biome(1.0)
+language js(typescript, jsx)
+
+or {
+  `styles.dropdown` as $class,
+  `styles.menu` as $class
+} where {
+  $class <: not within `<FloatingPanel $attributes>$_</FloatingPanel>`,
+  register_diagnostic(
+    span = $class,
+    message = "Floating menus and dropdowns must use FloatingPanel so layout overflow cannot clip them."
+  )
+}

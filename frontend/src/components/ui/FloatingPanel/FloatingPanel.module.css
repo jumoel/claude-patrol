@@ -1,0 +1,12 @@
+@reference "tailwindcss";
+
+.layer {
+  @apply fixed overflow-y-auto;
+  z-index: 100;
+  width: max-content;
+  max-width: calc(100vw - 1rem);
+}
+
+.content {
+  max-width: 100%;
+}

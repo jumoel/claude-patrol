@@ -42,6 +42,10 @@
   },
   "overrides": [
     {
+      "includes": ["frontend/src/components/**/*.jsx"],
+      "plugins": ["./biome-plugins/floating-overlay-portal.grit"]
+    },
+    {
       "includes": ["frontend/src/components/Terminal/Terminal.jsx"],
       "plugins": ["./biome-plugins/terminal-connection-lifecycle.grit"]
     }

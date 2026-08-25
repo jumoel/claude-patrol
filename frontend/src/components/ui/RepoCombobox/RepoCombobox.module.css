@@ -30,7 +30,7 @@
 }
 
 .dropdown {
-  @apply absolute z-50 mt-1 rounded-lg shadow-lg border overflow-hidden;
+  @apply overflow-hidden rounded-lg border shadow-lg;
   min-width: 100%;
   width: max-content;
   max-width: 400px;
