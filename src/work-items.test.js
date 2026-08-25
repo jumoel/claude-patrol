@@ -13,7 +13,7 @@ afterEach(() => {
   for (const directory of temporaryDirectories.splice(0)) rmSync(directory, { recursive: true, force: true });
 });
 
-function fixture({ resolver, sessionAlive = true, stopSession } = {}) {
+function fixture({ resolver, sessionAlive = true, stopSession, logger = { log() {}, warn() {} } } = {}) {
   initDb(':memory:');
   const root = mkdtempSync(join(tmpdir(), 'patrol-work-items-'));
   temporaryDirectories.push(root);
@@ -113,12 +113,19 @@ function fixture({ resolver, sessionAlive = true, stopSession } = {}) {
           .run(new Date().toISOString(), id);
       }),
     startupDelay: async () => {},
+    logger,
   });
   return { service, config, childPolicies, sessionOptions };
 }
 
 test('a two-repository item creates sibling children and waits for the root session', async () => {
-  const { service, sessionOptions } = fixture();
+  const messages = [];
+  const { service, sessionOptions } = fixture({
+    logger: {
+      log: (message) => messages.push(message),
+      warn: (message) => messages.push(message),
+    },
+  });
   const created = service.create({ reference: '  ECO-3632  ', workProvider: 'codex' });
   assert.equal(created.reference, 'ECO-3632');
   assert.equal(created.state, 'resolving');
@@ -140,6 +147,17 @@ test('a two-repository item creates sibling children and waits for the root sess
   assert.match(agents, /acme\/alpha/);
   assert.match(agents, /acme\/beta/);
   assert.equal(task.reference, 'ECO-3632');
+
+  const logId = created.id.replaceAll('-', '').slice(0, 8);
+  assert.deepEqual(messages, [
+    `[work-items] ${logId} provider_check: codex availability`,
+    `[work-items] ${logId} reference_resolution: ECO-3632 via codex`,
+    `[work-items] ${logId} root_generation: generating files for 2 repos`,
+    `[work-items] ${logId} child_creation: creating 2 workspaces`,
+    `[work-items] ${logId} child_creation: creating 1/2 acme/alpha`,
+    `[work-items] ${logId} child_creation: creating 2/2 acme/beta`,
+    `[work-items] ${logId} complete: ready with 2 workspaces`,
+  ]);
 });
 
 test('destruction removes owned checkouts, preserves bookmark policy, and retains detail and history', async () => {
@@ -170,13 +188,17 @@ test('destruction removes owned checkouts, preserves bookmark policy, and retain
 });
 
 test('resolver failure creates no child rows and is retryable as resolution', async () => {
-  const failure = Object.assign(new Error('provider returned malformed output'), { code: 'invalid_provider_output' });
+  const failure = Object.assign(new Error('provider returned\nmalformed output \u001b[2J'), {
+    code: 'invalid_provider_output',
+  });
+  const warnings = [];
   const { service } = fixture({
     resolver: {
       resolve: async () => {
         throw failure;
       },
     },
+    logger: { log() {}, warn: (message) => warnings.push(message) },
   });
   const created = service.create({ reference: 'PROJECT-2', workProvider: 'claude' });
   await service.waitForIdle(created.id);
@@ -190,6 +212,10 @@ test('resolver failure creates no child rows and is retryable as resolution', as
     getDb().prepare('SELECT COUNT(*) AS count FROM workspaces WHERE work_item_id = ?').get(created.id).count,
     0,
   );
+  const logId = created.id.replaceAll('-', '').slice(0, 8);
+  assert.deepEqual(warnings, [
+    `[work-items] ${logId} reference_resolution failed: provider returned malformed output [2J`,
+  ]);
 });
 
 test('detail DTO sanitizes persisted warnings and lifecycle errors at the API boundary', async () => {
@@ -303,7 +329,13 @@ test('startup converts interrupted work items into retryable errors', () => {
 });
 
 test('startup requires partial child cleanup before preparation can retry', async () => {
-  const { service, config, childPolicies } = fixture();
+  const messages = [];
+  const { service, config, childPolicies } = fixture({
+    logger: {
+      log: (message) => messages.push(message),
+      warn: (message) => messages.push(message),
+    },
+  });
   const now = new Date().toISOString();
   const itemPath = join(config.workspace_base_path, 'work-items', 'interrupted-child');
   const childPath = join(itemPath, 'repos', 'partial-child');
@@ -343,6 +375,10 @@ test('startup requires partial child cleanup before preparation can retry', asyn
   assert.equal(detail.stage, 'child_creation');
   assert.equal(detail.error.retry_action, 'preparation');
   assert.deepEqual(childPolicies, [{ repo: 'acme/alpha', deleteBookmark: true }]);
+  assert.deepEqual(messages, [
+    '[work-items] interrup child_compensation: resuming 1 workspace',
+    '[work-items] interrup child_compensation: removing 1/1 acme/alpha',
+  ]);
 
   service.retry('interrupted-child');
   await service.waitForIdle('interrupted-child');

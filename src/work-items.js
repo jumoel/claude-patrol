@@ -333,6 +333,21 @@ function validateReference(value) {
   return reference;
 }
 
+function workItemLogId(id) {
+  return id.replaceAll('-', '').slice(0, 8);
+}
+
+function workspaceCount(count) {
+  return `${count} workspace${count === 1 ? '' : 's'}`;
+}
+
+function sanitizeLogText(value) {
+  return sanitizePublicText(value, { maxBytes: 512 })
+    .replace(/[\u0000-\u001f\u007f-\u009f]/gu, ' ')
+    .replace(/\s+/gu, ' ')
+    .trim();
+}
+
 async function checkProvider(provider, capabilities) {
   const capability = await capabilities[provider].refresh();
   if (capability.available) return;
@@ -356,8 +371,18 @@ export function createWorkItemService({
   sessionAlive = isSessionAlive,
   stopSession = killSessionAndWait,
   startupDelay = (milliseconds) => new Promise((resolvePromise) => setTimeout(resolvePromise, milliseconds)),
+  logger = console,
 } = {}) {
   const pending = new Map();
+
+  const logStage = (id, stage, message) => {
+    logger.log(`[work-items] ${workItemLogId(id)} ${stage}: ${sanitizeLogText(message)}`);
+  };
+
+  const warnStage = (id, stage, error) => {
+    const message = sanitizeLogText(error?.message ?? String(error));
+    logger.warn(`[work-items] ${workItemLogId(id)} ${stage} failed: ${message}`);
+  };
 
   const queue = (id, kind, operation) => {
     schedule(() => {
@@ -371,7 +396,10 @@ export function createWorkItemService({
           operation,
         ),
       )
-        .catch((error) => console.warn(`[work-items] ${kind} ${id} failed: ${sanitizePublicText(error.message)}`))
+        .catch((error) => {
+          const row = getDb().prepare('SELECT stage FROM work_items WHERE id = ?').get(id);
+          warnStage(id, row?.stage ?? kind, error);
+        })
         .finally(() => pending.delete(id));
       pending.set(id, promise);
     });
@@ -455,10 +483,12 @@ export function createWorkItemService({
       error_detail: null,
       error_provider: null,
     });
+    logStage(id, 'child_compensation', `removing ${workspaceCount(rows.length)}`);
     updateTaskProgress(task.id, { current: 0, total: rows.length });
     let current = 0;
     try {
       for (const child of rows) {
+        logStage(id, 'child_compensation', `removing ${current + 1}/${rows.length} ${child.repo}`);
         await destroyChild(child.id, getConfig(), { deleteBookmark: true });
         current += 1;
         mutateWorkItem(id, { progress_current: current, progress_total: rows.length });
@@ -487,6 +517,7 @@ export function createWorkItemService({
         progress_total: 0,
         ...clearErrorPatch(),
       });
+      logStage(id, 'root_generation', `generating files for ${repositories.length} repos`);
       await mkdir(resolve(rootPath, 'repos'), { recursive: true });
       writeTemporaryRootFiles(rootPath, children, {
         reference: item.reference,
@@ -499,10 +530,12 @@ export function createWorkItemService({
         progress_current: 0,
         progress_total: repositories.length,
       });
+      logStage(id, 'child_creation', `creating ${workspaceCount(repositories.length)}`);
       childCreationStarted = true;
       updateTaskProgress(task.id, { current: 0, total: repositories.length });
       let current = 0;
       for (const child of children) {
+        logStage(id, 'child_creation', `creating ${current + 1}/${repositories.length} ${child.repo}`);
         await createChild({
           id: child.id,
           workItemId: id,
@@ -524,6 +557,7 @@ export function createWorkItemService({
         progress_total: 0,
         ...clearErrorPatch(),
       });
+      logStage(id, 'complete', `ready with ${workspaceCount(repositories.length)}`);
     } catch (error) {
       if (childCreationStarted) await compensateChildren(id, error, task);
       else recordFailure(id, error, { stage: 'root_generation' });
@@ -541,8 +575,10 @@ export function createWorkItemService({
         progress_total: 0,
         ...clearErrorPatch(),
       });
+      logStage(id, 'provider_check', `${item.resolver_provider} availability`);
       await checkProvider(item.resolver_provider, providerCapabilities);
       mutateWorkItem(id, { state: 'resolving', stage: 'reference_resolution' });
+      logStage(id, 'reference_resolution', `${item.reference} via ${item.resolver_provider}`);
       const result = await resolver.resolve({
         reference: item.reference,
         provider: item.resolver_provider,
@@ -581,8 +617,10 @@ export function createWorkItemService({
       .all(id);
     const total = item.progress_total || rows.length;
     let current = item.progress_current;
+    logStage(id, 'child_compensation', `resuming ${workspaceCount(rows.length)}`);
     try {
       for (const child of rows) {
+        logStage(id, 'child_compensation', `removing ${current + 1}/${total} ${child.repo}`);
         await destroyChild(child.id, getConfig(), { deleteBookmark: true });
         current += 1;
         mutateWorkItem(id, { progress_current: current, progress_total: total });
