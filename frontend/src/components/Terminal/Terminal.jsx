@@ -4,6 +4,7 @@ import { Terminal as XTerm } from '@xterm/xterm';
 import { useEffect, useRef } from 'react';
 import '@xterm/xterm/css/xterm.css';
 import styles from './Terminal.module.css';
+import { writeTerminalReplay } from './terminal-replay.js';
 
 const RECONNECT_DELAYS = [500, 1000, 2000, 4000];
 
@@ -155,12 +156,18 @@ export function Terminal({ wsUrl, wsRef: externalWsRef, focus, onExit, onToggleM
       ws.onmessage = (event) => {
         try {
           const msg = JSON.parse(event.data);
-          if (msg.type === 'output' || msg.type === 'replay') {
+          if (msg.type === 'output') {
             term.write(msg.data);
-            // After replay, force tmux to redraw. The replay data was
-            // formatted for the previous client's dimensions - jiggling the
-            // size forces a SIGWINCH so the app inside redraws correctly.
-            if (msg.type === 'replay') fitAndSync(true);
+          } else if (msg.type === 'replay') {
+            // Replay may contain historical terminal queries. Rendering it
+            // with stdin enabled would answer stale queries after tmux has
+            // stopped waiting and inject their replies into the pane.
+            writeTerminalReplay(term, msg.data, () => {
+              if (cancelled) return;
+              // The replay data was formatted for the previous client's
+              // dimensions. Redraw only after xterm has parsed it.
+              fitAndSync(true);
+            });
           } else if (msg.type === 'exit') {
             term.write(`\r\n[Process exited with code ${msg.code}]\r\n`);
             cancelled = true;
