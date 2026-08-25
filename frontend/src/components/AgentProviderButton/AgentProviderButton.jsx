@@ -135,7 +135,7 @@ export function AgentProviderButton({
         className={`${styles.action} ${actionClassName}`}
         onClick={onClick}
         disabled={disabled}
-        aria-busy={busy}
+        busy={busy}
       >
         {children}
       </Button>

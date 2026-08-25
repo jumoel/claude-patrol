@@ -103,7 +103,7 @@ export function TerminalCard({
         <Stack justify="between">
           <h3 className={shared.sectionTitle}>Terminal</h3>
           <Stack gap={2}>
-            <Button variant="primary" size="sm" onClick={handleReattach} disabled={reattaching}>
+            <Button variant="primary" size="sm" onClick={handleReattach} disabled={reattaching} busy={reattaching}>
               {reattaching ? 'Reattaching...' : 'Reattach'}
             </Button>
             <Button variant="danger" size="sm" onClick={onKill}>

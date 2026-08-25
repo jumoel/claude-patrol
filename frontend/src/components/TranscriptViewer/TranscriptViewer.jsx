@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { LoadingIndicator } from '../ui/LoadingIndicator/LoadingIndicator.jsx';
 import { Stack } from '../ui/Stack/Stack.jsx';
 import styles from './TranscriptViewer.module.css';
 
@@ -47,7 +48,7 @@ export function TranscriptViewer({ entries, loading, error }) {
   if (loading) {
     return (
       <div className={styles.container}>
-        <p className={styles.loading}>Loading transcript...</p>
+        <LoadingIndicator className={styles.loading}>Loading transcript...</LoadingIndicator>
       </div>
     );
   }

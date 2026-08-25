@@ -4,10 +4,29 @@ import { isMergeReady } from '../../lib/checks.js';
 import { formatDuration, getRelativeTime, timeToFirstInteraction } from '../../lib/time.js';
 import { StatusBadge } from '../StatusBadge/StatusBadge.jsx';
 import { Badge } from '../ui/Badge/Badge.jsx';
+import { SessionStateBadge } from '../ui/SessionStateBadge/SessionStateBadge.jsx';
 import { Stack } from '../ui/Stack/Stack.jsx';
 import styles from './PRTable.module.css';
 
 /** @typedef {import('../../types').PullRequest} PullRequest */
+/** @typedef {PullRequest & {local_status: number}} TablePullRequest */
+
+/**
+ * @param {PullRequest} row
+ * @param {Map<string, string>} [workspaceStates]
+ * @param {Set<string>} [dismissedIdle]
+ */
+function localStatusValue(row, workspaceStates, dismissedIdle) {
+  const targetKey = row.workspace_id ? `workspace:${row.workspace_id}` : null;
+  const workspaceState = row.has_session && targetKey ? workspaceStates?.get(targetKey) : null;
+  const isDismissed = targetKey ? dismissedIdle?.has(targetKey) : false;
+  if (workspaceState === 'working') return 5;
+  if (workspaceState === 'idle' && !isDismissed) return 4;
+  if (workspaceState === 'idle' && isDismissed) return 3;
+  if (row.has_session) return 2;
+  if (row.has_workspace) return 1;
+  return 0;
+}
 
 /**
  * Stack position indicator.
@@ -61,8 +80,15 @@ export function PRTable({
   stackView,
   sortedRowsRef,
 }) {
+  // TanStack caches accessor values on each row, so live session state belongs
+  // in the table data instead of in an accessor closure.
+  const tableData = useMemo(
+    /** @returns {TablePullRequest[]} */ () =>
+      prs.map((pr) => ({ ...pr, local_status: localStatusValue(pr, workspaceStates, dismissedIdle) })),
+    [prs, workspaceStates, dismissedIdle],
+  );
   const columns = useMemo(
-    /** @returns {import('@tanstack/react-table').ColumnDef<PullRequest, unknown>[]} */
+    /** @returns {import('@tanstack/react-table').ColumnDef<TablePullRequest, unknown>[]} */
     () => [
       {
         accessorKey: 'title',
@@ -113,38 +139,12 @@ export function PRTable({
       {
         id: 'local',
         header: 'Local',
-        accessorFn: (row) => {
-          const targetKey = row.workspace_id ? `workspace:${row.workspace_id}` : null;
-          const wsState = row.has_session && targetKey && workspaceStates?.get(targetKey);
-          const isDismissed = targetKey && dismissedIdle?.has(targetKey);
-          if (wsState === 'working') return 5;
-          if (wsState === 'idle' && !isDismissed) return 4; // waiting - needs attention
-          if (wsState === 'idle' && isDismissed) return 3; // idle - seen by user
-          if (row.has_session) return 2;
-          if (row.has_workspace) return 1;
-          return 0;
-        },
+        accessorKey: 'local_status',
         cell: ({ getValue }) => {
           const v = getValue();
-          if (v === 5)
-            return (
-              <Badge color="violet" title="Agent is actively working">
-                <span className={styles.spinner} />
-                Working
-              </Badge>
-            );
-          if (v === 4)
-            return (
-              <Badge color="amber" pulse title="Session waiting for input - needs attention">
-                Waiting
-              </Badge>
-            );
-          if (v === 3)
-            return (
-              <Badge color="gray" title="Session idle (already seen)">
-                Idle
-              </Badge>
-            );
+          if (v === 5) return <SessionStateBadge state="working" />;
+          if (v === 4) return <SessionStateBadge state="idle" />;
+          if (v === 3) return <SessionStateBadge state="idle" dismissed />;
           if (v === 2)
             return (
               <Badge color="green" title="Running session">
@@ -228,11 +228,11 @@ export function PRTable({
         },
       },
     ],
-    [workspaceStates, dismissedIdle, stackView, onRowClick],
+    [stackView, onRowClick],
   );
 
   const table = useReactTable({
-    data: prs,
+    data: tableData,
     columns,
     state: { sorting },
     onSortingChange,

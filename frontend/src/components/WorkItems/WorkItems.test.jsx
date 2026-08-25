@@ -48,6 +48,21 @@ test('maps every ready session state without relying on color', () => {
   assert.equal(workItemStatus({ ...base, state: 'preparing' }), 'Preparing');
 });
 
+test('working work items show a spinner', () => {
+  render(
+    <WorkItems
+      workItems={[{ ...base, session: { id: 's', status: 'active', activity_state: null } }]}
+      loading={false}
+      error={null}
+      onRetry={vi.fn()}
+      targetStates={new Map([['work-item:item-1', 'working']])}
+    />,
+  );
+
+  const badge = screen.getByText('Working');
+  assert.ok(badge.querySelector('[aria-hidden="true"]'));
+});
+
 test('work-item and scratch lists contain no creation action and escape resolver text', () => {
   render(
     <>

@@ -215,6 +215,7 @@ export function StartWorkLauncher({ workItemsConfigured }) {
                     size="md"
                     filled
                     disabled={pending || !repo || !branch.trim()}
+                    busy={pending}
                   >
                     {pending ? 'Creating...' : 'Create scratch workspace'}
                   </Button>

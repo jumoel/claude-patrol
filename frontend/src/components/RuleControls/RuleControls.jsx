@@ -11,6 +11,7 @@ import { subscribeAppEvent } from '../../lib/event-stream.js';
 import shared from '../../styles/shared.module.css';
 import { Badge } from '../ui/Badge/Badge.jsx';
 import { Button } from '../ui/Button/Button.jsx';
+import { LoadingIndicator } from '../ui/LoadingIndicator/LoadingIndicator.jsx';
 import { Stack } from '../ui/Stack/Stack.jsx';
 import styles from './RuleControls.module.css';
 
@@ -26,7 +27,7 @@ export function RuleControls({ prId }) {
   const [ruleErrors, setRuleErrors] = useState(/** @type {import('../../types').RuleLoadError[]} */ ([]));
   const [subscriptions, setSubscriptions] = useState(new Set(/** @type {string[]} */ ([])));
   const [loading, setLoading] = useState(true);
-  const [busyRule, setBusyRule] = useState(/** @type {string | null} */ (null));
+  const [busyRule, setBusyRule] = useState(/** @type {{id: string, action: 'subscription' | 'run'} | null} */ (null));
   const [error, setError] = useState(/** @type {string | null} */ (null));
   const [expanded, setExpanded] = useState(false);
   const initializedPrRef = useRef(/** @type {string | null} */ (null));
@@ -83,7 +84,7 @@ export function RuleControls({ prId }) {
   const toggleSubscription = useCallback(
     /** @param {import('../../types').RuleDefinition} rule */
     async (rule) => {
-      setBusyRule(rule.id);
+      setBusyRule({ id: rule.id, action: 'subscription' });
       setError(null);
       try {
         if (subscriptions.has(rule.id)) {
@@ -104,7 +105,7 @@ export function RuleControls({ prId }) {
   const fireRule = useCallback(
     /** @param {import('../../types').RuleDefinition} rule */
     async (rule) => {
-      setBusyRule(rule.id);
+      setBusyRule({ id: rule.id, action: 'run' });
       setError(null);
       try {
         await runRuleManually(rule.id, { pr_id: prId, force: true });
@@ -118,13 +119,15 @@ export function RuleControls({ prId }) {
   );
 
   const subscriptionCount = subscriptions.size;
-  const summary = loading
-    ? 'Loading...'
-    : error
-      ? 'Could not load rules'
-      : rules.length === 0
-        ? 'No PR rules'
-        : `${rules.length} available`;
+  const summary = loading ? (
+    <LoadingIndicator as="span">Loading...</LoadingIndicator>
+  ) : error ? (
+    'Could not load rules'
+  ) : rules.length === 0 ? (
+    'No PR rules'
+  ) : (
+    `${rules.length} available`
+  );
 
   let content = null;
   if (error) {
@@ -153,7 +156,9 @@ export function RuleControls({ prId }) {
     content = (
       <Stack direction="col">
         {rules.map((rule) => {
-          const isBusy = busyRule === rule.id;
+          const isBusy = busyRule?.id === rule.id;
+          const subscriptionBusy = isBusy && busyRule.action === 'subscription';
+          const runBusy = isBusy && busyRule.action === 'run';
           const isSubscribed = subscriptions.has(rule.id);
           const isManual = rule.manual === true;
           const requiresSubscription = rule.requires_subscription === true;
@@ -175,12 +180,18 @@ export function RuleControls({ prId }) {
               </Stack>
               <Stack gap={2} className={styles.actions}>
                 {requiresSubscription && (
-                  <Button size="sm" onClick={() => toggleSubscription(rule)} disabled={isBusy}>
-                    {isSubscribed ? 'Unsubscribe' : isConsumable ? 'Arm' : 'Subscribe'}
+                  <Button size="sm" onClick={() => toggleSubscription(rule)} disabled={isBusy} busy={subscriptionBusy}>
+                    {subscriptionBusy
+                      ? 'Updating...'
+                      : isSubscribed
+                        ? 'Unsubscribe'
+                        : isConsumable
+                          ? 'Arm'
+                          : 'Subscribe'}
                   </Button>
                 )}
-                <Button size="sm" variant="primary" onClick={() => fireRule(rule)} disabled={isBusy}>
-                  {isBusy ? 'Running...' : 'Run now'}
+                <Button size="sm" variant="primary" onClick={() => fireRule(rule)} disabled={isBusy} busy={runBusy}>
+                  {runBusy ? 'Running...' : 'Run now'}
                 </Button>
               </Stack>
             </div>

@@ -1,3 +1,4 @@
+import { Spinner } from '../Spinner/Spinner.jsx';
 import styles from './Button.module.css';
 
 /** @typedef {'default' | 'primary' | 'danger' | 'success' | 'warning' | 'ghost'} ButtonVariant */
@@ -49,6 +50,7 @@ const DARK_FILLED_CLASSES = {
  *   dark?: boolean,
  *   filled?: boolean,
  *   fullWidth?: boolean,
+ *   busy?: boolean,
  *   as?: 'button' | 'a',
  *   children: React.ReactNode,
  * }} ButtonProps
@@ -60,6 +62,7 @@ export function Button({
   dark = false,
   filled = false,
   fullWidth = false,
+  busy = false,
   as: Tag = 'button',
   className,
   children,
@@ -82,7 +85,8 @@ export function Button({
     .join(' ');
 
   return (
-    <Tag className={classes} {...rest}>
+    <Tag className={classes} aria-busy={busy || undefined} {...rest}>
+      {busy && <Spinner />}
       {children}
     </Tag>
   );

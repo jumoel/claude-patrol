@@ -1,5 +1,5 @@
 import { getRelativeTime } from '../../lib/time.js';
-import { Badge } from '../ui/Badge/Badge.jsx';
+import { SessionStateBadge } from '../ui/SessionStateBadge/SessionStateBadge.jsx';
 import { Stack } from '../ui/Stack/Stack.jsx';
 import styles from './ScratchWorkspaces.module.css';
 
@@ -56,7 +56,7 @@ export function ScratchWorkspaces({ scratchWorkspaces, workspaceStates, dismisse
                   </td>
                   <td className={styles.cell}>{ws.repo && <span className={styles.repoTag}>{ws.repo}</span>}</td>
                   <td className={`${styles.cell} ${styles.cellCenter}`}>
-                    <SessionBadge state={wsState} dismissed={isDismissed} />
+                    <SessionStateBadge state={wsState} dismissed={isDismissed} border={false} />
                   </td>
                   <td className={`${styles.cell} ${styles.cellRight}`}>
                     <span className={styles.timeLabel}>{getRelativeTime(ws.created_at)}</span>
@@ -71,28 +71,4 @@ export function ScratchWorkspaces({ scratchWorkspaces, workspaceStates, dismisse
       )}
     </div>
   );
-}
-
-/** @param {{state?: 'working' | 'idle', dismissed?: boolean}} props */
-function SessionBadge({ state, dismissed }) {
-  if (state === 'working')
-    return (
-      <Badge color="violet" border={false} title="Agent is actively working">
-        <span className={styles.spinner} />
-        Working
-      </Badge>
-    );
-  if (state === 'idle' && !dismissed)
-    return (
-      <Badge color="amber" border={false} pulse title="Session waiting for input - needs attention">
-        Waiting
-      </Badge>
-    );
-  if (state === 'idle' && dismissed)
-    return (
-      <Badge color="gray" border={false} title="Session idle (already seen)">
-        Idle
-      </Badge>
-    );
-  return null;
 }

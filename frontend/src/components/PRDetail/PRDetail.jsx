@@ -38,6 +38,7 @@ import { TerminalCard } from '../TerminalCard/TerminalCard.jsx';
 import { Badge } from '../ui/Badge/Badge.jsx';
 import { Box } from '../ui/Box/Box.jsx';
 import { Button } from '../ui/Button/Button.jsx';
+import { LoadingIndicator } from '../ui/LoadingIndicator/LoadingIndicator.jsx';
 import { Stack } from '../ui/Stack/Stack.jsx';
 import { WorkspaceControls } from '../WorkspaceControls/WorkspaceControls.jsx';
 import styles from './PRDetail.module.css';
@@ -292,7 +293,7 @@ export function PRDetail({ prId, onBack, workspaceStates }) {
   }, [pr, ensureWorkspaceAndSession]);
 
   if (loading) {
-    return <p className={shared.loading}>Loading...</p>;
+    return <LoadingIndicator className={shared.loading}>Loading pull request...</LoadingIndicator>;
   }
 
   if (!pr) {
@@ -349,14 +350,16 @@ export function PRDetail({ prId, onBack, workspaceStates }) {
                   filled={pr.draft}
                   onClick={handleToggleDraft}
                   disabled={togglingDraft}
+                  busy={togglingDraft}
                   type="button"
                 >
-                  {togglingDraft ? '...' : pr.draft ? 'Mark ready' : 'Mark draft'}
+                  {togglingDraft ? 'Updating draft...' : pr.draft ? 'Mark ready' : 'Mark draft'}
                 </Button>
                 <Button
                   size="sm"
                   onClick={handleRefresh}
                   disabled={refreshing}
+                  busy={refreshing}
                   type="button"
                   title="Refetch this PR from GitHub now"
                 >
@@ -480,7 +483,6 @@ export function PRDetail({ prId, onBack, workspaceStates }) {
                     disabled={openingSession}
                     busy={openingSession}
                   >
-                    {openingSession && <span className={shared.buttonSpinner} aria-hidden="true" />}
                     {openingSession ? openingStep : `Open in ${provider === 'codex' ? 'Codex' : 'Claude'}`}
                   </AgentProviderButton>
                 )}
@@ -543,7 +545,13 @@ export function PRDetail({ prId, onBack, workspaceStates }) {
               </Stack>
               {failedChecks.length > 0 && (
                 <Stack gap={2}>
-                  <Button variant="warning" size="sm" onClick={handleRetriggerFailed} disabled={retriggering}>
+                  <Button
+                    variant="warning"
+                    size="sm"
+                    onClick={handleRetriggerFailed}
+                    disabled={retriggering}
+                    busy={retriggering}
+                  >
                     {retriggering ? 'Retriggering...' : 'Retrigger failed'}
                   </Button>
                   <Button variant="primary" size="sm" onClick={handleInvestigateFailures}>

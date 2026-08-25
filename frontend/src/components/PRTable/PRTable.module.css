@@ -99,18 +99,6 @@
   @apply flex-shrink-0 text-gray-500 transition-colors hover:text-gray-700;
 }
 
-.spinner {
-  display: inline-block;
-  width: 0.625rem;
-  height: 0.625rem;
-  margin-right: 0.25rem;
-  border: 1.5px solid currentColor;
-  border-top-color: transparent;
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-}
-
-
 .cellCenter {
   @apply text-center px-2;
 }

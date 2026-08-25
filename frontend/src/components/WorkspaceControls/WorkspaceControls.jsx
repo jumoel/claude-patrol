@@ -49,7 +49,7 @@ export function WorkspaceControls({ workspace, onUpdate, getOrCreateWorkspace, s
   if (!workspace) {
     return (
       <Stack gap={3} wrap>
-        <Button size="sm" onClick={handleCreate} disabled={busy}>
+        <Button size="sm" onClick={handleCreate} disabled={busy} busy={busy}>
           {busy ? 'Creating workspace...' : 'Create workspace only'}
         </Button>
         {error && <p className={styles.error}>{error}</p>}
@@ -68,7 +68,7 @@ export function WorkspaceControls({ workspace, onUpdate, getOrCreateWorkspace, s
       ) : (
         <Stack gap={2}>
           <span className={styles.confirmText}>Are you sure?</span>
-          <Button variant="danger" size="md" filled onClick={handleDestroy} disabled={loading}>
+          <Button variant="danger" size="md" filled onClick={handleDestroy} disabled={loading} busy={loading}>
             {loading ? 'Destroying...' : 'Yes, destroy'}
           </Button>
           <Button size="md" onClick={() => setConfirmDestroy(false)}>

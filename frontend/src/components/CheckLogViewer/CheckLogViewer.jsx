@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { LoadingIndicator } from '../ui/LoadingIndicator/LoadingIndicator.jsx';
 import { Stack } from '../ui/Stack/Stack.jsx';
 import styles from './CheckLogViewer.module.css';
 
@@ -18,7 +19,7 @@ export function CheckLogViewer({ log, truncated, loading, error }) {
   if (loading) {
     return (
       <div className={styles.container}>
-        <p className={styles.loading}>Loading logs...</p>
+        <LoadingIndicator className={styles.loading}>Loading logs...</LoadingIndicator>
       </div>
     );
   }

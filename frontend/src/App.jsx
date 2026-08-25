@@ -11,6 +11,7 @@ import { ScratchWorkspaces } from './components/ScratchWorkspaces/ScratchWorkspa
 import { SetupMode } from './components/SetupMode/SetupMode.jsx';
 import { StartWorkLauncher } from './components/StartWorkLauncher/StartWorkLauncher.jsx';
 import { Button } from './components/ui/Button/Button.jsx';
+import { LoadingIndicator } from './components/ui/LoadingIndicator/LoadingIndicator.jsx';
 import { WorkItemDetail } from './components/WorkItemDetail/WorkItemDetail.jsx';
 import { WorkItems } from './components/WorkItems/WorkItems.jsx';
 import { WorkspaceDetail } from './components/WorkspaceDetail/WorkspaceDetail.jsx';
@@ -440,7 +441,7 @@ export default function App() {
                 onStackViewChange={handleStackViewChange}
               />
               {error && <p>{error}</p>}
-              {loading && allPRs.length === 0 && <p>Loading...</p>}
+              {loading && allPRs.length === 0 && <LoadingIndicator>Loading pull requests...</LoadingIndicator>}
               <PRTable
                 prs={filteredPRs}
                 onRowClick={navigateToPR}

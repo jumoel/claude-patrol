@@ -9,6 +9,7 @@ import { Badge } from '../ui/Badge/Badge.jsx';
 import { Box } from '../ui/Box/Box.jsx';
 import { Button } from '../ui/Button/Button.jsx';
 import { FloatingPanel } from '../ui/FloatingPanel/FloatingPanel.jsx';
+import { RunStatusBadge } from '../ui/RunStatusBadge/RunStatusBadge.jsx';
 import { Stack } from '../ui/Stack/Stack.jsx';
 import styles from './DashboardSummary.module.css';
 
@@ -306,7 +307,7 @@ function TaskItem({ task }) {
   return (
     <div className={styles.dropdownItem}>
       <Stack gap={2} align="center">
-        <TaskStatusBadge status={task.status} />
+        <RunStatusBadge status={task.status} />
         <span className={styles.itemName}>{task.label}</span>
       </Stack>
       <span className={styles.itemDetail}>{time}</span>
@@ -318,20 +319,6 @@ function TaskItem({ task }) {
       )}
     </div>
   );
-}
-
-/** @param {{status: import('../../types').TaskStatus}} props */
-function TaskStatusBadge({ status }) {
-  if (status === 'running')
-    return (
-      <Badge color="violet" pulse>
-        Running
-      </Badge>
-    );
-  if (status === 'success') return <Badge color="green">Done</Badge>;
-  if (status === 'warning') return <Badge color="amber">Warnings</Badge>;
-  if (status === 'error') return <Badge color="red">Failed</Badge>;
-  return <Badge color="gray">{status}</Badge>;
 }
 
 /** @param {{item: RuleActivityItem}} props */
@@ -360,7 +347,7 @@ function RuleItem({ item }) {
   const inner = (
     <>
       <Stack gap={2} align="center">
-        <RuleStatusBadge status={item.status} />
+        <RunStatusBadge status={item.status} />
         <span className={styles.itemName}>{item.rule_id}</span>
         <span className={styles.itemDetail}>on {item.trigger}</span>
       </Stack>
@@ -376,19 +363,6 @@ function RuleItem({ item }) {
   ) : (
     <div className={styles.dropdownItem}>{inner}</div>
   );
-}
-
-/** @param {{status: import('../../types').RuleRunStatus}} props */
-function RuleStatusBadge({ status }) {
-  if (status === 'running')
-    return (
-      <Badge color="violet" pulse>
-        Running
-      </Badge>
-    );
-  if (status === 'success') return <Badge color="green">Done</Badge>;
-  if (status === 'error') return <Badge color="red">Failed</Badge>;
-  return <Badge color="gray">{status}</Badge>;
 }
 
 /**

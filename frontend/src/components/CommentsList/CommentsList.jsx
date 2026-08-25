@@ -2,6 +2,7 @@ import { getRelativeTime } from '../../lib/time.js';
 import { RenderedHtml } from '../RenderedHtml/RenderedHtml.jsx';
 import { Badge } from '../ui/Badge/Badge.jsx';
 import { Box } from '../ui/Box/Box.jsx';
+import { LoadingIndicator } from '../ui/LoadingIndicator/LoadingIndicator.jsx';
 import { Stack } from '../ui/Stack/Stack.jsx';
 import styles from './CommentsList.module.css';
 
@@ -79,7 +80,7 @@ function ConversationComment({ comment }) {
  */
 export function CommentsList({ reviews, conversation, loading }) {
   if (loading) {
-    return <p className={styles.loading}>Loading comments...</p>;
+    return <LoadingIndicator className={styles.loading}>Loading comments...</LoadingIndicator>;
   }
 
   const hasReviews = reviews && reviews.length > 0;

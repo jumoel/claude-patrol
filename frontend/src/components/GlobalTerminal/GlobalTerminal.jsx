@@ -13,6 +13,7 @@ import shared from '../../styles/shared.module.css';
 import { AgentProviderButton } from '../AgentProviderButton/AgentProviderButton.jsx';
 import { LazyTerminal } from '../Terminal/LazyTerminal.jsx';
 import { Button } from '../ui/Button/Button.jsx';
+import { LoadingIndicator } from '../ui/LoadingIndicator/LoadingIndicator.jsx';
 import { RepoCombobox } from '../ui/RepoCombobox/RepoCombobox.jsx';
 import { Stack } from '../ui/Stack/Stack.jsx';
 import styles from './GlobalTerminal.module.css';
@@ -233,7 +234,14 @@ export function GlobalTerminal({ open, onToggle, onSessionChange }) {
                     </Button>
                   </>
                 ) : (
-                  <Button variant="primary" size="xs" dark onClick={reattachSession} disabled={reattaching}>
+                  <Button
+                    variant="primary"
+                    size="xs"
+                    dark
+                    onClick={reattachSession}
+                    disabled={reattaching}
+                    busy={reattaching}
+                  >
                     {reattaching ? 'Reattaching...' : 'Reattach'}
                   </Button>
                 )}
@@ -283,6 +291,7 @@ export function GlobalTerminal({ open, onToggle, onSessionChange }) {
               filled
               onClick={handlePromote}
               disabled={promoting || !promoteRepo || !promoteBranch}
+              busy={promoting}
             >
               {promoting ? 'Promoting...' : 'Go'}
             </Button>
@@ -292,7 +301,7 @@ export function GlobalTerminal({ open, onToggle, onSessionChange }) {
           </Stack>
         )}
         <div className={styles.content}>
-          {loading && <p className={styles.loading}>Loading global session...</p>}
+          {loading && <LoadingIndicator className={styles.loading}>Loading global session...</LoadingIndicator>}
           {session?.status === 'active' && (
             <LazyTerminal wsUrl={`/ws/sessions/${session.id}`} focus={open} onExit={handleSessionExit} />
           )}
@@ -300,7 +309,14 @@ export function GlobalTerminal({ open, onToggle, onSessionChange }) {
             <div className={styles.placeholder}>
               <Stack direction="col" gap={3}>
                 <p className={styles.detached}>Session is running in an external terminal.</p>
-                <Button variant="primary" size="lg" dark onClick={reattachSession} disabled={reattaching}>
+                <Button
+                  variant="primary"
+                  size="lg"
+                  dark
+                  onClick={reattachSession}
+                  disabled={reattaching}
+                  busy={reattaching}
+                >
                   {reattaching ? 'Reattaching...' : 'Reattach global session'}
                 </Button>
                 {launchError && (

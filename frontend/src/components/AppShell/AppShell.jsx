@@ -5,6 +5,7 @@ import { fetchRestartStatus, triggerRestart, triggerUpdate } from '../../lib/api
 import { getErrorMessage } from '../../lib/errors.js';
 import { AgentProviderButton } from '../AgentProviderButton/AgentProviderButton.jsx';
 import { Button } from '../ui/Button/Button.jsx';
+import { Spinner } from '../ui/Spinner/Spinner.jsx';
 import { Stack } from '../ui/Stack/Stack.jsx';
 import styles from './AppShell.module.css';
 
@@ -180,7 +181,7 @@ export function AppShell({
                 </span>
                 <button className={styles.syncButton} onClick={onSync} disabled={syncing}>
                   {syncing ? (
-                    <span className={styles.spinner} />
+                    <Spinner />
                   ) : (
                     <svg
                       width="16"
@@ -290,7 +291,7 @@ export function AppShell({
                         : restartPhase === 'restarting'
                           ? 'Waiting for new server...'
                           : 'Restarting server...'}{' '}
-                  <span className={styles.spinner} />
+                  <Spinner />
                 </>
               ) : restartNeeded || pullResult?.ok ? (
                 <>
@@ -313,7 +314,12 @@ export function AppShell({
                       Update now
                     </Button>
                   )}
-                  {pulling && <span>Pulling...</span>}
+                  {pulling && (
+                    <Stack gap={1} as="span">
+                      <Spinner />
+                      Pulling...
+                    </Stack>
+                  )}
                 </>
               )}
             </Stack>

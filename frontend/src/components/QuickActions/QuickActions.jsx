@@ -2,6 +2,7 @@ import { useAgentProvider } from '../../context/AgentProviderContext.jsx';
 import { usePeerReviewState } from '../../hooks/usePeerReviewState.js';
 import { sendTerminalCommand } from '../../lib/terminal.js';
 import { Button } from '../ui/Button/Button.jsx';
+import { Spinner } from '../ui/Spinner/Spinner.jsx';
 import { Stack } from '../ui/Stack/Stack.jsx';
 import styles from './QuickActions.module.css';
 
@@ -104,6 +105,7 @@ export function QuickActions({ wsRef, onSend, baseBranch, workspaceId, prId, ses
           variant="primary"
           onClick={peerReview.requestReview}
           disabled={reviewDisabled}
+          busy={peerReview.requesting}
           title={reviewTitle}
         >
           {peerReview.requesting ? `Requesting ${reviewerName}...` : `Review with ${reviewerName}`}
@@ -115,7 +117,7 @@ export function QuickActions({ wsRef, onSend, baseBranch, workspaceId, prId, ses
           role="status"
           aria-live="polite"
         >
-          {(peerReview.requesting || reviewActive) && <span className={styles.spinner} aria-hidden="true" />}
+          {(peerReview.requesting || reviewActive) && <Spinner />}
           {statusText}
         </span>
       )}

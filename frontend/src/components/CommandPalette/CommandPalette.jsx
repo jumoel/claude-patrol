@@ -3,6 +3,7 @@ import { useClickOutside } from '../../hooks/useClickOutside.js';
 import { useEscapeKey } from '../../hooks/useEscapeKey.js';
 import { StatusBadge } from '../StatusBadge/StatusBadge.jsx';
 import { Badge } from '../ui/Badge/Badge.jsx';
+import { SessionStateBadge } from '../ui/SessionStateBadge/SessionStateBadge.jsx';
 import { Stack } from '../ui/Stack/Stack.jsx';
 import styles from './CommandPalette.module.css';
 
@@ -341,30 +342,6 @@ export function CommandPalette({
       </div>
     </div>
   );
-}
-
-/** @param {{state?: SessionState, dismissed?: boolean}} props */
-function SessionStateBadge({ state, dismissed }) {
-  if (state === 'working')
-    return (
-      <Badge color="violet" title="Agent is actively working">
-        <span className={styles.spinner} />
-        Working
-      </Badge>
-    );
-  if (state === 'idle' && !dismissed)
-    return (
-      <Badge color="amber" pulse title="Session waiting for input - needs attention">
-        Waiting
-      </Badge>
-    );
-  if (state === 'idle' && dismissed)
-    return (
-      <Badge color="gray" title="Session idle (already seen)">
-        Idle
-      </Badge>
-    );
-  return null;
 }
 
 /** @param {{pr: import('../../types').PullRequest, sessionState?: SessionState, dismissed?: boolean}} props */

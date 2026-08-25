@@ -1,16 +1,10 @@
 import { getErrorMessage } from '../../lib/errors.js';
 import { getRelativeTime } from '../../lib/time.js';
-import { Badge } from '../ui/Badge/Badge.jsx';
 import { Button } from '../ui/Button/Button.jsx';
+import { LoadingIndicator } from '../ui/LoadingIndicator/LoadingIndicator.jsx';
+import { WORKING_LABEL } from '../ui/WorkingBadge/WorkingBadge.jsx';
+import { WORK_ITEM_STATE_LABELS, WorkItemStatusBadge } from '../WorkItemStatusBadge/WorkItemStatusBadge.jsx';
 import styles from './WorkItems.module.css';
-
-const LIFECYCLE_LABELS = {
-  resolving: 'Resolving',
-  preparing: 'Preparing',
-  error: 'Failed',
-  destroying: 'Destroying',
-  destroyed: 'Destroyed',
-};
 
 /**
  * @param {import('../../types').WorkItemListItem} item
@@ -18,36 +12,13 @@ const LIFECYCLE_LABELS = {
  * @param {Set<string>} [dismissedIdle]
  */
 export function workItemStatus(item, targetStates, dismissedIdle) {
-  if (item.state !== 'ready') return LIFECYCLE_LABELS[item.state] ?? item.state;
+  if (item.state !== 'ready') return WORK_ITEM_STATE_LABELS[item.state] ?? item.state;
   if (!item.session) return item.has_session_history ? 'Stopped' : 'Ready';
   const key = `work-item:${item.id}`;
   const activity = targetStates?.get(key) ?? item.session.activity_state;
-  if (activity === 'working') return 'Working';
+  if (activity === 'working') return WORKING_LABEL;
   if (activity === 'idle') return dismissedIdle?.has(key) ? 'Idle' : 'Waiting';
   return 'Running';
-}
-
-/** @param {{status: string}} props */
-function StatusBadge({ status }) {
-  const color =
-    status === 'Working'
-      ? 'violet'
-      : status === 'Waiting'
-        ? 'amber'
-        : status === 'Ready'
-          ? 'green'
-          : status === 'Failed'
-            ? 'red'
-            : status === 'Stopped' || status === 'Idle'
-              ? 'gray'
-              : status === 'Resolving' || status === 'Preparing' || status === 'Destroying'
-                ? 'blue'
-                : 'green';
-  return (
-    <Badge color={color} border={false} pulse={status === 'Waiting'}>
-      {status}
-    </Badge>
-  );
 }
 
 /**
@@ -67,9 +38,7 @@ export function WorkItems({ workItems, loading, error, onRetry, targetStates, di
         Work Items ({workItems.length})
       </h2>
       {loading ? (
-        <div className={styles.placeholder} aria-busy="true">
-          Loading work items...
-        </div>
+        <LoadingIndicator className={styles.placeholder}>Loading work items...</LoadingIndicator>
       ) : error ? (
         <div className={styles.error} role="alert">
           <span>{getErrorMessage(error, 'Failed to load work items')}</span>
@@ -117,7 +86,7 @@ export function WorkItems({ workItems, loading, error, onRetry, targetStates, di
                       </div>
                     </td>
                     <td>
-                      <StatusBadge status={status} />
+                      <WorkItemStatusBadge status={status} border={false} />
                     </td>
                     <td className={styles.agent}>{item.work_provider === 'codex' ? 'Codex' : 'Claude'}</td>
                     <td className={styles.right}>{getRelativeTime(item.updated_at)}</td>

@@ -18,7 +18,9 @@ import { TerminalCard } from '../TerminalCard/TerminalCard.jsx';
 import { Badge } from '../ui/Badge/Badge.jsx';
 import { Box } from '../ui/Box/Box.jsx';
 import { Button } from '../ui/Button/Button.jsx';
+import { LoadingIndicator } from '../ui/LoadingIndicator/LoadingIndicator.jsx';
 import { Stack } from '../ui/Stack/Stack.jsx';
+import { WORK_ITEM_STATE_LABELS, WorkItemStatusBadge } from '../WorkItemStatusBadge/WorkItemStatusBadge.jsx';
 import styles from './WorkItemDetail.module.css';
 
 const RETRY_LABELS = {
@@ -26,15 +28,6 @@ const RETRY_LABELS = {
   preparation: 'Retry preparation',
   cleanup: 'Retry cleanup',
   terminal: 'Retry terminal',
-};
-
-const STATE_LABELS = {
-  resolving: 'Resolving',
-  preparing: 'Preparing',
-  ready: 'Ready',
-  error: 'Failed',
-  destroying: 'Destroying',
-  destroyed: 'Destroyed',
 };
 
 const PANE_STATE_STORAGE_PREFIX = 'claude-patrol-work-item-panes';
@@ -95,12 +88,6 @@ function CollapsiblePane({ title, collapsed, onToggle, children }) {
       </div>
     </Box>
   );
-}
-
-/** @param {{state: import('../../types').WorkItemState}} props */
-function LifecycleBadge({ state }) {
-  const color = state === 'error' ? 'red' : state === 'ready' ? 'green' : state === 'destroyed' ? 'gray' : 'blue';
-  return <Badge color={color}>{STATE_LABELS[state]}</Badge>;
 }
 
 /** @param {{item: import('../../types').WorkItemDetail}} props */
@@ -269,7 +256,7 @@ export function WorkItemDetail({ workItemId, onBack, targetStates }) {
   const [sessionLoading, setSessionLoading] = useState(true);
   const [sessionError, setSessionError] = useState('');
   const [actionError, setActionError] = useState('');
-  const [actionPending, setActionPending] = useState(false);
+  const [actionPending, setActionPending] = useState(/** @type {'retry' | 'destroy' | null} */ (null));
   const [collapsedPanes, setCollapsedPanes] = useState(() => loadPaneState(workItemId));
   const workItemState = workItem?.state;
   const expectedSessionId = workItem?.session?.id;
@@ -321,8 +308,12 @@ export function WorkItemDetail({ workItemId, onBack, targetStates }) {
   }, [expectedSessionId, target, workItemState]);
 
   const runAction = useCallback(
-    async (/** @type {() => Promise<unknown>} */ action, /** @type {string} */ fallback) => {
-      setActionPending(true);
+    async (
+      /** @type {'retry' | 'destroy'} */ actionName,
+      /** @type {() => Promise<unknown>} */ action,
+      /** @type {string} */ fallback,
+    ) => {
+      setActionPending(actionName);
       setActionError('');
       try {
         await action();
@@ -330,14 +321,14 @@ export function WorkItemDetail({ workItemId, onBack, targetStates }) {
       } catch (nextError) {
         setActionError(getErrorMessage(nextError, fallback));
       } finally {
-        setActionPending(false);
+        setActionPending(null);
       }
     },
     [reload],
   );
 
   const handleRetry = useCallback(() => {
-    void runAction(() => retryWorkItem(workItemId), 'Failed to retry work item');
+    void runAction('retry', () => retryWorkItem(workItemId), 'Failed to retry work item');
   }, [runAction, workItemId]);
 
   const handleDestroy = useCallback(() => {
@@ -349,7 +340,7 @@ export function WorkItemDetail({ workItemId, onBack, targetStates }) {
       )
     )
       return;
-    void runAction(() => destroyWorkItem(workItemId), 'Failed to destroy work item');
+    void runAction('destroy', () => destroyWorkItem(workItemId), 'Failed to destroy work item');
   }, [runAction, workItem, workItemId]);
 
   const handleStartSession = useCallback(async () => {
@@ -387,7 +378,7 @@ export function WorkItemDetail({ workItemId, onBack, targetStates }) {
     setSession(await reattachSession(session.id));
   }, [session]);
 
-  if (loading) return <div className={shared.loading}>Loading work item...</div>;
+  if (loading) return <LoadingIndicator className={shared.loading}>Loading work item...</LoadingIndicator>;
   if (!workItem) {
     return (
       <Box p={6} border rounded="lg" bg="white" className={styles.notFound}>
@@ -419,20 +410,32 @@ export function WorkItemDetail({ workItemId, onBack, targetStates }) {
               </Button>
               <Stack gap={2} wrap>
                 {retryAction && (
-                  <Button variant="primary" size="sm" onClick={handleRetry} disabled={actionPending || destroying}>
-                    {RETRY_LABELS[retryAction]}
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={handleRetry}
+                    disabled={!!actionPending || destroying}
+                    busy={actionPending === 'retry'}
+                  >
+                    {actionPending === 'retry' ? 'Retrying...' : RETRY_LABELS[retryAction]}
                   </Button>
                 )}
                 {canDestroy && (
-                  <Button variant="danger" size="sm" onClick={handleDestroy} disabled={actionPending}>
-                    Destroy
+                  <Button
+                    variant="danger"
+                    size="sm"
+                    onClick={handleDestroy}
+                    disabled={!!actionPending}
+                    busy={actionPending === 'destroy'}
+                  >
+                    {actionPending === 'destroy' ? 'Destroying...' : 'Destroy'}
                   </Button>
                 )}
               </Stack>
             </Stack>
             <h2 className={styles.title}>{workItem.title || workItem.reference}</h2>
             <Stack gap={2} wrap className={styles.identity}>
-              <LifecycleBadge state={workItem.state} />
+              <WorkItemStatusBadge status={WORK_ITEM_STATE_LABELS[workItem.state]} />
               <span className={styles.reference}>{workItem.reference}</span>
               <span>{providerName}</span>
               <span>Created {getRelativeTime(workItem.created_at)}</span>
@@ -526,7 +529,7 @@ export function WorkItemDetail({ workItemId, onBack, targetStates }) {
                   variant="primary"
                   size="lg"
                   onClick={handleStartSession}
-                  disabled={sessionLoading || actionPending}
+                  disabled={sessionLoading || !!actionPending}
                   busy={sessionLoading}
                 >
                   {sessionLoading

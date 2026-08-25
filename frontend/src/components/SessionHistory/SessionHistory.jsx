@@ -3,6 +3,7 @@ import { fetchSessionHistory, fetchSessionTranscript } from '../../lib/api.js';
 import { getErrorMessage } from '../../lib/errors.js';
 import { TranscriptViewer } from '../TranscriptViewer/TranscriptViewer.jsx';
 import { Box } from '../ui/Box/Box.jsx';
+import { LoadingIndicator } from '../ui/LoadingIndicator/LoadingIndicator.jsx';
 import { Stack } from '../ui/Stack/Stack.jsx';
 import styles from './SessionHistory.module.css';
 
@@ -84,7 +85,9 @@ export function SessionHistory({ target }) {
         <button className={styles.toggleButton} onClick={() => setExpanded((value) => !value)}>
           {expanded ? 'Hide' : 'Show'} past sessions
         </button>
-        {expanded && loading && <p className={styles.loading}>Loading past sessions...</p>}
+        {expanded && loading && (
+          <LoadingIndicator className={styles.loading}>Loading past sessions...</LoadingIndicator>
+        )}
         {expanded && historyError && (
           <p className={styles.error} role="alert">
             {historyError}

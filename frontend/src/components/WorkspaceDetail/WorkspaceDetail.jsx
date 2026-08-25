@@ -18,6 +18,7 @@ import { TerminalCard } from '../TerminalCard/TerminalCard.jsx';
 import { Badge } from '../ui/Badge/Badge.jsx';
 import { Box } from '../ui/Box/Box.jsx';
 import { Button } from '../ui/Button/Button.jsx';
+import { LoadingIndicator } from '../ui/LoadingIndicator/LoadingIndicator.jsx';
 import { Stack } from '../ui/Stack/Stack.jsx';
 import styles from './WorkspaceDetail.module.css';
 
@@ -114,7 +115,7 @@ export function WorkspaceDetail({ workspaceId, onBack, workspaceStates }) {
     }
   }, [workspace?.pr_id, workspace?.repo]);
 
-  if (loading) return <div className={shared.loading}>Loading workspace...</div>;
+  if (loading) return <LoadingIndicator className={shared.loading}>Loading workspace...</LoadingIndicator>;
   if (!workspace) return <div className={shared.error}>Workspace not found</div>;
 
   const adopted = workspace.pr_id && !workspace.repo;
@@ -183,7 +184,6 @@ export function WorkspaceDetail({ workspaceId, onBack, workspaceStates }) {
                     disabled={openingSession}
                     busy={openingSession}
                   >
-                    {openingSession && <span className={shared.buttonSpinner} aria-hidden="true" />}
                     {openingSession
                       ? 'Starting session...'
                       : `Start ${provider === 'codex' ? 'Codex' : 'Claude'} session`}

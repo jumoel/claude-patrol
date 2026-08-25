@@ -2,6 +2,7 @@ import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { useClickOutside } from '../../../hooks/useClickOutside.js';
 import { fetchAllRepos } from '../../../lib/api.js';
 import { FloatingPanel } from '../FloatingPanel/FloatingPanel.jsx';
+import { LoadingIndicator } from '../LoadingIndicator/LoadingIndicator.jsx';
 import styles from './RepoCombobox.module.css';
 
 /**
@@ -178,7 +179,7 @@ export function RepoCombobox({
             autoFocus
           />
           <div className={styles.list} ref={listRef} id={listboxId} role="listbox" aria-label="Repositories">
-            {loading && <div className={styles.status}>Loading repos...</div>}
+            {loading && <LoadingIndicator className={styles.status}>Loading repos...</LoadingIndicator>}
             {!loading && error && (
               <div className={styles.status} role="alert">
                 <span>{error}</span>

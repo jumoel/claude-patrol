@@ -9,6 +9,7 @@ import {
 import { getErrorMessage } from '../../lib/errors.js';
 import { Box } from '../ui/Box/Box.jsx';
 import { Button } from '../ui/Button/Button.jsx';
+import { LoadingIndicator } from '../ui/LoadingIndicator/LoadingIndicator.jsx';
 import { Stack } from '../ui/Stack/Stack.jsx';
 import styles from './SetupMode.module.css';
 
@@ -207,7 +208,7 @@ function PollSetupMode({ onConfigured, isFirstRun }) {
   if (loading) {
     return (
       <Stack direction="col" gap={4}>
-        <p className={styles.loadingText}>Discovering GitHub accounts...</p>
+        <LoadingIndicator className={styles.loadingText}>Discovering GitHub accounts...</LoadingIndicator>
       </Stack>
     );
   }
@@ -372,7 +373,9 @@ function PollSetupMode({ onConfigured, isFirstRun }) {
                           <span className={styles.selectionCount}>{picked.size} selected</span>
                         </div>
                         <div className={styles.repoList}>
-                          {isLoadingRepos && <p className={styles.loadingText}>Loading repos...</p>}
+                          {isLoadingRepos && (
+                            <LoadingIndicator className={styles.loadingText}>Loading repos...</LoadingIndicator>
+                          )}
                           {!isLoadingRepos && repos.length === 0 && <p className={styles.emptyText}>No repos found</p>}
                           {!isLoadingRepos && repos.length > 0 && visibleRepos.length === 0 && (
                             <p className={styles.emptyText}>No repositories match "{repoQueries[login]}"</p>
@@ -454,7 +457,7 @@ function PollSetupMode({ onConfigured, isFirstRun }) {
         </div>
       )}
 
-      {step === 'saving' && <p className={styles.loadingText}>Saving configuration...</p>}
+      {step === 'saving' && <LoadingIndicator className={styles.loadingText}>Saving configuration...</LoadingIndicator>}
     </Stack>
   );
 }
@@ -511,7 +514,9 @@ function WorkItemsSettings() {
           </Button>
         </Box>
       )}
-      {!error && (!config || !capabilities) && <p className={styles.loadingText}>Loading Work Items settings...</p>}
+      {!error && (!config || !capabilities) && (
+        <LoadingIndicator className={styles.loadingText}>Loading Work Items settings...</LoadingIndicator>
+      )}
       {config && capabilities && (
         <Stack direction="col" gap={4}>
           <Box p={5} border rounded="lg" bg="white">
