@@ -1,25 +1,26 @@
 #!/bin/bash
 set -euo pipefail
 
-# Clone or update xterm.js from GitHub, build it
+# Clone or update xterm.js from GitHub, check out the tested revision, and build it
 VENDOR_DIR="$(cd "$(dirname "$0")/.." && pwd)/vendor"
 XTERM_DIR="$VENDOR_DIR/xterm.js"
-COMMIT="master"
+COMMIT="e749cb61253b9ca886a0ad9bf15f5d95c70eadf6"
 
 mkdir -p "$VENDOR_DIR"
 
 if [ -d "$XTERM_DIR/.git" ]; then
-  echo "Updating existing xterm.js clone..."
-  cd "$XTERM_DIR"
-  git fetch
-  git checkout "$COMMIT"
-  git pull --ff-only 2>/dev/null || true
+  echo "Updating existing xterm.js clone to $COMMIT..."
 else
   echo "Cloning xterm.js..."
-  git clone --depth 1 https://github.com/xtermjs/xterm.js.git "$XTERM_DIR"
+  git clone --depth 1 --filter=blob:none --no-checkout https://github.com/xtermjs/xterm.js.git "$XTERM_DIR"
 fi
 
 cd "$XTERM_DIR"
+if ! git cat-file -e "$COMMIT^{commit}" 2>/dev/null; then
+  git fetch --depth 1 origin "$COMMIT"
+fi
+
+git checkout --detach "$COMMIT"
 
 # Disable corepack strict mode - the root project uses pnpm but xterm.js uses npm
 export COREPACK_ENABLE_STRICT=0

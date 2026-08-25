@@ -115,11 +115,16 @@ export function getSessionPeerReviewReadiness(sessionId) {
 }
 
 /**
- * Fixed-size ring buffer that avoids allocations on append.
+ * Fixed-size circular buffer. Appends copy only the new bytes; linearization
+ * happens on the much less frequent replay path.
  */
-class RingBuffer {
+export class RingBuffer {
   constructor(capacity) {
+    if (!Number.isInteger(capacity) || capacity <= 0) {
+      throw new RangeError('RingBuffer capacity must be a positive integer');
+    }
     this.buf = Buffer.alloc(capacity);
+    this.start = 0;
     this.len = 0;
   }
 
@@ -128,22 +133,82 @@ class RingBuffer {
     if (chunk.length >= this.buf.length) {
       // Data larger than buffer - keep only the tail
       chunk.copy(this.buf, 0, chunk.length - this.buf.length);
+      this.start = 0;
       this.len = this.buf.length;
-    } else if (this.len + chunk.length <= this.buf.length) {
-      // Fits without eviction
-      chunk.copy(this.buf, this.len);
-      this.len += chunk.length;
-    } else {
-      // Evict oldest bytes to make room
-      const keep = this.buf.length - chunk.length;
-      this.buf.copy(this.buf, 0, this.len - keep, this.len);
-      chunk.copy(this.buf, keep);
-      this.len = this.buf.length;
+      return;
     }
+
+    const overflow = Math.max(0, this.len + chunk.length - this.buf.length);
+    this.start = (this.start + overflow) % this.buf.length;
+    this.len -= overflow;
+
+    const writeStart = (this.start + this.len) % this.buf.length;
+    const firstLength = Math.min(chunk.length, this.buf.length - writeStart);
+    chunk.copy(this.buf, writeStart, 0, firstLength);
+    if (firstLength < chunk.length) {
+      chunk.copy(this.buf, 0, firstLength);
+    }
+    this.len += chunk.length;
   }
 
   contents() {
-    return this.buf.subarray(0, this.len);
+    if (this.len === 0) return this.buf.subarray(0, 0);
+    const end = this.start + this.len;
+    if (end <= this.buf.length) return this.buf.subarray(this.start, end);
+
+    const result = Buffer.allocUnsafe(this.len);
+    const firstLength = this.buf.length - this.start;
+    this.buf.copy(result, 0, this.start);
+    this.buf.copy(result, firstLength, 0, end - this.buf.length);
+    return result;
+  }
+}
+
+/**
+ * Coalesce the small PTY reads emitted in one event-loop turn into one output
+ * frame. The replay buffer remains authoritative while no browser is attached.
+ */
+export class TerminalOutputBatcher {
+  constructor(websockets, schedule = setImmediate, cancel = clearImmediate) {
+    this.websockets = websockets;
+    this.schedule = schedule;
+    this.cancel = cancel;
+    this.pendingChunks = [];
+    this.flushHandle = null;
+  }
+
+  append(data) {
+    if (!this.hasOpenSocket()) return;
+    this.pendingChunks.push(data);
+    if (this.flushHandle !== null) return;
+    this.flushHandle = this.schedule(() => {
+      this.flushHandle = null;
+      this.flush();
+    });
+  }
+
+  flush() {
+    if (this.flushHandle !== null) {
+      this.cancel(this.flushHandle);
+      this.flushHandle = null;
+    }
+    if (this.pendingChunks.length === 0) return;
+
+    const data = this.pendingChunks.join('');
+    this.pendingChunks.length = 0;
+    if (!this.hasOpenSocket()) return;
+
+    const msg = JSON.stringify({ type: 'output', data });
+    for (const ws of this.websockets) {
+      if (ws.readyState === 1) ws.send(msg);
+    }
+  }
+
+  hasOpenSocket() {
+    for (const ws of this.websockets) {
+      if (ws.readyState === 1) return true;
+    }
+    return false;
   }
 }
 
@@ -152,6 +217,7 @@ class RingBuffer {
  * @property {import('node-pty').IPty} proc
  * @property {RingBuffer} buffer
  * @property {Set<import('ws').WebSocket>} websockets
+ * @property {TerminalOutputBatcher} output
  */
 
 /** @type {Map<string, SessionEntry>} */
@@ -200,14 +266,23 @@ function attachPtyToTmux(sessionId, meta = {}, runtime = DEFAULT_SESSION_RUNTIME
     entry.activityState = s;
     emitSessionState(sessionId, target, s);
   }
+  function resetIdleTimer() {
+    if (idleTimer) {
+      idleTimer.refresh();
+      return;
+    }
+    idleTimer = setTimeout(() => {
+      idleTimer = null;
+      transitionTo('idle');
+    }, IDLE_THRESHOLD_MS);
+  }
   // Force-set state to working at dispatch time. Used by the dispatcher
   // (lt#12) so wait_for_idle.since has a deterministic anchor regardless of
   // when the natural detector trips on the TUI echo. Also resets the idle
   // countdown so a session that's already idle gets a fresh window.
   function markWorking() {
-    if (idleTimer) clearTimeout(idleTimer);
     transitionTo('working');
-    idleTimer = setTimeout(() => transitionTo('idle'), IDLE_THRESHOLD_MS);
+    resetIdleTimer();
   }
 
   // Activity detection: count distinct "moments" of printable output.
@@ -224,10 +299,12 @@ function attachPtyToTmux(sessionId, meta = {}, runtime = DEFAULT_SESSION_RUNTIME
   const LARGE_OUTPUT = 500; // instant transition for big chunks
   const MIN_PRINTABLE = 10; // ignore events with fewer printable chars (status bar refreshes)
 
+  const websockets = new Set();
   const entry = {
     proc,
     buffer: new RingBuffer(BUFFER_MAX),
-    websockets: new Set(),
+    websockets,
+    output: new TerminalOutputBatcher(websockets),
     resizeSuppressUntil: Date.now() + 500,
     activityState: state, // exposed for getSessionStates()
     target,
@@ -238,10 +315,7 @@ function attachPtyToTmux(sessionId, meta = {}, runtime = DEFAULT_SESSION_RUNTIME
 
   proc.onData((data) => {
     entry.buffer.append(data);
-    const msg = JSON.stringify({ type: 'output', data });
-    for (const ws of entry.websockets) {
-      if (ws.readyState === 1) ws.send(msg);
-    }
+    entry.output.append(data);
 
     // Ignore resize-triggered redraws (full screen repaint from terminal open).
     if (Date.now() < entry.resizeSuppressUntil) return;
@@ -253,8 +327,7 @@ function attachPtyToTmux(sessionId, meta = {}, runtime = DEFAULT_SESSION_RUNTIME
 
     if (state === 'working') {
       // Already working - any output resets the idle countdown.
-      if (idleTimer) clearTimeout(idleTimer);
-      idleTimer = setTimeout(() => transitionTo('idle'), IDLE_THRESHOLD_MS);
+      resetIdleTimer();
     } else {
       // State is null or 'idle'. Count distinct output moments.
       // The moment debounce (MOMENT_GAP) handles tmux batching.
@@ -271,15 +344,18 @@ function attachPtyToTmux(sessionId, meta = {}, runtime = DEFAULT_SESSION_RUNTIME
       if (momentCount >= MOMENT_THRESHOLD || data.length >= LARGE_OUTPUT) {
         momentCount = 0;
         transitionTo('working');
-        if (idleTimer) clearTimeout(idleTimer);
-        idleTimer = setTimeout(() => transitionTo('idle'), IDLE_THRESHOLD_MS);
+        resetIdleTimer();
       }
     }
   });
 
   proc.onExit(({ exitCode }) => {
-    if (idleTimer) clearTimeout(idleTimer);
+    if (idleTimer) {
+      clearTimeout(idleTimer);
+      idleTimer = null;
+    }
     if (momentTimer) clearTimeout(momentTimer);
+    entry.output.flush();
     const exitMsg = JSON.stringify({ type: 'exit', code: exitCode });
     for (const ws of entry.websockets) {
       if (ws.readyState === 1) {
@@ -658,6 +734,10 @@ export function attachSession(sessionId, ws) {
     return;
   }
 
+  // Flush queued output to existing clients before taking the replay snapshot.
+  // Adding the new client first would send the same bytes in both messages.
+  entry.output.flush();
+
   // Send replay buffer
   const replay = entry.buffer.contents();
   if (replay.length > 0) {
@@ -800,6 +880,7 @@ export function getSessionStates() {
 export function killAllSessions() {
   // Close all WebSockets immediately so the HTTP server can shut down cleanly
   for (const entry of sessions.values()) {
+    entry.output.flush();
     for (const ws of entry.websockets) {
       try {
         ws.close();
@@ -867,6 +948,7 @@ export function popOutSession(sessionId) {
   // kill the node-pty process (the tmux session itself stays alive
   // in Ghostty). Mark as 'detached' so it can be reattached later.
   const popMsg = JSON.stringify({ type: 'popped-out' });
+  entry.output.flush();
   for (const ws of entry.websockets) {
     if (ws.readyState === 1) {
       ws.send(popMsg);
