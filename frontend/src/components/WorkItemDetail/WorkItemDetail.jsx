@@ -297,6 +297,11 @@ export function WorkItemDetail({ workItemId, onBack, targetStates }) {
     }
   }, [reload, session]);
 
+  const handleSessionExit = useCallback(() => {
+    setSession(null);
+    reload();
+  }, [reload]);
+
   const handleReattach = useCallback(async () => {
     if (!session) return;
     setSession(await reattachSession(session.id));
@@ -427,10 +432,7 @@ export function WorkItemDetail({ workItemId, onBack, targetStates }) {
               session={session}
               title={`Terminal - ${workItem.title || workItem.reference}`}
               onKill={handleKillSession}
-              onExit={() => {
-                setSession(null);
-                reload();
-              }}
+              onExit={handleSessionExit}
               onReattach={handleReattach}
               sessionState={targetStates.get(`work-item:${workItem.id}`)}
             />

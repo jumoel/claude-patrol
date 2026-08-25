@@ -1,0 +1,11 @@
+engine biome(1.0)
+language js(typescript, jsx)
+
+`useEffect($callback, $dependencies)` as $effect where {
+  $callback <: contains `new WebSocket($url)`,
+  $dependencies <: not `[wsUrl]`,
+  register_diagnostic(
+    span = $dependencies,
+    message = "Terminal connection effects must use only `wsUrl` as lifecycle identity. Read callback and ref props through stable refs."
+  )
+}

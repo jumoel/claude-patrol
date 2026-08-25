@@ -40,6 +40,12 @@
       }
     }
   },
+  "overrides": [
+    {
+      "includes": ["frontend/src/components/Terminal/Terminal.jsx"],
+      "plugins": ["./biome-plugins/terminal-connection-lifecycle.grit"]
+    }
+  ],
   "assist": {
     "enabled": true,
     "actions": {

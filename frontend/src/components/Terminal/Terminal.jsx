@@ -25,7 +25,13 @@ export function Terminal({ wsUrl, wsRef: externalWsRef, focus, onExit, onToggleM
   const termRef = useRef(/** @type {XTerm | null} */ (null));
   const wsRef = useRef(/** @type {WebSocket | null} */ (null));
   const fitRef = useRef(/** @type {FitAddon | null} */ (null));
+  const externalWsRefRef = useRef(externalWsRef);
+  const callbacksRef = useRef({ onExit, onToggleMaximize });
 
+  externalWsRefRef.current = externalWsRef;
+  callbacksRef.current = { onExit, onToggleMaximize };
+
+  // wsUrl is the connection identity. Other prop changes must not rebuild xterm or reconnect its WebSocket.
   useEffect(() => {
     if (!containerRef.current || !wsUrl) return undefined;
 
@@ -113,7 +119,7 @@ export function Terminal({ wsUrl, wsRef: externalWsRef, focus, onExit, onToggleM
     term.attachCustomKeyEventHandler((ev) => {
       // Cmd+Enter toggles maximize - handle here since xterm captures the event
       if (ev.key === 'Enter' && (ev.metaKey || ev.ctrlKey) && !ev.shiftKey && !ev.altKey) {
-        if (ev.type === 'keydown' && onToggleMaximize) onToggleMaximize();
+        if (ev.type === 'keydown') callbacksRef.current.onToggleMaximize?.();
         return false;
       }
       if (ev.key === 'Enter' && ev.shiftKey && !ev.ctrlKey && !ev.altKey && !ev.metaKey) {
@@ -142,7 +148,7 @@ export function Terminal({ wsUrl, wsRef: externalWsRef, focus, onExit, onToggleM
       const fullUrl = wsUrl.startsWith('ws') ? wsUrl : `${protocol}//${window.location.host}${wsUrl}`;
       const ws = new WebSocket(fullUrl);
       wsRef.current = ws;
-      if (externalWsRef) externalWsRef.current = ws;
+      if (externalWsRefRef.current) externalWsRefRef.current.current = ws;
 
       ws.onopen = () => {
         if (reconnectAttempt > 0) {
@@ -171,10 +177,10 @@ export function Terminal({ wsUrl, wsRef: externalWsRef, focus, onExit, onToggleM
           } else if (msg.type === 'exit') {
             term.write(`\r\n[Process exited with code ${msg.code}]\r\n`);
             cancelled = true;
-            if (onExit) onExit(msg.code);
+            callbacksRef.current.onExit?.(msg.code);
           } else if (msg.type === 'popped-out') {
             cancelled = true;
-            if (onExit) onExit(0);
+            callbacksRef.current.onExit?.(0);
           } else if (msg.type === 'error') {
             term.write(`\r\n[Error: ${msg.message}]\r\n`);
             cancelled = true;
@@ -206,10 +212,21 @@ export function Terminal({ wsUrl, wsRef: externalWsRef, focus, onExit, onToggleM
       cancelled = true;
       if (reconnectTimer) clearTimeout(reconnectTimer);
       observer?.disconnect();
-      wsRef.current?.close();
+      const ws = wsRef.current;
+      ws?.close();
+      if (externalWsRefRef.current?.current === ws) externalWsRefRef.current.current = null;
+      if (wsRef.current === ws) wsRef.current = null;
       term?.dispose();
     };
-  }, [wsUrl, externalWsRef, onExit, onToggleMaximize]);
+  }, [wsUrl]);
+
+  useEffect(() => {
+    if (!externalWsRef) return undefined;
+    externalWsRef.current = wsRef.current;
+    return () => {
+      if (externalWsRef.current === wsRef.current) externalWsRef.current = null;
+    };
+  }, [externalWsRef]);
 
   useEffect(() => {
     if (focus && termRef.current) termRef.current.focus();
