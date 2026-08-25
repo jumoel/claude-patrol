@@ -10,8 +10,8 @@
  */
 
 import { spawn } from 'node:child_process';
-import { watch } from 'node:fs';
 import { resolve } from 'node:path';
+import { createJavaScriptChangePoller } from './file-change-poller.js';
 
 const ROOT = resolve(import.meta.dirname, '..');
 const FRONTEND = resolve(ROOT, 'frontend');
@@ -134,10 +134,10 @@ startServer(false);
 let debounceTimer = null;
 const DEBOUNCE_MS = 300;
 
-watch(SRC, { recursive: true }, (_eventType, filename) => {
+const backendWatcher = createJavaScriptChangePoller(SRC, (filename) => {
   if (!filename) return;
-  // Only watch .js files, skip watch.js itself
-  if (!filename.endsWith('.js') || filename === 'watch.js') return;
+  // Skip watch.js itself so editing the supervisor does not restart its child.
+  if (filename === 'watch.js') return;
 
   if (debounceTimer) clearTimeout(debounceTimer);
   debounceTimer = setTimeout(() => {
@@ -148,6 +148,7 @@ watch(SRC, { recursive: true }, (_eventType, filename) => {
 
 // --- Signal handling ---
 function cleanup(signal) {
+  backendWatcher.close();
   vite.kill(signal);
   if (server) server.kill(signal);
   // Give processes a moment to exit, then force
