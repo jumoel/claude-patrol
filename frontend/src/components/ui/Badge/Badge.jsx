@@ -23,6 +23,11 @@ const NO_BORDER_CLASSES = {
   blue: styles.blueNoBorder,
   yellow: styles.yellowNoBorder,
   gray: styles.grayNoBorder,
+  violet: styles.violetNoBorder,
+  amber: styles.amberNoBorder,
+  indigo: styles.indigoNoBorder,
+  orange: styles.orangeNoBorder,
+  purple: styles.purpleNoBorder,
 };
 
 /**

@@ -80,10 +80,10 @@ function detail() {
   };
 }
 
-function renderDetail() {
+function renderDetail(workItemId = 'item-1') {
   return render(
     <AgentProviderProvider>
-      <WorkItemDetail workItemId="item-1" onBack={vi.fn()} targetStates={new Map()} />
+      <WorkItemDetail workItemId={workItemId} onBack={vi.fn()} targetStates={new Map()} />
     </AgentProviderProvider>,
   );
 }
@@ -131,6 +131,28 @@ test('ready detail renders one root terminal and no child controls', async () =>
   assert.equal(screen.getAllByRole('button', { name: 'Copy path' }).length, 1);
   assert.equal(screen.queryByRole('link', { name: /acme\/alpha/ }), null);
   assert.ok(screen.getByTestId('session-history').textContent?.includes('work_item'));
+});
+
+test('task and repository panes remember collapsed state per work item', async () => {
+  const user = userEvent.setup();
+  const first = renderDetail();
+
+  await user.click(screen.getByRole('button', { name: 'Collapse Task' }));
+  const collapsedTaskButton = screen.getByRole('button', { name: 'Expand Task' });
+  const collapsedTaskPane = document.getElementById(collapsedTaskButton.getAttribute('aria-controls') || '');
+  assert.equal(collapsedTaskPane?.hidden, true);
+  assert.ok(screen.getByRole('button', { name: 'Collapse Repositories' }));
+  first.unmount();
+
+  const remembered = renderDetail();
+  assert.ok(screen.getByRole('button', { name: 'Expand Task' }));
+  assert.ok(screen.getByRole('button', { name: 'Collapse Repositories' }));
+  remembered.unmount();
+
+  hook.workItem = { ...detail(), id: 'item-2' };
+  renderDetail('item-2');
+  assert.ok(screen.getByRole('button', { name: 'Collapse Task' }));
+  assert.ok(screen.getByRole('button', { name: 'Collapse Repositories' }));
 });
 
 test('cleanup failure shows one retry, retained root, and copy feedback', async () => {

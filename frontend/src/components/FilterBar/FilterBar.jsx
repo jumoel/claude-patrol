@@ -169,7 +169,7 @@ export function FilterBar({ prs, filters, onFilterChange, onCopyMarkdown, copied
   };
 
   return (
-    <Box px={4} py={3} border rounded="lg" bg="white" className={styles.bar}>
+    <Box px={0} py={0} className={styles.bar}>
       <Stack direction="col" gap={3}>
         <Stack justify="between" gap={3} wrap>
           <Stack gap={2} wrap>

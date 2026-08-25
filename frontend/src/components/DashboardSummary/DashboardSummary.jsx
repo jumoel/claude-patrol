@@ -181,7 +181,7 @@ export function DashboardSummary({ prCount, pollConfigured, workItems, onOpenGlo
   }, []);
 
   return (
-    <Box px={4} py={2} border rounded="lg" bg="white" className={styles.bar}>
+    <Box px={1} py={1} className={styles.bar}>
       <Stack gap={3}>
         {pollConfigured && (
           <>

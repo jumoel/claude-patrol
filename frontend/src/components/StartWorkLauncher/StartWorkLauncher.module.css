@@ -1,10 +1,11 @@
 @reference "tailwindcss";
 
 .container {
-  @apply my-4 px-4;
+  @apply my-3;
 }
 .card {
-  @apply max-w-4xl;
+  @apply max-w-4xl border-gray-200/80;
+  box-shadow: 0 1px 2px rgb(15 23 42 / 0.035);
 }
 
 .header {

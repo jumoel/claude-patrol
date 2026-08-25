@@ -77,20 +77,20 @@ export function ScratchWorkspaces({ scratchWorkspaces, workspaceStates, dismisse
 function SessionBadge({ state, dismissed }) {
   if (state === 'working')
     return (
-      <Badge color="violet" title="Agent is actively working">
+      <Badge color="violet" border={false} title="Agent is actively working">
         <span className={styles.spinner} />
         Working
       </Badge>
     );
   if (state === 'idle' && !dismissed)
     return (
-      <Badge color="amber" pulse title="Session waiting for input - needs attention">
+      <Badge color="amber" border={false} pulse title="Session waiting for input - needs attention">
         Waiting
       </Badge>
     );
   if (state === 'idle' && dismissed)
     return (
-      <Badge color="gray" title="Session idle (already seen)">
+      <Badge color="gray" border={false} title="Session idle (already seen)">
         Idle
       </Badge>
     );

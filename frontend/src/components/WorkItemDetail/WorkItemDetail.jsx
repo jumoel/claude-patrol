@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useState } from 'react';
 import { useAgentProvider } from '../../context/AgentProviderContext.jsx';
 import { useWorkItem } from '../../hooks/useWorkItems.js';
 import {
@@ -36,6 +36,66 @@ const STATE_LABELS = {
   destroying: 'Destroying',
   destroyed: 'Destroyed',
 };
+
+const PANE_STATE_STORAGE_PREFIX = 'claude-patrol-work-item-panes';
+
+/** @typedef {'task' | 'repositories'} WorkItemPane */
+
+/** @param {string} workItemId */
+function loadPaneState(workItemId) {
+  try {
+    const stored = localStorage.getItem(`${PANE_STATE_STORAGE_PREFIX}:${workItemId}`);
+    if (!stored) return { task: false, repositories: false };
+    const parsed = JSON.parse(stored);
+    return {
+      task: parsed?.task === true,
+      repositories: parsed?.repositories === true,
+    };
+  } catch {
+    return { task: false, repositories: false };
+  }
+}
+
+/**
+ * @param {{title: string, collapsed: boolean, onToggle: () => void, children: React.ReactNode}} props
+ */
+function CollapsiblePane({ title, collapsed, onToggle, children }) {
+  const contentId = useId();
+
+  return (
+    <Box p={0} border rounded="lg" bg="white" className={styles.collapsiblePane}>
+      <h3 className={styles.paneHeading}>
+        <button
+          type="button"
+          className={styles.paneToggle}
+          onClick={onToggle}
+          aria-expanded={!collapsed}
+          aria-controls={contentId}
+          aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${title}`}
+        >
+          <span>{title}</span>
+          <svg
+            className={`${styles.paneChevron} ${collapsed ? '' : styles.paneChevronOpen}`}
+            width="16"
+            height="16"
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <path d="m6 4 4 4-4 4" />
+          </svg>
+        </button>
+      </h3>
+      <div id={contentId} className={styles.paneBody} role="region" hidden={collapsed} aria-label={`${title} pane`}>
+        {children}
+      </div>
+    </Box>
+  );
+}
 
 /** @param {{state: import('../../types').WorkItemState}} props */
 function LifecycleBadge({ state }) {
@@ -210,8 +270,28 @@ export function WorkItemDetail({ workItemId, onBack, targetStates }) {
   const [sessionError, setSessionError] = useState('');
   const [actionError, setActionError] = useState('');
   const [actionPending, setActionPending] = useState(false);
+  const [collapsedPanes, setCollapsedPanes] = useState(() => loadPaneState(workItemId));
   const workItemState = workItem?.state;
   const expectedSessionId = workItem?.session?.id;
+
+  useEffect(() => {
+    setCollapsedPanes(loadPaneState(workItemId));
+  }, [workItemId]);
+
+  const togglePane = useCallback(
+    (/** @type {WorkItemPane} */ pane) => {
+      setCollapsedPanes((current) => {
+        const next = { ...current, [pane]: !current[pane] };
+        try {
+          localStorage.setItem(`${PANE_STATE_STORAGE_PREFIX}:${workItemId}`, JSON.stringify(next));
+        } catch {
+          // The in-memory preference still works when storage is unavailable.
+        }
+        return next;
+      });
+    },
+    [workItemId],
+  );
 
   useEffect(() => {
     if (!workItemState) return undefined;
@@ -371,10 +451,9 @@ export function WorkItemDetail({ workItemId, onBack, targetStates }) {
         </Box>
 
         {workItem.summary && (
-          <Box p={5} border rounded="lg" bg="white">
-            <h3 className={shared.sectionTitle}>Task</h3>
-            {workItem.summary && <p className={styles.summary}>{workItem.summary}</p>}
-          </Box>
+          <CollapsiblePane title="Task" collapsed={collapsedPanes.task} onToggle={() => togglePane('task')}>
+            <p className={styles.summary}>{workItem.summary}</p>
+          </CollapsiblePane>
         )}
 
         {workItem.error && (
@@ -409,21 +488,20 @@ export function WorkItemDetail({ workItemId, onBack, targetStates }) {
           </Box>
         )}
 
-        <Box p={5} border rounded="lg" bg="white">
-          <Stack direction="col" gap={3}>
-            <Stack justify="between">
-              <h3 className={shared.sectionTitle}>Repositories</h3>
-            </Stack>
-            <div className={styles.repositoryList}>
-              {workItem.repository_workspaces.map((repository) => (
-                <RepositoryRow key={repository.identifier} repository={repository} />
-              ))}
-              {workItem.repository_workspaces.length === 0 && (
-                <p className={styles.empty}>Repositories have not been resolved.</p>
-              )}
-            </div>
-          </Stack>
-        </Box>
+        <CollapsiblePane
+          title="Repositories"
+          collapsed={collapsedPanes.repositories}
+          onToggle={() => togglePane('repositories')}
+        >
+          <div className={styles.repositoryList}>
+            {workItem.repository_workspaces.map((repository) => (
+              <RepositoryRow key={repository.identifier} repository={repository} />
+            ))}
+            {workItem.repository_workspaces.length === 0 && (
+              <p className={styles.empty}>Repositories have not been resolved.</p>
+            )}
+          </div>
+        </CollapsiblePane>
 
         {!destroyed &&
           workItem.state === 'ready' &&

@@ -1,9 +1,7 @@
 @reference "tailwindcss";
 
 .bar {
-  @apply mb-0 text-sm text-gray-600 bg-gray-50;
-  border-bottom-left-radius: 0;
-  border-bottom-right-radius: 0;
+  @apply mb-1 text-[13px] text-gray-600;
 }
 
 .stat {
@@ -16,7 +14,7 @@
 }
 
 .clickable {
-  @apply cursor-pointer hover:text-blue-600 transition-colors bg-transparent border-none text-sm text-gray-600 font-medium p-0;
+  @apply cursor-pointer border-none bg-transparent p-0 text-[13px] font-medium text-gray-600 transition-colors hover:text-blue-600;
 }
 
 .disabled {
@@ -24,7 +22,7 @@
 }
 
 .divider {
-  @apply w-px h-4 bg-gray-300;
+  @apply h-3.5 w-px bg-gray-200;
 }
 
 .dropdownWrapper {

@@ -44,7 +44,7 @@ function StatusBadge({ status }) {
                 ? 'blue'
                 : 'green';
   return (
-    <Badge color={color} pulse={status === 'Waiting'}>
+    <Badge color={color} border={false} pulse={status === 'Waiting'}>
       {status}
     </Badge>
   );

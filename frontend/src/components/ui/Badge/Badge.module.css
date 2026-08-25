@@ -65,6 +65,26 @@
   @apply bg-gray-100 text-gray-600;
 }
 
+.violetNoBorder {
+  @apply bg-violet-100 text-violet-700;
+}
+
+.amberNoBorder {
+  @apply bg-amber-100 text-amber-700;
+}
+
+.indigoNoBorder {
+  @apply bg-indigo-100 text-indigo-700;
+}
+
+.orangeNoBorder {
+  @apply bg-orange-100 text-orange-700;
+}
+
+.purpleNoBorder {
+  @apply bg-purple-50 text-purple-700;
+}
+
 .pulse {
   @apply animate-pulse;
 }
