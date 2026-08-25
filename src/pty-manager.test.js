@@ -14,7 +14,9 @@ import {
   getSessionPeerReviewReadiness,
   killSessionAndWait,
   PATROL_MCP_TIMEOUT_MS,
+  RingBuffer,
   setMcpPort,
+  TerminalOutputBatcher,
 } from './pty-manager.js';
 import { buildSessionLaunch } from './session-launch.js';
 
@@ -23,6 +25,86 @@ afterEach(() => closeDb());
 it('keeps the outer MCP timeout above either nested peer review timeout', () => {
   assert.ok(PATROL_MCP_TIMEOUT_MS > CODEX_REVIEW_TIMEOUT_MS);
   assert.ok(PATROL_MCP_TIMEOUT_MS > CLAUDE_REVIEW_TIMEOUT_MS);
+});
+
+describe('RingBuffer', () => {
+  it('retains the newest bytes across repeated wraparound', () => {
+    const buffer = new RingBuffer(7);
+    let expected = Buffer.alloc(0);
+
+    for (const chunk of ['ab', 'cdef', 'ghi', Buffer.from('jklmn')]) {
+      buffer.append(chunk);
+      expected = Buffer.concat([expected, Buffer.from(chunk)]).subarray(-7);
+      assert.deepEqual(buffer.contents(), expected);
+    }
+  });
+
+  it('keeps only the tail of chunks larger than its capacity', () => {
+    const buffer = new RingBuffer(5);
+    buffer.append('0123456789');
+    assert.equal(buffer.contents().toString(), '56789');
+  });
+
+  it('rejects invalid capacities', () => {
+    assert.throws(() => new RingBuffer(0), /positive integer/);
+    assert.throws(() => new RingBuffer(1.5), /positive integer/);
+  });
+});
+
+describe('TerminalOutputBatcher', () => {
+  it('sends adjacent PTY chunks in one output frame', () => {
+    const sent = [];
+    const socket = { readyState: 1, send: (message) => sent.push(JSON.parse(message)) };
+    let scheduledFlush = null;
+    const batcher = new TerminalOutputBatcher(
+      new Set([socket]),
+      (callback) => {
+        scheduledFlush = callback;
+        return 1;
+      },
+      () => {
+        scheduledFlush = null;
+      },
+    );
+
+    batcher.append('first');
+    batcher.append('-second');
+    assert.deepEqual(sent, []);
+
+    scheduledFlush();
+    assert.deepEqual(sent, [{ type: 'output', data: 'first-second' }]);
+  });
+
+  it('flushes synchronously when output ordering requires it', () => {
+    const sent = [];
+    const socket = { readyState: 1, send: (message) => sent.push(JSON.parse(message)) };
+    let cancelCount = 0;
+    const batcher = new TerminalOutputBatcher(
+      new Set([socket]),
+      () => 1,
+      () => {
+        cancelCount++;
+      },
+    );
+
+    batcher.append('tail');
+    batcher.flush();
+
+    assert.equal(cancelCount, 1);
+    assert.deepEqual(sent, [{ type: 'output', data: 'tail' }]);
+  });
+
+  it('does not schedule or serialize output without an open client', () => {
+    let scheduleCount = 0;
+    const batcher = new TerminalOutputBatcher(new Set([{ readyState: 3 }]), () => {
+      scheduleCount++;
+    });
+
+    batcher.append('unobserved');
+    batcher.flush();
+
+    assert.equal(scheduleCount, 0);
+  });
 });
 
 it('accepts legacy MCP configs unless they explicitly set a short tool timeout', () => {
