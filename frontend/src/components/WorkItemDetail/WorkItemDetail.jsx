@@ -16,7 +16,6 @@ import shared from '../../styles/shared.module.css';
 import { AgentProviderButton } from '../AgentProviderButton/AgentProviderButton.jsx';
 import { LinkedPullRequests } from '../LinkedPullRequests/LinkedPullRequests.jsx';
 import { SessionHistory } from '../SessionHistory/SessionHistory.jsx';
-import { StatusBadge } from '../StatusBadge/StatusBadge.jsx';
 import { TerminalCard } from '../TerminalCard/TerminalCard.jsx';
 import { Badge } from '../ui/Badge/Badge.jsx';
 import { Box } from '../ui/Box/Box.jsx';
@@ -35,20 +34,19 @@ const RETRY_LABELS = {
 
 const PANE_STATE_STORAGE_PREFIX = 'claude-patrol-work-item-panes';
 
-/** @typedef {'task' | 'repositories'} WorkItemPane */
+/** @typedef {'repositories'} WorkItemPane */
 
 /** @param {string} workItemId */
 function loadPaneState(workItemId) {
   try {
     const stored = localStorage.getItem(`${PANE_STATE_STORAGE_PREFIX}:${workItemId}`);
-    if (!stored) return { task: false, repositories: false };
+    if (!stored) return { repositories: false };
     const parsed = JSON.parse(stored);
     return {
-      task: parsed?.task === true,
       repositories: parsed?.repositories === true,
     };
   } catch {
-    return { task: false, repositories: false };
+    return { repositories: false };
   }
 }
 
@@ -59,7 +57,7 @@ function CollapsiblePane({ title, collapsed, onToggle, children }) {
   const contentId = useId();
 
   return (
-    <Box p={0} border rounded="lg" bg="white" className={styles.collapsiblePane}>
+    <section className={styles.collapsiblePane}>
       <h3 className={styles.paneHeading}>
         <button
           type="button"
@@ -89,7 +87,7 @@ function CollapsiblePane({ title, collapsed, onToggle, children }) {
       <div id={contentId} className={styles.paneBody} role="region" hidden={collapsed} aria-label={`${title} pane`}>
         {children}
       </div>
-    </Box>
+    </section>
   );
 }
 
@@ -269,6 +267,14 @@ export function WorkItemDetail({ workItemId, onBack, targetStates, selectedPrId 
     setCollapsedPanes(loadPaneState(workItemId));
   }, [workItemId]);
 
+  useEffect(() => {
+    const firstPullRequest = workItem?.pull_requests[0];
+    if (!firstPullRequest || workItem.pull_requests.some((pullRequest) => pullRequest.id === selectedPrId)) return;
+    const path = workItemPath(workItem.id, firstPullRequest.id);
+    history.replaceState(null, '', `${window.location.pathname}${window.location.search}#${path}`);
+    window.dispatchEvent(new Event('hashchange'));
+  }, [selectedPrId, workItem]);
+
   const togglePane = useCallback(
     (/** @type {WorkItemPane} */ pane) => {
       setCollapsedPanes((current) => {
@@ -408,206 +414,199 @@ export function WorkItemDetail({ workItemId, onBack, targetStates, selectedPrId 
   const resolverName = workItem.resolver_provider === 'codex' ? 'Codex' : 'Claude';
   const selectedPullRequest =
     workItem.pull_requests.find((pullRequest) => pullRequest.id === selectedPrId) ?? workItem.pull_requests[0] ?? null;
+  const referenceDisplay = workItem.reference_display || workItem.reference;
 
   return (
-    <Box pb={16}>
-      <Stack direction="col" gap={4}>
-        <Box p={5} border rounded="lg" bg="white">
-          <Stack direction="col" gap={3}>
-            <Stack justify="between" gap={3} wrap>
-              <Button size="md" onClick={onBack}>
-                &larr; Back
+    <div className={styles.page}>
+      <header className={styles.pageHeader}>
+        <div className={styles.headerActions}>
+          <Button size="sm" onClick={onBack}>
+            &larr; Work
+          </Button>
+          <Stack gap={2} wrap>
+            {retryAction && (
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={handleRetry}
+                disabled={!!actionPending || destroying}
+                busy={actionPending === 'retry'}
+              >
+                {actionPending === 'retry' ? 'Retrying...' : RETRY_LABELS[retryAction]}
               </Button>
-              <Stack gap={2} wrap>
-                {retryAction && (
-                  <Button
-                    variant="primary"
-                    size="sm"
-                    onClick={handleRetry}
-                    disabled={!!actionPending || destroying}
-                    busy={actionPending === 'retry'}
-                  >
-                    {actionPending === 'retry' ? 'Retrying...' : RETRY_LABELS[retryAction]}
-                  </Button>
-                )}
-                {canDestroy && (
-                  <Button
-                    variant="danger"
-                    size="sm"
-                    onClick={handleDestroy}
-                    disabled={!!actionPending}
-                    busy={actionPending === 'destroy'}
-                  >
-                    {actionPending === 'destroy' ? 'Destroying...' : 'Destroy'}
-                  </Button>
-                )}
-              </Stack>
-            </Stack>
-            <h2 className={styles.title}>{workItem.title || workItem.reference}</h2>
-            <Stack gap={2} wrap className={styles.identity}>
-              <WorkItemStatusBadge status={WORK_ITEM_STATE_LABELS[workItem.state]} />
-              <span className={styles.reference}>{workItem.reference}</span>
-              <span>{providerName}</span>
-              {selectedPullRequest && (
-                <a className={styles.prIdentity} href={`#${workItemPath(workItem.id, selectedPullRequest.id)}`}>
-                  {selectedPullRequest.repository} #{selectedPullRequest.number}
-                </a>
-              )}
-              {selectedPullRequest?.tracked && (
-                <>
-                  <StatusBadge status={selectedPullRequest.ci_status} type="ci" />
-                  <StatusBadge status={selectedPullRequest.review_status} type="review" />
-                </>
-              )}
-              {workItem.pull_request_count > 1 && <span>{workItem.pull_request_count} pull requests</span>}
-              <span>Created {getRelativeTime(workItem.created_at)}</span>
-              <span>Updated {getRelativeTime(workItem.updated_at)}</span>
-            </Stack>
-            {workItem.error && workItem.resolver_provider !== workItem.work_provider && (
-              <p className={styles.resolver}>Reference resolver: {resolverName}</p>
             )}
-            {(creationBusy || destroying) && (
-              <p className={styles.actionNote}>
-                {destroying ? 'Destruction is in progress.' : 'Destroy is unavailable while creation is in progress.'}
-              </p>
+            {canDestroy && (
+              <Button
+                variant="danger"
+                size="sm"
+                onClick={handleDestroy}
+                disabled={!!actionPending}
+                busy={actionPending === 'destroy'}
+              >
+                {actionPending === 'destroy' ? 'Destroying...' : 'Destroy'}
+              </Button>
             )}
-            <WorkItemProgress item={workItem} />
           </Stack>
-        </Box>
-
-        {workItem.summary && (
-          <CollapsiblePane title="Task" collapsed={collapsedPanes.task} onToggle={() => togglePane('task')}>
-            <p className={styles.summary}>{workItem.summary}</p>
-          </CollapsiblePane>
-        )}
-
-        {workItem.error && (
-          <Box p={5} border borderColor="red-200" rounded="lg" bg="white" className={styles.failure}>
-            <h3 className={shared.sectionTitle}>Failure</h3>
-            <dl className={styles.errorFacts}>
-              <div>
-                <dt>Code</dt>
-                <dd>{workItem.error.code}</dd>
-              </div>
-              {workItem.error.failed_provider && (
-                <div>
-                  <dt>Failed provider</dt>
-                  <dd>{workItem.error.failed_provider}</dd>
-                </div>
-              )}
-            </dl>
-            {workItem.error.detail && <p className={styles.errorDetail}>{workItem.error.detail}</p>}
-            {workItem.error.recovery_actions.length > 0 && (
-              <Stack gap={2} wrap>
-                {workItem.error.recovery_actions.map((recovery, index) =>
-                  recovery.kind === 'settings' && recovery.href ? (
-                    <Button key={`${recovery.kind}:${index}`} as="a" href={recovery.href} size="sm">
-                      {recovery.label}
-                    </Button>
-                  ) : recovery.command ? (
-                    <RecoveryCommandButton key={`${recovery.kind}:${index}`} recovery={recovery} />
-                  ) : null,
-                )}
-              </Stack>
-            )}
-          </Box>
-        )}
-
-        {selectedPrId && (
-          <LinkedPullRequests
-            workItem={workItem}
-            selectedPrId={selectedPrId}
-            onWorkItemReload={reload}
-            ensureSession={ensureSession}
-            wsRef={wsRef}
-          />
-        )}
-
-        <CollapsiblePane
-          title="Repositories"
-          collapsed={collapsedPanes.repositories}
-          onToggle={() => togglePane('repositories')}
-        >
-          <div className={styles.repositoryList}>
-            {workItem.repository_workspaces.map((repository) => (
-              <RepositoryRow key={repository.identifier} repository={repository} />
-            ))}
-            {workItem.repository_workspaces.length === 0 && (
-              <p className={styles.empty}>Repositories have not been resolved.</p>
-            )}
-          </div>
-        </CollapsiblePane>
-
-        {!destroyed &&
-          workItem.state === 'ready' &&
-          (session ? (
-            <TerminalCard
-              session={session}
-              title={`Terminal - ${workItem.title || workItem.reference}`}
-              onKill={handleKillSession}
-              onExit={handleSessionExit}
-              onReattach={handleReattach}
-              wsRef={wsRef}
-              baseBranch={selectedPullRequest?.base_branch ?? undefined}
-              prId={selectedPullRequest?.tracked ? selectedPullRequest.id : undefined}
-              sessionState={targetStates.get(`work-item:${workItem.id}`)}
-            />
+        </div>
+        <div className={styles.referenceLine}>
+          {workItem.reference_url ? (
+            <a href={workItem.reference_url} target="_blank" rel="noopener noreferrer" className={styles.reference}>
+              {referenceDisplay}
+            </a>
           ) : (
-            <Box p={5} border rounded="lg" bg="white">
-              <Stack direction="col" gap={3}>
-                <h3 className={shared.sectionTitle}>Terminal</h3>
-                <p className={styles.actionNote}>
-                  Choose Claude or Codex before{' '}
-                  {workItem.has_session_history ? 'reopening the terminal' : 'opening the terminal'}.
-                </p>
-                <AgentProviderButton
-                  variant="primary"
-                  size="lg"
-                  onClick={ensureSession}
-                  disabled={sessionLoading || !!actionPending}
-                  busy={sessionLoading}
-                >
-                  {sessionLoading
-                    ? 'Opening terminal...'
-                    : workItem.has_session_history
-                      ? `Reopen terminal with ${selectedProviderName}`
-                      : `Open terminal with ${selectedProviderName}`}
-                </AgentProviderButton>
-              </Stack>
-            </Box>
-          ))}
+            <span className={styles.reference}>{referenceDisplay}</span>
+          )}
+          <WorkItemStatusBadge status={WORK_ITEM_STATE_LABELS[workItem.state]} />
+          <span className={styles.providerBadge}>{providerName}</span>
+          {workItem.pull_request_count > 0 && (
+            <span className={styles.countBadge}>
+              {workItem.pull_request_count} pull request{workItem.pull_request_count === 1 ? '' : 's'}
+            </span>
+          )}
+        </div>
+        <h1 className={styles.title}>{workItem.title || workItem.reference}</h1>
+        <div className={styles.identity}>
+          <span>Created {getRelativeTime(workItem.created_at)}</span>
+          <span>Updated {getRelativeTime(workItem.updated_at)}</span>
+          {workItem.error && workItem.resolver_provider !== workItem.work_provider && (
+            <span>Reference resolver: {resolverName}</span>
+          )}
+        </div>
+        {(creationBusy || destroying) && (
+          <p className={styles.actionNote}>
+            {destroying ? 'Destruction is in progress.' : 'Destroy is unavailable while creation is in progress.'}
+          </p>
+        )}
+        <WorkItemProgress item={workItem} />
+      </header>
 
-        {!selectedPrId && (
-          <LinkedPullRequests
-            workItem={workItem}
-            onWorkItemReload={reload}
-            ensureSession={ensureSession}
+      {!destroyed &&
+        workItem.state === 'ready' &&
+        (session ? (
+          <TerminalCard
+            session={session}
+            title={`Terminal - ${workItem.title || workItem.reference}`}
+            onKill={handleKillSession}
+            onExit={handleSessionExit}
+            onReattach={handleReattach}
             wsRef={wsRef}
+            baseBranch={selectedPullRequest?.base_branch ?? undefined}
+            prId={selectedPullRequest?.tracked ? selectedPullRequest.id : undefined}
+            sessionState={targetStates.get(`work-item:${workItem.id}`)}
+            presentation="work-page"
           />
-        )}
+        ) : (
+          <section className={styles.terminalLauncher} aria-labelledby="work-item-terminal-heading">
+            <h2 id="work-item-terminal-heading" className={styles.sectionTitle}>
+              Terminal
+            </h2>
+            <p className={styles.actionNote}>
+              Choose Claude or Codex before{' '}
+              {workItem.has_session_history ? 'reopening the terminal' : 'opening the terminal'}.
+            </p>
+            <AgentProviderButton
+              variant="primary"
+              size="lg"
+              onClick={ensureSession}
+              disabled={sessionLoading || !!actionPending}
+              busy={sessionLoading}
+            >
+              {sessionLoading
+                ? 'Opening terminal...'
+                : workItem.has_session_history
+                  ? `Reopen terminal with ${selectedProviderName}`
+                  : `Open terminal with ${selectedProviderName}`}
+            </AgentProviderButton>
+          </section>
+        ))}
 
-        {actionError && (
-          <p className={styles.requestError} role="alert">
-            {actionError}
-          </p>
-        )}
-        {sessionError && (
-          <p className={styles.requestError} role="alert">
-            {sessionError}
-          </p>
-        )}
-        {error ? (
-          <p className={styles.requestError} role="alert">
-            {getErrorMessage(error, 'Failed to refresh work item')}
-          </p>
-        ) : null}
-        {retryAction === 'cleanup' && (
-          <Box p={4} border rounded="lg" bg="white">
-            <span className={styles.rootPath}>Retained root: {workItem.root_path}</span>
-          </Box>
-        )}
-        <SessionHistory key={workItemId} target={target} />
-      </Stack>
-    </Box>
+      {workItem.error && (
+        <section className={`${styles.contentSection} ${styles.failure}`} aria-labelledby="work-item-failure-heading">
+          <h2 id="work-item-failure-heading" className={styles.sectionTitle}>
+            Failure
+          </h2>
+          <dl className={styles.errorFacts}>
+            <div>
+              <dt>Code</dt>
+              <dd>{workItem.error.code}</dd>
+            </div>
+            {workItem.error.failed_provider && (
+              <div>
+                <dt>Failed provider</dt>
+                <dd>{workItem.error.failed_provider}</dd>
+              </div>
+            )}
+          </dl>
+          {workItem.error.detail && <p className={styles.errorDetail}>{workItem.error.detail}</p>}
+          {workItem.error.recovery_actions.length > 0 && (
+            <Stack gap={2} wrap>
+              {workItem.error.recovery_actions.map((recovery, index) =>
+                recovery.kind === 'settings' && recovery.href ? (
+                  <Button key={`${recovery.kind}:${index}`} as="a" href={recovery.href} size="sm">
+                    {recovery.label}
+                  </Button>
+                ) : recovery.command ? (
+                  <RecoveryCommandButton key={`${recovery.kind}:${index}`} recovery={recovery} />
+                ) : null,
+              )}
+            </Stack>
+          )}
+        </section>
+      )}
+
+      {workItem.summary && (
+        <section className={styles.contentSection} aria-labelledby="work-item-overview-heading">
+          <h2 id="work-item-overview-heading" className={styles.sectionTitle}>
+            Overview
+          </h2>
+          <p className={styles.summary}>{workItem.summary}</p>
+        </section>
+      )}
+
+      <LinkedPullRequests
+        workItem={workItem}
+        selectedPrId={selectedPrId}
+        onWorkItemReload={reload}
+        ensureSession={ensureSession}
+        wsRef={wsRef}
+      />
+
+      <CollapsiblePane
+        title="Repositories"
+        collapsed={collapsedPanes.repositories}
+        onToggle={() => togglePane('repositories')}
+      >
+        <div className={styles.repositoryList}>
+          {workItem.repository_workspaces.map((repository) => (
+            <RepositoryRow key={repository.identifier} repository={repository} />
+          ))}
+          {workItem.repository_workspaces.length === 0 && (
+            <p className={styles.empty}>Repositories have not been resolved.</p>
+          )}
+        </div>
+      </CollapsiblePane>
+
+      {actionError && (
+        <p className={styles.requestError} role="alert">
+          {actionError}
+        </p>
+      )}
+      {sessionError && (
+        <p className={styles.requestError} role="alert">
+          {sessionError}
+        </p>
+      )}
+      {error ? (
+        <p className={styles.requestError} role="alert">
+          {getErrorMessage(error, 'Failed to refresh work item')}
+        </p>
+      ) : null}
+      {retryAction === 'cleanup' && (
+        <div className={styles.retainedRoot}>
+          <span className={styles.rootPath}>Retained root: {workItem.root_path}</span>
+        </div>
+      )}
+      <SessionHistory key={workItemId} target={target} />
+    </div>
   );
 }

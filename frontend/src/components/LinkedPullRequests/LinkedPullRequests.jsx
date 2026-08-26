@@ -13,7 +13,6 @@ import { getErrorMessage } from '../../lib/errors.js';
 import { workItemPath } from '../../lib/routes.js';
 import { sendTerminalCommand, whenWsOpen } from '../../lib/terminal.js';
 import { getRelativeTime } from '../../lib/time.js';
-import shared from '../../styles/shared.module.css';
 import {
   PullRequestChecks,
   PullRequestComments,
@@ -21,12 +20,61 @@ import {
   PullRequestReviews,
 } from '../PRDetail/PRDetail.jsx';
 import { RuleControls } from '../RuleControls/RuleControls.jsx';
-import { StatusBadge } from '../StatusBadge/StatusBadge.jsx';
 import { Box } from '../ui/Box/Box.jsx';
 import { Button } from '../ui/Button/Button.jsx';
 import { LoadingIndicator } from '../ui/LoadingIndicator/LoadingIndicator.jsx';
 import { Stack } from '../ui/Stack/Stack.jsx';
 import styles from './LinkedPullRequests.module.css';
+
+/** @type {Record<string, string>} */
+const STATUS_LABELS = {
+  pass: 'Pass',
+  fail: 'Fail',
+  pending: 'Pending',
+  approved: 'Approved',
+  changes_requested: 'Changes',
+  MERGEABLE: 'Clean',
+  CONFLICTING: 'Conflict',
+  UNKNOWN: 'Unknown',
+  open: 'Open',
+  draft: 'Draft',
+};
+
+/** @param {string} status */
+function statusTone(status) {
+  if (['pass', 'approved', 'MERGEABLE', 'open'].includes(status)) return 'pass';
+  if (['fail', 'changes_requested', 'CONFLICTING'].includes(status)) return 'fail';
+  if (status === 'pending') return 'pending';
+  return 'neutral';
+}
+
+/**
+ * @param {{pullRequest: Pick<import('../../types').WorkItemPullRequest, 'tracked' | 'ci_status' | 'review_status' | 'mergeable' | 'draft'> | Pick<import('../../types').PullRequest, 'ci_status' | 'review_status' | 'mergeable' | 'draft'>}} props
+ */
+function PullRequestStatusBadges({ pullRequest }) {
+  if ('tracked' in pullRequest && !pullRequest.tracked) {
+    return <span className={`${styles.statusBadge} ${styles.neutral}`}>Waiting for sync</span>;
+  }
+  const statuses = [
+    ['CI', pullRequest.ci_status],
+    ['Review', pullRequest.review_status],
+    ['Merge', pullRequest.mergeable],
+    ['PR', pullRequest.draft ? 'draft' : 'open'],
+  ];
+  return (
+    <span className={styles.statusBadges}>
+      {statuses.map(([label, status]) => (
+        <span
+          key={label}
+          className={`${styles.statusBadge} ${styles[statusTone(status)]}`}
+          aria-label={`${label} ${STATUS_LABELS[status] || status}`}
+        >
+          <span>{label}</span> {STATUS_LABELS[status] || status}
+        </span>
+      ))}
+    </span>
+  );
+}
 
 /**
  * @param {{workItem: import('../../types').WorkItemDetail, selectedPrId?: string | null, onWorkItemReload: () => void, ensureSession: () => Promise<import('../../types').Session | null>, wsRef: {current: WebSocket | null}}} props
@@ -64,6 +112,7 @@ export function LinkedPullRequests({ workItem, selectedPrId, onWorkItemReload, e
     let active = true;
     setLoading(true);
     setLoadError('');
+    setPR(null);
     setComments(null);
     fetchPR(selectedLink.id)
       .then((next) => {
@@ -201,64 +250,78 @@ export function LinkedPullRequests({ workItem, selectedPrId, onWorkItemReload, e
   }, [ensureSession, pr, wsRef]);
 
   return (
-    <Stack direction="col" gap={4}>
-      <Box p={4} border rounded="lg" bg="white" className={shared.sectionCard}>
-        <Stack direction="col" gap={3}>
-          <Stack justify="between" gap={3} wrap>
-            <Stack direction="col" gap={1}>
-              <h3 className={shared.sectionTitle}>Pull requests</h3>
-              <p className={styles.ownerNote}>Owned by {workItem.reference} and using its shared terminal.</p>
+    <div className={styles.pullRequestArea}>
+      <section className={styles.relatedWork} aria-labelledby="related-work-heading">
+        <div className={styles.relatedHeader}>
+          <h2 id="related-work-heading">
+            Related work{' '}
+            <span>
+              {links.length} pull request{links.length === 1 ? '' : 's'}
+            </span>
+          </h2>
+          <details className={styles.attachDetails}>
+            <summary>Attach existing PR</summary>
+            <Stack as="form" gap={2} wrap className={styles.attachForm} onSubmit={handleAttach}>
+              <label className={styles.attachLabel}>
+                <span>PR URL or ID</span>
+                <input
+                  name="pull-request-reference"
+                  value={attachValue}
+                  onChange={(event) => setAttachValue(event.target.value)}
+                  placeholder="owner/repo#123"
+                  disabled={attaching}
+                />
+              </label>
+              <Button size="sm" variant="primary" type="submit" disabled={attaching || !attachValue.trim()}>
+                {attaching ? 'Attaching...' : 'Attach'}
+              </Button>
             </Stack>
-            <details className={styles.attachDetails}>
-              <summary>Attach existing PR</summary>
-              <Stack as="form" gap={2} wrap className={styles.attachForm} onSubmit={handleAttach}>
-                <label className={styles.attachLabel}>
-                  <span>PR URL or ID</span>
-                  <input
-                    name="pull-request-reference"
-                    value={attachValue}
-                    onChange={(event) => setAttachValue(event.target.value)}
-                    placeholder="owner/repo#123"
-                    disabled={attaching}
-                  />
-                </label>
-                <Button size="sm" variant="primary" type="submit" disabled={attaching || !attachValue.trim()}>
-                  {attaching ? 'Attaching...' : 'Attach'}
-                </Button>
-              </Stack>
-            </details>
-          </Stack>
-          {links.length > 0 ? (
-            <nav className={styles.prTabs} aria-label="Work item pull requests">
-              {links.map((link) => (
-                <a
-                  key={link.id}
-                  href={`#${workItemPath(workItem.id, link.id)}`}
-                  className={`${styles.prTab} ${link.id === selectedLink?.id ? styles.prTabActive : ''}`}
-                  aria-current={link.id === selectedLink?.id ? 'page' : undefined}
-                >
-                  <span>
-                    {link.repository} #{link.number}
-                  </span>
-                  {link.tracked ? <StatusBadge status={link.ci_status} type="ci" /> : <span>Waiting for sync</span>}
-                </a>
-              ))}
-            </nav>
-          ) : (
-            <p className={styles.empty}>No pull requests are attached yet.</p>
-          )}
-          {actionError && <p className={styles.error}>{actionError}</p>}
-        </Stack>
-      </Box>
+          </details>
+        </div>
+        {links.length > 0 ? (
+          <ul className={styles.prList} aria-label="Work item pull requests">
+            {links.map((link) => {
+              const selected = link.id === selectedLink?.id;
+              const statusSource = pr?.id === link.id ? pr : link;
+              const title = pr?.id === link.id ? pr.title : link.title;
+              return (
+                <li key={link.id}>
+                  <a
+                    href={`#${workItemPath(workItem.id, link.id)}`}
+                    className={selected ? styles.prRowSelected : styles.prRow}
+                    aria-current={selected ? 'page' : undefined}
+                  >
+                    <span className={styles.prRowIdentity}>
+                      <span className={styles.prNumber}>#{link.number}</span>
+                      <span className={styles.prRowTitle}>{title || link.repository}</span>
+                      <span className={styles.prRepository}>{link.repository}</span>
+                    </span>
+                    <PullRequestStatusBadges pullRequest={statusSource} />
+                    {selected && <span className={styles.viewing}>Viewing</span>}
+                  </a>
+                </li>
+              );
+            })}
+          </ul>
+        ) : (
+          <p className={styles.empty}>No pull requests are attached yet.</p>
+        )}
+        {actionError && <p className={styles.error}>{actionError}</p>}
+      </section>
 
       {selectedLink && !selectedLink.tracked && (
-        <Box p={5} border rounded="lg" bg="white">
-          <Stack justify="between" gap={3} wrap>
+        <section className={styles.selectedInspector} aria-labelledby="selected-pr-heading">
+          <div className={styles.inspectorHeader}>
             <div>
-              <h3 className={shared.sectionTitle}>{selectedLink.id}</h3>
-              <p className={styles.ownerNote}>Attached. Waiting for the next GitHub sync.</p>
+              <p className={styles.eyebrow}>Selected PR status</p>
+              <h2 id="selected-pr-heading" className={styles.prTitle}>
+                <a href={selectedLink.url} target="_blank" rel="noopener noreferrer">
+                  #{selectedLink.number} {selectedLink.title || selectedLink.repository}
+                </a>
+              </h2>
+              <p className={styles.identity}>{selectedLink.repository}</p>
             </div>
-            <Stack gap={2}>
+            <Stack gap={2} wrap className={styles.actions}>
               <Button as="a" size="sm" href={selectedLink.url} target="_blank" rel="noopener noreferrer">
                 GitHub
               </Button>
@@ -266,92 +329,85 @@ export function LinkedPullRequests({ workItem, selectedPrId, onWorkItemReload, e
                 Detach
               </Button>
             </Stack>
-          </Stack>
-        </Box>
+          </div>
+          <div className={styles.inspectorStatuses}>
+            <PullRequestStatusBadges pullRequest={selectedLink} />
+            <span className={styles.waitingNote}>Attached. Status will appear after the next GitHub sync.</span>
+          </div>
+        </section>
       )}
 
       {loading && <LoadingIndicator>Loading pull request...</LoadingIndicator>}
       {loadError && <p className={styles.error}>{loadError}</p>}
       {pr && (
-        <>
-          <Box p={5} border rounded="lg" bg="white" className={shared.sectionCard}>
-            <Stack direction="col" gap={3}>
-              <Stack justify="between" gap={3} wrap>
-                <div>
-                  <p className={styles.eyebrow}>Pull request</p>
-                  <h3 className={styles.prTitle}>{pr.title}</h3>
-                </div>
-                <Stack gap={2} wrap className={styles.actions}>
-                  {isMergeReady(pr) && (
-                    <Button
-                      as="a"
-                      variant="success"
-                      filled
-                      size="sm"
-                      href={pr.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      Merge on GitHub
-                    </Button>
-                  )}
-                  <Button size="sm" onClick={handleToggleDraft} disabled={togglingDraft} busy={togglingDraft}>
-                    {togglingDraft ? 'Updating...' : pr.draft ? 'Mark ready' : 'Mark draft'}
+        <div className={styles.selectedDetails}>
+          <section className={styles.selectedInspector} aria-labelledby="selected-pr-heading">
+            <div className={styles.inspectorHeader}>
+              <div>
+                <p className={styles.eyebrow}>Selected PR status</p>
+                <h2 id="selected-pr-heading" className={styles.prTitle}>
+                  <a href={pr.url} target="_blank" rel="noopener noreferrer">
+                    #{pr.number} {pr.title}
+                  </a>
+                </h2>
+                <p className={styles.identity}>
+                  <span className={styles.repo}>
+                    {pr.org}/{pr.repo}
+                  </span>
+                  <span>{pr.branch}</span>
+                  <span>Updated {getRelativeTime(pr.updated_at)}</span>
+                </p>
+              </div>
+              <Stack gap={2} wrap className={styles.actions}>
+                {isMergeReady(pr) && (
+                  <Button
+                    as="a"
+                    variant="success"
+                    filled
+                    size="sm"
+                    href={pr.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Merge on GitHub
                   </Button>
-                  <Button size="sm" onClick={handleRefresh} disabled={refreshing} busy={refreshing}>
-                    {refreshing ? 'Refreshing...' : 'Refresh'}
-                  </Button>
-                  <Button as="a" size="sm" href={`${pr.url}/files`} target="_blank" rel="noopener noreferrer">
-                    View diff
-                  </Button>
-                  <Button as="a" size="sm" href={pr.url} target="_blank" rel="noopener noreferrer">
-                    GitHub
-                  </Button>
-                  <Button size="sm" variant="danger" onClick={handleDetach}>
-                    Detach
-                  </Button>
-                </Stack>
+                )}
+                <Button size="sm" onClick={handleToggleDraft} disabled={togglingDraft} busy={togglingDraft}>
+                  {togglingDraft ? 'Updating...' : pr.draft ? 'Mark ready' : 'Mark draft'}
+                </Button>
+                <Button size="sm" onClick={handleRefresh} disabled={refreshing} busy={refreshing}>
+                  {refreshing ? 'Refreshing...' : 'Refresh'}
+                </Button>
+                <Button as="a" size="sm" href={`${pr.url}/files`} target="_blank" rel="noopener noreferrer">
+                  View diff
+                </Button>
+                <Button as="a" size="sm" href={pr.url} target="_blank" rel="noopener noreferrer">
+                  GitHub
+                </Button>
+                <Button size="sm" variant="danger" onClick={handleDetach}>
+                  Detach
+                </Button>
               </Stack>
-              <Stack gap={2} wrap className={styles.identity}>
-                <span className={styles.repo}>
-                  {pr.org}/{pr.repo} #{pr.number}
-                </span>
-                <span>{pr.branch}</span>
-                <span>Updated {getRelativeTime(pr.updated_at)}</span>
-              </Stack>
-              <Stack gap={4} wrap>
-                <StatusFact label="CI" status={pr.ci_status} type="ci" />
-                <StatusFact label="Review" status={pr.review_status} type="review" />
-                <StatusFact label="Merge" status={pr.mergeable} type="merge" />
-                <StatusFact label="PR" status={pr.draft ? 'draft' : 'open'} type="status" />
-              </Stack>
-              {pr.body_html && <PullRequestDescription bodyHtml={pr.body_html} />}
-            </Stack>
-          </Box>
-          <Box p={0} border rounded="lg" bg="white" className={shared.sectionCard}>
-            <RuleControls prId={pr.id} />
-          </Box>
+            </div>
+            <div className={styles.inspectorStatuses}>
+              <PullRequestStatusBadges pullRequest={pr} />
+            </div>
+            {pr.body_html && <PullRequestDescription bodyHtml={pr.body_html} />}
+          </section>
           <PullRequestChecks
             pr={pr}
             retriggering={retriggering}
             onRetriggerFailed={handleRetriggerFailed}
             onInvestigateFailures={handleInvestigateFailures}
           />
+          <Box p={0} border bg="white" className={styles.ruleControls}>
+            <RuleControls prId={pr.id} />
+          </Box>
           <PullRequestReviews reviews={pr.reviews} />
           <PullRequestComments comments={comments} loading={commentsLoading} />
           {commentsError && <p className={styles.error}>{commentsError}</p>}
-        </>
+        </div>
       )}
-    </Stack>
-  );
-}
-
-/** @param {{label: string, status: string, type: 'ci' | 'review' | 'merge' | 'status'}} props */
-function StatusFact({ label, status, type }) {
-  return (
-    <Stack gap={2}>
-      <span className={styles.statusLabel}>{label}</span>
-      <StatusBadge status={status} type={type} />
-    </Stack>
+    </div>
   );
 }

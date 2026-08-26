@@ -9,6 +9,7 @@ import { LazyTerminal } from '../Terminal/LazyTerminal.jsx';
 import { Box } from '../ui/Box/Box.jsx';
 import { Button } from '../ui/Button/Button.jsx';
 import { Stack } from '../ui/Stack/Stack.jsx';
+import styles from './TerminalCard.module.css';
 
 /**
  * Shared terminal UI with maximize, close, resize, and detach/reattach support.
@@ -26,6 +27,7 @@ import { Stack } from '../ui/Stack/Stack.jsx';
  *   workspaceId?: string,
  *   prId?: string,
  *   sessionState?: 'working' | 'idle',
+ *   presentation?: 'card' | 'work-page',
  * }} props
  */
 export function TerminalCard({
@@ -40,6 +42,7 @@ export function TerminalCard({
   workspaceId,
   prId,
   sessionState,
+  presentation = 'card',
 }) {
   const [maximized, setMaximized] = useState(false);
   const [terminalOpen, setTerminalOpen] = useState(true);
@@ -95,6 +98,58 @@ export function TerminalCard({
       setReattaching(false);
     }
   }, [onReattach]);
+
+  if (presentation === 'work-page') {
+    if (session.status === 'detached') {
+      return (
+        <section className={styles.workPageDetached} aria-labelledby={`terminal-${session.id}`}>
+          <div className={styles.workPageHeader}>
+            <h2 id={`terminal-${session.id}`} className={styles.workPageTitle}>
+              Terminal
+            </h2>
+            <Stack gap={2} wrap>
+              <Button variant="primary" size="sm" onClick={handleReattach} disabled={reattaching} busy={reattaching}>
+                {reattaching ? 'Reattaching...' : 'Reattach'}
+              </Button>
+              <Button variant="danger" size="sm" onClick={onKill}>
+                Kill session
+              </Button>
+            </Stack>
+          </div>
+          <p className={styles.detachedMessage}>Session running in an external terminal.</p>
+        </section>
+      );
+    }
+
+    return (
+      <section className={styles.workPageTerminal} aria-labelledby={`terminal-${session.id}`}>
+        <div className={styles.workPageHeader}>
+          <h2 id={`terminal-${session.id}`} className={styles.workPageTitle}>
+            {title}
+          </h2>
+          <Stack gap={2} wrap>
+            <span className={styles.sessionProvider}>{session.provider}</span>
+            <Button variant="danger" size="sm" dark onClick={onKill}>
+              Kill session
+            </Button>
+          </Stack>
+        </div>
+        <div className={styles.workPageActions}>
+          <QuickActions
+            onSend={handleSendCommand}
+            baseBranch={baseBranch}
+            workspaceId={workspaceId}
+            prId={prId}
+            sessionState={sessionState}
+            sessionProvider={session.provider}
+          />
+        </div>
+        <div className={styles.workPageViewport}>
+          <LazyTerminal wsUrl={`/ws/sessions/${session.id}`} wsRef={wsRef} onExit={handleExit} borderless />
+        </div>
+      </section>
+    );
+  }
 
   // Detached - session alive in external terminal, can reattach
   if (session.status === 'detached') {

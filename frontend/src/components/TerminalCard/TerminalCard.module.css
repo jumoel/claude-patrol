@@ -1,0 +1,72 @@
+.workPageTerminal,
+.workPageDetached {
+  overflow: hidden;
+  border: 1px solid #202735;
+  background: #fff;
+}
+
+.workPageHeader {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 6px 12px 6px 14px;
+  color: #e5e7eb;
+  background: #151b24;
+  border-bottom: 1px solid #303846;
+}
+
+.workPageTitle {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sessionProvider {
+  color: #a8b0bd;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  text-transform: capitalize;
+}
+
+.workPageActions {
+  padding: 0 14px;
+  background: #f7f8fa;
+  border-bottom: 1px solid #d7dce3;
+}
+
+.workPageViewport {
+  height: clamp(22rem, 48vh, 36rem);
+  background: #1a1b26;
+}
+
+.detachedMessage {
+  margin: 0;
+  padding: 16px 14px;
+  color: #667180;
+  font-size: 14px;
+}
+
+@media (max-width: 40rem) {
+  .workPageHeader {
+    align-items: flex-start;
+    flex-direction: column;
+    padding: 10px 12px;
+  }
+
+  .workPageTitle {
+    max-width: 100%;
+    white-space: normal;
+  }
+
+  .workPageViewport {
+    height: 26rem;
+  }
+}

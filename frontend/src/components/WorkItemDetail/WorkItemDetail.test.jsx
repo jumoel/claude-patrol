@@ -25,8 +25,12 @@ const api = vi.hoisted(() => ({
 vi.mock('../../hooks/useWorkItems.js', () => ({ useWorkItem: () => hook }));
 vi.mock('../../lib/api.js', () => api);
 vi.mock('../TerminalCard/TerminalCard.jsx', () => ({
-  /** @param {{session: import('../../types').Session}} props */
-  TerminalCard: ({ session }) => <div data-testid="root-terminal">Terminal {session.id}</div>,
+  /** @param {{session: import('../../types').Session, presentation?: string}} props */
+  TerminalCard: ({ session, presentation }) => (
+    <div data-testid="root-terminal" data-presentation={presentation}>
+      Terminal {session.id}
+    </div>
+  ),
 }));
 vi.mock('../SessionHistory/SessionHistory.jsx', () => ({
   /** @param {{target: import('../../types').SessionTarget}} props */
@@ -88,10 +92,11 @@ function detail() {
   };
 }
 
-function renderDetail(workItemId = 'item-1') {
+/** @param {string} [workItemId] @param {string | null} [selectedPrId] */
+function renderDetail(workItemId = 'item-1', selectedPrId = null) {
   return render(
     <AgentProviderProvider>
-      <WorkItemDetail workItemId={workItemId} onBack={vi.fn()} targetStates={new Map()} />
+      <WorkItemDetail workItemId={workItemId} selectedPrId={selectedPrId} onBack={vi.fn()} targetStates={new Map()} />
     </AgentProviderProvider>,
   );
 }
@@ -136,32 +141,114 @@ test('ready detail renders one root terminal and no child controls', async () =>
   renderDetail();
 
   assert.equal((await screen.findAllByTestId('root-terminal')).length, 1);
+  assert.equal(screen.getByTestId('root-terminal').getAttribute('data-presentation'), 'work-page');
   assert.ok(screen.getByText(/Update both repositories\.\s+Keep their changes aligned\./));
   assert.equal(screen.getAllByRole('button', { name: 'Copy path' }).length, 1);
   assert.equal(screen.queryByRole('link', { name: /acme\/alpha/ }), null);
   assert.ok(screen.getByTestId('session-history').textContent?.includes('work_item'));
 });
 
-test('task and repository panes remember collapsed state per work item', async () => {
+test('overview stays visible while the repository pane remembers collapsed state per work item', async () => {
   const user = userEvent.setup();
   const first = renderDetail();
 
-  await user.click(screen.getByRole('button', { name: 'Collapse Task' }));
-  const collapsedTaskButton = screen.getByRole('button', { name: 'Expand Task' });
-  const collapsedTaskPane = document.getElementById(collapsedTaskButton.getAttribute('aria-controls') || '');
-  assert.equal(collapsedTaskPane?.hidden, true);
-  assert.ok(screen.getByRole('button', { name: 'Collapse Repositories' }));
+  assert.ok(screen.getByRole('heading', { name: 'Overview' }));
+  await user.click(screen.getByRole('button', { name: 'Collapse Repositories' }));
+  assert.ok(screen.getByRole('button', { name: 'Expand Repositories' }));
   first.unmount();
 
   const remembered = renderDetail();
-  assert.ok(screen.getByRole('button', { name: 'Expand Task' }));
-  assert.ok(screen.getByRole('button', { name: 'Collapse Repositories' }));
+  assert.ok(screen.getByRole('heading', { name: 'Overview' }));
+  assert.ok(screen.getByRole('button', { name: 'Expand Repositories' }));
   remembered.unmount();
 
   hook.workItem = { ...detail(), id: 'item-2' };
   renderDetail('item-2');
-  assert.ok(screen.getByRole('button', { name: 'Collapse Task' }));
   assert.ok(screen.getByRole('button', { name: 'Collapse Repositories' }));
+});
+
+test('terminal is the first work surface after the header', async () => {
+  hook.workItem = {
+    ...detail(),
+    session: { id: 'session-1', status: 'active', activity_state: null, activity_changed_at: null },
+  };
+  api.fetchSessions.mockResolvedValue([
+    {
+      id: 'session-1',
+      workspace_id: null,
+      work_item_id: 'item-1',
+      target: { type: 'work_item', id: 'item-1' },
+      pid: 123,
+      provider: 'codex',
+      status: 'active',
+      started_at: '2026-08-22T00:00:00.000Z',
+      ended_at: null,
+      activity_state: null,
+      activity_changed_at: null,
+    },
+  ]);
+
+  renderDetail();
+
+  const terminal = await screen.findByTestId('root-terminal');
+  const overview = screen.getByRole('heading', { name: 'Overview' }).closest('section');
+  assert.ok(overview);
+  assert.ok(terminal.compareDocumentPosition(overview) & Node.DOCUMENT_POSITION_FOLLOWING);
+});
+
+test('missing or invalid PR selection is replaced with the first attached PR in the URL', async () => {
+  hook.workItem = {
+    ...detail(),
+    pull_request_count: 2,
+    pull_requests: [
+      {
+        id: 'acme/alpha#101',
+        org: 'acme',
+        repo: 'alpha',
+        repository: 'acme/alpha',
+        number: 101,
+        title: 'First PR',
+        url: 'https://github.com/acme/alpha/pull/101',
+        branch: 'feature',
+        base_branch: 'main',
+        draft: false,
+        mergeable: 'MERGEABLE',
+        ci_status: 'pass',
+        review_status: 'approved',
+        updated_at: '2026-08-26T00:00:00.000Z',
+        tracked: true,
+        linked_at: '2026-08-26T00:00:00.000Z',
+        link_source: 'explicit',
+      },
+      {
+        id: 'acme/beta#102',
+        org: 'acme',
+        repo: 'beta',
+        repository: 'acme/beta',
+        number: 102,
+        title: 'Second PR',
+        url: 'https://github.com/acme/beta/pull/102',
+        branch: 'feature-two',
+        base_branch: 'main',
+        draft: false,
+        mergeable: 'UNKNOWN',
+        ci_status: 'pending',
+        review_status: 'pending',
+        updated_at: '2026-08-26T00:00:00.000Z',
+        tracked: true,
+        linked_at: '2026-08-26T00:00:00.000Z',
+        link_source: 'explicit',
+      },
+    ],
+  };
+  for (const selectedPrId of [null, 'missing']) {
+    history.replaceState(null, '', selectedPrId ? '/#/work-item/item-1?pr=missing' : '/#/work-item/item-1');
+    const rendered = renderDetail('item-1', selectedPrId);
+    await waitFor(() => {
+      assert.equal(window.location.hash, '#/work-item/item-1?pr=acme%2Falpha%23101');
+    });
+    rendered.unmount();
+  }
 });
 
 test('cleanup failure shows one retry, retained root, and copy feedback', async () => {
