@@ -134,6 +134,8 @@ export function buildCodexResolverArgs(config, cwd, outputSchemaPath) {
     '--config',
     'approval_policy="never"',
     '--config',
+    'web_search="disabled"',
+    '--config',
     `${serverKey}.url=${tomlString(server.url)}`,
     '--config',
     `${serverKey}.required=true`,

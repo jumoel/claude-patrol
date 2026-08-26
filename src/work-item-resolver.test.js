@@ -72,6 +72,7 @@ test('provider arguments isolate the configured read-only MCP server', () => {
   const codex = buildCodexResolverArgs(config, '/tmp/resolver', '/tmp/schema.json');
   assert.ok(codex.includes('--ignore-user-config'));
   assert.ok(codex.includes('--ignore-rules'));
+  assert.ok(codex.includes('web_search="disabled"'));
   assert.ok(codex.includes('mcp_servers.work-reference.required=true'));
   assert.ok(codex.includes('mcp_servers.work-reference.enabled_tools=["get_issue"]'));
   assert.ok(!codex.some((argument) => argument.includes('mcp_servers."work-reference"')));
