@@ -300,10 +300,6 @@ export function PRDetail({ prId, onBack, workspaceStates }) {
     return <p className={shared.error}>PR not found</p>;
   }
 
-  const failedChecks = pr.checks.filter(isFailedCheck);
-  const passedChecks = pr.checks.filter(isPassedCheck);
-  const runningChecks = pr.checks.filter(isRunningCheck);
-  const scheduledChecks = pr.checks.filter(isScheduledCheck);
   const isMergeReady = checkMergeReady(pr);
 
   return (
@@ -460,7 +456,7 @@ export function PRDetail({ prId, onBack, workspaceStates }) {
               </Stack>
             )}
 
-            {pr.body_html && <PRDescription bodyHtml={pr.body_html} />}
+            {pr.body_html && <PullRequestDescription bodyHtml={pr.body_html} />}
           </Stack>
         </Box>
 
@@ -526,118 +522,132 @@ export function PRDetail({ prId, onBack, workspaceStates }) {
         {/* Past Sessions */}
         {workspace && <SessionHistory key={workspace.id} target={{ type: 'workspace', id: workspace.id }} />}
 
-        {/* Checks */}
-        {pr.checks.length > 0 && (
-          <Box p={0} border rounded="lg" bg="white" className={shared.sectionCard}>
-            <Stack justify="between" wrap gap={3} className={shared.sectionHeader}>
-              <Stack gap={3} as="h3" className={shared.sectionHeaderTitle}>
-                Checks
-                <Stack gap={2} as="span">
-                  {passedChecks.length > 0 && <span className={styles.summaryPass}>{passedChecks.length} passed</span>}
-                  {failedChecks.length > 0 && <span className={styles.summaryFail}>{failedChecks.length} failed</span>}
-                  {runningChecks.length > 0 && (
-                    <span className={styles.summaryRunning}>{runningChecks.length} running</span>
-                  )}
-                  {scheduledChecks.length > 0 && (
-                    <span className={styles.summaryScheduled}>{scheduledChecks.length} queued</span>
-                  )}
-                </Stack>
-              </Stack>
-              {failedChecks.length > 0 && (
-                <Stack gap={2}>
-                  <Button
-                    variant="warning"
-                    size="sm"
-                    onClick={handleRetriggerFailed}
-                    disabled={retriggering}
-                    busy={retriggering}
-                  >
-                    {retriggering ? 'Retriggering...' : 'Retrigger failed'}
-                  </Button>
-                  <Button variant="primary" size="sm" onClick={handleInvestigateFailures}>
-                    Investigate failures
-                  </Button>
-                </Stack>
-              )}
-            </Stack>
+        <PullRequestChecks
+          pr={pr}
+          retriggering={retriggering}
+          onRetriggerFailed={handleRetriggerFailed}
+          onInvestigateFailures={handleInvestigateFailures}
+        />
+        <PullRequestReviews reviews={pr.reviews} />
+        <PullRequestComments comments={comments} loading={commentsLoading} />
+      </Stack>
+    </Box>
+  );
+}
 
-            <div className={shared.sectionBody}>
-              <Stack direction="col" gap={3}>
-                {/* Failed checks first */}
-                {failedChecks.length > 0 && (
-                  <div className={styles.checkGroup}>
-                    {failedChecks.map((c, i) => (
-                      <CheckRow key={`fail-${i}`} check={c} prId={prId} />
-                    ))}
-                  </div>
-                )}
-
-                {/* Running checks */}
-                {runningChecks.length > 0 && (
-                  <div className={styles.checkGroup}>
-                    {runningChecks.map((c, i) => (
-                      <CheckRow key={`running-${i}`} check={c} />
-                    ))}
-                  </div>
-                )}
-
-                {/* Scheduled checks */}
-                {scheduledChecks.length > 0 && (
-                  <div className={styles.checkGroup}>
-                    {scheduledChecks.map((c, i) => (
-                      <CheckRow key={`scheduled-${i}`} check={c} />
-                    ))}
-                  </div>
-                )}
-
-                {/* Passed checks - collapsed by default if there are many */}
-                {passedChecks.length > 0 && <PassedChecksGroup checks={passedChecks} />}
-              </Stack>
-            </div>
-          </Box>
-        )}
-
-        {/* Reviews */}
-        {pr.reviews.length > 0 && (
-          <Box p={0} border rounded="lg" bg="white" className={shared.sectionCard}>
-            <div className={shared.sectionHeader}>
-              <h3 className={shared.sectionHeaderTitle}>
-                Reviews <span className={shared.sectionHeaderMeta}>{pr.reviews.length}</span>
-              </h3>
-            </div>
-            <div className={shared.sectionBody}>
-              <div className={styles.reviewsList}>
-                {pr.reviews.map((r, i) => (
-                  <div key={i} className={styles.reviewRow}>
-                    <span className={styles.reviewerName}>{r.reviewer}</span>
-                    <span
-                      className={`${styles.reviewState} ${r.state === 'APPROVED' ? styles.reviewApproved : r.state === 'CHANGES_REQUESTED' ? styles.reviewChanges : styles.reviewComment}`}
-                    >
-                      {r.state.toLowerCase().replace('_', ' ')}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </Box>
-        )}
-
-        {/* Review Comments & Conversation */}
-        {(commentsLoading || comments) && (
-          <Box p={0} border rounded="lg" bg="white" className={shared.sectionCard}>
-            <div className={shared.sectionHeader}>
-              <h3 className={shared.sectionHeaderTitle}>Comments</h3>
-            </div>
-            <div className={shared.sectionBody}>
-              <CommentsList
-                reviews={comments?.reviews}
-                conversation={comments?.conversation}
-                loading={commentsLoading}
-              />
-            </div>
-          </Box>
+/**
+ * @param {{pr: import('../../types').PullRequest, retriggering?: boolean, onRetriggerFailed?: () => void, onInvestigateFailures?: () => void}} props
+ */
+export function PullRequestChecks({ pr, retriggering, onRetriggerFailed, onInvestigateFailures }) {
+  const failedChecks = pr.checks.filter(isFailedCheck);
+  const passedChecks = pr.checks.filter(isPassedCheck);
+  const runningChecks = pr.checks.filter(isRunningCheck);
+  const scheduledChecks = pr.checks.filter(isScheduledCheck);
+  if (pr.checks.length === 0) return null;
+  return (
+    <Box p={0} border rounded="lg" bg="white" className={shared.sectionCard}>
+      <Stack justify="between" wrap gap={3} className={shared.sectionHeader}>
+        <Stack gap={3} as="h3" className={shared.sectionHeaderTitle}>
+          Checks
+          <Stack gap={2} as="span">
+            {passedChecks.length > 0 && <span className={styles.summaryPass}>{passedChecks.length} passed</span>}
+            {failedChecks.length > 0 && <span className={styles.summaryFail}>{failedChecks.length} failed</span>}
+            {runningChecks.length > 0 && <span className={styles.summaryRunning}>{runningChecks.length} running</span>}
+            {scheduledChecks.length > 0 && (
+              <span className={styles.summaryScheduled}>{scheduledChecks.length} queued</span>
+            )}
+          </Stack>
+        </Stack>
+        {failedChecks.length > 0 && (onRetriggerFailed || onInvestigateFailures) && (
+          <Stack gap={2}>
+            {onRetriggerFailed && (
+              <Button
+                variant="warning"
+                size="sm"
+                onClick={onRetriggerFailed}
+                disabled={retriggering}
+                busy={retriggering}
+              >
+                {retriggering ? 'Retriggering...' : 'Retrigger failed'}
+              </Button>
+            )}
+            {onInvestigateFailures && (
+              <Button variant="primary" size="sm" onClick={onInvestigateFailures}>
+                Investigate failures
+              </Button>
+            )}
+          </Stack>
         )}
       </Stack>
+      <div className={shared.sectionBody}>
+        <Stack direction="col" gap={3}>
+          {failedChecks.length > 0 && (
+            <div className={styles.checkGroup}>
+              {failedChecks.map((check, index) => (
+                <CheckRow key={`fail-${index}`} check={check} prId={pr.id} />
+              ))}
+            </div>
+          )}
+          {runningChecks.length > 0 && (
+            <div className={styles.checkGroup}>
+              {runningChecks.map((check, index) => (
+                <CheckRow key={`running-${index}`} check={check} />
+              ))}
+            </div>
+          )}
+          {scheduledChecks.length > 0 && (
+            <div className={styles.checkGroup}>
+              {scheduledChecks.map((check, index) => (
+                <CheckRow key={`scheduled-${index}`} check={check} />
+              ))}
+            </div>
+          )}
+          {passedChecks.length > 0 && <PassedChecksGroup checks={passedChecks} />}
+        </Stack>
+      </div>
+    </Box>
+  );
+}
+
+/** @param {{reviews: import('../../types').PullRequestReview[]}} props */
+export function PullRequestReviews({ reviews }) {
+  if (reviews.length === 0) return null;
+  return (
+    <Box p={0} border rounded="lg" bg="white" className={shared.sectionCard}>
+      <div className={shared.sectionHeader}>
+        <h3 className={shared.sectionHeaderTitle}>
+          Reviews <span className={shared.sectionHeaderMeta}>{reviews.length}</span>
+        </h3>
+      </div>
+      <div className={shared.sectionBody}>
+        <div className={styles.reviewsList}>
+          {reviews.map((review, index) => (
+            <div key={`${review.reviewer}:${index}`} className={styles.reviewRow}>
+              <span className={styles.reviewerName}>{review.reviewer}</span>
+              <span
+                className={`${styles.reviewState} ${review.state === 'APPROVED' ? styles.reviewApproved : review.state === 'CHANGES_REQUESTED' ? styles.reviewChanges : styles.reviewComment}`}
+              >
+                {review.state.toLowerCase().replace('_', ' ')}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </Box>
+  );
+}
+
+/** @param {{comments: import('../../types').PullRequestCommentsResponse | null, loading: boolean}} props */
+export function PullRequestComments({ comments, loading }) {
+  if (!loading && !comments) return null;
+  return (
+    <Box p={0} border rounded="lg" bg="white" className={shared.sectionCard}>
+      <div className={shared.sectionHeader}>
+        <h3 className={shared.sectionHeaderTitle}>Comments</h3>
+      </div>
+      <div className={shared.sectionBody}>
+        <CommentsList reviews={comments?.reviews} conversation={comments?.conversation} loading={loading} />
+      </div>
     </Box>
   );
 }
@@ -782,7 +792,7 @@ function StackInfo({ pr }) {
 }
 
 /** @param {{bodyHtml: string}} props */
-function PRDescription({ bodyHtml }) {
+export function PullRequestDescription({ bodyHtml }) {
   const [expanded, setExpanded] = useState(false);
 
   return (

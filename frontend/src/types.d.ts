@@ -65,6 +65,14 @@ export interface PullRequest {
   has_workspace?: boolean;
   has_session?: boolean;
   workspace_id?: string | null;
+  head_oid?: string | null;
+  work_item_id: string | null;
+  work_item: null | {
+    id: string;
+    reference: string;
+    title: string | null;
+    state: WorkItemState;
+  };
 }
 
 export interface PullRequestFreshness {
@@ -160,6 +168,8 @@ export interface WorkItemListItem {
   stage: WorkItemStage;
   progress: { current: number; total: number };
   repositories: string[];
+  pull_request_count: number;
+  pull_requests: WorkItemPullRequest[];
   updated_at: string;
   has_session_history: boolean;
   session: null | {
@@ -172,6 +182,26 @@ export interface WorkItemListItem {
     failed_provider: AgentProvider | null;
     retry_action: WorkItemRetryAction | null;
   };
+}
+
+export interface WorkItemPullRequest {
+  id: string;
+  org: string;
+  repo: string;
+  repository: string;
+  number: number;
+  title: string | null;
+  url: string;
+  branch: string | null;
+  base_branch: string | null;
+  draft: boolean;
+  mergeable: MergeableStatus;
+  ci_status: CiStatus;
+  review_status: ReviewStatus;
+  updated_at: string | null;
+  tracked: boolean;
+  linked_at: string;
+  link_source: 'explicit' | 'provenance';
 }
 
 export interface WorkItemRepository {

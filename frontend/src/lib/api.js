@@ -360,6 +360,32 @@ export async function fetchWorkItem(id, signal) {
   return readJson(response);
 }
 
+/** @param {string} workItemId @param {string} pr */
+export async function linkWorkItemPullRequest(workItemId, pr) {
+  const response = await fetch(`${BASE}/api/work-items/${encodeURIComponent(workItemId)}/pull-requests`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pr }),
+  });
+  if (!response.ok) {
+    throw new Error((await readError(response)) || `Failed to link pull request: ${response.status}`);
+  }
+  return /** @type {Promise<{pull_request: import('../types').WorkItemPullRequest}>} */ (readJson(response));
+}
+
+/** @param {string} workItemId @param {string} pr */
+export async function unlinkWorkItemPullRequest(workItemId, pr) {
+  const response = await fetch(`${BASE}/api/work-items/${encodeURIComponent(workItemId)}/pull-requests`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pr }),
+  });
+  if (!response.ok) {
+    throw new Error((await readError(response)) || `Failed to unlink pull request: ${response.status}`);
+  }
+  return /** @type {Promise<{removed: boolean, pr_id: string, work_item_id: string}>} */ (readJson(response));
+}
+
 /** @param {string} reference @param {import('../types').AgentProvider} workProvider */
 export async function createWorkItem(reference, workProvider) {
   const response = await fetch(`${BASE}/api/work-items`, {

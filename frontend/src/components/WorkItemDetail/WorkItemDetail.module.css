@@ -122,6 +122,10 @@
   @apply break-all text-xs text-gray-600;
 }
 
+.prIdentity {
+  @apply font-mono text-blue-700 no-underline hover:text-blue-900 hover:underline;
+}
+
 .notFound {
   @apply flex items-center justify-between gap-4 text-sm text-gray-700;
 }

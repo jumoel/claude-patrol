@@ -20,6 +20,8 @@ For batch work that's independent per-PR (rebase, fix, investigate failures, add
 
 Do not auto-destroy workspaces. After completing work, ask the user whether to clean them up.
 
+When a pull request is created from a work-item session, call `link_pull_request` with the URL printed by `gh pr create` immediately after creation. This keeps the PR attached to the work item and its shared terminal. Do not create a separate PR workspace for it.
+
 ## Talking to other sessions
 
 Use list_sessions, send_prompt_to_session, and wait_for_idle to coordinate work across sessions:

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useMemo, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useAgentProvider } from '../../context/AgentProviderContext.jsx';
 import { useWorkItem } from '../../hooks/useWorkItems.js';
 import {
@@ -13,7 +13,9 @@ import { getErrorMessage } from '../../lib/errors.js';
 import { getRelativeTime } from '../../lib/time.js';
 import shared from '../../styles/shared.module.css';
 import { AgentProviderButton } from '../AgentProviderButton/AgentProviderButton.jsx';
+import { LinkedPullRequests } from '../LinkedPullRequests/LinkedPullRequests.jsx';
 import { SessionHistory } from '../SessionHistory/SessionHistory.jsx';
+import { StatusBadge } from '../StatusBadge/StatusBadge.jsx';
 import { TerminalCard } from '../TerminalCard/TerminalCard.jsx';
 import { Badge } from '../ui/Badge/Badge.jsx';
 import { Box } from '../ui/Box/Box.jsx';
@@ -246,9 +248,9 @@ function RecoveryCommandButton({ recovery }) {
 }
 
 /**
- * @param {{workItemId: string, onBack: () => void, targetStates: Map<string, 'working' | 'idle'>}} props
+ * @param {{workItemId: string, onBack: () => void, targetStates: Map<string, 'working' | 'idle'>, selectedPrId?: string | null}} props
  */
-export function WorkItemDetail({ workItemId, onBack, targetStates }) {
+export function WorkItemDetail({ workItemId, onBack, targetStates, selectedPrId = null }) {
   const { provider } = useAgentProvider();
   const { workItem, loading, error, reload } = useWorkItem(workItemId);
   const target = useMemo(() => ({ type: /** @type {'work_item'} */ ('work_item'), id: workItemId }), [workItemId]);
@@ -258,6 +260,7 @@ export function WorkItemDetail({ workItemId, onBack, targetStates }) {
   const [actionError, setActionError] = useState('');
   const [actionPending, setActionPending] = useState(/** @type {'retry' | 'destroy' | null} */ (null));
   const [collapsedPanes, setCollapsedPanes] = useState(() => loadPaneState(workItemId));
+  const wsRef = useRef(/** @type {WebSocket | null} */ (null));
   const workItemState = workItem?.state;
   const expectedSessionId = workItem?.session?.id;
 
@@ -343,18 +346,22 @@ export function WorkItemDetail({ workItemId, onBack, targetStates }) {
     void runAction('destroy', () => destroyWorkItem(workItemId), 'Failed to destroy work item');
   }, [runAction, workItem, workItemId]);
 
-  const handleStartSession = useCallback(async () => {
+  const ensureSession = useCallback(async () => {
+    if (session) return session;
     setSessionLoading(true);
     setActionError('');
     try {
-      setSession(await createSession(target, provider));
+      const created = await createSession(target, provider);
+      setSession(created);
       reload();
+      return created;
     } catch (nextError) {
       setActionError(getErrorMessage(nextError, 'Failed to restart terminal'));
+      return null;
     } finally {
       setSessionLoading(false);
     }
-  }, [provider, reload, target]);
+  }, [provider, reload, session, target]);
 
   const handleKillSession = useCallback(async () => {
     if (!session) return;
@@ -398,6 +405,8 @@ export function WorkItemDetail({ workItemId, onBack, targetStates }) {
   const providerName = workItem.work_provider === 'codex' ? 'Codex' : 'Claude';
   const selectedProviderName = provider === 'codex' ? 'Codex' : 'Claude';
   const resolverName = workItem.resolver_provider === 'codex' ? 'Codex' : 'Claude';
+  const selectedPullRequest =
+    workItem.pull_requests.find((pullRequest) => pullRequest.id === selectedPrId) ?? workItem.pull_requests[0] ?? null;
 
   return (
     <Box pb={16}>
@@ -438,6 +447,18 @@ export function WorkItemDetail({ workItemId, onBack, targetStates }) {
               <WorkItemStatusBadge status={WORK_ITEM_STATE_LABELS[workItem.state]} />
               <span className={styles.reference}>{workItem.reference}</span>
               <span>{providerName}</span>
+              {selectedPullRequest && (
+                <a className={styles.prIdentity} href={`#/pr/${encodeURIComponent(selectedPullRequest.id)}`}>
+                  {selectedPullRequest.repository} #{selectedPullRequest.number}
+                </a>
+              )}
+              {selectedPullRequest?.tracked && (
+                <>
+                  <StatusBadge status={selectedPullRequest.ci_status} type="ci" />
+                  <StatusBadge status={selectedPullRequest.review_status} type="review" />
+                </>
+              )}
+              {workItem.pull_request_count > 1 && <span>{workItem.pull_request_count} pull requests</span>}
               <span>Created {getRelativeTime(workItem.created_at)}</span>
               <span>Updated {getRelativeTime(workItem.updated_at)}</span>
             </Stack>
@@ -491,6 +512,16 @@ export function WorkItemDetail({ workItemId, onBack, targetStates }) {
           </Box>
         )}
 
+        {selectedPrId && (
+          <LinkedPullRequests
+            workItem={workItem}
+            selectedPrId={selectedPrId}
+            onWorkItemReload={reload}
+            ensureSession={ensureSession}
+            wsRef={wsRef}
+          />
+        )}
+
         <CollapsiblePane
           title="Repositories"
           collapsed={collapsedPanes.repositories}
@@ -515,6 +546,9 @@ export function WorkItemDetail({ workItemId, onBack, targetStates }) {
               onKill={handleKillSession}
               onExit={handleSessionExit}
               onReattach={handleReattach}
+              wsRef={wsRef}
+              baseBranch={selectedPullRequest?.base_branch ?? undefined}
+              prId={selectedPullRequest?.tracked ? selectedPullRequest.id : undefined}
               sessionState={targetStates.get(`work-item:${workItem.id}`)}
             />
           ) : (
@@ -528,7 +562,7 @@ export function WorkItemDetail({ workItemId, onBack, targetStates }) {
                 <AgentProviderButton
                   variant="primary"
                   size="lg"
-                  onClick={handleStartSession}
+                  onClick={ensureSession}
                   disabled={sessionLoading || !!actionPending}
                   busy={sessionLoading}
                 >
@@ -541,6 +575,15 @@ export function WorkItemDetail({ workItemId, onBack, targetStates }) {
               </Stack>
             </Box>
           ))}
+
+        {!selectedPrId && (
+          <LinkedPullRequests
+            workItem={workItem}
+            onWorkItemReload={reload}
+            ensureSession={ensureSession}
+            wsRef={wsRef}
+          />
+        )}
 
         {actionError && (
           <p className={styles.requestError} role="alert">

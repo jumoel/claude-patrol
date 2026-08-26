@@ -57,7 +57,9 @@ function fuzzyMatchWorkspace(query, ws) {
 /** @param {string} query @param {import('../../types').WorkItemListItem} item @returns {MatchResult} */
 function fuzzyMatchWorkItem(query, item) {
   if (!query) return { match: true, score: 0 };
-  const haystack = `${item.title || ''} ${item.reference} ${item.repositories.join(' ')} work item`.toLowerCase();
+  const pullRequests = item.pull_requests.map((pr) => `${pr.id} ${pr.title || ''} ${pr.branch || ''}`).join(' ');
+  const haystack =
+    `${item.title || ''} ${item.reference} ${item.repositories.join(' ')} ${pullRequests} work item`.toLowerCase();
   const tokens = query.toLowerCase().split(/\s+/).filter(Boolean);
   for (const token of tokens) {
     if (!haystack.includes(token)) return { match: false, score: 0 };
@@ -142,12 +144,13 @@ export function CommandPalette({
   useClickOutside(dialogRef, open ? close : () => {});
 
   const filtered = useMemo(() => {
+    const standalonePRs = prs.filter((pr) => !pr.work_item_id);
     /** @type {PullRequestEntry[]} */
     const prItems = query
-      ? prs
+      ? standalonePRs
           .map((pr) => ({ ...fuzzyMatchPR(query, pr), type: /** @type {'pr'} */ ('pr'), item: pr }))
           .filter((r) => r.match)
-      : prs.map((pr) => ({ match: true, score: 0, type: /** @type {'pr'} */ ('pr'), item: pr }));
+      : standalonePRs.map((pr) => ({ match: true, score: 0, type: /** @type {'pr'} */ ('pr'), item: pr }));
 
     /** @type {WorkspaceEntry[]} */
     const wsItems =
@@ -405,6 +408,11 @@ function WorkItemResult({ item, sessionState, dismissed }) {
         {item.repositories.slice(0, 2).map((repository) => (
           <span key={repository}>{repository}</span>
         ))}
+        {item.pull_request_count > 0 && (
+          <span>
+            {item.pull_request_count} PR{item.pull_request_count === 1 ? '' : 's'}
+          </span>
+        )}
       </Stack>
       <Stack gap={1} className={styles.resultBadges}>
         <Badge color={item.state === 'error' ? 'red' : 'indigo'}>{item.state}</Badge>

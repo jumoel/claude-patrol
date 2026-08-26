@@ -6,6 +6,7 @@ import { getDb } from './db.js';
 import { deriveCIStatus, formatPR } from './pr-status.js';
 import { SingleFlight } from './single-flight.js';
 import { makePrId } from './utils.js';
+import { reconcileWorkItemPullRequests } from './work-item-prs.js';
 import { destroyWorkspace } from './workspace.js';
 
 export const pollerEvents = new EventEmitter();
@@ -26,6 +27,7 @@ query($q: String!, $cursor: String) {
         url
         isDraft
         headRefName
+        headRefOid
         baseRefName
         isCrossRepository
         mergeable
@@ -83,6 +85,7 @@ query($owner: String!, $name: String!, $number: Int!) {
       state
       isDraft
       headRefName
+      headRefOid
       baseRefName
       isCrossRepository
       mergeable
@@ -327,6 +330,7 @@ export async function refreshSinglePR(prId, config) {
   }
 
   upsertPRs([pr]);
+  await reconcileWorkItemPullRequests([prId]);
 
   // Overwrite body_html unconditionally - upsertPRs blanks it only when the
   // body text changes, but a force-refresh should also pick up rendering
@@ -611,8 +615,8 @@ function getStatements() {
   const db = getDb();
   if (!upsertStmt) {
     upsertStmt = db.prepare(`
-      INSERT OR REPLACE INTO prs (id, number, title, body, body_html, repo, org, author, url, branch, base_branch, is_fork, draft, mergeable, checks, reviews, labels, comments, created_at, updated_at, synced_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT OR REPLACE INTO prs (id, number, title, body, body_html, repo, org, author, url, branch, head_oid, base_branch, is_fork, draft, mergeable, checks, reviews, labels, comments, created_at, updated_at, synced_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
   }
   if (!findStaleByOrgStmt) {
@@ -763,6 +767,7 @@ function upsertPRs(prs) {
         pr.author?.login ?? 'unknown',
         pr.url,
         pr.headRefName,
+        pr.headRefOid ?? null,
         pr.baseRefName || 'main',
         pr.isCrossRepository ? 1 : 0,
         pr.isDraft ? 1 : 0,
@@ -920,6 +925,9 @@ async function pollOnce(config, { force = false } = {}) {
   if (fullSweep) lastFullSweepAt = sweepStartedAt;
 
   upsertPRs(result.prs);
+  await reconcileWorkItemPullRequests(
+    result.prs.map((pr) => makePrId(pr.repository.owner.login, pr.repository.name, pr.number)),
+  );
 
   // Build the complete open set for stale cleanup. On full
   // cycles the heavy result already lists every open PR; on incremental
@@ -996,7 +1004,7 @@ function adoptScratchWorkspaces() {
   const db = getDb();
   if (!findScratchesStmt) {
     findScratchesStmt = db.prepare(
-      "SELECT * FROM workspaces WHERE pr_id IS NULL AND status = 'active' AND operation_state = 'ready'",
+      "SELECT * FROM workspaces WHERE pr_id IS NULL AND work_item_id IS NULL AND status = 'active' AND operation_state = 'ready'",
     );
     findPrByBranchStmt = db.prepare('SELECT id FROM prs WHERE org = ? AND repo = ? AND branch = ?');
     findPrByBranchSuffixStmt = db.prepare("SELECT id FROM prs WHERE org = ? AND repo = ? AND branch LIKE '%/' || ?");

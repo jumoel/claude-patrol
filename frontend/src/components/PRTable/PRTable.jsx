@@ -17,7 +17,11 @@ import styles from './PRTable.module.css';
  * @param {Set<string>} [dismissedIdle]
  */
 function localStatusValue(row, workspaceStates, dismissedIdle) {
-  const targetKey = row.workspace_id ? `workspace:${row.workspace_id}` : null;
+  const targetKey = row.work_item_id
+    ? `work-item:${row.work_item_id}`
+    : row.workspace_id
+      ? `workspace:${row.workspace_id}`
+      : null;
   const workspaceState = row.has_session && targetKey ? workspaceStates?.get(targetKey) : null;
   const isDismissed = targetKey ? dismissedIdle?.has(targetKey) : false;
   if (workspaceState === 'working') return 5;
@@ -113,6 +117,11 @@ export function PRTable({
                 </button>
               ) : (
                 <span className={styles.titleText}>{pr.title}</span>
+              )}
+              {pr.work_item && (
+                <Badge color="indigo" title={`Owned by ${pr.work_item.reference}`}>
+                  {pr.work_item.reference}
+                </Badge>
               )}
               <a
                 href={pr.url}

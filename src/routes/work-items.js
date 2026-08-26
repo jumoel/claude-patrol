@@ -1,5 +1,6 @@
 import { providerSetup } from '../provider-setup.js';
 import { sanitizePublicText } from '../public-errors.js';
+import { linkWorkItemPullRequest, unlinkWorkItemPullRequest } from '../work-item-prs.js';
 
 function recoveryActions(error, config) {
   const provider = error.failedProvider ?? null;
@@ -15,7 +16,12 @@ function recoveryActions(error, config) {
 
 function errorStatus(code) {
   if (code === 'work_item_not_found') return 404;
-  if (['work_item_busy', 'invalid_state', 'session_exists', 'work_item_child_managed'].includes(code)) return 409;
+  if (
+    ['work_item_busy', 'invalid_state', 'session_exists', 'work_item_child_managed', 'pull_request_owned'].includes(
+      code,
+    )
+  )
+    return 409;
   if (
     [
       'invalid_request',
@@ -26,6 +32,8 @@ function errorStatus(code) {
       'revision_required',
       'invalid_provider',
       'work_items_not_configured',
+      'invalid_pull_request',
+      'repository_not_in_work_item',
     ].includes(code)
   ) {
     return 400;
@@ -84,6 +92,35 @@ export function registerWorkItemRoutes(app) {
       return sendError(reply, { code: 'work_item_not_found', message: 'Work item not found' }, getConfig());
     }
     return { work_item: workItem };
+  });
+
+  const validatePullRequestBody = (body) =>
+    body &&
+    typeof body === 'object' &&
+    !Array.isArray(body) &&
+    Object.keys(body).length === 1 &&
+    typeof body.pr === 'string';
+
+  app.post('/api/work-items/:id/pull-requests', (request, reply) => {
+    if (!validatePullRequestBody(request.body)) {
+      return sendError(reply, { code: 'invalid_request', message: 'Expected pr' }, getConfig());
+    }
+    try {
+      return { pull_request: linkWorkItemPullRequest(request.params.id, request.body.pr) };
+    } catch (error) {
+      return sendError(reply, error, getConfig());
+    }
+  });
+
+  app.delete('/api/work-items/:id/pull-requests', (request, reply) => {
+    if (!validatePullRequestBody(request.body)) {
+      return sendError(reply, { code: 'invalid_request', message: 'Expected pr' }, getConfig());
+    }
+    try {
+      return unlinkWorkItemPullRequest(request.params.id, request.body.pr);
+    } catch (error) {
+      return sendError(reply, error, getConfig());
+    }
   });
 
   app.post('/api/work-items/:id/repositories', async (request, reply) => {

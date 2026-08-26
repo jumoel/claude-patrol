@@ -1,6 +1,7 @@
 import { emitLocalChange } from '../app-events.js';
 import { enrichWithStackInfo, formatPR } from '../pr-status.js';
 import { execFile } from '../utils.js';
+import { enrichPullRequestsWithOwners } from '../work-item-prs.js';
 
 /**
  * In-memory cache for /api/prs/:id/diff. Same shape as the comments cache:
@@ -74,6 +75,7 @@ export function registerPRRoutes(app) {
 
     // Enrich with stack relationships
     enrichWithStackInfo(prs);
+    enrichPullRequestsWithOwners(prs, db);
 
     // Enrich with workspace/session indicators
     const activeWorkspaceRows = db
@@ -91,10 +93,22 @@ export function registerPRRoutes(app) {
         .all()
         .map((r) => r.pr_id),
     );
+    const activeWorkItemSessions = new Set(
+      db
+        .prepare("SELECT work_item_id FROM sessions WHERE work_item_id IS NOT NULL AND status = 'active'")
+        .all()
+        .map((row) => row.work_item_id),
+    );
     for (const pr of prs) {
-      pr.has_workspace = activeWorkspaces.has(pr.id);
-      pr.has_session = activeSessions.has(pr.id);
-      pr.workspace_id = prWorkspaceMap[pr.id] || null;
+      if (pr.work_item_id) {
+        pr.has_workspace = pr.work_item?.state !== 'destroyed';
+        pr.has_session = activeWorkItemSessions.has(pr.work_item_id);
+        pr.workspace_id = null;
+      } else {
+        pr.has_workspace = activeWorkspaces.has(pr.id);
+        pr.has_session = activeSessions.has(pr.id);
+        pr.workspace_id = prWorkspaceMap[pr.id] || null;
+      }
     }
 
     const state = db.prepare('SELECT * FROM sync_state WHERE id = 1').get();
@@ -136,6 +150,7 @@ export function registerPRRoutes(app) {
     const siblingRows = db.prepare('SELECT * FROM prs WHERE org = ? AND repo = ?').all(row.org, row.repo);
     const siblings = siblingRows.map(formatPR);
     enrichWithStackInfo(siblings);
+    enrichPullRequestsWithOwners(siblings, db);
     const target = siblings.find((p) => p.id === request.params.id);
     // siblings re-read from DB above, so override with the freshly-fetched html
     if (target && row.body_html) target.body_html = row.body_html;
@@ -164,6 +179,7 @@ export function registerPRRoutes(app) {
     const siblingRows = db.prepare('SELECT * FROM prs WHERE org = ? AND repo = ?').all(row.org, row.repo);
     const siblings = siblingRows.map(formatPR);
     enrichWithStackInfo(siblings);
+    enrichPullRequestsWithOwners(siblings, db);
     const target = siblings.find((p) => p.id === request.params.id);
     return target;
   });

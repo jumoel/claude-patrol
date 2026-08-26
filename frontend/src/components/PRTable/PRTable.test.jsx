@@ -38,6 +38,8 @@ const pr = {
   has_workspace: true,
   has_session: true,
   workspace_id: 'workspace-1',
+  work_item_id: null,
+  work_item: null,
 };
 
 test('live session activity invalidates the local-status accessor cache', () => {

@@ -55,6 +55,7 @@ export function WorkItems({ workItems, loading, error, onRetry, targetStates, di
               <tr>
                 <th>Work item</th>
                 <th>Repositories</th>
+                <th>Pull requests</th>
                 <th>Status</th>
                 <th>Agent</th>
                 <th className={styles.right}>Updated</th>
@@ -83,6 +84,21 @@ export function WorkItems({ workItems, loading, error, onRetry, targetStates, di
                           <span key={repository}>{repository}</span>
                         ))}
                         {item.repositories.length > 2 && <span>+{item.repositories.length - 2}</span>}
+                      </div>
+                    </td>
+                    <td>
+                      <div className={styles.pullRequests}>
+                        {item.pull_requests.slice(0, 2).map((pullRequest) => (
+                          <a
+                            key={pullRequest.id}
+                            href={`#/pr/${encodeURIComponent(pullRequest.id)}`}
+                            onClick={(event) => event.stopPropagation()}
+                          >
+                            {pullRequest.repository} #{pullRequest.number}
+                          </a>
+                        ))}
+                        {item.pull_request_count > 2 && <span>+{item.pull_request_count - 2}</span>}
+                        {item.pull_request_count === 0 && <span>None</span>}
                       </div>
                     </td>
                     <td>

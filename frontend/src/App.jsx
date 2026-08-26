@@ -5,7 +5,7 @@ import { CommandPalette } from './components/CommandPalette/CommandPalette.jsx';
 import { DashboardSummary } from './components/DashboardSummary/DashboardSummary.jsx';
 import { FilterBar } from './components/FilterBar/FilterBar.jsx';
 import { GlobalTerminal } from './components/GlobalTerminal/GlobalTerminal.jsx';
-import { PRDetail } from './components/PRDetail/PRDetail.jsx';
+import { PRRouteDetail } from './components/PRRouteDetail/PRRouteDetail.jsx';
 import { PRTable } from './components/PRTable/PRTable.jsx';
 import { ScratchWorkspaces } from './components/ScratchWorkspaces/ScratchWorkspaces.jsx';
 import { SetupMode } from './components/SetupMode/SetupMode.jsx';
@@ -319,7 +319,13 @@ export default function App() {
     else if (route.type === 'work_item') setActiveTarget({ type: 'work_item', id: route.id });
     else if (route.type === 'pr') {
       const pr = allPRs.find((item) => item.id === route.id);
-      setActiveTarget(pr?.workspace_id ? { type: 'workspace', id: pr.workspace_id } : null);
+      setActiveTarget(
+        pr?.work_item_id
+          ? { type: 'work_item', id: pr.work_item_id }
+          : pr?.workspace_id
+            ? { type: 'workspace', id: pr.workspace_id }
+            : null,
+      );
     } else setActiveTarget(null);
   }, [route, allPRs, setActiveTarget]);
 
@@ -402,7 +408,7 @@ export default function App() {
       {route.type === 'setup' ? (
         <SetupMode onConfigured={handleConfigured} isFirstRun={needsSetup === true} section={route.section} />
       ) : route.type === 'pr' ? (
-        <PRDetail prId={route.id} onBack={navigateBack} workspaceStates={targetStates} />
+        <PRRouteDetail prId={route.id} onBack={navigateBack} targetStates={targetStates} />
       ) : route.type === 'workspace' ? (
         <WorkspaceDetail workspaceId={route.id} onBack={navigateBack} workspaceStates={targetStates} />
       ) : route.type === 'work_item' ? (

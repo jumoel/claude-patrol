@@ -137,9 +137,9 @@ test('repository workspace MCP calls support inferred and explicit work-item tar
   getDb()
     .prepare(
       `INSERT INTO work_items (
-        id, reference, path, work_provider, resolver_provider, state, stage,
+        id, reference, path, resolved_repositories_json, work_provider, resolver_provider, state, stage,
         progress_current, progress_total, created_at, updated_at
-      ) VALUES ('item-1', 'PROJECT-1', '/tmp/item-1', 'codex', 'codex',
+      ) VALUES ('item-1', 'PROJECT-1', '/tmp/item-1', '["acme/widgets"]', 'codex', 'codex',
         'ready', 'complete', 0, 0, ?, ?)`,
     )
     .run(now, now);
@@ -168,12 +168,42 @@ test('repository workspace MCP calls support inferred and explicit work-item tar
       { id: 'item-2', repository: 'acme/widgets', revision: 'feature@git' },
     ]);
 
+    const firstPullRequest = await actionRegistry.link_pull_request.mcpHandler(
+      server,
+      { pr: 'https://github.com/acme/widgets/pull/8' },
+      { callerSessionId: 'work-session' },
+    );
+    assert.equal(firstPullRequest.id, 'acme/widgets#8');
+    const secondPullRequest = await server.inject({
+      method: 'POST',
+      url: '/api/work-items/item-1/pull-requests',
+      payload: { pr: 'acme/widgets#9' },
+    });
+    assert.equal(secondPullRequest.statusCode, 200);
+    assert.equal(
+      getDb().prepare("SELECT COUNT(*) AS count FROM work_item_pull_requests WHERE work_item_id = 'item-1'").get()
+        .count,
+      2,
+    );
+    const detached = await actionRegistry.unlink_pull_request.mcpHandler(
+      server,
+      { pr: 'acme/widgets#8' },
+      { callerSessionId: 'work-session' },
+    );
+    assert.equal(detached.removed, true);
+
     const missingTarget = await actionRegistry.add_repo_workspace.mcpHandler(
       server,
       { repo: 'acme/widgets' },
       { callerSessionId: 'outside-session' },
     );
     assert.equal(missingTarget.error, 'work_item_id_required');
+    const missingPullRequestTarget = await actionRegistry.link_pull_request.mcpHandler(
+      server,
+      { pr: 'acme/widgets#10' },
+      { callerSessionId: 'outside-session' },
+    );
+    assert.equal(missingPullRequestTarget.error, 'work_item_id_required');
   } finally {
     await server.close();
   }

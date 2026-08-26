@@ -60,12 +60,19 @@
   @apply font-mono;
 }
 
-.repositories {
+.repositories,
+.pullRequests {
   @apply flex max-w-md flex-wrap gap-1;
 }
 
-.repositories span {
+.repositories span,
+.pullRequests a,
+.pullRequests span {
   @apply rounded bg-gray-100 px-2 py-0.5 font-mono text-xs text-gray-600;
+}
+
+.pullRequests a {
+  @apply block no-underline hover:bg-blue-50 hover:text-blue-700;
 }
 
 .table .right {

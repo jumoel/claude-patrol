@@ -32,6 +32,9 @@ vi.mock('../SessionHistory/SessionHistory.jsx', () => ({
   /** @param {{target: import('../../types').SessionTarget}} props */
   SessionHistory: ({ target }) => <div data-testid="session-history">History {target.type}</div>,
 }));
+vi.mock('../LinkedPullRequests/LinkedPullRequests.jsx', () => ({
+  LinkedPullRequests: () => <div data-testid="linked-pull-requests">Pull requests</div>,
+}));
 
 /** @returns {import('../../types').WorkItemDetail} */
 function detail() {
@@ -46,6 +49,8 @@ function detail() {
     stage: 'complete',
     progress: { current: 0, total: 0 },
     repositories: ['acme/alpha', 'acme/beta'],
+    pull_request_count: 0,
+    pull_requests: [],
     updated_at: '2026-08-22T00:00:00.000Z',
     has_session_history: false,
     created_at: '2026-08-21T00:00:00.000Z',

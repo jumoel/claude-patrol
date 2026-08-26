@@ -54,6 +54,15 @@ test('a new database is migrated to the current schema', () => {
       .all()
       .some((column) => column.name === 'start_revision'),
   );
+  assert.ok(
+    db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'work_item_pull_requests'").get(),
+  );
+  assert.ok(
+    db
+      .prepare("PRAGMA table_info('prs')")
+      .all()
+      .some((column) => column.name === 'head_oid'),
+  );
 });
 
 test('the v7 to current migration preserves workspaces and sessions', () => {

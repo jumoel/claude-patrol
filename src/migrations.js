@@ -1,6 +1,6 @@
 /** Schema v7 intentionally resets every pre-v7 database. */
 
-export const CURRENT_SCHEMA_VERSION = 11;
+export const CURRENT_SCHEMA_VERSION = 12;
 
 function createWorkItemTables(db) {
   db.exec(`
@@ -125,11 +125,36 @@ function createWorkItemRepositoryAdditionTable(db) {
   `);
 }
 
+function createWorkItemPullRequestTable(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS work_item_pull_requests (
+      pr_id TEXT PRIMARY KEY,
+      work_item_id TEXT NOT NULL REFERENCES work_items(id),
+      source TEXT NOT NULL CHECK(source IN ('explicit', 'provenance')),
+      linked_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_work_item_pull_requests_work_item
+      ON work_item_pull_requests(work_item_id, linked_at DESC);
+  `);
+}
+
+function addPrHeadOid(db) {
+  const hasPrs = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'prs'").get();
+  if (!hasPrs) return;
+  const hasHeadOid = db
+    .prepare("PRAGMA table_info('prs')")
+    .all()
+    .some((column) => column.name === 'head_oid');
+  if (!hasHeadOid) db.exec('ALTER TABLE prs ADD COLUMN head_oid TEXT');
+}
+
 function resetSchema(db) {
   db.exec(`
     DROP TABLE IF EXISTS automation_jobs;
     DROP TABLE IF EXISTS rule_subscriptions;
     DROP TABLE IF EXISTS rule_runs;
+    DROP TABLE IF EXISTS work_item_pull_requests;
     DROP TABLE IF EXISTS work_item_repository_additions;
     DROP TABLE IF EXISTS workspace_claims;
     DROP TABLE IF EXISTS sessions;
@@ -149,6 +174,7 @@ function resetSchema(db) {
       author TEXT NOT NULL,
       url TEXT NOT NULL,
       branch TEXT NOT NULL,
+      head_oid TEXT,
       base_branch TEXT NOT NULL DEFAULT 'main',
       is_fork INTEGER NOT NULL DEFAULT 0,
       draft INTEGER NOT NULL DEFAULT 0,
@@ -219,6 +245,7 @@ function resetSchema(db) {
   createWorkItemTables(db);
   createWorkspaceTablesV9(db);
   createWorkItemRepositoryAdditionTable(db);
+  createWorkItemPullRequestTable(db);
 }
 
 function v8InvalidReferences(db) {
@@ -316,6 +343,8 @@ export function migrateDb(db) {
     }
     createWorkItemRepositoryAdditionTable(db);
     addSessionNames(db);
+    addPrHeadOid(db);
+    createWorkItemPullRequestTable(db);
     db.exec(`PRAGMA user_version = ${CURRENT_SCHEMA_VERSION}`);
     db.exec('COMMIT');
     const kind = version < 7 ? 'Destructive schema reset' : 'Schema migration';

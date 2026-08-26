@@ -22,7 +22,7 @@ export function registerWorkspaceRoutes(app) {
       emitLocalChange();
       return reply.code(201).send(workspace);
     } catch (err) {
-      return reply.code(400).send({ error: err.message });
+      return reply.code(err.code === 'pr_owned_by_work_item' ? 409 : 400).send({ error: err.message, code: err.code });
     }
   });
 

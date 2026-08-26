@@ -11,6 +11,7 @@ import { runTask, updateTaskProgress } from './tasks.js';
 import { archiveTranscript } from './transcripts.js';
 import { execFile, expandPath, toClaudeProjectKey } from './utils.js';
 import { generatedRootFileNames, publishRootFiles, writeTemporaryRootFiles } from './work-item-files.js';
+import { listWorkItemPullRequests } from './work-item-prs.js';
 import { createWorkItemResolver } from './work-item-resolver.js';
 import { createWorkItemChild, destroyWorkItemChild } from './workspace.js';
 
@@ -211,6 +212,7 @@ export function workItemListItem(row, { getSessionStates = () => [] } = {}) {
   const db = getDb();
   const session = latestSession(db, row.id);
   const activities = activityMap(getSessionStates);
+  const pullRequests = listWorkItemPullRequests(row.id);
   return {
     id: row.id,
     reference: row.reference,
@@ -221,6 +223,8 @@ export function workItemListItem(row, { getSessionStates = () => [] } = {}) {
     stage: row.stage,
     progress: { current: row.progress_current, total: row.progress_total },
     repositories: repositoriesFor(row),
+    pull_request_count: pullRequests.length,
+    pull_requests: pullRequests,
     updated_at: row.updated_at,
     has_session_history: hasSessionHistory(db, row.id),
     session: session

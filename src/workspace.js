@@ -9,6 +9,7 @@ import { sanitizePublicText, sanitizeWorkspaceWarnings } from './public-errors.j
 import { runTask } from './tasks.js';
 import { archiveTranscript } from './transcripts.js';
 import { execFile, expandPath, toClaudeProjectKey } from './utils.js';
+import { getPullRequestOwner } from './work-item-prs.js';
 
 /**
  * Ensure a git repo has jj initialized. If .jj/ doesn't exist, runs
@@ -259,6 +260,13 @@ async function withWorkspaceLock(id, fn) {
  */
 export async function createWorkspace(prId, config) {
   const db = getDb();
+  const owner = getPullRequestOwner(prId);
+  if (owner) {
+    throw workspaceError(
+      'pr_owned_by_work_item',
+      `PR ${prId} belongs to work item ${owner.reference}; use its shared workspace and session`,
+    );
+  }
 
   // Get PR data for branch name
   const pr = db.prepare('SELECT * FROM prs WHERE id = ?').get(prId);

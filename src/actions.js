@@ -240,6 +240,67 @@ export const actionRegistry = {
     },
   },
 
+  link_pull_request: {
+    description:
+      "Link a pull request to its originating work item immediately after creating it. Pass the owner/repo#number identifier or the https://github.com/.../pull/... URL printed by gh pr create. Omit work_item_id when calling from that work item's own session. The operation is idempotent and rejects repositories outside the work item.",
+    schema: z.object({
+      pr: z.string().min(1).max(1024).describe('Pull request ID or GitHub URL'),
+      work_item_id: z.string().min(1).optional().describe('Target work-item ID; inferred from a work-item caller'),
+    }),
+    ruleFireable: false,
+    mcpHandler: async (app, { pr, work_item_id }, ctx) => {
+      const targetId =
+        work_item_id ??
+        (ctx?.callerSessionId
+          ? app.appContext.getDb().prepare('SELECT work_item_id FROM sessions WHERE id = ?').get(ctx.callerSessionId)
+              ?.work_item_id
+          : null);
+      if (!targetId) {
+        return {
+          ok: false,
+          error: 'work_item_id_required',
+          message: 'work_item_id is required outside a work-item session',
+        };
+      }
+      const result = await inject(app, {
+        method: 'POST',
+        path: `/api/work-items/${encodeURIComponent(targetId)}/pull-requests`,
+        body: { pr },
+      });
+      return result.pull_request;
+    },
+  },
+
+  unlink_pull_request: {
+    description:
+      "Remove an incorrect pull-request association from a work item without changing GitHub or deleting either object. Omit work_item_id when calling from that work item's own session.",
+    schema: z.object({
+      pr: z.string().min(1).max(1024).describe('Pull request ID or GitHub URL'),
+      work_item_id: z.string().min(1).optional().describe('Target work-item ID; inferred from a work-item caller'),
+    }),
+    ruleFireable: false,
+    mcpHandler: async (app, { pr, work_item_id }, ctx) => {
+      const targetId =
+        work_item_id ??
+        (ctx?.callerSessionId
+          ? app.appContext.getDb().prepare('SELECT work_item_id FROM sessions WHERE id = ?').get(ctx.callerSessionId)
+              ?.work_item_id
+          : null);
+      if (!targetId) {
+        return {
+          ok: false,
+          error: 'work_item_id_required',
+          message: 'work_item_id is required outside a work-item session',
+        };
+      }
+      return inject(app, {
+        method: 'DELETE',
+        path: `/api/work-items/${encodeURIComponent(targetId)}/pull-requests`,
+        body: { pr },
+      });
+    },
+  },
+
   list_prs: {
     description:
       'List all tracked pull requests. Optional filters: org, repo, draft, ci status, review status, merge status.',
@@ -659,7 +720,7 @@ export const actionRegistry = {
 
   send_prompt_to_session: {
     description:
-      "Send a prompt to another Claude or Codex session. Target with exactly one of: session_id (direct), pr_id (the PR's workspace session), workspace_id (workspace session), or global: true (the global terminal session). When multiple global sessions exist, use list_sessions and target the chosen session_id. Auto-creates the target session (and workspace, for pr_id) if missing and create_if_missing is true. Set provider when creating a target; an existing target keeps its provider. Returns dispatched_at; pass it to wait_for_idle to wait for the response. Cannot target your own session (errors with self_target). Errors with session_busy if the target is currently working. Single-line prompts only: newlines in `prompt` are stripped at write time.",
+      'Send a prompt to another Claude or Codex session. Target with exactly one of: session_id (direct), pr_id (the owning work-item session when linked, otherwise the PR workspace session), workspace_id (workspace session), or global: true (the global terminal session). When multiple global sessions exist, use list_sessions and target the chosen session_id. Auto-creates the appropriate target when create_if_missing is true. Set provider when creating a target; an existing target keeps its provider. Returns dispatched_at; pass it to wait_for_idle to wait for the response. Cannot target your own session (errors with self_target). Errors with session_busy if the target is currently working. Single-line prompts only: newlines in prompt are stripped at write time.',
     schema: z.object({
       session_id: z.string().optional().describe('Direct session id from list_sessions'),
       pr_id: z.string().optional().describe('PR database id (e.g. "org/repo#42")'),

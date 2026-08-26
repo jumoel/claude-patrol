@@ -1,0 +1,76 @@
+@reference "tailwindcss";
+
+.ownerNote,
+.empty {
+  @apply m-0 text-sm text-gray-500;
+}
+
+.attachDetails {
+  @apply text-sm text-gray-600;
+}
+
+.attachDetails summary {
+  @apply cursor-pointer font-medium hover:text-gray-900;
+}
+
+.attachForm {
+  @apply mt-3 items-end rounded-lg border border-gray-200 bg-gray-50 p-3;
+}
+
+.attachLabel {
+  @apply flex min-w-64 flex-1 flex-col gap-1 text-xs font-medium text-gray-600;
+}
+
+.attachLabel input {
+  @apply rounded-md border border-gray-300 bg-white px-3 py-2 font-mono text-sm text-gray-900 focus:border-blue-500 focus:outline-none;
+}
+
+.prTabs {
+  @apply flex gap-2 overflow-x-auto pb-1;
+}
+
+.prTab {
+  @apply flex min-w-max items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-600 no-underline hover:border-blue-300 hover:text-blue-700;
+}
+
+.prTabActive {
+  @apply border-blue-400 bg-blue-50 text-blue-800;
+}
+
+.error {
+  @apply m-0 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700;
+}
+
+.eyebrow {
+  @apply m-0 text-xs font-semibold uppercase tracking-wider text-gray-500;
+}
+
+.prTitle {
+  @apply m-0 mt-1 text-lg font-semibold text-gray-900;
+}
+
+.actions {
+  @apply justify-end;
+}
+
+.identity {
+  @apply text-sm text-gray-500;
+}
+
+.repo {
+  @apply font-mono font-medium text-gray-700;
+}
+
+.statusLabel {
+  @apply text-sm font-medium uppercase text-gray-500;
+}
+
+@media (max-width: 640px) {
+  .attachLabel {
+    @apply min-w-full;
+  }
+
+  .actions {
+    @apply justify-start;
+  }
+}

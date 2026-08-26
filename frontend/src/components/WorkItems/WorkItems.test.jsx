@@ -15,6 +15,8 @@ const base = {
   stage: 'complete',
   progress: { current: 0, total: 0 },
   repositories: ['chainguard-dev/mono'],
+  pull_request_count: 0,
+  pull_requests: [],
   updated_at: '2026-08-22T00:00:00.000Z',
   has_session_history: false,
   session: null,
