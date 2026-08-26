@@ -42,6 +42,29 @@ export function isPassedConclusion(conclusion) {
 }
 
 /**
+ * Check whether a GitHub CheckRun or StatusContext represents a failure.
+ * CheckRun stores its terminal value in conclusion. StatusContext stores it
+ * in status and leaves conclusion null.
+ * @param {{status?: string, conclusion?: string | null}} check
+ * @returns {boolean}
+ */
+export function isFailedCheck(check) {
+  return (
+    isFailedConclusion(check?.conclusion ?? null) ||
+    (check?.conclusion == null && (check?.status === 'FAILURE' || check?.status === 'ERROR'))
+  );
+}
+
+/**
+ * Check whether a GitHub CheckRun or StatusContext represents a pass.
+ * @param {{status?: string, conclusion?: string | null}} check
+ * @returns {boolean}
+ */
+export function isPassedCheck(check) {
+  return isPassedConclusion(check?.conclusion ?? null) || (check?.conclusion == null && check?.status === 'SUCCESS');
+}
+
+/**
  * Build a PR ID string from org, repo, and number.
  * @param {string} org
  * @param {string} repo

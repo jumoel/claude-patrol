@@ -56,6 +56,9 @@ function workItem() {
   return {
     id: 'item-1',
     reference: 'PROJECT-1',
+    reference_display: null,
+    reference_system: null,
+    reference_url: null,
     title: 'Ship coordinated changes',
     summary: 'Update both repositories.',
     work_provider: 'codex',

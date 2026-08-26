@@ -1,4 +1,4 @@
-import { execFile, isFailedConclusion } from '../utils.js';
+import { execFile, isFailedCheck } from '../utils.js';
 
 const RUN_ID_RE = /\/actions\/runs\/(\d+)/;
 
@@ -38,12 +38,7 @@ function setCachedJobLog(key, value) {
  */
 function getFailedChecks(row) {
   const checks = JSON.parse(row.checks);
-  return checks.filter(
-    (c) =>
-      isFailedConclusion(c.conclusion) ||
-      // StatusContext items have conclusion=null but status may indicate failure
-      (c.conclusion === null && (c.status === 'FAILURE' || c.status === 'ERROR')),
-  );
+  return checks.filter(isFailedCheck);
 }
 
 /**

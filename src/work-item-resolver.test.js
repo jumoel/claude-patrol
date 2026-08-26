@@ -6,6 +6,7 @@ import {
   buildClaudeResolverArgs,
   buildCodexResolverArgs,
   createWorkItemResolver,
+  extractResolverReference,
   parseClaudeResolverOutput,
   parseCodexResolverOutput,
   resolverInput,
@@ -154,6 +155,35 @@ test('Claude output accepts only configured MCP tools and the final result', () 
   );
 });
 
+test('Claude extracts provider-native reference metadata from the successful tool result', () => {
+  const output = [
+    {
+      type: 'assistant',
+      message: { content: [{ type: 'tool_use', id: '1', name: 'mcp__work-reference__get_issue' }] },
+    },
+    {
+      type: 'user',
+      message: {
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: '1',
+            is_error: false,
+            content: [{ type: 'text', text: '{"id":"ECO-3351","url":"https://linear.app/acme/issue/ECO-3351/title"}' }],
+          },
+        ],
+      },
+    },
+  ]
+    .map(JSON.stringify)
+    .join('\n');
+  assert.deepEqual(extractResolverReference(output, 'claude', config, 'eco-3351'), {
+    display: 'ECO-3351',
+    system: 'linear.app',
+    url: 'https://linear.app/acme/issue/ECO-3351/title',
+  });
+});
+
 test('Codex ignores interim agent messages and requires a completed turn', () => {
   const interim = JSON.stringify({ title: 'Wrong', summary: 'Before MCP', repositories: ['chainguard-dev/mono'] });
   const final = JSON.stringify({ title: 'Right', summary: 'After MCP', repositories: config.repositories });
@@ -227,9 +257,39 @@ test('Codex ignores interim agent messages and requires a completed turn', () =>
   );
 });
 
+test('Codex extracts provider-native reference metadata from the completed MCP item', () => {
+  const output = JSON.stringify({
+    type: 'item.completed',
+    item: {
+      id: 'mcp-1',
+      type: 'mcp_tool_call',
+      server: 'work-reference',
+      tool: 'get_issue',
+      status: 'completed',
+      result: {
+        content: [
+          {
+            type: 'text',
+            text: '{"id":"ECO-3351","url":"https://linear.app/acme/issue/ECO-3351/title"}',
+          },
+        ],
+      },
+    },
+  });
+  assert.deepEqual(extractResolverReference(output, 'codex', config, 'ECO-3351'), {
+    display: 'ECO-3351',
+    system: 'linear.app',
+    url: 'https://linear.app/acme/issue/ECO-3351/title',
+  });
+});
+
 test('host validation rejects extra fields, duplicates, unknown repositories, NUL, and byte limits', () => {
   const valid = { title: '  Fix CVEs  ', summary: 'Summary', repositories: config.repositories };
-  assert.deepEqual(validateResolverResult(valid, config.repositories), { ...valid, title: 'Fix CVEs' });
+  assert.deepEqual(validateResolverResult(valid, config.repositories), {
+    ...valid,
+    title: 'Fix CVEs',
+    work_reference: null,
+  });
   assert.throws(() => validateResolverResult({ ...valid, extra: true }, config.repositories));
   assert.throws(() =>
     validateResolverResult(

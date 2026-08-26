@@ -126,6 +126,7 @@ export interface Session {
   name: string | null;
   target: SessionTarget;
   activity_state: 'working' | 'idle' | null;
+  activity_changed_at: string | null;
   pid: number | null;
   provider: AgentProvider;
   status: 'active' | 'detached' | 'killed';
@@ -161,6 +162,9 @@ export interface RecoveryAction {
 export interface WorkItemListItem {
   id: string;
   reference: string;
+  reference_display: string | null;
+  reference_system: string | null;
+  reference_url: string | null;
   title: string | null;
   work_provider: AgentProvider;
   resolver_provider: AgentProvider;
@@ -170,12 +174,14 @@ export interface WorkItemListItem {
   repositories: string[];
   pull_request_count: number;
   pull_requests: WorkItemPullRequest[];
+  repository_workspaces: WorkItemRepository[];
   updated_at: string;
   has_session_history: boolean;
   session: null | {
     id: string;
     status: 'active' | 'detached';
     activity_state: 'working' | 'idle' | null;
+    activity_changed_at: string | null;
   };
   error: null | {
     code: string;

@@ -11,7 +11,7 @@ import { runTask, updateTaskProgress } from './tasks.js';
 import { archiveTranscript } from './transcripts.js';
 import { execFile, expandPath, toClaudeProjectKey } from './utils.js';
 import { generatedRootFileNames, publishRootFiles, writeTemporaryRootFiles } from './work-item-files.js';
-import { listWorkItemPullRequests } from './work-item-prs.js';
+import { listWorkItemPullRequests, listWorkItemPullRequestsBatch } from './work-item-prs.js';
 import { createWorkItemResolver } from './work-item-resolver.js';
 import { createWorkItemChild, destroyWorkItemChild } from './workspace.js';
 
@@ -55,6 +55,9 @@ function mutateWorkItem(id, patch, expectedStates = null) {
   const allowed = new Set([
     'title',
     'summary',
+    'reference_display',
+    'reference_system',
+    'reference_url',
     'resolved_repositories_json',
     'state',
     'stage',
@@ -205,17 +208,30 @@ function hasSessionHistory(db, workItemId) {
 }
 
 function activityMap(getSessionStates) {
-  return new Map(getSessionStates().map((entry) => [entry.sessionId, entry.state]));
+  return new Map(getSessionStates().map((entry) => [entry.sessionId, entry]));
 }
 
-export function workItemListItem(row, { getSessionStates = () => [] } = {}) {
+export function workItemListItem(
+  row,
+  {
+    getSessionStates = () => [],
+    session: suppliedSession,
+    hasSessionHistory: suppliedSessionHistory,
+    pullRequests: suppliedPullRequests,
+    repositoryWorkspaces = [],
+  } = {},
+) {
   const db = getDb();
-  const session = latestSession(db, row.id);
+  const session = suppliedSession === undefined ? latestSession(db, row.id) : suppliedSession;
   const activities = activityMap(getSessionStates);
-  const pullRequests = listWorkItemPullRequests(row.id);
+  const pullRequests = suppliedPullRequests ?? listWorkItemPullRequests(row.id);
+  const activity = session ? activities.get(session.id) : null;
   return {
     id: row.id,
     reference: row.reference,
+    reference_display: row.reference_display ?? null,
+    reference_system: row.reference_system ?? null,
+    reference_url: row.reference_url ?? null,
     title: row.title,
     work_provider: row.work_provider,
     resolver_provider: row.resolver_provider,
@@ -225,10 +241,16 @@ export function workItemListItem(row, { getSessionStates = () => [] } = {}) {
     repositories: repositoriesFor(row),
     pull_request_count: pullRequests.length,
     pull_requests: pullRequests,
+    repository_workspaces: repositoryWorkspaces,
     updated_at: row.updated_at,
-    has_session_history: hasSessionHistory(db, row.id),
+    has_session_history: suppliedSessionHistory ?? hasSessionHistory(db, row.id),
     session: session
-      ? { id: session.id, status: session.status, activity_state: activities.get(session.id) ?? null }
+      ? {
+          id: session.id,
+          status: session.status,
+          activity_state: activity?.state ?? null,
+          activity_changed_at: activity?.activity_changed_at ?? null,
+        }
       : null,
     error: row.error_code
       ? {
@@ -238,6 +260,30 @@ export function workItemListItem(row, { getSessionStates = () => [] } = {}) {
         }
       : null,
   };
+}
+
+function repositoryWorkspacesFor(row, children, config) {
+  const byRepo = new Map();
+  for (const child of children) {
+    if (!byRepo.has(child.repo)) byRepo.set(child.repo, child);
+  }
+  const bookmark = deterministicBookmark(row.id);
+  return repositoriesFor(row).map((identifier) => {
+    const child = byRepo.get(identifier) ?? null;
+    return {
+      identifier,
+      workspace_id: child?.id ?? null,
+      state: repositoryState(child),
+      path: child?.path ?? null,
+      checkout_available: Boolean(
+        child && child.status === 'active' && child.operation_state !== 'destroyed' && existsSync(child.path),
+      ),
+      bookmark: child?.bookmark ?? bookmark,
+      start_revision: child?.start_revision ?? config.repos?.[identifier]?.defaultRevision ?? '',
+      base_commit: child?.base_commit ?? null,
+      warnings: parseWarnings(child?.setup_warnings_json),
+    };
+  });
 }
 
 function recoveryActions(row, config) {
@@ -286,11 +332,6 @@ export function workItemDetail(row, { config, getSessionStates = () => [] }) {
   const children = getDb()
     .prepare('SELECT rowid, * FROM workspaces WHERE work_item_id = ? ORDER BY created_at DESC, rowid DESC')
     .all(row.id);
-  const byRepo = new Map();
-  for (const child of children) {
-    if (!byRepo.has(child.repo)) byRepo.set(child.repo, child);
-  }
-  const bookmark = deterministicBookmark(row.id);
   return {
     ...list,
     summary: row.summary,
@@ -306,22 +347,7 @@ export function workItemDetail(row, { config, getSessionStates = () => [] }) {
           recovery_actions: recoveryActions(row, config),
         }
       : null,
-    repository_workspaces: repositoriesFor(row).map((identifier) => {
-      const child = byRepo.get(identifier) ?? null;
-      return {
-        identifier,
-        workspace_id: child?.id ?? null,
-        state: repositoryState(child),
-        path: child?.path ?? null,
-        checkout_available: Boolean(
-          child && child.status === 'active' && child.operation_state !== 'destroyed' && existsSync(child.path),
-        ),
-        bookmark: child?.bookmark ?? bookmark,
-        start_revision: child?.start_revision ?? config.repos?.[identifier]?.defaultRevision ?? '',
-        base_commit: child?.base_commit ?? null,
-        warnings: parseWarnings(child?.setup_warnings_json),
-      };
-    }),
+    repository_workspaces: repositoryWorkspacesFor(row, children, config),
   };
 }
 
@@ -827,6 +853,9 @@ export function createWorkItemService({
       item = mutateWorkItem(id, {
         title: result.title,
         summary: result.summary,
+        reference_display: result.work_reference?.display ?? null,
+        reference_system: result.work_reference?.system ?? null,
+        reference_url: result.work_reference?.url ?? null,
         resolved_repositories_json: JSON.stringify(result.repositories),
         state: 'preparing',
         stage: 'root_generation',
@@ -1084,10 +1113,46 @@ export function createWorkItemService({
     },
 
     list() {
-      return getDb()
-        .prepare("SELECT * FROM work_items WHERE state != 'destroyed' ORDER BY updated_at DESC")
-        .all()
-        .map((row) => workItemListItem(row, { getSessionStates }));
+      const db = getDb();
+      const rows = db.prepare("SELECT * FROM work_items WHERE state != 'destroyed' ORDER BY updated_at DESC").all();
+      const ids = rows.map((row) => row.id);
+      const latestSessions = new Map();
+      for (const session of db
+        .prepare(
+          `SELECT * FROM sessions
+           WHERE work_item_id IS NOT NULL AND status IN ('active', 'detached')
+           ORDER BY started_at DESC`,
+        )
+        .all()) {
+        if (!latestSessions.has(session.work_item_id)) latestSessions.set(session.work_item_id, session);
+      }
+      const sessionHistory = new Set(
+        db
+          .prepare('SELECT DISTINCT work_item_id FROM sessions WHERE work_item_id IS NOT NULL')
+          .all()
+          .map((entry) => entry.work_item_id),
+      );
+      const pullRequests = listWorkItemPullRequestsBatch(ids);
+      const children = new Map(ids.map((id) => [id, []]));
+      for (const child of db
+        .prepare(
+          `SELECT rowid, * FROM workspaces
+           WHERE work_item_id IS NOT NULL
+           ORDER BY work_item_id, created_at DESC, rowid DESC`,
+        )
+        .all()) {
+        children.get(child.work_item_id)?.push(child);
+      }
+      const config = getConfig();
+      return rows.map((row) =>
+        workItemListItem(row, {
+          getSessionStates,
+          session: latestSessions.get(row.id) ?? null,
+          hasSessionHistory: sessionHistory.has(row.id),
+          pullRequests: pullRequests.get(row.id) ?? [],
+          repositoryWorkspaces: repositoryWorkspacesFor(row, children.get(row.id) ?? [], config),
+        }),
+      );
     },
 
     detail(id) {

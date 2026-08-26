@@ -112,6 +112,42 @@ export function listWorkItemPullRequests(workItemId) {
     .sort((a, b) => (b.updated_at ?? b.linked_at).localeCompare(a.updated_at ?? a.linked_at));
 }
 
+/** @param {string[]} workItemIds */
+export function listWorkItemPullRequestsBatch(workItemIds) {
+  const ids = [...new Set(workItemIds)];
+  const grouped = new Map(ids.map((id) => [id, []]));
+  if (ids.length === 0) return grouped;
+  const placeholders = ids.map(() => '?').join(', ');
+  const rows = getDb()
+    .prepare(
+      `SELECT
+         l.pr_id AS linked_pr_id,
+         l.work_item_id AS linked_work_item_id,
+         l.source AS linked_source,
+         l.linked_at AS linked_at,
+         p.*
+       FROM work_item_pull_requests l
+       LEFT JOIN prs p ON p.id = l.pr_id
+       WHERE l.work_item_id IN (${placeholders})
+       ORDER BY l.work_item_id, l.linked_at DESC, l.pr_id`,
+    )
+    .all(...ids);
+  for (const row of rows) {
+    const link = {
+      pr_id: row.linked_pr_id,
+      work_item_id: row.linked_work_item_id,
+      source: row.linked_source,
+      linked_at: row.linked_at,
+    };
+    const item = linkedPullRequest(link, row.id ? row : null);
+    grouped.get(row.linked_work_item_id)?.push(item);
+  }
+  for (const pullRequests of grouped.values()) {
+    pullRequests.sort((a, b) => (b.updated_at ?? b.linked_at).localeCompare(a.updated_at ?? a.linked_at));
+  }
+  return grouped;
+}
+
 /** @param {string} prId */
 export function getPullRequestOwner(prId) {
   return (

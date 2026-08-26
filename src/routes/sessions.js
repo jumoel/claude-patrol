@@ -34,21 +34,22 @@ export function registerSessionRoutes(app) {
     const workItem = row.work_item_id
       ? getDb().prepare('SELECT title, reference, path FROM work_items WHERE id = ?').get(row.work_item_id)
       : null;
-    const activityState =
+    const activity =
       stateBySessionId === null
-        ? (getSessionStates().find((entry) => entry.sessionId === row.id)?.state ?? null)
+        ? (getSessionStates().find((entry) => entry.sessionId === row.id) ?? null)
         : (stateBySessionId.get(row.id) ?? null);
     return {
       ...row,
       target: sessionTargetFromRow(row),
-      activity_state: activityState,
+      activity_state: activity?.state ?? null,
+      activity_changed_at: activity?.activity_changed_at ?? null,
       work_item_title: workItem?.title ?? null,
       work_item_reference: workItem?.reference ?? null,
       root_path: workItem?.path ?? null,
     };
   };
   const formatSessions = (rows) => {
-    const stateBySessionId = new Map(getSessionStates().map((entry) => [entry.sessionId, entry.state]));
+    const stateBySessionId = new Map(getSessionStates().map((entry) => [entry.sessionId, entry]));
     return rows.map((row) => formatSession(row, stateBySessionId));
   };
   const targetError = (reply, code, message, status = 400) =>

@@ -8,6 +8,9 @@ import { WorkItems, workItemStatus } from './WorkItems.jsx';
 const base = {
   id: 'item-1',
   reference: 'ECO-3632',
+  reference_display: 'ECO-3632',
+  reference_system: 'linear.app',
+  reference_url: 'https://linear.app/acme/issue/ECO-3632/title',
   title: 'Repair JavaScript CVEs',
   work_provider: 'codex',
   resolver_provider: 'codex',
@@ -17,6 +20,7 @@ const base = {
   repositories: ['chainguard-dev/mono'],
   pull_request_count: 0,
   pull_requests: [],
+  repository_workspaces: [],
   updated_at: '2026-08-22T00:00:00.000Z',
   has_session_history: false,
   session: null,
@@ -26,22 +30,34 @@ const base = {
 test('maps every ready session state without relying on color', () => {
   assert.equal(workItemStatus(base), 'Ready');
   assert.equal(workItemStatus({ ...base, has_session_history: true }), 'Stopped');
-  assert.equal(workItemStatus({ ...base, session: { id: 's', status: 'active', activity_state: null } }), 'Running');
+  assert.equal(
+    workItemStatus({
+      ...base,
+      session: { id: 's', status: 'active', activity_state: null, activity_changed_at: null },
+    }),
+    'Running',
+  );
   /** @type {Map<string, 'working' | 'idle'>} */
   const working = new Map([['work-item:item-1', 'working']]);
   /** @type {Map<string, 'working' | 'idle'>} */
   const idle = new Map([['work-item:item-1', 'idle']]);
   assert.equal(
-    workItemStatus({ ...base, session: { id: 's', status: 'active', activity_state: null } }, working),
+    workItemStatus(
+      { ...base, session: { id: 's', status: 'active', activity_state: null, activity_changed_at: null } },
+      working,
+    ),
     'Working',
   );
   assert.equal(
-    workItemStatus({ ...base, session: { id: 's', status: 'active', activity_state: null } }, idle),
+    workItemStatus(
+      { ...base, session: { id: 's', status: 'active', activity_state: null, activity_changed_at: null } },
+      idle,
+    ),
     'Waiting',
   );
   assert.equal(
     workItemStatus(
-      { ...base, session: { id: 's', status: 'active', activity_state: null } },
+      { ...base, session: { id: 's', status: 'active', activity_state: null, activity_changed_at: null } },
       idle,
       new Set(['work-item:item-1']),
     ),
@@ -53,7 +69,7 @@ test('maps every ready session state without relying on color', () => {
 test('working work items show a spinner', () => {
   render(
     <WorkItems
-      workItems={[{ ...base, session: { id: 's', status: 'active', activity_state: null } }]}
+      workItems={[{ ...base, session: { id: 's', status: 'active', activity_state: null, activity_changed_at: null } }]}
       loading={false}
       error={null}
       onRetry={vi.fn()}

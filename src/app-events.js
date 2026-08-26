@@ -21,14 +21,16 @@ export function emitLocalChange() {
  * @param {string} sessionId
  * @param {{type: 'global'} | {type: 'workspace'|'work_item', id: string}} target
  * @param {'working' | 'idle' | 'exited'} state
+ * @param {string | null} [activityChangedAt]
  */
-export function emitSessionState(sessionId, target, state) {
+export function emitSessionState(sessionId, target, state, activityChangedAt = null) {
   appEvents.emit('session-state', {
     sessionId,
     target,
     workspaceId: target.type === 'workspace' ? target.id : null,
     workItemId: target.type === 'work_item' ? target.id : null,
     state,
+    activity_changed_at: activityChangedAt,
   });
 }
 

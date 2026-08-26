@@ -73,12 +73,14 @@ function restoreResetWorkspaceOwnership(db, workspaces) {
     insert.run(workspace.path, workspace.repo, workspace.name, now, now, now);
   }
 }
-
 function createWorkItemTables(db) {
   db.exec(`
     CREATE TABLE work_items (
       id TEXT PRIMARY KEY,
       reference TEXT NOT NULL,
+      reference_display TEXT,
+      reference_system TEXT,
+      reference_url TEXT,
       title TEXT,
       summary TEXT,
       resolved_repositories_json JSON,
@@ -219,6 +221,20 @@ function addPrHeadOid(db) {
     .all()
     .some((column) => column.name === 'head_oid');
   if (!hasHeadOid) db.exec('ALTER TABLE prs ADD COLUMN head_oid TEXT');
+}
+
+function addWorkItemReferenceMetadata(db) {
+  const hasWorkItems = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'work_items'").get();
+  if (!hasWorkItems) return;
+  const columns = new Set(
+    db
+      .prepare("PRAGMA table_info('work_items')")
+      .all()
+      .map((column) => column.name),
+  );
+  if (!columns.has('reference_display')) db.exec('ALTER TABLE work_items ADD COLUMN reference_display TEXT');
+  if (!columns.has('reference_system')) db.exec('ALTER TABLE work_items ADD COLUMN reference_system TEXT');
+  if (!columns.has('reference_url')) db.exec('ALTER TABLE work_items ADD COLUMN reference_url TEXT');
 }
 
 function resetSchema(db) {
@@ -419,6 +435,7 @@ export function migrateDb(db) {
     createWorkItemRepositoryAdditionTable(db);
     addSessionNames(db);
     addPrHeadOid(db);
+    addWorkItemReferenceMetadata(db);
     createWorkItemPullRequestTable(db);
     createWorkspaceOrphansTable(db);
     restoreResetWorkspaceOwnership(db, resetWorkspaceOwnership);

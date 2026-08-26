@@ -253,6 +253,141 @@ function codexToolIdentity(item) {
   return null;
 }
 
+function parseToolResultJson(value) {
+  if (typeof value !== 'string') return null;
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function toolResultObjects(value) {
+  if (!value) return [];
+  if (typeof value === 'string') {
+    const parsed = parseToolResultJson(value);
+    return parsed ? [parsed] : [];
+  }
+  if (Array.isArray(value)) return value.flatMap(toolResultObjects);
+  if (typeof value !== 'object') return [];
+
+  const directKeys = ['identifier', 'key', 'id', 'url', 'html_url', 'htmlUrl', 'web_url', 'webUrl'];
+  if (directKeys.some((key) => typeof value[key] === 'string')) return [value];
+
+  return ['structured_content', 'structuredContent', 'content', 'text', 'result'].flatMap((key) =>
+    toolResultObjects(value[key]),
+  );
+}
+
+function boundedMetadataText(value, maxBytes) {
+  if (typeof value !== 'string') return null;
+  const text = value.trim();
+  if (!text || text.includes('\0') || Buffer.byteLength(text, 'utf8') > maxBytes) return null;
+  return text;
+}
+
+function referenceMetadata(value) {
+  const display = boundedMetadataText(value.identifier ?? value.key ?? value.id, 512);
+  const rawUrl = boundedMetadataText(
+    value.url ?? value.html_url ?? value.htmlUrl ?? value.web_url ?? value.webUrl,
+    4096,
+  );
+  if (!display) return null;
+
+  let url = null;
+  let urlSystem = null;
+  if (rawUrl) {
+    try {
+      const parsed = new URL(rawUrl);
+      if ((parsed.protocol === 'https:' || parsed.protocol === 'http:') && !parsed.username && !parsed.password) {
+        url = parsed.toString();
+        urlSystem = parsed.hostname.toLowerCase();
+      }
+    } catch {
+      // Invalid provider URLs are omitted instead of being exposed to the UI.
+    }
+  }
+
+  const system =
+    boundedMetadataText(value.system ?? value.provider ?? value.source, 255)?.toLowerCase() ?? urlSystem ?? null;
+  return { display, system, url };
+}
+
+function chooseReferenceMetadata(candidates, reference) {
+  const unique = [];
+  const seen = new Set();
+  for (const candidate of candidates) {
+    const metadata = referenceMetadata(candidate);
+    if (!metadata) continue;
+    const key = JSON.stringify(metadata);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(metadata);
+  }
+  if (unique.length === 0) return null;
+
+  const normalized = typeof reference === 'string' ? reference.trim().toLowerCase() : '';
+  const exact = unique.find(
+    (metadata) => metadata.display.toLowerCase() === normalized || metadata.url?.toLowerCase() === normalized,
+  );
+  if (exact) return exact;
+  return unique.length === 1 ? unique[0] : null;
+}
+
+/**
+ * Extract provider-native work-reference metadata from successful configured
+ * MCP tool results. The adapter uses common top-level record fields and never
+ * asks the model to restate or normalize the reference.
+ *
+ * @param {string} stdout
+ * @param {'claude' | 'codex'} provider
+ * @param {object} config
+ * @param {string} reference
+ */
+export function extractResolverReference(stdout, provider, config, reference) {
+  const events = jsonLines(stdout);
+  const candidates = [];
+  if (provider === 'claude') {
+    const allowed = new Set(
+      config.resolver.server.enabled_tools.map((tool) => `mcp__${config.resolver.server.name}__${tool}`),
+    );
+    const allowedCallIds = new Set();
+    for (const event of events) {
+      for (const block of event?.message?.content ?? []) {
+        const name = claudeToolName(block);
+        if (name && allowed.has(name) && typeof block.id === 'string') allowedCallIds.add(block.id);
+        if (
+          block?.type === 'tool_result' &&
+          !block.is_error &&
+          typeof block.tool_use_id === 'string' &&
+          allowedCallIds.has(block.tool_use_id)
+        ) {
+          candidates.push(...toolResultObjects(block.content));
+          candidates.push(...toolResultObjects(event.tool_use_result));
+        }
+      }
+    }
+  } else if (provider === 'codex') {
+    const server = config.resolver.server;
+    const allowed = new Set(server.enabled_tools);
+    for (const event of events) {
+      const item = event?.item;
+      const identity = codexToolIdentity(item);
+      if (
+        event?.type === 'item.completed' &&
+        identity?.server === server.name &&
+        allowed.has(identity.tool) &&
+        !item.error &&
+        item.status !== 'failed'
+      ) {
+        candidates.push(...toolResultObjects(item.result));
+      }
+    }
+  }
+  return chooseReferenceMetadata(candidates, reference);
+}
+
 export function parseCodexResolverOutput(stdout, config) {
   const events = jsonLines(stdout);
   const server = config.resolver.server;
@@ -512,7 +647,7 @@ async function requireCodexFeatures(run = execFile) {
   }
 }
 
-export function validateResolverResult(value, candidates) {
+export function validateResolverResult(value, candidates, workReference = null) {
   const parsed = resultSchema.safeParse(value);
   if (!parsed.success)
     throw resolverError('invalid_provider_output', 'Resolver result did not match the output contract');
@@ -535,7 +670,7 @@ export function validateResolverResult(value, candidates) {
   if (unknown.length) {
     throw resolverError('invalid_provider_output', `Resolver returned unknown repositories: ${unknown.join(', ')}`);
   }
-  return { title, summary: parsed.data.summary, repositories };
+  return { title, summary: parsed.data.summary, repositories, work_reference: workReference };
 }
 
 export function createWorkItemResolver({ run = execFile, spawnProcess = spawn } = {}) {
@@ -612,7 +747,8 @@ export function createWorkItemResolver({ run = execFile, spawnProcess = spawn } 
         const text = utf8(output, 'Resolver output');
         const value =
           provider === 'claude' ? parseClaudeResolverOutput(text, config) : parseCodexResolverOutput(text, config);
-        return validateResolverResult(value, config.repositories);
+        const workReference = extractResolverReference(text, provider, config, reference);
+        return validateResolverResult(value, config.repositories, workReference);
       } finally {
         rmSync(directory, { recursive: true, force: true });
       }

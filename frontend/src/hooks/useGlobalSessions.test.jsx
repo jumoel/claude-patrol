@@ -13,6 +13,7 @@ const first = /** @type {import('../types').Session} */ ({
   name: 'First',
   target: /** @type {const} */ ({ type: 'global' }),
   activity_state: null,
+  activity_changed_at: null,
   pid: 1,
   provider: 'claude',
   status: 'active',

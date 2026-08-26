@@ -164,6 +164,13 @@ test('a two-repository item creates sibling children and waits for the root sess
   assert.equal(detail.has_session_history, false);
   assert.equal(sessionOptions.length, 0);
   assert.equal(getDb().prepare('SELECT COUNT(*) AS count FROM sessions WHERE workspace_id IS NOT NULL').get().count, 0);
+  const listed = service.list();
+  assert.equal(listed.length, 1);
+  assert.equal(listed[0].repository_workspaces.length, 2);
+  assert.deepEqual(
+    listed[0].repository_workspaces.map((child) => child.identifier),
+    ['acme/alpha', 'acme/beta'],
+  );
 
   const agents = readFileSync(join(detail.root_path, 'AGENTS.md'), 'utf8');
   const task = JSON.parse(readFileSync(join(detail.root_path, 'TASK.json'), 'utf8'));
@@ -181,6 +188,31 @@ test('a two-repository item creates sibling children and waits for the root sess
     `[work-items] ${logId} child_creation: creating 2/2 acme/beta`,
     `[work-items] ${logId} complete: ready with 2 workspaces`,
   ]);
+});
+
+test('provider-native work-reference metadata is persisted without UI-specific normalization', async () => {
+  const { service } = fixture({
+    resolver: {
+      resolve: async () => ({
+        title: 'Reference metadata',
+        summary: 'Preserve provider fields.',
+        repositories: ['acme/alpha'],
+        work_reference: {
+          display: 'ECO-3351',
+          system: 'linear.app',
+          url: 'https://linear.app/acme/issue/ECO-3351/title',
+        },
+      }),
+    },
+  });
+  const created = service.create({ reference: 'eco-3351', workProvider: 'codex' });
+  await service.waitForIdle(created.id);
+
+  const listed = service.list()[0];
+  assert.equal(listed.reference, 'eco-3351');
+  assert.equal(listed.reference_display, 'ECO-3351');
+  assert.equal(listed.reference_system, 'linear.app');
+  assert.equal(listed.reference_url, 'https://linear.app/acme/issue/ECO-3351/title');
 });
 
 test('a repository can be added to a ready work item and duplicate additions are no-ops', async () => {

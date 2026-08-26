@@ -41,6 +41,9 @@ function detail() {
   return {
     id: 'item-1',
     reference: 'ECO-3632',
+    reference_display: 'ECO-3632',
+    reference_system: 'linear.app',
+    reference_url: 'https://linear.app/acme/issue/ECO-3632/title',
     title: 'Repair JavaScript CVEs',
     summary: 'Update both repositories.\nKeep their changes aligned.',
     work_provider: 'codex',
@@ -121,11 +124,12 @@ test('ready detail renders one root terminal and no child controls', async () =>
     started_at: '2026-08-22T00:00:00.000Z',
     ended_at: null,
     activity_state: null,
+    activity_changed_at: null,
   };
   hook.workItem = {
     ...detail(),
     has_session_history: true,
-    session: { id: 'session-1', status: 'active', activity_state: null },
+    session: { id: 'session-1', status: 'active', activity_state: null, activity_changed_at: null },
   };
   api.fetchSessions.mockResolvedValue([liveSession]);
 
@@ -237,6 +241,7 @@ test('a ready work item can switch providers before opening an idle terminal', a
     started_at: '2026-08-22T01:00:00.000Z',
     ended_at: null,
     activity_state: null,
+    activity_changed_at: null,
   };
   api.createSession.mockResolvedValue(launched);
 

@@ -70,6 +70,74 @@ test('a new database is migrated to the current schema', () => {
       .all()
       .some((column) => column.name === 'head_oid'),
   );
+  const workItemColumns = new Set(
+    db
+      .prepare("PRAGMA table_info('work_items')")
+      .all()
+      .map((column) => column.name),
+  );
+  assert.ok(workItemColumns.has('reference_display'));
+  assert.ok(workItemColumns.has('reference_system'));
+  assert.ok(workItemColumns.has('reference_url'));
+});
+
+test('the v12 migration preserves work items and adds provider-native reference fields', () => {
+  const path = join(temporaryDirectory(), 'v12.db');
+  const legacy = new DatabaseSync(path);
+  legacy.exec(`
+    PRAGMA foreign_keys = ON;
+    CREATE TABLE work_items (
+      id TEXT PRIMARY KEY,
+      reference TEXT NOT NULL,
+      title TEXT,
+      summary TEXT,
+      resolved_repositories_json JSON,
+      path TEXT NOT NULL UNIQUE,
+      work_provider TEXT NOT NULL,
+      resolver_provider TEXT NOT NULL,
+      state TEXT NOT NULL,
+      stage TEXT NOT NULL,
+      progress_current INTEGER NOT NULL DEFAULT 0,
+      progress_total INTEGER NOT NULL DEFAULT 0,
+      error_code TEXT,
+      error_detail TEXT,
+      error_provider TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      destroyed_at TEXT
+    );
+    INSERT INTO work_items (
+      id, reference, path, work_provider, resolver_provider, state, stage,
+      created_at, updated_at
+    ) VALUES (
+      'item-1', 'eco-3351', '/tmp/item-1', 'codex', 'codex', 'ready', 'complete',
+      '2026-08-26T00:00:00.000Z', '2026-08-26T00:00:00.000Z'
+    );
+    CREATE TABLE sessions (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT,
+      work_item_id TEXT,
+      name TEXT,
+      provider TEXT NOT NULL,
+      status TEXT NOT NULL,
+      started_at TEXT NOT NULL
+    );
+    PRAGMA user_version = 12;
+  `);
+  legacy.close();
+
+  const db = initDb(path);
+  assert.equal(db.prepare('PRAGMA user_version').get().user_version, CURRENT_SCHEMA_VERSION);
+  assert.deepEqual(
+    { ...db.prepare('SELECT id, reference, reference_display, reference_system, reference_url FROM work_items').get() },
+    {
+      id: 'item-1',
+      reference: 'eco-3351',
+      reference_display: null,
+      reference_system: null,
+      reference_url: null,
+    },
+  );
 });
 
 test('the v7 to current migration preserves workspaces and sessions', () => {

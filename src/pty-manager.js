@@ -262,11 +262,12 @@ function attachPtyToTmux(sessionId, meta = {}, runtime = DEFAULT_SESSION_RUNTIME
   // wait_for_idle (lt#15) reads lastIdleAt > lastWorkingAt > since to anchor
   // on a specific dispatch.
   function transitionTo(s) {
-    if (s === 'working') entry.lastWorkingAt = Date.now();
-    else if (s === 'idle') entry.lastIdleAt = Date.now();
+    const changedAt = Date.now();
+    if (s === 'working') entry.lastWorkingAt = changedAt;
+    else if (s === 'idle') entry.lastIdleAt = changedAt;
     state = s;
     entry.activityState = s;
-    emitSessionState(sessionId, target, s);
+    emitSessionState(sessionId, target, s, new Date(changedAt).toISOString());
   }
   function resetIdleTimer() {
     if (idleTimer) {
@@ -940,7 +941,7 @@ export function getSessionSnapshot(sessionId) {
 /**
  * Get the current activity state for all tracked sessions.
  * Used to seed new SSE clients with the current state.
- * @returns {Array<{ sessionId: string, target: object, workspaceId: string | null, workItemId: string | null, state: 'working' | 'idle' }>}
+ * @returns {Array<{ sessionId: string, target: object, workspaceId: string | null, workItemId: string | null, state: 'working' | 'idle', activity_changed_at: string }>}
  */
 export function getSessionStates() {
   const results = [];
@@ -952,6 +953,9 @@ export function getSessionStates() {
         workspaceId: entry.target.type === 'workspace' ? entry.target.id : null,
         workItemId: entry.target.type === 'work_item' ? entry.target.id : null,
         state: entry.activityState,
+        activity_changed_at: new Date(
+          entry.activityState === 'idle' ? entry.lastIdleAt : entry.lastWorkingAt,
+        ).toISOString(),
       });
     }
   }

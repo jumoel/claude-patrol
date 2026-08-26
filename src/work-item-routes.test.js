@@ -411,7 +411,19 @@ test('session deletion does not emit a change when no session changes', async ()
 
 test('session filters distinguish global, work-item, and managed child targets', async () => {
   const service = { create() {}, list: () => [], detail: () => null, retry() {}, destroy() {} };
-  const server = await serverFixture(service);
+  const activityChangedAt = '2026-08-26T12:00:00.000Z';
+  const server = await serverFixture(service, {
+    getSessionStates: () => [
+      {
+        sessionId: 'work-session',
+        target: { type: 'work_item', id: 'item-1' },
+        workspaceId: null,
+        workItemId: 'item-1',
+        state: 'idle',
+        activity_changed_at: activityChangedAt,
+      },
+    ],
+  });
   const now = new Date().toISOString();
   getDb()
     .prepare(
@@ -482,6 +494,8 @@ test('session filters distinguish global, work-item, and managed child targets',
       ['work-session'],
     );
     assert.deepEqual(workItem.json()[0].target, { type: 'work_item', id: 'item-1' });
+    assert.equal(workItem.json()[0].activity_state, 'idle');
+    assert.equal(workItem.json()[0].activity_changed_at, activityChangedAt);
 
     const child = await server.inject({ method: 'GET', url: '/api/sessions?workspace_id=child-1' });
     assert.equal(child.statusCode, 409);

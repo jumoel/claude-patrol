@@ -3,12 +3,18 @@ const PASSED_CONCLUSIONS = new Set(['SUCCESS', 'NEUTRAL', 'SKIPPED']);
 
 /** @param {import('../types').Check} check */
 export function isFailedCheck(check) {
-  return check.conclusion !== null && FAILED_CONCLUSIONS.has(check.conclusion);
+  return (
+    (check.conclusion !== null && FAILED_CONCLUSIONS.has(check.conclusion)) ||
+    (check.conclusion === null && (check.status === 'FAILURE' || check.status === 'ERROR'))
+  );
 }
 
 /** @param {import('../types').Check} check */
 export function isPassedCheck(check) {
-  return check.conclusion !== null && PASSED_CONCLUSIONS.has(check.conclusion);
+  return (
+    (check.conclusion !== null && PASSED_CONCLUSIONS.has(check.conclusion)) ||
+    (check.conclusion === null && check.status === 'SUCCESS')
+  );
 }
 
 /** @param {import('../types').Check} check */
