@@ -2,7 +2,7 @@ import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { useClickOutside } from '../../hooks/useClickOutside.js';
 import { useRuleRuns } from '../../hooks/useRuleRuns.js';
 import { useTasks } from '../../hooks/useTasks.js';
-import { fetchRules, fetchSessions, fetchWorkspaces, runRuleForAll, subscribeRuleForAll } from '../../lib/api.js';
+import { fetchRules, fetchWorkspaces, runRuleForAll, subscribeRuleForAll } from '../../lib/api.js';
 import { getErrorMessage } from '../../lib/errors.js';
 import { getRelativeTime } from '../../lib/time.js';
 import { Badge } from '../ui/Badge/Badge.jsx';
@@ -74,12 +74,10 @@ function StatLabel({ value, children }) {
 }
 
 /**
- * Summary stats bar above the PR table.
- * @param {{ prCount: number, pollConfigured: boolean, workItems: import('../../types').WorkItemListItem[], onOpenGlobalTerminal?: () => void, changeToken?: number }} props
+ * @param {{ prCount: number, pollConfigured: boolean, workItems: import('../../types').WorkItemListItem[], sessions: import('../../types').Session[], onOpenGlobalTerminal?: (sessionId?: string) => void, changeToken?: number }} props
  */
-export function DashboardSummary({ prCount, pollConfigured, workItems, onOpenGlobalTerminal, changeToken }) {
+export function DashboardSummary({ prCount, pollConfigured, workItems, sessions, onOpenGlobalTerminal, changeToken }) {
   const [workspaces, setWorkspaces] = useState(/** @type {import('../../types').Workspace[]} */ ([]));
-  const [sessions, setSessions] = useState(/** @type {import('../../types').Session[]} */ ([]));
   const [ruleErrors, setRuleErrors] = useState(/** @type {import('../../types').RuleLoadError[]} */ ([]));
   const [ruleDefs, setRuleDefs] = useState(/** @type {import('../../types').RuleDefinition[]} */ ([]));
   const tasks = useTasks();
@@ -89,9 +87,6 @@ export function DashboardSummary({ prCount, pollConfigured, workItems, onOpenGlo
     void changeToken;
     fetchWorkspaces()
       .then(setWorkspaces)
-      .catch(() => {});
-    fetchSessions()
-      .then(setSessions)
       .catch(() => {});
     if (pollConfigured) {
       fetchRules()
@@ -223,7 +218,11 @@ export function DashboardSummary({ prCount, pollConfigured, workItems, onOpenGlo
           renderItem={(sess) => {
             const ws = sess.workspace_id ? wsById[sess.workspace_id] : null;
             const workItem = sess.work_item_id ? workItemById[sess.work_item_id] : null;
-            const label = workItem ? workItem.title || workItem.reference : ws ? ws.name : 'Global session';
+            const label = workItem
+              ? workItem.title || workItem.reference
+              : ws
+                ? ws.name
+                : sess.name || 'Global session';
             const provider = sess.provider === 'codex' ? 'Codex' : 'Claude';
             const detail = `${provider} - PID ${sess.pid} - started ${new Date(sess.started_at).toLocaleTimeString()}`;
             const href = workItem
@@ -241,7 +240,7 @@ export function DashboardSummary({ prCount, pollConfigured, workItems, onOpenGlo
                   href="#"
                   onClick={(e) => {
                     e.preventDefault();
-                    onOpenGlobalTerminal?.();
+                    onOpenGlobalTerminal?.(sess.id);
                   }}
                 >
                   <span className={styles.itemName}>{label}</span>

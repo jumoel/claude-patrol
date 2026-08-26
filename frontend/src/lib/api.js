@@ -209,11 +209,12 @@ export async function destroyWorkspace(workspaceId) {
 /**
  * Fetch sessions for one explicit target.
  * @param {import('../types').SessionTarget} [target]
+ * @param {AbortSignal} [signal]
  * @returns {Promise<import('../types').Session[]>}
  */
-export async function fetchSessions(target) {
+export async function fetchSessions(target, signal) {
   const url = `${BASE}/api/sessions${target ? `?${sessionTargetQuery(target)}` : ''}`;
-  const res = await fetch(url);
+  const res = await fetch(url, { signal });
   if (!res.ok) throw new Error((await readError(res)) || `Failed to fetch sessions: ${res.status}`);
   return readJson(res);
 }
@@ -222,15 +223,16 @@ export async function fetchSessions(target) {
  * Create a session.
  * @param {import('../types').SessionTarget} target
  * @param {import('../types').AgentProvider} provider
+ * @param {string} [name]
  * @returns {Promise<import('../types').Session>}
  */
-export async function createSession(target, provider) {
+export async function createSession(target, provider, name) {
   const body =
     target.type === 'workspace'
       ? { workspace_id: target.id, provider }
       : target.type === 'work_item'
         ? { work_item_id: target.id, provider }
-        : { global: true, provider };
+        : { global: true, provider, ...(name === undefined ? {} : { name }) };
   const res = await fetch(`${BASE}/api/sessions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -239,6 +241,21 @@ export async function createSession(target, provider) {
   if (!res.ok) {
     throw new Error((await readError(res)) || `Failed to create session: ${res.status}`);
   }
+  return readJson(res);
+}
+
+/**
+ * @param {string} sessionId
+ * @param {string} name
+ * @returns {Promise<import('../types').Session>}
+ */
+export async function renameSession(sessionId, name) {
+  const res = await fetch(`${BASE}/api/sessions/${sessionId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  });
+  if (!res.ok) throw new Error((await readError(res)) || `Failed to rename session: ${res.status}`);
   return readJson(res);
 }
 

@@ -17,6 +17,7 @@ import {
 import { archiveTranscript } from './transcripts.js';
 
 const BUFFER_MAX = 50_000;
+export const MAX_LIVE_GLOBAL_SESSIONS = 16;
 // Bumped from 5s to 10s on 2026-05-08. Empirical max mid-turn gap was 1.36s
 // during a 15s silent tool call; 10s gives 7x safety margin against
 // false-positive idle while a turn is still in flight (lt#17).
@@ -29,6 +30,7 @@ export const PATROL_MCP_TIMEOUT_MS = 35 * 60 * 1000;
 const DEFAULT_SESSION_RUNTIME = {
   randomUUID,
   execFileSync,
+  isTmuxAlive: isTmuxSessionAlive,
   spawnPty(file, args, options) {
     if (process.platform === 'darwin') {
       const nodePtyEntry = fileURLToPath(import.meta.resolve('node-pty'));
@@ -415,13 +417,18 @@ export function cleanupOrphanedTmuxSessions() {
 }
 
 /**
- * Reattach to surviving tmux sessions from a previous server run.
- * Used in watch/dev mode to preserve sessions across server restarts.
- * Sessions whose tmux process is dead are marked killed.
+ * Sessions whose tmux process is dead are marked killed. A live tmux that
+ * cannot be attached stays detached so a transient PTY failure is recoverable.
+ * @param {Partial<typeof DEFAULT_SESSION_RUNTIME>} [runtimeOverrides]
  * @returns {number} number of sessions reattached
  */
-export function reattachOrphanedSessions() {
+export function reattachOrphanedSessions(runtimeOverrides = {}) {
   const db = getDb();
+  const runtime = {
+    ...DEFAULT_SESSION_RUNTIME,
+    isTmuxAlive: isTmuxSessionAlive,
+    ...runtimeOverrides,
+  };
   const orphans = db.prepare("SELECT * FROM sessions WHERE status IN ('active', 'detached')").all();
   if (orphans.length === 0) return 0;
 
@@ -429,27 +436,37 @@ export function reattachOrphanedSessions() {
   const now = new Date().toISOString();
 
   for (const session of orphans) {
-    if (!isTmuxSessionAlive(session.id)) {
+    if (!runtime.isTmuxAlive(session.id)) {
       db.prepare("UPDATE sessions SET status = 'killed', ended_at = ? WHERE id = ?").run(now, session.id);
       console.log(`[pty-manager] Orphaned session ${session.id} - tmux dead, marked killed`);
       continue;
     }
 
     try {
-      // Ensure status bar is off (may have been on from older sessions)
       const tmuxName = `patrol-${session.id}`;
       try {
-        execFileSync('tmux', ['set-option', '-t', tmuxName, 'status', 'off'], { timeout: 5_000 });
+        runtime.execFileSync('tmux', ['set-option', '-t', tmuxName, 'status', 'off'], { timeout: 5_000 });
       } catch {}
-      attachPtyToTmux(session.id, {
-        claudeProjectDir: session.claude_project_dir,
-        startedAt: session.started_at,
-      });
+      attachPtyToTmux(
+        session.id,
+        {
+          claudeProjectDir: session.claude_project_dir,
+          startedAt: session.started_at,
+        },
+        runtime,
+      );
       reattached++;
       console.log(`[pty-manager] Reattached to session ${session.id}`);
     } catch (err) {
-      db.prepare("UPDATE sessions SET status = 'killed', ended_at = ? WHERE id = ?").run(now, session.id);
-      console.warn(`[pty-manager] Failed to reattach session ${session.id}: ${err.message}`);
+      if (runtime.isTmuxAlive(session.id)) {
+        db.prepare("UPDATE sessions SET status = 'detached', ended_at = NULL WHERE id = ?").run(session.id);
+        console.warn(`[pty-manager] Failed to reattach session ${session.id}; tmux is still alive: ${err.message}`);
+      } else {
+        db.prepare("UPDATE sessions SET status = 'killed', ended_at = ? WHERE id = ?").run(now, session.id);
+        console.warn(
+          `[pty-manager] Failed to reattach session ${session.id}; tmux exited during attach: ${err.message}`,
+        );
+      }
     }
   }
 
@@ -508,7 +525,7 @@ function findReusableSession(target, provider, runtime) {
     .all(...where.params);
 
   for (const existing of existingRows) {
-    if (isTmuxSessionAlive(existing.id)) {
+    if (runtime.isTmuxAlive(existing.id)) {
       if (existing.provider !== provider) {
         throw taggedError(
           'provider_conflict',
@@ -538,12 +555,54 @@ function findReusableSession(target, provider, runtime) {
   return null;
 }
 
+const SESSION_NAME_MAX_LENGTH = 80;
+const SESSION_NAME_UNSAFE_RE = /[\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}]/u;
+
+/**
+ * @param {unknown} value
+ * @returns {string | null}
+ */
+export function normalizeGlobalSessionName(value) {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== 'string') throw new TypeError('Session name must be a string');
+  const name = value.trim();
+  if (!name) throw new TypeError('Session name must not be empty');
+  if ([...name].length > SESSION_NAME_MAX_LENGTH) {
+    throw new TypeError(`Session name must be ${SESSION_NAME_MAX_LENGTH} characters or fewer`);
+  }
+  if (SESSION_NAME_UNSAFE_RE.test(name)) {
+    throw new TypeError('Session name must not contain control or formatting characters');
+  }
+  return name;
+}
+
+/** @param {'claude'|'codex'} provider */
+function nextGlobalSessionName(provider) {
+  const base = provider === 'codex' ? 'Codex' : 'Claude';
+  const used = new Set(
+    getDb()
+      .prepare(
+        `SELECT name FROM sessions
+          WHERE workspace_id IS NULL
+            AND work_item_id IS NULL
+            AND status IN ('active', 'detached')
+            AND name IS NOT NULL`,
+      )
+      .all()
+      .map((row) => row.name.toLowerCase()),
+  );
+  for (let suffix = 1; ; suffix++) {
+    const candidate = `${base} ${suffix}`;
+    if (!used.has(candidate.toLowerCase())) return candidate;
+  }
+}
+
 /**
  * Start a tmux-backed agent session as one transaction. Runtime injection is
  * used by the regression test to force PTY failure without starting processes.
  * @param {{type: 'global'} | {type: 'workspace'|'work_item', id: string}} target
  * @param {string} cwd
- * @param {{provider?: 'claude'|'codex', claudeSessionId?: string | null, enablePatrolMcp?: boolean, initialPrompt?: string|null, runtime?: typeof DEFAULT_SESSION_RUNTIME}} options
+ * @param {{provider?: 'claude'|'codex', claudeSessionId?: string | null, enablePatrolMcp?: boolean, initialPrompt?: string|null, name?: string|null, reuseExisting?: boolean, runtime?: typeof DEFAULT_SESSION_RUNTIME}} options
  * @returns {object} session record
  */
 export function createSessionWithRuntime(target, cwd, options = {}) {
@@ -551,6 +610,8 @@ export function createSessionWithRuntime(target, cwd, options = {}) {
     claudeSessionId = null,
     enablePatrolMcp = true,
     initialPrompt = null,
+    name = null,
+    reuseExisting = true,
     runtime = DEFAULT_SESSION_RUNTIME,
   } = options;
   const normalizedTarget = normalizeSessionTarget(target);
@@ -558,12 +619,31 @@ export function createSessionWithRuntime(target, cwd, options = {}) {
   const provider = normalizeSessionProvider(options.provider);
   const db = getDb();
 
-  if (!claudeSessionId) {
+  if (!claudeSessionId && reuseExisting) {
     const existing = findReusableSession(normalizedTarget, provider, runtime);
     if (existing) return existing;
   }
 
+  if (normalizedTarget.type === 'global') {
+    const { count } = db
+      .prepare(
+        `SELECT COUNT(*) AS count FROM sessions
+          WHERE workspace_id IS NULL
+            AND work_item_id IS NULL
+            AND status IN ('active', 'detached')`,
+      )
+      .get();
+    if (count >= MAX_LIVE_GLOBAL_SESSIONS) {
+      throw taggedError(
+        'global_session_limit',
+        `at most ${MAX_LIVE_GLOBAL_SESSIONS} global sessions may be active at once`,
+      );
+    }
+  }
+
   const id = runtime.randomUUID();
+  const sessionName =
+    normalizedTarget.type === 'global' ? (normalizeGlobalSessionName(name) ?? nextGlobalSessionName(provider)) : null;
   const tmuxName = `patrol-${id}`;
   const tempPaths = [];
 
@@ -593,15 +673,16 @@ export function createSessionWithRuntime(target, cwd, options = {}) {
     const now = new Date().toISOString();
     db.prepare(
       `INSERT INTO sessions
-        (id, workspace_id, work_item_id, pid, provider, status, started_at, claude_project_dir)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    ).run(id, workspaceId, workItemId, 0, provider, 'active', now, launch.claudeProjectDir);
+        (id, workspace_id, work_item_id, name, pid, provider, status, started_at, claude_project_dir)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(id, workspaceId, workItemId, sessionName, 0, provider, 'active', now, launch.claudeProjectDir);
 
     attachPtyToTmux(id, { claudeProjectDir: launch.claudeProjectDir, startedAt: now }, runtime);
     return {
       id,
       workspace_id: workspaceId,
       work_item_id: workItemId,
+      name: sessionName,
       target: normalizedTarget,
       provider,
       status: 'active',

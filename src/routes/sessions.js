@@ -6,6 +6,7 @@ import {
   createResumedSession,
   createSession,
   killSessionAndWait,
+  normalizeGlobalSessionName,
   popOutSession,
   reattachSession,
 } from '../pty-manager.js';
@@ -29,18 +30,26 @@ import { createScratchWorkspace } from '../workspace.js';
 export function registerSessionRoutes(app) {
   const { getConfig, getDb, getSessionStates } = app.appContext;
   const launchSession = app.appContext.createSession ?? createSession;
-  const formatSession = (row) => {
+  const formatSession = (row, stateBySessionId = null) => {
     const workItem = row.work_item_id
       ? getDb().prepare('SELECT title, reference, path FROM work_items WHERE id = ?').get(row.work_item_id)
       : null;
+    const activityState =
+      stateBySessionId === null
+        ? (getSessionStates().find((entry) => entry.sessionId === row.id)?.state ?? null)
+        : (stateBySessionId.get(row.id) ?? null);
     return {
       ...row,
       target: sessionTargetFromRow(row),
-      activity_state: getSessionStates().find((entry) => entry.sessionId === row.id)?.state ?? null,
+      activity_state: activityState,
       work_item_title: workItem?.title ?? null,
       work_item_reference: workItem?.reference ?? null,
       root_path: workItem?.path ?? null,
     };
+  };
+  const formatSessions = (rows) => {
+    const stateBySessionId = new Map(getSessionStates().map((entry) => [entry.sessionId, entry.state]));
+    return rows.map((row) => formatSession(row, stateBySessionId));
   };
   const targetError = (reply, code, message, status = 400) =>
     reply.code(status).send({
@@ -55,7 +64,7 @@ export function registerSessionRoutes(app) {
     });
 
   app.post('/api/sessions', (request, reply) => {
-    const { workspace_id, work_item_id, global: isGlobal } = request.body || {};
+    const { workspace_id, work_item_id, global: isGlobal, name: rawName } = request.body || {};
     let provider;
     try {
       provider = request.body?.provider === undefined ? null : normalizeSessionProvider(request.body.provider);
@@ -74,11 +83,18 @@ export function registerSessionRoutes(app) {
     let target;
     let sessionOptions = {};
     if (isGlobal === true) {
-      if (keys.some((key) => !['global', 'provider'].includes(key)) || provider === null) {
+      if (keys.some((key) => !['global', 'provider', 'name'].includes(key)) || provider === null) {
         return targetError(reply, 'invalid_request', 'Global sessions require global: true and provider');
+      }
+      let name;
+      try {
+        name = normalizeGlobalSessionName(rawName);
+      } catch (error) {
+        return targetError(reply, 'invalid_session_name', error.message);
       }
       cwd = getConfig().global_terminal_cwd || process.cwd();
       target = { type: 'global' };
+      sessionOptions = { name, reuseExisting: false };
     } else if (workspace_id) {
       if (keys.some((key) => !['workspace_id', 'provider'].includes(key)) || provider === null) {
         return targetError(reply, 'invalid_request', 'Workspace sessions require workspace_id and provider');
@@ -131,13 +147,14 @@ export function registerSessionRoutes(app) {
           work_item_id,
         );
       }
+      const persistedSession = db.prepare('SELECT * FROM sessions WHERE id = ?').get(session.id) ?? session;
       emitLocalChange();
       return reply.code(201).send({
-        ...formatSession(session),
+        ...formatSession(persistedSession),
         ws_url: `ws://${request.hostname}/ws/sessions/${session.id}`,
       });
     } catch (err) {
-      const status = err.code === 'provider_conflict' ? 409 : 500;
+      const status = ['provider_conflict', 'global_session_limit'].includes(err.code) ? 409 : 500;
       return targetError(
         reply,
         err.code ?? 'session_launch_failed',
@@ -162,26 +179,30 @@ export function registerSessionRoutes(app) {
           409,
         );
       }
-      return db
+      const rows = db
         .prepare("SELECT * FROM sessions WHERE workspace_id = ? AND status IN ('active', 'detached')")
-        .all(workspace_id)
-        .map(formatSession);
+        .all(workspace_id);
+      return formatSessions(rows);
     }
     if (work_item_id) {
-      return db
+      const rows = db
         .prepare("SELECT * FROM sessions WHERE work_item_id = ? AND status IN ('active', 'detached')")
-        .all(work_item_id)
-        .map(formatSession);
+        .all(work_item_id);
+      return formatSessions(rows);
     }
     if (isGlobal === 'true') {
-      return db
+      const rows = db
         .prepare(
-          "SELECT * FROM sessions WHERE workspace_id IS NULL AND work_item_id IS NULL AND status IN ('active', 'detached')",
+          `SELECT * FROM sessions
+            WHERE workspace_id IS NULL
+              AND work_item_id IS NULL
+              AND status IN ('active', 'detached')
+            ORDER BY started_at, id`,
         )
-        .all()
-        .map(formatSession);
+        .all();
+      return formatSessions(rows);
     }
-    return db
+    const rows = db
       .prepare(
         `SELECT s.*
          FROM sessions s
@@ -189,8 +210,39 @@ export function registerSessionRoutes(app) {
          WHERE s.status IN ('active', 'detached')
            AND (s.workspace_id IS NULL OR w.work_item_id IS NULL)`,
       )
-      .all()
-      .map(formatSession);
+      .all();
+    return formatSessions(rows);
+  });
+
+  app.patch('/api/sessions/:id', (request, reply) => {
+    const keys = request.body && typeof request.body === 'object' ? Object.keys(request.body) : [];
+    if (keys.length !== 1 || keys[0] !== 'name') {
+      return targetError(reply, 'invalid_request', 'Session rename requires only name');
+    }
+
+    let name;
+    try {
+      name = normalizeGlobalSessionName(request.body.name);
+    } catch (error) {
+      return targetError(reply, 'invalid_session_name', error.message);
+    }
+    if (name === null) return targetError(reply, 'invalid_session_name', 'Session name is required');
+
+    const db = getDb();
+    const session = db
+      .prepare(
+        `SELECT * FROM sessions
+          WHERE id = ?
+            AND workspace_id IS NULL
+            AND work_item_id IS NULL
+            AND status IN ('active', 'detached')`,
+      )
+      .get(request.params.id);
+    if (!session) return targetError(reply, 'session_not_found', 'Live global session not found', 404);
+
+    db.prepare('UPDATE sessions SET name = ? WHERE id = ?').run(name, session.id);
+    emitLocalChange();
+    return formatSession({ ...session, name });
   });
 
   app.delete('/api/sessions/:id', async (request, reply) => {
@@ -199,7 +251,6 @@ export function registerSessionRoutes(app) {
     } catch (error) {
       return targetError(reply, error.code ?? 'session_stop_failed', error.message, 500);
     }
-    emitLocalChange();
     return { ok: true };
   });
 

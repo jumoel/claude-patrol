@@ -16,6 +16,7 @@ import { WorkItemDetail } from './components/WorkItemDetail/WorkItemDetail.jsx';
 import { WorkItems } from './components/WorkItems/WorkItems.jsx';
 import { WorkspaceDetail } from './components/WorkspaceDetail/WorkspaceDetail.jsx';
 import { useAgentProvider } from './context/AgentProviderContext.jsx';
+import { useGlobalSessions } from './hooks/useGlobalSessions.js';
 import { useIdleNotification } from './hooks/useIdleNotification.js';
 import { usePRs } from './hooks/usePRs.js';
 import { useWorkItems } from './hooks/useWorkItems.js';
@@ -172,19 +173,26 @@ export default function App() {
   const [sorting, setSorting] = useState(initial.sorting);
   const [stackView, setStackView] = useState(initial.stackView);
   const [terminalOpen, setTerminalOpen] = useState(false);
-  const [globalSession, setGlobalSession] = useState(/** @type {import('./types').Session | null} */ (null));
   const [copied, setCopied] = useState(false);
   const copiedTimeout = useRef(/** @type {ReturnType<typeof setTimeout> | null} */ (null));
   const sortedRowsRef = useRef(/** @type {PullRequest[] | null} */ (null));
-  const toggleTerminal = useCallback(() => setTerminalOpen((prev) => !prev), []);
-  const openGlobalTerminal = useCallback(() => setTerminalOpen(true), []);
-  const closeGlobalTerminal = useCallback(() => setTerminalOpen(false), []);
   const pollConfigured = publicConfig?.poll_configured ?? false;
   const workItemsConfigured = publicConfig?.work_items.configured ?? false;
   const prSource = usePRs(DASHBOARD_FILTERS, applicationDataEnabled && pollConfigured);
   const workItemSource = useWorkItems(applicationDataEnabled);
   const { targetStates, dismissedIdle, setActiveTarget, localChangeCount } =
     useIdleNotification(applicationDataEnabled);
+  const globalSessionState = useGlobalSessions(applicationDataEnabled, localChangeCount);
+  const toggleTerminal = useCallback(() => setTerminalOpen((prev) => !prev), []);
+  const openGlobalTerminal = useCallback(
+    /** @param {string} [sessionId] */
+    (sessionId) => {
+      if (sessionId) globalSessionState.selectSession(sessionId);
+      setTerminalOpen(true);
+    },
+    [globalSessionState.selectSession],
+  );
+  const closeGlobalTerminal = useCallback(() => setTerminalOpen(false), []);
   const [scratchWorkspaces, setScratchWorkspaces] = useState(/** @type {import('./types').Workspace[]} */ ([]));
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const [commitsBehind, setCommitsBehind] = useState(0);
@@ -379,7 +387,7 @@ export default function App() {
       onSync={triggerSync}
       pollConfigured={publicConfig?.poll_configured ?? false}
       terminalOpen={terminalOpen}
-      globalSession={globalSession}
+      globalSessions={globalSessionState.sessions}
       onToggleTerminal={toggleTerminal}
       onSetup={() => {
         window.location.hash = '/setup';
@@ -412,6 +420,7 @@ export default function App() {
             prCount={filteredPRs.length}
             pollConfigured={pollConfigured}
             workItems={workItemSource.workItems}
+            sessions={globalSessionState.allSessions}
             onOpenGlobalTerminal={openGlobalTerminal}
             changeToken={localChangeCount}
           />
@@ -463,14 +472,25 @@ export default function App() {
       )}
       {applicationDataEnabled && (
         <>
-          <GlobalTerminal open={terminalOpen} onToggle={toggleTerminal} onSessionChange={setGlobalSession} />
+          <GlobalTerminal
+            open={terminalOpen}
+            onToggle={toggleTerminal}
+            sessions={globalSessionState.sessions}
+            activeSession={globalSessionState.activeSession}
+            loading={globalSessionState.loading}
+            loadError={globalSessionState.error}
+            onReload={globalSessionState.reload}
+            onSelectSession={globalSessionState.selectSession}
+            onUpsertSession={globalSessionState.upsertSession}
+            onRemoveSession={globalSessionState.removeSession}
+          />
           <CommandPalette
             prs={allPRs}
             workItems={workItemSource.workItems}
             scratchWorkspaces={scratchWorkspaces}
             workspaceStates={targetStates}
             dismissedIdle={dismissedIdle}
-            globalSession={globalSession}
+            globalSessions={globalSessionState.sessions}
             onNavigate={navigateToPR}
             onNavigateWorkspace={navigateToWorkspace}
             onNavigateWorkItem={navigateToWorkItem}

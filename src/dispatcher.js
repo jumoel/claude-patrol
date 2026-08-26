@@ -27,8 +27,9 @@ import { createWorkspace } from './workspace.js';
  *    `autoCreate`, missing workspace and missing session are both created.
  *  - `workspace_id` resolves to the workspace's session. The workspace
  *    itself must already exist (we don't create workspaces from raw ids).
- *  - `global: true` resolves to the global session (both target IDs are null).
- *    `autoCreate` spawns one in `global_terminal_cwd` if missing.
+ *  - `global: true` resolves only when zero or one global session exists.
+ *    `autoCreate` spawns one in `global_terminal_cwd` if missing; multiple
+ *    sessions error `ambiguous_target` so callers must use `session_id`.
  *
  * After resolution, if `callerSessionId` matches the resolved target,
  * throws `self_target`. If the target is currently `working`, throws
@@ -41,7 +42,7 @@ import { createWorkspace } from './workspace.js';
  * Errors thrown carry `.code` in:
  *   `no_target`, `multiple_targets`, `invalid_prompt`, `no_session`,
  *   `no_workspace`, `session_detached`, `self_target`, `session_busy`,
- *   `boot_timeout`, `session_exited`.
+ *   `ambiguous_target`, `boot_timeout`, `session_exited`.
  *
  * @param {object} args
  * @param {string} [args.session_id]
@@ -138,11 +139,22 @@ export async function ensureSessionAndSend({
         .get(workspace.id);
       resolvedWorkspaceId = workspace.id;
     } else {
-      sessionRow = db
+      const globalSessions = db
         .prepare(
-          "SELECT * FROM sessions WHERE workspace_id IS NULL AND work_item_id IS NULL AND status IN ('active', 'detached')",
+          `SELECT * FROM sessions
+            WHERE workspace_id IS NULL
+              AND work_item_id IS NULL
+              AND status IN ('active', 'detached')
+            LIMIT 2`,
         )
-        .get();
+        .all();
+      if (globalSessions.length > 1) {
+        throw taggedError(
+          'ambiguous_target',
+          'multiple global sessions are live; use list_sessions and target one by session_id',
+        );
+      }
+      sessionRow = globalSessions[0];
     }
 
     if (sessionRow?.status === 'detached') {

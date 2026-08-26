@@ -3,6 +3,7 @@ import { EventEmitter } from 'node:events';
 import { afterEach, test } from 'node:test';
 import { actionRegistry } from './actions.js';
 import { createAppContext } from './app-context.js';
+import { appEvents } from './app-events.js';
 import { parseConfig } from './config.js';
 import { closeDb, getDb, initDb } from './db.js';
 import { ensureSessionAndSend } from './dispatcher.js';
@@ -231,6 +232,149 @@ test('work-item session creation accepts a selected provider and persists it', a
       'claude',
     );
   } finally {
+    await server.close();
+  }
+});
+
+test('global session routes create distinct named sessions and reject ambiguous dispatch', async () => {
+  const service = {
+    create() {},
+    list: () => [],
+    detail: () => null,
+    retry() {},
+    destroy() {},
+    waitForIdle: async () => {},
+  };
+  const launches = [];
+  let sequence = 0;
+  let stateReads = 0;
+  const server = await serverFixture(service, {
+    getSessionStates() {
+      stateReads++;
+      return [];
+    },
+    createSession(target, _cwd, provider, options) {
+      if (options.name === 'Overflow') {
+        const error = new Error('global session limit reached');
+        error.code = 'global_session_limit';
+        throw error;
+      }
+      sequence++;
+      const session = {
+        id: `global-${sequence}`,
+        workspace_id: null,
+        work_item_id: null,
+        name: options.name,
+        pid: sequence,
+        provider,
+        status: 'active',
+        started_at: `2026-08-22T00:00:0${sequence}.000Z`,
+        ended_at: null,
+        claude_project_dir: null,
+        transcript_path: null,
+      };
+      launches.push({ target, provider, options });
+      getDb()
+        .prepare(
+          `INSERT INTO sessions (id, name, pid, provider, status, started_at)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+        )
+        .run(session.id, session.name, session.pid, session.provider, session.status, session.started_at);
+      return session;
+    },
+  });
+
+  try {
+    const first = await server.inject({
+      method: 'POST',
+      url: '/api/sessions',
+      payload: { global: true, provider: 'claude', name: 'Planner' },
+    });
+    const second = await server.inject({
+      method: 'POST',
+      url: '/api/sessions',
+      payload: { global: true, provider: 'codex', name: 'Reviewer' },
+    });
+    assert.equal(first.statusCode, 201);
+    assert.equal(second.statusCode, 201);
+    assert.equal(first.json().name, 'Planner');
+    assert.equal(second.json().name, 'Reviewer');
+    assert.deepEqual(
+      launches.map(({ target, provider, options }) => ({ target, provider, options })),
+      [
+        { target: { type: 'global' }, provider: 'claude', options: { name: 'Planner', reuseExisting: false } },
+        { target: { type: 'global' }, provider: 'codex', options: { name: 'Reviewer', reuseExisting: false } },
+      ],
+    );
+
+    stateReads = 0;
+    const listed = await server.inject({ method: 'GET', url: '/api/sessions?global=true' });
+    assert.equal(stateReads, 1);
+    assert.deepEqual(
+      listed.json().map(({ id, name }) => ({ id, name })),
+      [
+        { id: 'global-1', name: 'Planner' },
+        { id: 'global-2', name: 'Reviewer' },
+      ],
+    );
+
+    const renamed = await server.inject({
+      method: 'PATCH',
+      url: '/api/sessions/global-2',
+      payload: { name: '  Critic  ' },
+    });
+    assert.equal(renamed.statusCode, 200);
+    assert.equal(renamed.json().name, 'Critic');
+    assert.equal(getDb().prepare("SELECT name FROM sessions WHERE id = 'global-2'").get().name, 'Critic');
+
+    const invalidName = await server.inject({
+      method: 'PATCH',
+      url: '/api/sessions/global-2',
+      payload: { name: '   ' },
+    });
+    assert.equal(invalidName.statusCode, 400);
+    assert.equal(invalidName.json().error.code, 'invalid_session_name');
+
+    const deceptiveName = await server.inject({
+      method: 'PATCH',
+      url: '/api/sessions/global-2',
+      payload: { name: 'Critic\u202ereversed' },
+    });
+    assert.equal(deceptiveName.statusCode, 400);
+    assert.equal(deceptiveName.json().error.code, 'invalid_session_name');
+
+    const overLimit = await server.inject({
+      method: 'POST',
+      url: '/api/sessions',
+      payload: { global: true, provider: 'claude', name: 'Overflow' },
+    });
+    assert.equal(overLimit.statusCode, 409);
+    assert.equal(overLimit.json().error.code, 'global_session_limit');
+
+    await assert.rejects(
+      ensureSessionAndSend({ global: true, prompt: 'do not choose arbitrarily' }),
+      (error) => error.code === 'ambiguous_target',
+    );
+  } finally {
+    await server.close();
+  }
+});
+
+test('session deletion does not emit a change when no session changes', async () => {
+  const service = { create() {}, list: () => [], detail: () => null, retry() {}, destroy() {} };
+  const server = await serverFixture(service);
+  let localChanges = 0;
+  const onLocalChange = () => {
+    localChanges++;
+  };
+  appEvents.on('local-change', onLocalChange);
+
+  try {
+    const response = await server.inject({ method: 'DELETE', url: '/api/sessions/missing' });
+    assert.equal(response.statusCode, 200);
+    assert.equal(localChanges, 0);
+  } finally {
+    appEvents.off('local-change', onLocalChange);
     await server.close();
   }
 });

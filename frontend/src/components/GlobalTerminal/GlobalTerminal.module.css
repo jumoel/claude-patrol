@@ -30,11 +30,36 @@
 }
 
 .handle {
-  @apply px-4 py-2 bg-gray-800 border-t border-gray-700 shrink-0;
+  @apply flex items-center gap-3 px-3 py-2 bg-gray-800 border-t border-gray-700 shrink-0;
 }
 
-.handleText {
-  @apply text-base text-gray-300 font-medium;
+.tabsWrap {
+  @apply flex min-w-0 flex-1 items-center gap-1;
+}
+
+.tabList {
+  @apply flex min-w-0 items-center gap-1 overflow-x-auto;
+}
+
+.tab {
+  @apply max-w-48 shrink-0 cursor-pointer truncate rounded-md border border-transparent px-3 py-1.5 text-sm text-gray-400 transition-colors hover:bg-gray-700 hover:text-gray-100;
+}
+
+.tab:focus-visible,
+.addTab:focus-visible {
+  @apply outline-none ring-2 ring-blue-400;
+}
+
+.tabActive {
+  @apply border-gray-600 bg-gray-700 text-white;
+}
+
+.addTab {
+  @apply flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-lg leading-none text-gray-400 transition-colors hover:bg-gray-700 hover:text-white disabled:cursor-not-allowed disabled:opacity-50;
+}
+
+.controls {
+  @apply shrink-0;
 }
 
 .closeButton {
@@ -43,6 +68,15 @@
 
 .promoteForm {
   @apply px-4 py-2 bg-gray-800/80 border-b border-gray-700 shrink-0;
+}
+
+.renameForm {
+  @apply flex shrink-0 items-center gap-2 border-b border-gray-700 bg-gray-800/80 px-4 py-2 text-sm text-gray-300;
+}
+
+.renameInput {
+  @apply min-w-40 flex-1 rounded border border-gray-600 bg-gray-700 px-2 py-1 text-sm text-gray-100 outline-none focus:border-blue-400;
+  max-width: 28rem;
 }
 
 .promoteSelect {
@@ -58,6 +92,10 @@
 
 .content {
   @apply flex-1 overflow-hidden min-h-0;
+}
+
+.errorBar {
+  @apply flex shrink-0 items-center justify-between gap-3 border-b border-red-900/60 bg-red-950/60 px-4 py-2 text-sm text-red-300;
 }
 
 .loading {

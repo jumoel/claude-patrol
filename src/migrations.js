@@ -1,6 +1,6 @@
 /** Schema v7 intentionally resets every pre-v7 database. */
 
-export const CURRENT_SCHEMA_VERSION = 10;
+export const CURRENT_SCHEMA_VERSION = 11;
 
 function createWorkItemTables(db) {
   db.exec(`
@@ -69,6 +69,7 @@ function createWorkspaceTablesV9(db) {
       id TEXT PRIMARY KEY,
       workspace_id TEXT REFERENCES workspaces(id),
       work_item_id TEXT REFERENCES work_items(id),
+      name TEXT,
       pid INTEGER,
       provider TEXT NOT NULL DEFAULT 'claude' CHECK(provider IN ('claude', 'codex')),
       status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'detached', 'killed')),
@@ -93,6 +94,22 @@ function createWorkspaceTablesV9(db) {
       created_at TEXT NOT NULL,
       PRIMARY KEY (repo, bookmark)
     );
+  `);
+}
+
+function addSessionNames(db) {
+  const hasName = db
+    .prepare("PRAGMA table_info('sessions')")
+    .all()
+    .some((column) => column.name === 'name');
+  if (!hasName) db.exec('ALTER TABLE sessions ADD COLUMN name TEXT');
+
+  db.exec(`
+    UPDATE sessions
+       SET name = CASE provider WHEN 'codex' THEN 'Codex' ELSE 'Claude' END
+     WHERE workspace_id IS NULL
+       AND work_item_id IS NULL
+       AND (name IS NULL OR trim(name) = '')
   `);
 }
 
@@ -298,6 +315,7 @@ export function migrateDb(db) {
       migrateV8ToV9(db);
     }
     createWorkItemRepositoryAdditionTable(db);
+    addSessionNames(db);
     db.exec(`PRAGMA user_version = ${CURRENT_SCHEMA_VERSION}`);
     db.exec('COMMIT');
     const kind = version < 7 ? 'Destructive schema reset' : 'Schema migration';

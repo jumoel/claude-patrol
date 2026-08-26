@@ -184,6 +184,70 @@ test('a pre-v7 database is backed up and reset to the clean schema', () => {
   assert.equal(readFileSync(`${path}.backup-v0-to-v${CURRENT_SCHEMA_VERSION}`).length > 0, true);
 });
 
+test('the v10 migration preserves live global sessions and adds names', () => {
+  const path = join(temporaryDirectory(), 'v10.db');
+  const legacy = new DatabaseSync(path);
+  legacy.exec(`
+    PRAGMA foreign_keys = ON;
+    CREATE TABLE work_items (id TEXT PRIMARY KEY);
+    CREATE TABLE workspaces (id TEXT PRIMARY KEY);
+    CREATE TABLE sessions (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT REFERENCES workspaces(id),
+      work_item_id TEXT REFERENCES work_items(id),
+      pid INTEGER,
+      provider TEXT NOT NULL CHECK(provider IN ('claude', 'codex')),
+      status TEXT NOT NULL CHECK(status IN ('active', 'detached', 'killed')),
+      started_at TEXT NOT NULL,
+      ended_at TEXT,
+      claude_project_dir TEXT,
+      transcript_path TEXT
+    );
+    INSERT INTO sessions (
+      id, pid, provider, status, started_at, claude_project_dir, transcript_path
+    ) VALUES
+      ('global-claude', 101, 'claude', 'active', '2026-08-20T10:00:00.000Z', '/tmp/claude', '/tmp/claude.jsonl'),
+      ('global-codex', 202, 'codex', 'detached', '2026-08-20T11:00:00.000Z', NULL, NULL);
+    PRAGMA user_version = 10;
+  `);
+  legacy.close();
+
+  const db = initDb(path);
+  assert.equal(db.prepare('PRAGMA user_version').get().user_version, CURRENT_SCHEMA_VERSION);
+  assert.deepEqual(
+    db
+      .prepare(
+        `SELECT id, name, pid, provider, status, started_at, claude_project_dir, transcript_path
+           FROM sessions ORDER BY id`,
+      )
+      .all()
+      .map((row) => ({ ...row })),
+    [
+      {
+        id: 'global-claude',
+        name: 'Claude',
+        pid: 101,
+        provider: 'claude',
+        status: 'active',
+        started_at: '2026-08-20T10:00:00.000Z',
+        claude_project_dir: '/tmp/claude',
+        transcript_path: '/tmp/claude.jsonl',
+      },
+      {
+        id: 'global-codex',
+        name: 'Codex',
+        pid: 202,
+        provider: 'codex',
+        status: 'detached',
+        started_at: '2026-08-20T11:00:00.000Z',
+        claude_project_dir: null,
+        transcript_path: null,
+      },
+    ],
+  );
+  assert.equal(readFileSync(`${path}.backup-v10-to-v${CURRENT_SCHEMA_VERSION}`).length > 0, true);
+});
+
 test('configuration defaults to loopback and authored polling cadence', () => {
   const config = parseConfig({ poll: { orgs: [], repos: [] } });
   assert.equal(config.host, '127.0.0.1');

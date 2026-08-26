@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import logoSvg from '../../assets/logo.svg';
-import { useAgentProvider } from '../../context/AgentProviderContext.jsx';
 import { fetchRestartStatus, triggerRestart, triggerUpdate } from '../../lib/api.js';
 import { getErrorMessage } from '../../lib/errors.js';
 import { AgentProviderButton } from '../AgentProviderButton/AgentProviderButton.jsx';
@@ -39,7 +38,7 @@ function formatResetCountdown(resetAt) {
  *   onSync: () => void | Promise<void>,
  *   pollConfigured: boolean,
  *   terminalOpen: boolean,
- *   globalSession: import('../../types').Session | null,
+ *   globalSessions: import('../../types').Session[],
  *   onToggleTerminal: () => void,
  *   onSetup?: () => void,
  *   updateAvailable: boolean,
@@ -59,7 +58,7 @@ export function AppShell({
   onSync,
   pollConfigured,
   terminalOpen,
-  globalSession,
+  globalSessions,
   onToggleTerminal,
   onSetup,
   updateAvailable,
@@ -70,7 +69,6 @@ export function AppShell({
   ghRateLimit,
   children,
 }) {
-  const { provider } = useAgentProvider();
   const [dismissed, setDismissed] = useState(false);
   const [pulling, setPulling] = useState(false);
   const [pullResult, setPullResult] = useState(
@@ -207,9 +205,6 @@ export function AppShell({
               variant="default"
               size="md"
               onClick={onToggleTerminal}
-              providerDisabled={!!globalSession}
-              providerDisabledTitle="Kill the current session before changing its provider"
-              value={globalSession?.provider}
               active={terminalOpen}
               className={styles.globalTerminalControl}
               actionClassName={`${styles.terminalButton} ${terminalOpen ? styles.terminalButtonActive : ''}`}
@@ -228,7 +223,7 @@ export function AppShell({
                 <polyline points="5,6 7.5,8.5 5,11" />
                 <line x1="9" y1="11" x2="12" y2="11" />
               </svg>
-              Global {(globalSession?.provider ?? provider) === 'codex' ? 'Codex' : 'Claude'}
+              Global sessions{globalSessions.length > 0 ? ` (${globalSessions.length})` : ''}
             </AgentProviderButton>
             {onSetup && (
               <button className={styles.settingsButton} onClick={onSetup}>

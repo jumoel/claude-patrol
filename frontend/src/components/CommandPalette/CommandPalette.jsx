@@ -12,7 +12,7 @@ import styles from './CommandPalette.module.css';
 /** @typedef {MatchResult & {type: 'pr', item: import('../../types').PullRequest}} PullRequestEntry */
 /** @typedef {MatchResult & {type: 'workspace', item: import('../../types').Workspace}} WorkspaceEntry */
 /** @typedef {MatchResult & {type: 'work_item', item: import('../../types').WorkItemListItem}} WorkItemEntry */
-/** @typedef {MatchResult & {type: 'global', item: {id: 'global'}}} GlobalEntry */
+/** @typedef {MatchResult & {type: 'global', item: import('../../types').Session}} GlobalEntry */
 /** @typedef {PullRequestEntry | WorkspaceEntry | WorkItemEntry | GlobalEntry} PaletteEntry */
 
 /**
@@ -72,11 +72,11 @@ function fuzzyMatchWorkItem(query, item) {
  *   scratchWorkspaces: import('../../types').Workspace[],
  *   workspaceStates?: Map<string, SessionState>,
  *   dismissedIdle?: Set<string>,
- *   globalSession: import('../../types').Session | null,
+ *   globalSessions: import('../../types').Session[],
  *   onNavigate: (prId: string) => void,
  *   onNavigateWorkspace: (workspaceId: string) => void,
  *   onNavigateWorkItem: (workItemId: string) => void,
- *   onOpenGlobalTerminal: () => void,
+ *   onOpenGlobalTerminal: (sessionId?: string) => void,
  *   onCloseGlobalTerminal?: () => void,
  * }} props
  */
@@ -86,7 +86,7 @@ export function CommandPalette({
   scratchWorkspaces,
   workspaceStates,
   dismissedIdle,
-  globalSession,
+  globalSessions,
   onNavigate,
   onNavigateWorkspace,
   onNavigateWorkItem,
@@ -173,20 +173,20 @@ export function CommandPalette({
       .map((item) => ({ ...fuzzyMatchWorkItem(query, item), type: /** @type {'work_item'} */ ('work_item'), item }))
       .filter((entry) => entry.match);
 
-    // Global terminal entry (only if session is active)
+    const globalTokens = query.toLowerCase().split(/\s+/).filter(Boolean);
     /** @type {GlobalEntry[]} */
-    const globalItems = [];
-    if (globalSession) {
-      const gLabel = 'Global Terminal';
-      if (!query || gLabel.toLowerCase().includes(query.toLowerCase())) {
-        globalItems.push({
-          match: true,
-          score: query ? 1 : 0,
-          type: 'global',
-          item: { id: 'global' },
-        });
-      }
-    }
+    const globalItems = globalSessions
+      .map((session) => {
+        const haystack = `${session.name || ''} global terminal ${session.provider}`.toLowerCase();
+        const match = globalTokens.every((token) => haystack.includes(token));
+        return {
+          match,
+          score: match ? globalTokens.length : 0,
+          type: /** @type {'global'} */ ('global'),
+          item: session,
+        };
+      })
+      .filter((entry) => entry.match);
 
     const all = [...prItems, ...workItemItems, ...wsItems, ...globalItems];
 
@@ -215,7 +215,7 @@ export function CommandPalette({
       if (aPri !== bPri) return bPri - aPri;
       return b.score - a.score;
     });
-  }, [prs, workItems, scratchWorkspaces, workspaceStates, globalSession, query]);
+  }, [prs, workItems, scratchWorkspaces, workspaceStates, globalSessions, query]);
 
   const activeIndex = Math.min(selectedIndex, Math.max(filtered.length - 1, 0));
 
@@ -230,7 +230,7 @@ export function CommandPalette({
     /** @param {PaletteEntry} entry */
     (entry) => {
       if (entry.type === 'global') {
-        onOpenGlobalTerminal();
+        onOpenGlobalTerminal(entry.item.id);
       } else {
         onCloseGlobalTerminal?.();
         if (entry.type === 'pr') {
@@ -303,7 +303,7 @@ export function CommandPalette({
                   entry.type === 'pr'
                     ? entry.item.id
                     : entry.type === 'global'
-                      ? 'global'
+                      ? `global-${entry.item.id}`
                       : `${entry.type}-${entry.item.id}`
                 }
                 className={`${styles.result} ${i === activeIndex ? styles.resultSelected : ''}`}
@@ -321,7 +321,7 @@ export function CommandPalette({
                     }
                   />
                 ) : entry.type === 'global' ? (
-                  <GlobalResult session={globalSession} />
+                  <GlobalResult session={entry.item} />
                 ) : entry.type === 'work_item' ? (
                   <WorkItemResult
                     item={entry.item}
@@ -367,13 +367,13 @@ function PRResult({ pr, sessionState, dismissed }) {
   );
 }
 
-/** @param {{session: import('../../types').Session | null}} props */
+/** @param {{session: import('../../types').Session}} props */
 function GlobalResult({ session }) {
   return (
     <Stack direction="col" gap={1} className={styles.resultInfo}>
-      <div className={styles.resultTitle}>Global Terminal</div>
+      <div className={styles.resultTitle}>{session.name || 'Global session'}</div>
       <Stack gap={1} className={styles.resultBadges}>
-        <Badge color="green">active {session?.provider || 'agent'} session</Badge>
+        <Badge color="green">{session.status === 'detached' ? 'detached' : `active ${session.provider}`} session</Badge>
       </Stack>
     </Stack>
   );

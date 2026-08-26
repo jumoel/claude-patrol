@@ -115,6 +115,7 @@ export interface Session {
   id: string;
   workspace_id: string | null;
   work_item_id: string | null;
+  name: string | null;
   target: SessionTarget;
   activity_state: 'working' | 'idle' | null;
   pid: number | null;

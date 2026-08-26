@@ -9,12 +9,17 @@ import { CLAUDE_REVIEW_TIMEOUT_MS } from './claude-review.js';
 import { CODEX_REVIEW_TIMEOUT_MS } from './codex-review.js';
 import { closeDb, getDb, initDb } from './db.js';
 import {
+  activeSessionCount,
   createSessionWithRuntime,
   dispatchWsMessage,
   getSessionPeerReviewReadiness,
+  killSession,
   killSessionAndWait,
+  MAX_LIVE_GLOBAL_SESSIONS,
+  normalizeGlobalSessionName,
   PATROL_MCP_TIMEOUT_MS,
   RingBuffer,
+  reattachOrphanedSessions,
   setMcpPort,
   TerminalOutputBatcher,
 } from './pty-manager.js';
@@ -246,6 +251,207 @@ it('writes per-session MCP config with the explicitly recorded port', () => {
   );
   assert.equal(mcpConfig.mcpServers.patrol.url, 'http://127.0.0.1:4242/mcp/port-session');
   assert.throws(() => setMcpPort({ port: 3000 }), /Invalid MCP port/);
+});
+
+it('bypasses global reuse only when distinct creation is requested', () => {
+  initDb(':memory:');
+  getDb()
+    .prepare(
+      `INSERT INTO sessions (id, name, pid, provider, status, started_at)
+       VALUES ('existing-global', 'Codex 1', 10, 'codex', 'active', ?)`,
+    )
+    .run(new Date().toISOString());
+
+  const commands = [];
+  let exitHandler = null;
+  const runtime = {
+    randomUUID: () => 'new-global',
+    isTmuxAlive: () => true,
+    execFileSync(command, args) {
+      commands.push([command, ...args]);
+    },
+    spawnPty() {
+      return {
+        pid: 20,
+        onData() {},
+        onExit(handler) {
+          exitHandler = handler;
+        },
+        kill() {
+          exitHandler?.({ exitCode: 0 });
+        },
+        write() {},
+        resize() {},
+      };
+    },
+  };
+
+  const reused = createSessionWithRuntime({ type: 'global' }, process.cwd(), {
+    provider: 'codex',
+    enablePatrolMcp: false,
+    runtime,
+  });
+  assert.equal(reused.id, 'existing-global');
+  assert.equal(commands.length, 0);
+
+  const distinct = createSessionWithRuntime({ type: 'global' }, process.cwd(), {
+    provider: 'codex',
+    enablePatrolMcp: false,
+    reuseExisting: false,
+    runtime,
+  });
+  assert.equal(distinct.id, 'new-global');
+  assert.equal(distinct.name, 'Codex 2');
+  assert.ok(commands.some(([command, subcommand]) => command === 'tmux' && subcommand === 'new-session'));
+  assert.deepEqual(
+    getDb()
+      .prepare("SELECT id, name, status FROM sessions WHERE status IN ('active', 'detached') ORDER BY id")
+      .all()
+      .map((row) => ({ ...row })),
+    [
+      { id: 'existing-global', name: 'Codex 1', status: 'active' },
+      { id: 'new-global', name: 'Codex 2', status: 'active' },
+    ],
+  );
+
+  killSession('new-global', { killTmux() {}, isTmuxAlive: () => false });
+  assert.equal(activeSessionCount(), 0);
+});
+
+it('rejects deceptive session names and bounds live global processes', () => {
+  assert.equal(normalizeGlobalSessionName('  Planner 🚀  '), 'Planner 🚀');
+  assert.throws(() => normalizeGlobalSessionName('safe\u202ereversed'), /formatting characters/);
+  assert.throws(() => normalizeGlobalSessionName('zero\u200bwidth'), /formatting characters/);
+
+  initDb(':memory:');
+  const insert = getDb().prepare(
+    `INSERT INTO sessions (id, name, pid, provider, status, started_at)
+     VALUES (?, ?, 1, 'claude', 'detached', ?)`,
+  );
+  for (let index = 0; index < MAX_LIVE_GLOBAL_SESSIONS; index++) {
+    insert.run(`global-${index}`, `Claude ${index + 1}`, new Date().toISOString());
+  }
+
+  assert.throws(
+    () =>
+      createSessionWithRuntime({ type: 'global' }, process.cwd(), {
+        provider: 'claude',
+        reuseExisting: false,
+        runtime: {
+          randomUUID: () => 'over-limit',
+          execFileSync() {
+            assert.fail('the process limit must be checked before tmux starts');
+          },
+          isTmuxAlive: () => true,
+          spawnPty() {
+            assert.fail('the process limit must be checked before PTY attachment');
+          },
+        },
+      }),
+    (error) => error.code === 'global_session_limit',
+  );
+});
+
+it('reattaches every surviving global session after an update', () => {
+  initDb(':memory:');
+  const now = new Date().toISOString();
+  const insert = getDb().prepare(
+    `INSERT INTO sessions (id, name, pid, provider, status, started_at)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+  );
+  insert.run('global-one', 'Planner', 11, 'claude', 'active', now);
+  insert.run('global-two', 'Reviewer', 22, 'codex', 'detached', now);
+
+  const exitHandlers = new Map();
+  const attached = [];
+  const runtime = {
+    randomUUID,
+    isTmuxAlive: () => true,
+    execFileSync() {},
+    spawnPty(_file, args) {
+      const sessionId = args.at(-1).replace('patrol-', '');
+      attached.push(sessionId);
+      return {
+        pid: sessionId === 'global-one' ? 111 : 222,
+        onData() {},
+        onExit(handler) {
+          exitHandlers.set(sessionId, handler);
+        },
+        kill() {
+          exitHandlers.get(sessionId)?.({ exitCode: 0 });
+        },
+        write() {},
+        resize() {},
+      };
+    },
+  };
+
+  assert.equal(reattachOrphanedSessions(runtime), 2);
+  assert.deepEqual(attached.sort(), ['global-one', 'global-two']);
+  assert.equal(activeSessionCount(), 2);
+  assert.deepEqual(
+    getDb()
+      .prepare('SELECT id, name, status FROM sessions ORDER BY id')
+      .all()
+      .map((row) => ({ ...row })),
+    [
+      { id: 'global-one', name: 'Planner', status: 'active' },
+      { id: 'global-two', name: 'Reviewer', status: 'active' },
+    ],
+  );
+
+  for (const sessionId of attached) {
+    killSession(sessionId, { killTmux() {}, isTmuxAlive: () => false });
+  }
+  assert.equal(activeSessionCount(), 0);
+});
+
+it('keeps a live tmux session recoverable when update reattach fails', () => {
+  initDb(':memory:');
+  getDb()
+    .prepare(
+      `INSERT INTO sessions (id, name, pid, provider, status, started_at)
+       VALUES ('global-live', 'Still running', 11, 'claude', 'active', ?)`,
+    )
+    .run(new Date().toISOString());
+
+  const reattached = reattachOrphanedSessions({
+    isTmuxAlive: () => true,
+    execFileSync() {},
+    spawnPty() {
+      throw new Error('temporary PTY failure');
+    },
+  });
+
+  assert.equal(reattached, 0);
+  assert.deepEqual(
+    { ...getDb().prepare("SELECT name, status, ended_at FROM sessions WHERE id = 'global-live'").get() },
+    { name: 'Still running', status: 'detached', ended_at: null },
+  );
+});
+
+it('marks a session killed when tmux exits during reattach', () => {
+  initDb(':memory:');
+  getDb()
+    .prepare(
+      `INSERT INTO sessions (id, name, pid, provider, status, started_at)
+       VALUES ('global-dying', 'Dying', 11, 'claude', 'active', ?)`,
+    )
+    .run(new Date().toISOString());
+  let livenessChecks = 0;
+
+  const reattached = reattachOrphanedSessions({
+    isTmuxAlive: () => livenessChecks++ === 0,
+    execFileSync() {},
+    spawnPty() {
+      throw new Error('tmux exited');
+    },
+  });
+
+  assert.equal(reattached, 0);
+  const row = getDb().prepare("SELECT status, ended_at FROM sessions WHERE id = 'global-dying'").get();
+  assert.equal(row.status, 'killed');
+  assert.ok(row.ended_at);
 });
 
 it('does not close a detached session row when tmux remains alive after a failed kill', async () => {
