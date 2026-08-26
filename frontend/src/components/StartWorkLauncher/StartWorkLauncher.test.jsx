@@ -61,6 +61,7 @@ test('defaults to Project reference when configured and dispatches only work-ite
     false,
   );
   const reference = screen.getByLabelText('Reference');
+  assert.equal(reference.getAttribute('placeholder'), 'Project reference or URL');
   await user.type(reference, 'ECO-3632');
   await user.click(screen.getByRole('button', { name: /Choose agent provider/ }));
   await user.click(screen.getByRole('menuitemradio', { name: /Codex/ }));

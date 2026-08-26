@@ -147,7 +147,7 @@ export function StartWorkLauncher({ workItemsConfigured }) {
                         name="work-reference"
                         value={reference}
                         onChange={(event) => setReference(event.target.value)}
-                        placeholder="ECO-3632 or another project reference"
+                        placeholder="Project reference or URL"
                         maxLength={512}
                         disabled={pending}
                         autoFocus
