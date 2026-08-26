@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { buildDashboardRows, buildWaitingSessions, dashboardSourceState } from './work-dashboard.js';
+import {
+  buildDashboardRows,
+  buildWaitingSessions,
+  dashboardSourceState,
+  filterDashboardRows,
+  serializeDashboardRowsMarkdown,
+} from './work-dashboard.js';
 
 const trackedPR = /** @type {import('../types').PullRequest} */ ({
   id: 'chainguard/mono#10',
@@ -161,13 +167,96 @@ describe('buildDashboardRows', () => {
 
 describe('buildWaitingSessions', () => {
   it('lists idle LLM sessions and respects acknowledged local targets', () => {
-    expect(buildWaitingSessions(sessions, new Set()).map((session) => session.id)).toEqual([
+    expect(buildWaitingSessions(sessions, new Map()).map((session) => session.id)).toEqual([
       'session-work',
       'session-global',
     ]);
-    expect(buildWaitingSessions(sessions, new Set(['work-item:work-1'])).map((session) => session.id)).toEqual([
-      'session-global',
+    expect(
+      buildWaitingSessions(sessions, new Map([['session-work', '2026-08-26T12:30:00.000Z']])).map(
+        (session) => session.id,
+      ),
+    ).toEqual(['session-global']);
+  });
+});
+
+describe('filterDashboardRows', () => {
+  const multiPRRow = /** @type {import('../types').DashboardWorkRow} */ ({
+    kind: 'work_item',
+    id: 'work-1',
+    title: 'Grouped work',
+    work_reference: { display: 'ONE-1', system: 'tracker', url: null },
+    repositories: ['org/repo'],
+    pull_requests: [
+      {
+        id: 'pr-pass',
+        number: 1,
+        title: 'Passing CI',
+        url: 'https://example.test/1',
+        org: 'org',
+        repo: 'repo',
+        draft: false,
+        mergeable: 'MERGEABLE',
+        ci_status: 'pass',
+        review_status: 'pending',
+        updated_at: null,
+        tracked: true,
+        stack_root: null,
+        stack_depth: 0,
+        is_stacked: false,
+      },
+      {
+        id: 'pr-approved',
+        number: 2,
+        title: 'Approved review',
+        url: 'https://example.test/2',
+        org: 'org',
+        repo: 'repo',
+        draft: false,
+        mergeable: 'MERGEABLE',
+        ci_status: 'fail',
+        review_status: 'approved',
+        updated_at: null,
+        tracked: true,
+        stack_root: null,
+        stack_depth: 0,
+        is_stacked: false,
+      },
+    ],
+    sessions: [],
+    workspace_count: 0,
+    workspace_id: null,
+    updated_at: '2026-08-26T10:00:00.000Z',
+    state: 'ready',
+  });
+  const scratchRow = /** @type {import('../types').DashboardWorkRow} */ ({
+    kind: 'scratch',
+    id: 'scratch',
+    title: 'Scratch',
+    work_reference: null,
+    repositories: ['org/other'],
+    pull_requests: [],
+    sessions: [],
+    workspace_count: 1,
+    workspace_id: 'scratch',
+    updated_at: '2026-08-26T09:00:00.000Z',
+    state: null,
+  });
+
+  it('requires one PR to satisfy every active PR constraint', () => {
+    expect(filterDashboardRows([multiPRRow], { ci: ['pass'], review: ['approved'] }).map((row) => row.id)).toEqual([]);
+    expect(filterDashboardRows([multiPRRow], { ci: ['pass'], review: ['pending'] }).map((row) => row.id)).toEqual([
+      'work-1',
     ]);
+  });
+
+  it('allows repository-only filters to match scratch work and excludes it from PR status filters', () => {
+    expect(filterDashboardRows([multiPRRow, scratchRow], { org: ['org'] })).toHaveLength(2);
+    expect(filterDashboardRows([multiPRRow, scratchRow], { ci: ['fail'] }).map((row) => row.id)).toEqual(['work-1']);
+  });
+
+  it('serializes the visible row order without inventing a work-reference URL', () => {
+    expect(serializeDashboardRowsMarkdown([scratchRow, multiPRRow])).toContain('- Work item ONE-1 - Grouped work');
+    expect(serializeDashboardRowsMarkdown([scratchRow, multiPRRow]).startsWith('- Scratch - Scratch')).toBe(true);
   });
 });
 

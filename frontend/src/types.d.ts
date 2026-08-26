@@ -261,6 +261,9 @@ export interface DashboardPullRequestSummary {
   review_status: ReviewStatus | null;
   updated_at: string | null;
   tracked: boolean;
+  stack_root: string | null;
+  stack_depth: number;
+  is_stacked: boolean;
 }
 
 export interface DashboardSessionSummary {
@@ -321,6 +324,8 @@ export interface DashboardCounts {
   active_workspaces: number | null;
   live_sessions: number | null;
 }
+
+export type DashboardColumn = 'work' | 'work_ref' | 'repository' | 'pull_requests' | 'llm' | 'local' | 'updated';
 
 export interface ApiErrorEnvelope {
   code: string;

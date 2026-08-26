@@ -181,7 +181,6 @@ export default function App() {
     pollConfigured,
     workItemsConfigured,
     changeToken: localChangeCount,
-    dismissedIdle,
   });
   const { prSource, workItemSource, sessionSource: globalSessionState } = dashboard;
   const toggleTerminal = useCallback(() => setTerminalOpen((prev) => !prev), []);
@@ -421,7 +420,16 @@ export default function App() {
           </Button>
         </div>
       ) : showUiRefresh ? (
-        <WorkDashboard dashboard={dashboard} onOpenGlobalTerminal={openGlobalTerminal} />
+        <WorkDashboard
+          dashboard={dashboard}
+          filters={filters}
+          onFilterChange={handleFilterChange}
+          sorting={sorting}
+          onSortingChange={handleSortingChange}
+          stackView={stackView}
+          onStackViewChange={handleStackViewChange}
+          onOpenGlobalTerminal={openGlobalTerminal}
+        />
       ) : (
         <>
           <DashboardSummary

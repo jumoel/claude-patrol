@@ -83,7 +83,6 @@ test.each([
       pollConfigured: poll,
       workItemsConfigured: workItems,
       changeToken: 0,
-      dismissedIdle: new Set(),
     }),
   );
 
@@ -102,7 +101,6 @@ test('marks an initial workspace failure unavailable instead of returning a zero
       pollConfigured: false,
       workItemsConfigured: true,
       changeToken: 0,
-      dismissedIdle: new Set(),
     }),
   );
 
@@ -119,7 +117,6 @@ test('retains workspace rows and marks them stale after a later failure', async 
         pollConfigured: false,
         workItemsConfigured: true,
         changeToken,
-        dismissedIdle: new Set(),
       }),
     { initialProps: { changeToken: 0 } },
   );

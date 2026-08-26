@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { fetchWorkspaces } from '../lib/api.js';
-import { buildDashboardRows, buildWaitingSessions, dashboardSourceState } from '../lib/work-dashboard.js';
+import { buildDashboardRows, dashboardSourceState } from '../lib/work-dashboard.js';
 import { useGlobalSessions } from './useGlobalSessions.js';
 import { usePRs } from './usePRs.js';
 import { useWorkItems } from './useWorkItems.js';
@@ -53,9 +53,9 @@ function useDashboardWorkspaces(enabled, changeToken) {
  * Owns all data needed by the dashboard. Detail routes can keep using their
  * focused hooks without causing a second dashboard request graph.
  *
- * @param {{enabled: boolean, pollConfigured: boolean, workItemsConfigured: boolean, changeToken: number, dismissedIdle: Set<string>}} input
+ * @param {{enabled: boolean, pollConfigured: boolean, workItemsConfigured: boolean, changeToken: number}} input
  */
-export function useWorkDashboard({ enabled, pollConfigured, workItemsConfigured, changeToken, dismissedIdle }) {
+export function useWorkDashboard({ enabled, pollConfigured, workItemsConfigured, changeToken }) {
   const prSource = usePRs(DASHBOARD_FILTERS, enabled && pollConfigured);
   const workItemSource = useWorkItems(enabled);
   const sessionSource = useGlobalSessions(enabled, changeToken);
@@ -71,11 +71,6 @@ export function useWorkDashboard({ enabled, pollConfigured, workItemsConfigured,
       }),
     [prSource.prs, sessionSource.allSessions, workItemSource.workItems, workspaceSource.workspaces],
   );
-  const waiting = useMemo(
-    () => buildWaitingSessions(sessionSource.allSessions, dismissedIdle),
-    [dismissedIdle, sessionSource.allSessions],
-  );
-
   const sources = {
     pull_requests: dashboardSourceState(prSource.error, prSource.loading, prSource.loaded, pollConfigured),
     work_items: dashboardSourceState(workItemSource.error, workItemSource.loading, workItemSource.loaded),
@@ -86,7 +81,6 @@ export function useWorkDashboard({ enabled, pollConfigured, workItemsConfigured,
   return {
     configured: { pull_requests: pollConfigured, work_items: workItemsConfigured },
     rows,
-    waiting,
     sources,
     counts: {
       open_pull_requests: pollConfigured && prSource.loaded ? prSource.prs.length : null,
