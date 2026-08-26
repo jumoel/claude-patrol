@@ -131,5 +131,17 @@ export function usePRs(filters, enabled = true) {
     }
   }, []);
 
-  return { prs, syncedAt, freshness, loading, loaded, error, syncing, countdown, triggerSync, ghRateLimit };
+  return {
+    prs,
+    syncedAt,
+    freshness,
+    loading,
+    loaded,
+    error,
+    syncing,
+    countdown,
+    triggerSync,
+    ghRateLimit,
+    reload: loadPRs,
+  };
 }

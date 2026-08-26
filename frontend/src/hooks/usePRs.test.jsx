@@ -72,3 +72,17 @@ test('settles without requesting PRs when polling is disabled', async () => {
   assert.equal(result.current.loaded, false);
   assert.equal(state.fetchPRs.mock.calls.length, 0);
 });
+
+test('exposes an explicit retry after the PR source fails', async () => {
+  state.fetchPRs
+    .mockRejectedValueOnce(new Error('GitHub offline'))
+    .mockResolvedValueOnce({ prs: [firstPR], synced_at: null, freshness: null });
+  const { result } = renderHook(() => usePRs({}, true));
+
+  await waitFor(() => assert.equal(result.current.error, 'GitHub offline'));
+  await act(async () => result.current.reload());
+
+  await waitFor(() => assert.equal(state.fetchPRs.mock.calls.length, 2));
+  await waitFor(() => assert.deepEqual(result.current.prs, [firstPR]));
+  assert.equal(result.current.error, null);
+});

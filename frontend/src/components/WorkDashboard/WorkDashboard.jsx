@@ -169,8 +169,11 @@ function MultiSelect({ label, options, selected, onChange }) {
  *   dashboard: {
  *     rows: import('../../types').DashboardWorkRow[],
  *     counts: import('../../types').DashboardCounts,
- *     sources: Record<string, import('../../types').DashboardSourceState>,
- *     sessionSource: {allSessions: import('../../types').Session[]},
+ *     sources: Record<'pull_requests' | 'work_items' | 'workspaces' | 'sessions', import('../../types').DashboardSourceState>,
+ *     prSource: {reload: () => void},
+ *     workItemSource: {reload: () => void},
+ *     workspaceSource: {reload: () => void},
+ *     sessionSource: {allSessions: import('../../types').Session[], reload: () => void},
  *   },
  *   filters: import('../../types').FilterState,
  *   onFilterChange: (filters: import('../../types').FilterState) => void,
@@ -210,6 +213,12 @@ export function WorkDashboard({
   );
   const unavailableSources = Object.entries(dashboard.sources).filter(([, source]) => source.status === 'unavailable');
   const staleSources = Object.entries(dashboard.sources).filter(([, source]) => source.status === 'stale');
+  const sourceRetries = /** @type {Record<string, () => void>} */ ({
+    pull_requests: dashboard.prSource.reload,
+    work_items: dashboard.workItemSource.reload,
+    workspaces: dashboard.workspaceSource.reload,
+    sessions: dashboard.sessionSource.reload,
+  });
   const pullRequests = dashboard.rows.flatMap((row) => row.pull_requests);
   const orgOptions = [...new Set(pullRequests.map((pr) => pr.org))].sort().map((value) => ({ value, label: value }));
   const repoOptions = [
@@ -303,13 +312,22 @@ export function WorkDashboard({
       </div>
 
       {(unavailableSources.length > 0 || staleSources.length > 0) && (
-        <div className={styles.sourceNotice} role="status">
-          {unavailableSources.length > 0 && (
-            <span>Unavailable: {unavailableSources.map(([name]) => SOURCE_LABELS[name]).join(', ')}</span>
-          )}
-          {staleSources.length > 0 && (
-            <span>Showing retained data for: {staleSources.map(([name]) => SOURCE_LABELS[name]).join(', ')}</span>
-          )}
+        <div className={styles.sourceNotice}>
+          <div role="status">
+            {unavailableSources.length > 0 && (
+              <span>Unavailable: {unavailableSources.map(([name]) => SOURCE_LABELS[name]).join(', ')}</span>
+            )}
+            {staleSources.length > 0 && (
+              <span>Showing retained data for: {staleSources.map(([name]) => SOURCE_LABELS[name]).join(', ')}</span>
+            )}
+          </div>
+          <div className={styles.sourceRetries}>
+            {[...unavailableSources, ...staleSources].map(([name]) => (
+              <button key={name} type="button" onClick={sourceRetries[name]}>
+                Retry {SOURCE_LABELS[name].toLowerCase()}
+              </button>
+            ))}
+          </div>
         </div>
       )}
 

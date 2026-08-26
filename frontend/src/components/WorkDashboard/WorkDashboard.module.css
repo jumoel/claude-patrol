@@ -56,6 +56,9 @@
 
 .sourceNotice {
   display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
   gap: 18px;
   margin-bottom: 12px;
   padding: 8px 10px;
@@ -63,6 +66,28 @@
   background: #fff8e7;
   border: 1px solid #ead8ac;
   font-size: 13px;
+}
+
+.sourceNotice > div:first-child,
+.sourceRetries {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+}
+
+.sourceRetries button {
+  padding: 2px 7px;
+  color: #60430d;
+  background: #fff;
+  border: 1px solid #d7c28d;
+  border-radius: 4px;
+  cursor: pointer;
+  font: inherit;
+}
+
+.sourceRetries button:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
 }
 
 .waiting,

@@ -44,7 +44,10 @@ const dashboard = {
     workspaces: { status: /** @type {const} */ ('ready'), error: null },
     sessions: { status: /** @type {const} */ ('ready'), error: null },
   },
-  sessionSource: { allSessions: [] },
+  prSource: { reload: vi.fn() },
+  workItemSource: { reload: vi.fn() },
+  workspaceSource: { reload: vi.fn() },
+  sessionSource: { allSessions: [], reload: vi.fn() },
 };
 
 const defaultProps = {
@@ -95,9 +98,10 @@ test('renders source failures and retained-data status without replacing availab
       {...defaultProps}
       dashboard={{
         ...dashboard,
-        counts: { ...dashboard.counts, work_items: null, live_sessions: null },
+        counts: { open_pull_requests: null, work_items: null, active_workspaces: 1, live_sessions: null },
         sources: {
           ...dashboard.sources,
+          pull_requests: { status: 'unavailable', error: 'offline' },
           work_items: { status: 'unavailable', error: 'offline' },
           workspaces: { status: 'stale', error: 'timeout' },
           sessions: { status: 'unavailable', error: 'offline' },
@@ -106,8 +110,17 @@ test('renders source failures and retained-data status without replacing availab
     />,
   );
 
-  assert.match(screen.getByRole('status').textContent || '', /Unavailable: Work items, Sessions/u);
+  assert.match(screen.getByRole('status').textContent || '', /Unavailable: Pull requests, Work items, Sessions/u);
   assert.match(screen.getByRole('status').textContent || '', /Showing retained data for: Workspaces/u);
+  for (const { name, reload } of [
+    { name: 'pull requests', reload: dashboard.prSource.reload },
+    { name: 'work items', reload: dashboard.workItemSource.reload },
+    { name: 'workspaces', reload: dashboard.workspaceSource.reload },
+    { name: 'sessions', reload: dashboard.sessionSource.reload },
+  ]) {
+    fireEvent.click(screen.getByRole('button', { name: `Retry ${name}` }));
+    assert.equal(reload.mock.calls.length, 1);
+  }
   assert.ok(screen.getByText('Sessions are unavailable.'));
   assert.ok(screen.getByRole('link', { name: 'Grouped work' }));
 });
@@ -130,7 +143,10 @@ test('shows waiting sessions as a list and acknowledges a global session when op
     transcript_path: null,
   });
   render(
-    <WorkDashboard {...defaultProps} dashboard={{ ...dashboard, sessionSource: { allSessions: [idleSession] } }} />,
+    <WorkDashboard
+      {...defaultProps}
+      dashboard={{ ...dashboard, sessionSource: { ...dashboard.sessionSource, allSessions: [idleSession] } }}
+    />,
   );
 
   const waitingList = screen.getByRole('list');
