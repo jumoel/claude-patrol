@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import logoSvg from '../../assets/logo.svg';
+import logoB from '../../assets/logo-b.png';
 import { fetchRestartStatus, triggerRestart, triggerUpdate } from '../../lib/api.js';
 import { getErrorMessage } from '../../lib/errors.js';
 import { AgentProviderButton } from '../AgentProviderButton/AgentProviderButton.jsx';
@@ -162,7 +162,7 @@ export function AppShell({
       <header ref={headerRef} className={styles.header}>
         <div className={styles.headerInner}>
           <a href="#/" className={styles.brand}>
-            <img src={logoSvg} alt="" className={styles.logo} />
+            <img src={logoB} alt="" className={styles.logo} />
             <h1 className={styles.title}>{title}</h1>
           </a>
           <Stack gap={3} className={styles.headerActions}>

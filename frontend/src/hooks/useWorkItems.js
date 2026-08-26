@@ -8,11 +8,12 @@ function isAbort(error) {
 }
 
 /**
- * @returns {{workItems: import('../types').WorkItemListItem[], loading: boolean, error: unknown, reload: () => void}}
+ * @returns {{workItems: import('../types').WorkItemListItem[], loading: boolean, loaded: boolean, error: unknown, reload: () => void}}
  */
 export function useWorkItems(enabled = true) {
   const [workItems, setWorkItems] = useState(/** @type {import('../types').WorkItemListItem[]} */ ([]));
   const [loading, setLoading] = useState(true);
+  const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState(/** @type {unknown} */ (null));
   const request = useRef(/** @type {AbortController | null} */ (null));
 
@@ -23,7 +24,10 @@ export function useWorkItems(enabled = true) {
     request.current = controller;
     setError(null);
     fetchWorkItems(controller.signal)
-      .then(({ work_items: items }) => setWorkItems(items))
+      .then(({ work_items: items }) => {
+        setWorkItems(items);
+        setLoaded(true);
+      })
       .catch((nextError) => {
         if (!isAbort(nextError)) setError(nextError);
       })
@@ -53,7 +57,7 @@ export function useWorkItems(enabled = true) {
     };
   }, [enabled, reload]);
 
-  return { workItems, loading, error, reload };
+  return { workItems, loading, loaded, error, reload };
 }
 
 /**

@@ -35,9 +35,10 @@ async function readError(response) {
 /**
  * Fetch PRs with optional filters.
  * @param {Record<string, string>} [filters]
+ * @param {AbortSignal} [signal]
  * @returns {Promise<import('../types').PullRequestListResponse>}
  */
-export async function fetchPRs(filters = {}) {
+export async function fetchPRs(filters = {}, signal) {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(filters)) {
     if (value !== undefined && value !== '' && value !== 'all') {
@@ -45,7 +46,7 @@ export async function fetchPRs(filters = {}) {
     }
   }
   const url = `${BASE}/api/prs${params.toString() ? `?${params}` : ''}`;
-  const res = await fetch(url);
+  const res = await fetch(url, { signal });
   if (!res.ok) throw new Error(`Failed to fetch PRs: ${res.status}`);
   return readJson(res);
 }

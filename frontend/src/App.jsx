@@ -12,15 +12,14 @@ import { SetupMode } from './components/SetupMode/SetupMode.jsx';
 import { StartWorkLauncher } from './components/StartWorkLauncher/StartWorkLauncher.jsx';
 import { Button } from './components/ui/Button/Button.jsx';
 import { LoadingIndicator } from './components/ui/LoadingIndicator/LoadingIndicator.jsx';
+import { WorkDashboard } from './components/WorkDashboard/WorkDashboard.jsx';
 import { WorkItemDetail } from './components/WorkItemDetail/WorkItemDetail.jsx';
 import { WorkItems } from './components/WorkItems/WorkItems.jsx';
 import { WorkspaceDetail } from './components/WorkspaceDetail/WorkspaceDetail.jsx';
 import { useAgentProvider } from './context/AgentProviderContext.jsx';
-import { useGlobalSessions } from './hooks/useGlobalSessions.js';
 import { useIdleNotification } from './hooks/useIdleNotification.js';
-import { usePRs } from './hooks/usePRs.js';
-import { useWorkItems } from './hooks/useWorkItems.js';
-import { fetchConfig, fetchScratchWorkspaces } from './lib/api.js';
+import { useWorkDashboard } from './hooks/useWorkDashboard.js';
+import { fetchConfig } from './lib/api.js';
 import { getErrorMessage } from './lib/errors.js';
 import { parseAppRoute, pullRequestPath, workItemPath } from './lib/routes.js';
 
@@ -113,9 +112,6 @@ function sortByStacks(prs) {
 /** @type {FilterListKey[]} */
 const FILTER_KEYS = ['org', 'repo', 'ci', 'review', 'mergeable', 'draft'];
 
-// Stable filter object so usePRs doesn't see a new ref each render.
-const DASHBOARD_FILTERS = Object.freeze({});
-
 /** @returns {{ filters: FilterState, sorting: SortState[], stackView: boolean }} */
 function parseHashParams() {
   const hash = window.location.hash;
@@ -178,11 +174,16 @@ export default function App() {
   const sortedRowsRef = useRef(/** @type {PullRequest[] | null} */ (null));
   const pollConfigured = publicConfig?.poll_configured ?? false;
   const workItemsConfigured = publicConfig?.work_items.configured ?? false;
-  const prSource = usePRs(DASHBOARD_FILTERS, applicationDataEnabled && pollConfigured);
-  const workItemSource = useWorkItems(applicationDataEnabled);
   const { targetStates, dismissedIdle, setActiveTarget, localChangeCount } =
     useIdleNotification(applicationDataEnabled);
-  const globalSessionState = useGlobalSessions(applicationDataEnabled, localChangeCount);
+  const dashboard = useWorkDashboard({
+    enabled: applicationDataEnabled,
+    pollConfigured,
+    workItemsConfigured,
+    changeToken: localChangeCount,
+    dismissedIdle,
+  });
+  const { prSource, workItemSource, sessionSource: globalSessionState } = dashboard;
   const toggleTerminal = useCallback(() => setTerminalOpen((prev) => !prev), []);
   const openGlobalTerminal = useCallback(
     /** @param {string} [sessionId] */
@@ -193,7 +194,7 @@ export default function App() {
     [globalSessionState.selectSession],
   );
   const closeGlobalTerminal = useCallback(() => setTerminalOpen(false), []);
-  const [scratchWorkspaces, setScratchWorkspaces] = useState(/** @type {import('./types').Workspace[]} */ ([]));
+  const scratchWorkspaces = dashboard.workspaceSource.workspaces.filter((workspace) => !workspace.pr_id);
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const [commitsBehind, setCommitsBehind] = useState(0);
   const [restartNeeded, setRestartNeeded] = useState(false);
@@ -227,15 +228,6 @@ export default function App() {
   }, [applyInstanceDefault]);
 
   useEffect(loadPublicConfig, [loadPublicConfig]);
-
-  // Fetch scratch workspaces (refresh on local changes like workspace creation/deletion)
-  useEffect(() => {
-    if (!applicationDataEnabled) return;
-    void localChangeCount;
-    fetchScratchWorkspaces()
-      .then(setScratchWorkspaces)
-      .catch(() => {});
-  }, [applicationDataEnabled, localChangeCount]);
 
   // Sync filters + sorting to URL hash
   /** @type {(newFilters: FilterState) => void} */
@@ -384,6 +376,7 @@ export default function App() {
 
   // ?update=1 forces the update banner visible for testing
   const forceUpdate = new URLSearchParams(window.location.search).get('update') === '1';
+  const showUiRefresh = new URLSearchParams(window.location.search).get('uiRefresh') === '1';
 
   return (
     <AppShell
@@ -427,6 +420,8 @@ export default function App() {
             Back to dashboard
           </Button>
         </div>
+      ) : showUiRefresh ? (
+        <WorkDashboard dashboard={dashboard} onOpenGlobalTerminal={openGlobalTerminal} />
       ) : (
         <>
           <DashboardSummary

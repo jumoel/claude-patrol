@@ -241,6 +241,87 @@ export interface WorkItemListResponse {
   work_items: WorkItemListItem[];
 }
 
+export type DashboardSourceStatus = 'disabled' | 'loading' | 'ready' | 'stale' | 'unavailable';
+
+export interface DashboardSourceState {
+  status: DashboardSourceStatus;
+  error: string | null;
+}
+
+export interface DashboardPullRequestSummary {
+  id: string;
+  number: number;
+  title: string;
+  url: string;
+  org: string;
+  repo: string;
+  draft: boolean;
+  mergeable: MergeableStatus;
+  ci_status: CiStatus | null;
+  review_status: ReviewStatus | null;
+  updated_at: string | null;
+  tracked: boolean;
+}
+
+export interface DashboardSessionSummary {
+  id: string;
+  name: string | null;
+  provider: AgentProvider;
+  target: SessionTarget;
+  status: 'active' | 'detached';
+  activity_state: 'working' | 'idle' | null;
+  activity_changed_at: string | null;
+  started_at: string;
+}
+
+export type DashboardWorkRow =
+  | {
+      kind: 'work_item';
+      id: string;
+      title: string;
+      work_reference: { display: string; system: string | null; url: string | null };
+      repositories: string[];
+      pull_requests: DashboardPullRequestSummary[];
+      sessions: DashboardSessionSummary[];
+      workspace_count: number;
+      workspace_id: null;
+      updated_at: string;
+      state: WorkItemState;
+    }
+  | {
+      kind: 'pull_request';
+      id: string;
+      title: string;
+      work_reference: null;
+      repositories: string[];
+      pull_requests: DashboardPullRequestSummary[];
+      sessions: DashboardSessionSummary[];
+      workspace_count: number;
+      workspace_id: string | null;
+      updated_at: string;
+      state: null;
+    }
+  | {
+      kind: 'scratch';
+      id: string;
+      title: string;
+      work_reference: null;
+      repositories: string[];
+      pull_requests: [];
+      sessions: DashboardSessionSummary[];
+      workspace_count: 1;
+      workspace_id: string;
+      updated_at: string;
+      state: null;
+    };
+
+export interface DashboardCounts {
+  open_pull_requests: number | null;
+  work_items: number | null;
+  active_workspaces: number | null;
+  live_sessions: number | null;
+}
+
 export interface ApiErrorEnvelope {
   code: string;
   message: string;

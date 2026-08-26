@@ -27,6 +27,7 @@ export function useGlobalSessions(enabled, changeToken) {
     }),
   );
   const [loading, setLoading] = useState(true);
+  const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState(/** @type {unknown} */ (null));
   const request = useRef(/** @type {AbortController | null} */ (null));
 
@@ -39,6 +40,7 @@ export function useGlobalSessions(enabled, changeToken) {
     setError(null);
     fetchSessions(undefined, controller.signal)
       .then((allSessions) => {
+        setLoaded(true);
         const globalSessions = globalSessionsFrom(allSessions);
         setSessionState((current) => ({
           allSessions,
@@ -118,6 +120,7 @@ export function useGlobalSessions(enabled, changeToken) {
     activeSession,
     activeSessionId: sessionState.activeSessionId,
     loading,
+    loaded,
     error,
     reload,
     selectSession,

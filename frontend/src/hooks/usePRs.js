@@ -24,6 +24,7 @@ export function usePRs(filters, enabled = true) {
   const [prs, setPRs] = useState(/** @type {import('../types').PullRequest[]} */ ([]));
   const [syncedAt, setSyncedAt] = useState(/** @type {string | null} */ (null));
   const [loading, setLoading] = useState(true);
+  const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState(/** @type {string | null} */ (null));
   const [syncing, setSyncing] = useState(false);
   const [countdown, setCountdown] = useState(0);
@@ -32,22 +33,28 @@ export function usePRs(filters, enabled = true) {
   const filtersRef = useRef(filters);
   const syncedAtRef = useRef(/** @type {string | null} */ (null));
   const pollIntervalRef = useRef(600);
+  const request = useRef(/** @type {AbortController | null} */ (null));
   filtersRef.current = filters;
 
   const loadPRs = useCallback(async () => {
     if (!enabled) return;
+    request.current?.abort();
+    const controller = new AbortController();
+    request.current = controller;
     try {
-      const data = await fetchPRs(filtersRef.current);
+      const data = await fetchPRs(filtersRef.current, controller.signal);
+      if (controller.signal.aborted) return;
       setPRs(data.prs);
       setSyncedAt(data.synced_at);
       setFreshness(data.freshness ?? null);
+      setLoaded(true);
       syncedAtRef.current = data.synced_at;
       setCountdown(calcRemaining(data.synced_at, pollIntervalRef.current));
       setError(null);
     } catch (err) {
-      setError(getErrorMessage(err));
+      if (!(err instanceof DOMException && err.name === 'AbortError')) setError(getErrorMessage(err));
     } finally {
-      setLoading(false);
+      if (request.current === controller) setLoading(false);
     }
   }, [enabled]);
 
@@ -77,6 +84,8 @@ export function usePRs(filters, enabled = true) {
   // Initial fetch. Live updates below refresh the same stable filter set.
   useEffect(() => {
     if (enabled) loadPRs();
+    else setLoading(false);
+    return () => request.current?.abort();
   }, [enabled, loadPRs]);
 
   // SSE for live updates (sync from GitHub + local workspace/session changes)
@@ -122,5 +131,5 @@ export function usePRs(filters, enabled = true) {
     }
   }, []);
 
-  return { prs, syncedAt, freshness, loading, error, syncing, countdown, triggerSync, ghRateLimit };
+  return { prs, syncedAt, freshness, loading, loaded, error, syncing, countdown, triggerSync, ghRateLimit };
 }
