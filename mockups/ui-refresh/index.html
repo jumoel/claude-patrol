@@ -1,0 +1,359 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Claude Patrol - Attention-first UI mockup</title>
+    <meta
+      name="description"
+      content="A productivity-focused interface mockup for Claude Patrol using data captured from the live local instance."
+    />
+    <link rel="icon" href="../../frontend/public/favicon.svg" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <a class="brand" href="#home" aria-label="Claude Patrol home">
+          <img src="../../frontend/src/assets/logo.svg" alt="" />
+          <span>Claude Patrol</span>
+          <span class="mockup-label">A · Attention-first</span>
+        </a>
+
+        <nav class="primary-nav" aria-label="Primary navigation">
+          <button class="nav-item active" type="button" data-view="home">Home</button>
+          <button class="nav-item" type="button" data-view="prs">
+            Pull requests <span class="nav-count">2</span>
+          </button>
+          <button class="nav-item" type="button" data-view="work">
+            Work <span class="nav-count">3</span>
+          </button>
+          <button class="nav-item" type="button" data-view="automations">Automations</button>
+        </nav>
+
+        <div class="topbar-actions">
+          <button class="search-trigger" type="button" id="searchTrigger">
+            <span class="search-icon" aria-hidden="true"></span>
+            <span>Search anything</span>
+            <kbd>⌘ K</kbd>
+          </button>
+          <div class="sync-state" title="GitHub data last synced at 10:45 AM">
+            <span class="sync-dot" aria-hidden="true"></span>
+            Synced 10:45 AM
+          </div>
+          <button class="button secondary session-trigger" type="button" id="sessionTrigger">
+            <span class="terminal-glyph" aria-hidden="true">›_</span>
+            Sessions
+            <span class="button-count">4</span>
+          </button>
+          <button class="button primary" type="button" id="newWorkButton">+ New work</button>
+        </div>
+      </header>
+
+      <main class="main-content">
+        <section class="page-intro">
+          <div>
+            <p class="eyebrow">Wednesday, August 26</p>
+            <h1>Today</h1>
+            <p class="intro-copy">Five items need you. One agent is still working.</p>
+          </div>
+          <div class="view-actions">
+            <button class="icon-button" type="button" aria-label="Refresh data" title="Refresh data">↻</button>
+            <button class="button secondary compact" type="button" id="customizeButton">Customize view</button>
+          </div>
+        </section>
+
+        <section class="summary-strip" aria-label="Workspace summary">
+          <button type="button" class="summary-stat selected" data-filter="all">
+            <span class="summary-value attention-value">5</span>
+            <span>Need attention</span>
+          </button>
+          <button type="button" class="summary-stat" data-filter="working">
+            <span class="summary-value working-value">1</span>
+            <span>Working</span>
+          </button>
+          <button type="button" class="summary-stat" data-filter="workspace">
+            <span class="summary-value">3</span>
+            <span>Workspaces</span>
+          </button>
+          <button type="button" class="summary-stat" data-filter="pr">
+            <span class="summary-value">2</span>
+            <span>Open PRs</span>
+          </button>
+        </section>
+
+        <div class="workspace-layout">
+          <div class="workspace-main">
+            <section class="surface attention-surface" aria-labelledby="attention-heading">
+              <div class="surface-heading">
+                <div>
+                  <h2 id="attention-heading">Needs attention</h2>
+                  <p>Ordered by the next action you can take.</p>
+                </div>
+                <div class="segmented-control" aria-label="Filter attention items">
+                  <button type="button" class="active" data-attention-filter="all">All <span>5</span></button>
+                  <button type="button" data-attention-filter="agent">Agents <span>3</span></button>
+                  <button type="button" data-attention-filter="pr">PRs <span>2</span></button>
+                </div>
+              </div>
+
+              <div class="attention-list" id="attentionList">
+                <article class="attention-row" data-kind="agent" data-detail="eco3351" tabindex="0">
+                  <span class="state-marker waiting" aria-hidden="true"></span>
+                  <div class="row-copy">
+                    <div class="row-title-line">
+                      <span class="state-label waiting-text">Waiting for you</span>
+                      <span class="row-title">eco-fix-review: judge JS remediation PRs on backport fidelity</span>
+                    </div>
+                    <div class="row-meta">
+                      <span class="mono">eco-3351</span>
+                      <span>chainguard-dev/mono</span>
+                      <span>Codex</span>
+                      <span>idle for 2h</span>
+                    </div>
+                  </div>
+                  <button class="row-action primary-action" type="button" data-open="eco3351">Resume</button>
+                </article>
+
+                <article class="attention-row" data-kind="agent" data-detail="eco3738" tabindex="0">
+                  <span class="state-marker waiting" aria-hidden="true"></span>
+                  <div class="row-copy">
+                    <div class="row-title-line">
+                      <span class="state-label waiting-text">Waiting for you</span>
+                      <span class="row-title">advisory-syncer: investigate intermittent production memory-limit failures</span>
+                    </div>
+                    <div class="row-meta">
+                      <span class="mono">ECO-3738</span>
+                      <span>chainguard-dev/mono</span>
+                      <span>Codex</span>
+                      <span>idle for 2h</span>
+                    </div>
+                  </div>
+                  <button class="row-action primary-action" type="button" data-open="eco3738">Resume</button>
+                </article>
+
+                <article class="attention-row" data-kind="pr" data-detail="pr53360" tabindex="0">
+                  <span class="state-marker failed" aria-hidden="true"></span>
+                  <div class="row-copy">
+                    <div class="row-title-line">
+                      <span class="state-label failed-text">CI failed</span>
+                      <span class="row-title">feat(eco-fix-review): judge JavaScript remediation fidelity</span>
+                    </div>
+                    <div class="row-meta">
+                      <span class="mono">#53360</span>
+                      <span>chainguard-dev/mono</span>
+                      <span>1 failed · 23 running · 64 passed</span>
+                      <span>updated 3m ago</span>
+                    </div>
+                  </div>
+                  <button class="row-action" type="button" data-open="pr53360">Investigate</button>
+                </article>
+
+                <article class="attention-row" data-kind="pr" data-detail="pr53148" tabindex="0">
+                  <span class="state-marker changes" aria-hidden="true"></span>
+                  <div class="row-copy">
+                    <div class="row-title-line">
+                      <span class="state-label changes-text">Changes requested</span>
+                      <span class="row-title">docs(serve-v2): design time-gated registry views</span>
+                    </div>
+                    <div class="row-meta">
+                      <span class="mono">#53148</span>
+                      <span>chainguard-dev/mono</span>
+                      <span>doismellburning requested changes</span>
+                      <span>updated 2h ago</span>
+                    </div>
+                  </div>
+                  <button class="row-action" type="button" data-open="pr53148">Open feedback</button>
+                </article>
+
+                <article class="attention-row" data-kind="agent" data-detail="secfeed" tabindex="0">
+                  <span class="state-marker waiting" aria-hidden="true"></span>
+                  <div class="row-copy">
+                    <div class="row-title-line">
+                      <span class="state-label waiting-text">Waiting for you</span>
+                      <span class="row-title">400-secfeed deploy</span>
+                    </div>
+                    <div class="row-meta">
+                      <span class="mono">Global session</span>
+                      <span>Codex</span>
+                      <span>started 2h ago</span>
+                    </div>
+                  </div>
+                  <button class="row-action primary-action" type="button" data-open="secfeed">Resume</button>
+                </article>
+
+                <div class="empty-filter" id="attentionEmpty" hidden>No items match this view.</div>
+              </div>
+            </section>
+
+            <section class="surface pr-surface" aria-labelledby="prs-heading">
+              <div class="surface-heading compact-heading">
+                <div>
+                  <h2 id="prs-heading">Pull requests</h2>
+                  <p>Health stays visible. The next action gets the emphasis.</p>
+                </div>
+                <button class="text-button" type="button" data-view-link="prs">View all 2</button>
+              </div>
+              <div class="pr-table-wrap">
+                <table class="pr-table">
+                  <thead>
+                    <tr>
+                      <th>Pull request</th>
+                      <th>Health</th>
+                      <th>Workspace</th>
+                      <th>Updated</th>
+                      <th>Next action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr data-detail="pr53360" tabindex="0">
+                      <td>
+                        <span class="table-title">feat(eco-fix-review): judge JavaScript remediation fidelity</span>
+                        <span class="table-subtitle"><span class="mono">#53360</span> · chainguard-dev/mono</span>
+                      </td>
+                      <td>
+                        <div class="health-cell">
+                          <span class="pill danger">CI failed</span>
+                          <span class="pill neutral">Review pending</span>
+                          <span class="pill success">Clean</span>
+                        </div>
+                      </td>
+                      <td><span class="pill info">Ready</span></td>
+                      <td>3m ago</td>
+                      <td><button class="text-button" type="button" data-open="pr53360">Investigate CI</button></td>
+                    </tr>
+                    <tr data-detail="pr53148" tabindex="0">
+                      <td>
+                        <span class="table-title">docs(serve-v2): design time-gated registry views</span>
+                        <span class="table-subtitle"><span class="mono">#53148</span> · chainguard-dev/mono</span>
+                      </td>
+                      <td>
+                        <div class="health-cell">
+                          <span class="pill warning">CI pending</span>
+                          <span class="pill danger">Changes</span>
+                          <span class="pill neutral">Unknown</span>
+                        </div>
+                      </td>
+                      <td><span class="pill info">Ready</span></td>
+                      <td>2h ago</td>
+                      <td><button class="text-button" type="button" data-open="pr53148">Address feedback</button></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          </div>
+
+          <aside class="activity-panel" id="activityPanel" aria-labelledby="activity-heading">
+            <div class="activity-heading">
+              <div>
+                <h2 id="activity-heading">Agent activity</h2>
+                <p>One working, three waiting</p>
+              </div>
+              <button class="icon-button small" type="button" id="collapseActivity" aria-label="Collapse agent activity">×</button>
+            </div>
+
+            <div class="activity-group">
+              <p class="group-label"><span class="activity-dot working-dot"></span>Working</p>
+              <button class="session-card working-card" type="button" data-open="judge">
+                <span class="session-title">standalone-judge-tool</span>
+                <span class="session-repo mono">chainguard-dev/ecosystems-rebuilder.js</span>
+                <span class="session-footer">
+                  <span>Codex · working</span>
+                  <span>20h</span>
+                </span>
+                <span class="working-bar"><span></span></span>
+              </button>
+            </div>
+
+            <div class="activity-group">
+              <p class="group-label"><span class="activity-dot waiting-dot"></span>Waiting</p>
+              <button class="session-card" type="button" data-open="eco3351">
+                <span class="session-title">eco-fix-review</span>
+                <span class="session-repo mono">eco-3351 · chainguard-dev/mono</span>
+                <span class="session-footer"><span>Codex · idle</span><span>2h</span></span>
+              </button>
+              <button class="session-card" type="button" data-open="eco3738">
+                <span class="session-title">advisory-syncer memory failures</span>
+                <span class="session-repo mono">ECO-3738 · chainguard-dev/mono</span>
+                <span class="session-footer"><span>Codex · idle</span><span>2h</span></span>
+              </button>
+              <button class="session-card" type="button" data-open="secfeed">
+                <span class="session-title">400-secfeed deploy</span>
+                <span class="session-repo mono">global session</span>
+                <span class="session-footer"><span>Codex · idle</span><span>2h</span></span>
+              </button>
+            </div>
+
+            <button class="new-session-button" type="button">+ Start another session</button>
+          </aside>
+        </div>
+
+        <section class="alternate-view" id="alternateView" hidden></section>
+      </main>
+    </div>
+
+    <div class="palette-backdrop" id="paletteBackdrop" hidden>
+      <section class="command-palette" role="dialog" aria-modal="true" aria-labelledby="palette-title">
+        <h2 id="palette-title" class="sr-only">Search Claude Patrol</h2>
+        <div class="palette-input-wrap">
+          <span class="search-icon" aria-hidden="true"></span>
+          <input id="paletteInput" type="search" placeholder="Search PRs, work, and sessions…" autocomplete="off" />
+          <kbd>esc</kbd>
+        </div>
+        <div class="palette-results" id="paletteResults"></div>
+        <footer class="palette-footer">
+          <span><kbd>↑</kbd><kbd>↓</kbd> navigate</span>
+          <span><kbd>enter</kbd> open</span>
+        </footer>
+      </section>
+    </div>
+
+    <div class="modal-backdrop" id="newWorkBackdrop" hidden>
+      <section class="new-work-modal" role="dialog" aria-modal="true" aria-labelledby="new-work-title">
+        <div class="modal-heading">
+          <div>
+            <p class="eyebrow">Create isolated work</p>
+            <h2 id="new-work-title">Start work</h2>
+          </div>
+          <button class="icon-button small" type="button" data-close-modal aria-label="Close">×</button>
+        </div>
+        <div class="work-type-grid">
+          <button type="button" class="work-type selected">
+            <span class="radio-dot"></span>
+            <span><strong>Project reference</strong><small>Resolve one reference into the right repositories.</small></span>
+          </button>
+          <button type="button" class="work-type">
+            <span class="radio-dot"></span>
+            <span><strong>Scratch repository</strong><small>Create one checkout and start an agent later.</small></span>
+          </button>
+        </div>
+        <label class="field-label" for="referenceInput">Reference</label>
+        <input class="field-input" id="referenceInput" type="text" placeholder="ECO-3632 or another project reference" />
+        <p class="field-help">Your configured resolver finds the task and chooses its repositories.</p>
+        <div class="modal-actions">
+          <button class="button secondary" type="button" data-close-modal>Cancel</button>
+          <button class="button primary" type="button" disabled id="createWorkButton">Create work item</button>
+        </div>
+      </section>
+    </div>
+
+    <div class="detail-backdrop" id="detailBackdrop" hidden>
+      <aside class="detail-drawer" role="dialog" aria-modal="true" aria-labelledby="detailTitle">
+        <button class="icon-button detail-close" type="button" id="detailClose" aria-label="Close detail">×</button>
+        <div id="detailContent"></div>
+      </aside>
+    </div>
+
+    <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+    <nav class="concept-switcher" aria-label="Mockup concepts">
+      <span>Compare</span>
+      <a class="active" href="./">A</a>
+      <a href="./path-b.html">B</a>
+      <a href="./path-c.html">C</a>
+    </nav>
+
+    <script src="./app.js"></script>
+  </body>
+</html>

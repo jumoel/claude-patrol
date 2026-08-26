@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Claude Patrol - Dense dashboard refinement</title>
+    <meta name="description" content="A dense dashboard refinement mockup for Claude Patrol using captured live data." />
+    <link rel="icon" href="../../frontend/public/favicon.svg" />
+    <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="./path-b.css" />
+  </head>
+  <body class="path-b">
+    <div class="b-shell">
+      <header class="b-header">
+        <a class="b-brand" href="./path-b.html">
+          <img src="../../frontend/src/assets/logo.svg" alt="" />
+          <span>Claude Patrol</span>
+          <span class="b-concept">B · Dense refinement</span>
+        </a>
+        <div class="b-header-actions">
+          <span class="b-sync"><span class="sync-dot"></span>Last synced 10:45 AM · Next in 4m 35s</span>
+          <button class="button b-sync-button" type="button">↻ Sync now</button>
+          <button class="button secondary" type="button" id="bSessionsButton">
+            <span class="terminal-glyph">›_</span> Global sessions <span class="button-count">1</span>
+          </button>
+          <button class="button secondary" type="button">Settings</button>
+        </div>
+      </header>
+
+      <main class="b-main">
+        <section class="b-overview" aria-label="Dashboard summary">
+          <button type="button"><strong>2</strong> open PRs</button>
+          <span></span>
+          <button type="button"><strong>2</strong> work items</button>
+          <span></span>
+          <button type="button"><strong>3</strong> active workspaces</button>
+          <span></span>
+          <button type="button"><strong>4</strong> live sessions</button>
+          <span></span>
+          <button type="button" class="b-overview-alert"><strong>3</strong> waiting</button>
+          <span></span>
+          <button type="button">Trigger rules</button>
+        </section>
+
+        <div class="b-start-row">
+          <button class="button primary" type="button" id="bStartWork">+ Start work</button>
+          <button class="b-search" type="button" id="bSearchButton"><span class="search-icon"></span> Search dashboard <kbd>⌘ K</kbd></button>
+        </div>
+
+        <section class="b-section" aria-labelledby="b-work-heading">
+          <div class="b-section-heading">
+            <div>
+              <h1 id="b-work-heading">Work items <span>2</span></h1>
+              <p>Reference-based work across one or more repositories.</p>
+            </div>
+            <button type="button" class="b-heading-action">View work history</button>
+          </div>
+          <div class="b-table-shell">
+            <table class="b-table work-table">
+              <thead>
+                <tr>
+                  <th>Work item</th>
+                  <th>Repositories</th>
+                  <th>Status</th>
+                  <th>Agent</th>
+                  <th>Updated</th>
+                  <th aria-label="Actions"></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr data-b-detail="eco3351" tabindex="0">
+                  <td>
+                    <span class="b-primary-cell">eco-fix-review: judge JS remediation PRs on backport fidelity</span>
+                    <span class="b-secondary-cell mono">eco-3351</span>
+                  </td>
+                  <td><span class="b-repo-tag mono">chainguard-dev/mono</span></td>
+                  <td><span class="pill warning"><span class="b-mini-dot amber"></span>Waiting</span></td>
+                  <td>Codex</td>
+                  <td>2h ago</td>
+                  <td><button class="b-row-button" type="button" data-b-detail="eco3351">Resume</button></td>
+                </tr>
+                <tr data-b-detail="eco3738" tabindex="0">
+                  <td>
+                    <span class="b-primary-cell">advisory-syncer: investigate intermittent production memory-limit failures</span>
+                    <span class="b-secondary-cell mono">ECO-3738</span>
+                  </td>
+                  <td><span class="b-repo-tag mono">chainguard-dev/mono</span></td>
+                  <td><span class="pill warning"><span class="b-mini-dot amber"></span>Waiting</span></td>
+                  <td>Codex</td>
+                  <td>2h ago</td>
+                  <td><button class="b-row-button" type="button" data-b-detail="eco3738">Resume</button></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="b-section b-pr-section" aria-labelledby="b-pr-heading">
+          <div class="b-section-heading b-pr-heading-row">
+            <div>
+              <h1 id="b-pr-heading">Open pull requests <span id="bPrCount">2</span></h1>
+              <p>Current GitHub state with local workspace context.</p>
+            </div>
+            <div class="b-pr-actions">
+              <button class="button secondary compact" type="button">Copy as Markdown</button>
+              <button class="button secondary compact" type="button" id="bColumnsButton">Columns</button>
+            </div>
+          </div>
+
+          <div class="b-filter-card">
+            <div class="b-saved-views" aria-label="Saved views">
+              <button type="button" class="active" data-b-filter="all">All <span>2</span></button>
+              <button type="button" data-b-filter="needs">Needs work <span>2</span></button>
+              <button type="button" data-b-filter="review">Review ready <span>0</span></button>
+              <button type="button" data-b-filter="merge">Merge ready <span>0</span></button>
+            </div>
+            <div class="b-filter-tools">
+              <label class="b-inline-search">
+                <span class="search-icon"></span>
+                <input type="search" id="bPrSearch" placeholder="Filter pull requests" />
+              </label>
+              <button type="button" class="b-select">All repos <span>⌄</span></button>
+              <button type="button" class="b-select">All branches <span>⌄</span></button>
+              <button type="button" class="b-clear" id="bClearFilters">Clear</button>
+            </div>
+          </div>
+
+          <div class="b-table-shell">
+            <table class="b-table b-pr-table">
+              <thead>
+                <tr>
+                  <th>Title</th>
+                  <th>Repo</th>
+                  <th>Local</th>
+                  <th>CI</th>
+                  <th>Review</th>
+                  <th>Merge</th>
+                  <th>Updated</th>
+                  <th>Reaction</th>
+                  <th aria-label="Actions"></th>
+                </tr>
+              </thead>
+              <tbody id="bPrRows">
+                <tr data-search="53360 eco-fix-review javascript remediation fidelity chainguard-dev mono" data-b-detail="pr53360" tabindex="0">
+                  <td>
+                    <span class="b-primary-cell"><span class="b-pr-number mono">#53360</span> feat(eco-fix-review): judge JavaScript remediation fidelity</span>
+                    <span class="b-secondary-cell mono">jumoel/eco-3351-js-remediation-review</span>
+                  </td>
+                  <td>chainguard-dev/mono</td>
+                  <td><span class="pill info">Workspace</span></td>
+                  <td><span class="pill danger">Fail</span></td>
+                  <td><span class="pill neutral">Pending</span></td>
+                  <td><span class="pill success">Clean</span></td>
+                  <td>3m ago</td>
+                  <td>3m+</td>
+                  <td><button class="b-row-button" type="button" data-b-detail="pr53360">Open</button></td>
+                </tr>
+                <tr data-search="53148 serve v2 time gated registry views chainguard-dev mono" data-b-detail="pr53148" tabindex="0">
+                  <td>
+                    <span class="b-primary-cell"><span class="b-pr-number mono">#53148</span> docs(serve-v2): design time-gated registry views</span>
+                    <span class="b-secondary-cell mono">jumoel/serve-v2-time-gated-registry-design</span>
+                  </td>
+                  <td>chainguard-dev/mono</td>
+                  <td><span class="pill info">Workspace</span></td>
+                  <td><span class="pill warning">Pending</span></td>
+                  <td><span class="pill danger">Changes</span></td>
+                  <td><span class="pill neutral">Unknown</span></td>
+                  <td>2h ago</td>
+                  <td>12h</td>
+                  <td><button class="b-row-button" type="button" data-b-detail="pr53148">Open</button></td>
+                </tr>
+              </tbody>
+            </table>
+            <div class="b-no-results" id="bNoResults" hidden>No pull requests match these filters.</div>
+          </div>
+        </section>
+
+        <section class="b-section" aria-labelledby="b-scratch-heading">
+          <div class="b-section-heading compact-heading">
+            <div>
+              <h1 id="b-scratch-heading">Scratch workspaces <span>1</span></h1>
+              <p>Standalone repository work not attached to a pull request.</p>
+            </div>
+          </div>
+          <div class="b-table-shell">
+            <table class="b-table scratch-table">
+              <thead><tr><th>Name</th><th>Repository</th><th>Session</th><th>Created</th><th aria-label="Actions"></th></tr></thead>
+              <tbody>
+                <tr data-b-detail="judge" tabindex="0">
+                  <td><span class="b-primary-cell mono">standalone-judge-tool</span></td>
+                  <td><span class="b-repo-tag mono">chainguard-dev/ecosystems-rebuilder.js</span></td>
+                  <td><span class="pill working-pill"><span class="b-spinner"></span>Working</span></td>
+                  <td>20h ago</td>
+                  <td><button class="b-row-button" type="button" data-b-detail="judge">Open</button></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <aside class="b-session-drawer" id="bSessionDrawer" hidden aria-labelledby="b-session-heading">
+      <div class="b-drawer-handle"></div>
+      <div class="b-drawer-bar">
+        <div class="b-tabs" role="tablist" aria-label="Global sessions">
+          <button type="button" class="active" role="tab" aria-selected="true" id="b-session-heading">400-secfeed deploy</button>
+          <button type="button" class="b-add-tab">+</button>
+        </div>
+        <div class="b-drawer-actions">
+          <button type="button">Rename</button>
+          <button type="button">Maximize</button>
+          <button type="button">Pop out</button>
+          <button type="button" class="b-kill">Kill</button>
+          <button type="button" id="bCloseSessions">×</button>
+        </div>
+      </div>
+      <div class="b-terminal">
+        <p><span class="term-muted">The stage dispatch uses an immutable SHA and immediately applies every pending change visible in that stage.</span></p>
+        <p>The live workflow matches current <span class="term-cyan">main</span>. No prior 400-secfeed run appeared in the queried history.</p>
+        <p class="term-divider">Worked for 8m 52s</p>
+        <p><span class="term-prompt">›</span> <span class="term-muted">Ask Codex to do anything</span></p>
+        <p><span class="term-model">gpt-5.6-sol xhigh</span> · <span class="term-path">~/work</span></p>
+      </div>
+    </aside>
+
+    <div class="detail-backdrop" id="bDetailBackdrop" hidden>
+      <aside class="detail-drawer" role="dialog" aria-modal="true" aria-labelledby="bDetailTitle">
+        <button class="icon-button detail-close" type="button" id="bDetailClose" aria-label="Close detail">×</button>
+        <div id="bDetailContent"></div>
+      </aside>
+    </div>
+
+    <div class="toast" id="bToast" role="status" aria-live="polite" hidden></div>
+
+    <nav class="concept-switcher" aria-label="Mockup concepts">
+      <span>Compare</span>
+      <a href="./">A</a>
+      <a class="active" href="./path-b.html">B</a>
+      <a href="./path-c.html">C</a>
+    </nav>
+
+    <script src="./path-b.js"></script>
+  </body>
+</html>
