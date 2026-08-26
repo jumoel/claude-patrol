@@ -179,6 +179,7 @@ function MultiSelect({ label, options, selected, onChange }) {
  *   stackView: boolean,
  *   onStackViewChange: (enabled: boolean) => void,
  *   onOpenGlobalTerminal: (sessionId?: string) => void,
+ *   startWorkLauncher?: React.ReactNode,
  * }} props
  */
 export function WorkDashboard({
@@ -190,6 +191,7 @@ export function WorkDashboard({
   stackView,
   onStackViewChange,
   onOpenGlobalTerminal,
+  startWorkLauncher,
 }) {
   const [visibleColumns, setVisibleColumns] = useState(readColumns);
   const [copyState, setCopyState] = useState(/** @type {'idle' | 'copied' | 'error'} */ ('idle'));
@@ -280,22 +282,25 @@ export function WorkDashboard({
 
   return (
     <div className={styles.dashboard}>
-      <nav className={styles.summary} aria-label="Dashboard summary">
-        {dashboard.sources.pull_requests.status !== 'disabled' && (
+      <div className={styles.summaryRow}>
+        <nav className={styles.summary} aria-label="Dashboard summary">
+          {dashboard.sources.pull_requests.status !== 'disabled' && (
+            <span>
+              <b>{dashboard.counts.open_pull_requests ?? 'Unavailable'}</b> open PRs
+            </span>
+          )}
           <span>
-            <b>{dashboard.counts.open_pull_requests ?? 'Unavailable'}</b> open PRs
+            <b>{dashboard.counts.work_items ?? 'Unavailable'}</b> work items
           </span>
-        )}
-        <span>
-          <b>{dashboard.counts.work_items ?? 'Unavailable'}</b> work items
-        </span>
-        <span>
-          <b>{dashboard.counts.active_workspaces ?? 'Unavailable'}</b> active workspaces
-        </span>
-        <span>
-          <b>{dashboard.counts.live_sessions ?? 'Unavailable'}</b> live sessions
-        </span>
-      </nav>
+          <span>
+            <b>{dashboard.counts.active_workspaces ?? 'Unavailable'}</b> active workspaces
+          </span>
+          <span>
+            <b>{dashboard.counts.live_sessions ?? 'Unavailable'}</b> live sessions
+          </span>
+        </nav>
+        {startWorkLauncher}
+      </div>
 
       {(unavailableSources.length > 0 || staleSources.length > 0) && (
         <div className={styles.sourceNotice} role="status">

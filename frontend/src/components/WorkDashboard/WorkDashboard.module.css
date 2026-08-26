@@ -27,6 +27,22 @@
   font-size: 15px;
 }
 
+.summaryRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+}
+
+.summaryRow > section {
+  margin: 0 0 8px auto;
+}
+
+.summaryRow > section:has(h2) {
+  width: 100%;
+  margin-left: 0;
+}
+
 .summary span {
   white-space: nowrap;
 }
@@ -201,7 +217,7 @@ tbody tr:focus-visible {
   display: block;
   color: var(--ink);
   font-size: 15px;
-  font-weight: 550;
+  font-weight: 500;
   line-height: 1.35;
   overflow-wrap: anywhere;
   text-decoration: none;
@@ -469,6 +485,17 @@ tbody tr:focus-visible {
   white-space: nowrap;
 }
 
+@media (max-width: 75rem) {
+  .filters {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .advancedFilters {
+    justify-content: flex-start;
+  }
+}
+
 @media (max-width: 48rem) {
   .summary {
     flex-wrap: wrap;
@@ -485,12 +512,7 @@ tbody tr:focus-visible {
     display: none;
   }
 
-  .filters {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .advancedFilters {
-    justify-content: flex-start;
+  .summaryRow > section {
+    margin-left: 0;
   }
 }

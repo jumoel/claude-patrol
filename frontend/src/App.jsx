@@ -1,20 +1,13 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import styles from './App.module.css';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AppShell } from './components/AppShell/AppShell.jsx';
 import { CommandPalette } from './components/CommandPalette/CommandPalette.jsx';
-import { DashboardSummary } from './components/DashboardSummary/DashboardSummary.jsx';
-import { FilterBar } from './components/FilterBar/FilterBar.jsx';
 import { GlobalTerminal } from './components/GlobalTerminal/GlobalTerminal.jsx';
 import { PRRouteDetail } from './components/PRRouteDetail/PRRouteDetail.jsx';
-import { PRTable } from './components/PRTable/PRTable.jsx';
-import { ScratchWorkspaces } from './components/ScratchWorkspaces/ScratchWorkspaces.jsx';
 import { SetupMode } from './components/SetupMode/SetupMode.jsx';
 import { StartWorkLauncher } from './components/StartWorkLauncher/StartWorkLauncher.jsx';
 import { Button } from './components/ui/Button/Button.jsx';
-import { LoadingIndicator } from './components/ui/LoadingIndicator/LoadingIndicator.jsx';
 import { WorkDashboard } from './components/WorkDashboard/WorkDashboard.jsx';
 import { WorkItemDetail } from './components/WorkItemDetail/WorkItemDetail.jsx';
-import { WorkItems } from './components/WorkItems/WorkItems.jsx';
 import { WorkspaceDetail } from './components/WorkspaceDetail/WorkspaceDetail.jsx';
 import { useAgentProvider } from './context/AgentProviderContext.jsx';
 import { useIdleNotification } from './hooks/useIdleNotification.js';
@@ -23,7 +16,6 @@ import { fetchConfig } from './lib/api.js';
 import { getErrorMessage } from './lib/errors.js';
 import { parseAppRoute, pullRequestPath, workItemPath } from './lib/routes.js';
 
-/** @typedef {import('./types').PullRequest} PullRequest */
 /** @typedef {import('./types').FilterState} FilterState */
 /** @typedef {import('./types').FilterListKey} FilterListKey */
 /** @typedef {{ id: string, desc: boolean }} SortState */
@@ -34,79 +26,6 @@ function formatCountdown(seconds) {
   const s = seconds % 60;
   if (m > 0) return `${m}m ${s.toString().padStart(2, '0')}s`;
   return `${s}s`;
-}
-
-/**
- * Apply client-side filters. Each filter key maps to an array of allowed values.
- * Empty array = no filter (show all).
- * @param {PullRequest[]} prs
- * @param {FilterState} filters
- */
-function applyFilters(prs, filters) {
-  return prs.filter((pr) => {
-    // "Needs work" is a meta-filter: show only PRs that need attention
-    // (failing CI, conflicts, or drafts)
-    if (filters.needsWork) {
-      const isGood = pr.ci_status === 'pass' && pr.mergeable === 'MERGEABLE' && !pr.draft;
-      if (isGood) return false;
-    }
-    if (filters.org?.length && !filters.org.includes(pr.org)) return false;
-    if (filters.repo?.length && !filters.repo.includes(pr.repo)) return false;
-    if (filters.ci?.length && !filters.ci.includes(pr.ci_status)) return false;
-    if (filters.review?.length && !filters.review.includes(pr.review_status)) return false;
-    if (filters.mergeable?.length && !filters.mergeable.includes(pr.mergeable)) return false;
-    if (filters.draft?.length) {
-      const isDraft = pr.draft ? 'true' : 'false';
-      if (!filters.draft.includes(isDraft)) return false;
-    }
-    return true;
-  });
-}
-
-/**
- * Sort PRs so stacked branches appear together in dependency order.
- * Stack roots appear first (sorted by updated_at), followed by their children
- * in depth order. Non-stacked PRs keep their original position.
- * @param {PullRequest[]} prs
- * @returns {PullRequest[]}
- */
-function sortByStacks(prs) {
-  // Separate stacked and non-stacked
-  const stacked = prs.filter((p) => p.is_stacked);
-  const nonStacked = prs.filter((p) => !p.is_stacked);
-
-  if (stacked.length === 0) return prs;
-
-  // Group by stack_root
-  /** @type {Map<string, PullRequest[]>} */
-  const groups = new Map();
-  for (const pr of stacked) {
-    const root = pr.stack_root;
-    const group = groups.get(root);
-    if (group) group.push(pr);
-    else groups.set(root, [pr]);
-  }
-
-  // Sort each group by stack_depth (base first, top last)
-  for (const [, group] of groups) {
-    group.sort((a, b) => a.stack_depth - b.stack_depth);
-  }
-
-  // Sort groups by the most recent updated_at in the group
-  const sortedGroups = [...groups.entries()].sort((a, b) => {
-    const aMax = Math.max(...a[1].map((p) => new Date(p.updated_at).getTime()));
-    const bMax = Math.max(...b[1].map((p) => new Date(p.updated_at).getTime()));
-    return bMax - aMax;
-  });
-
-  // Interleave: stacked groups first, then non-stacked
-  /** @type {PullRequest[]} */
-  const result = [];
-  for (const [, group] of sortedGroups) {
-    result.push(...group);
-  }
-  result.push(...nonStacked);
-  return result;
 }
 
 /** @type {FilterListKey[]} */
@@ -169,9 +88,6 @@ export default function App() {
   const [sorting, setSorting] = useState(initial.sorting);
   const [stackView, setStackView] = useState(initial.stackView);
   const [terminalOpen, setTerminalOpen] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const copiedTimeout = useRef(/** @type {ReturnType<typeof setTimeout> | null} */ (null));
-  const sortedRowsRef = useRef(/** @type {PullRequest[] | null} */ (null));
   const pollConfigured = publicConfig?.poll_configured ?? false;
   const workItemsConfigured = publicConfig?.work_items.configured ?? false;
   const { targetStates, dismissedIdle, setActiveTarget, localChangeCount } =
@@ -200,7 +116,7 @@ export default function App() {
   const [startupSha, setStartupSha] = useState('');
   const [currentSha, setCurrentSha] = useState('');
 
-  const { syncedAt, loading, error, syncing, countdown, triggerSync, ghRateLimit } = prSource;
+  const { syncedAt, syncing, countdown, triggerSync, ghRateLimit } = prSource;
   const allPRs = prSource.prs;
 
   // Check whether either application mode is configured and load update status.
@@ -258,34 +174,6 @@ export default function App() {
     },
     [filters, sorting],
   );
-
-  const filteredPRs = useMemo(() => {
-    const filtered = applyFilters(allPRs, filters);
-    return stackView ? sortByStacks(filtered) : filtered;
-  }, [allPRs, filters, stackView]);
-
-  const copyFilteredAsMarkdown = useCallback(() => {
-    // Use the exact sorted row order from PRTable so markdown always matches the screen
-    const prs = sortedRowsRef.current || filteredPRs;
-    /** @param {PullRequest} pr @param {string} [indent] */
-    const formatPR = (pr, indent = '') => `${indent}- [#${pr.number}](${pr.url}) - ${pr.title}`;
-    let md;
-    if (stackView) {
-      md = prs
-        .map((pr) => {
-          const indent = pr.is_stacked ? '    '.repeat(pr.stack_depth) : '';
-          return formatPR(pr, indent);
-        })
-        .join('\n');
-    } else {
-      md = prs.map((pr) => formatPR(pr)).join('\n');
-    }
-    navigator.clipboard.writeText(md).then(() => {
-      setCopied(true);
-      if (copiedTimeout.current !== null) clearTimeout(copiedTimeout.current);
-      copiedTimeout.current = setTimeout(() => setCopied(false), 2000);
-    });
-  }, [filteredPRs, stackView]);
 
   // Hash-based routing with one discriminated route value.
   useEffect(() => {
@@ -375,7 +263,6 @@ export default function App() {
 
   // ?update=1 forces the update banner visible for testing
   const forceUpdate = new URLSearchParams(window.location.search).get('update') === '1';
-  const showUiRefresh = new URLSearchParams(window.location.search).get('uiRefresh') === '1';
 
   return (
     <AppShell
@@ -419,7 +306,7 @@ export default function App() {
             Back to dashboard
           </Button>
         </div>
-      ) : showUiRefresh ? (
+      ) : (
         <WorkDashboard
           dashboard={dashboard}
           filters={filters}
@@ -429,62 +316,8 @@ export default function App() {
           stackView={stackView}
           onStackViewChange={handleStackViewChange}
           onOpenGlobalTerminal={openGlobalTerminal}
+          startWorkLauncher={<StartWorkLauncher workItemsConfigured={workItemsConfigured} />}
         />
-      ) : (
-        <>
-          <DashboardSummary
-            prCount={filteredPRs.length}
-            pollConfigured={pollConfigured}
-            workItems={workItemSource.workItems}
-            sessions={globalSessionState.allSessions}
-            onOpenGlobalTerminal={openGlobalTerminal}
-            changeToken={localChangeCount}
-          />
-          <StartWorkLauncher workItemsConfigured={workItemsConfigured} />
-          {(workItemsConfigured || workItemSource.workItems.length > 0) && (
-            <WorkItems
-              workItems={workItemSource.workItems}
-              loading={workItemSource.loading}
-              error={workItemSource.error}
-              onRetry={workItemSource.reload}
-              targetStates={targetStates}
-              dismissedIdle={dismissedIdle}
-            />
-          )}
-          {pollConfigured && (
-            <section className={styles.prSection} aria-labelledby="open-prs-heading">
-              <h2 id="open-prs-heading" className={styles.prTitle}>
-                Open PRs ({filteredPRs.length})
-              </h2>
-              <FilterBar
-                prs={allPRs}
-                filters={filters}
-                onFilterChange={handleFilterChange}
-                onCopyMarkdown={copyFilteredAsMarkdown}
-                copied={copied}
-                stackView={stackView}
-                onStackViewChange={handleStackViewChange}
-              />
-              {error && <p>{error}</p>}
-              {loading && allPRs.length === 0 && <LoadingIndicator>Loading pull requests...</LoadingIndicator>}
-              <PRTable
-                prs={filteredPRs}
-                onRowClick={navigateToPR}
-                sorting={sorting}
-                onSortingChange={handleSortingChange}
-                workspaceStates={targetStates}
-                dismissedIdle={dismissedIdle}
-                stackView={stackView}
-                sortedRowsRef={sortedRowsRef}
-              />
-            </section>
-          )}
-          <ScratchWorkspaces
-            scratchWorkspaces={scratchWorkspaces}
-            workspaceStates={targetStates}
-            dismissedIdle={dismissedIdle}
-          />
-        </>
       )}
       {applicationDataEnabled && (
         <>

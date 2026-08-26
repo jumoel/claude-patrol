@@ -89,7 +89,7 @@ export function StartWorkLauncher({ workItemsConfigured }) {
           </Button>
         </div>
       ) : (
-        <Box p={5} border rounded="lg" bg="white" className={styles.card}>
+        <Box p={4} border rounded="none" bg="white" className={styles.card}>
           <Stack direction="col" gap={4}>
             <Stack justify="between" wrap className={styles.header}>
               <div>

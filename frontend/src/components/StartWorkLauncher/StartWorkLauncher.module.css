@@ -1,11 +1,10 @@
 @reference "tailwindcss";
 
 .container {
-  @apply my-3;
+  @apply my-2;
 }
 .card {
   @apply max-w-4xl border-gray-200/80;
-  box-shadow: 0 1px 2px rgb(15 23 42 / 0.035);
 }
 
 .header {
@@ -13,7 +12,7 @@
 }
 
 .title {
-  @apply m-0 text-base font-semibold text-gray-900;
+  @apply m-0 text-base font-medium text-gray-900;
 }
 
 .subtitle,
@@ -34,7 +33,7 @@
 }
 
 .modeOption {
-  @apply flex min-w-60 flex-1 cursor-pointer items-start gap-3 rounded-lg border border-gray-200 p-3 text-sm text-gray-700;
+  @apply flex min-w-60 flex-1 cursor-pointer items-start gap-3 rounded-md border border-gray-200 p-3 text-sm text-gray-700;
 }
 
 .modeOption:focus-within {
@@ -82,7 +81,7 @@
 }
 
 .unconfigured {
-  @apply rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900;
+  @apply border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900;
 }
 
 .unconfigured p {
