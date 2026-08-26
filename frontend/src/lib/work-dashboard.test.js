@@ -5,6 +5,7 @@ import {
   dashboardSourceState,
   filterDashboardRows,
   serializeDashboardRowsMarkdown,
+  sortDashboardRows,
 } from './work-dashboard.js';
 
 const trackedPR = /** @type {import('../types').PullRequest} */ ({
@@ -147,7 +148,7 @@ const sessions = /** @type {import('../types').Session[]} */ ([
 ]);
 
 describe('buildDashboardRows', () => {
-  it('keeps attached pull requests inside their work item and overlays tracked status', () => {
+  it('assembles all source batches while keeping each owned pull request in one row', () => {
     const rows = buildDashboardRows({
       pullRequests: [trackedPR, standalonePR],
       workItems: [workItem],
@@ -162,6 +163,32 @@ describe('buildDashboardRows', () => {
     expect(owner?.pull_requests[1]).toMatchObject({ tracked: false, ci_status: null, review_status: null });
     expect(owner?.sessions.map((session) => session.id)).toEqual(['session-work', 'session-child']);
     expect(owner?.updated_at).toBe(trackedPR.updated_at);
+    expect(rows.flatMap((row) => row.pull_requests).filter((pr) => pr.id === trackedPR.id)).toHaveLength(1);
+  });
+
+  it('shows a tracked pull request as standalone when its work-item source row is unavailable', () => {
+    const rows = buildDashboardRows({
+      pullRequests: [trackedPR],
+      workItems: [],
+      workspaces: [],
+      sessions: [],
+    });
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ kind: 'pull_request', id: trackedPR.id });
+  });
+
+  it('uses the tracked owner and removes a stale duplicate link from another work item', () => {
+    const staleOwner = { ...workItem, id: 'work-2', pull_requests: [workItem.pull_requests[0]] };
+    const rows = buildDashboardRows({
+      pullRequests: [trackedPR],
+      workItems: [staleOwner, { ...workItem, pull_requests: [] }],
+      workspaces: [],
+      sessions: [],
+    });
+
+    expect(rows.find((row) => row.id === staleOwner.id)?.pull_requests).toHaveLength(0);
+    expect(rows.find((row) => row.id === workItem.id)?.pull_requests.map((pr) => pr.id)).toEqual([trackedPR.id]);
   });
 });
 
@@ -176,6 +203,26 @@ describe('buildWaitingSessions', () => {
         (session) => session.id,
       ),
     ).toEqual(['session-global']);
+  });
+
+  it('includes workspace targets but excludes working, killed, and transitionless sessions', () => {
+    const candidates = /** @type {import('../types').Session[]} */ ([
+      ...sessions,
+      {
+        ...sessions[1],
+        id: 'session-workspace-idle',
+        activity_state: 'idle',
+        activity_changed_at: '2026-08-26T12:25:00.000Z',
+      },
+      { ...sessions[0], id: 'session-killed', status: 'killed' },
+      { ...sessions[0], id: 'session-no-transition', activity_changed_at: null },
+    ]);
+
+    expect(buildWaitingSessions(candidates, new Map()).map((session) => session.id)).toEqual([
+      'session-work',
+      'session-workspace-idle',
+      'session-global',
+    ]);
   });
 });
 
@@ -267,5 +314,38 @@ describe('dashboardSourceState', () => {
     expect(dashboardSourceState(null, true, false).status).toBe('loading');
     expect(dashboardSourceState(null, false, true).status).toBe('ready');
     expect(dashboardSourceState(null, false, false, false).status).toBe('disabled');
+  });
+});
+
+describe('sortDashboardRows', () => {
+  it('orders only standalone PR slots as stacks and leaves other work rows in place', () => {
+    const parent = {
+      ...standalonePR,
+      id: 'chainguard/mono#20',
+      number: 20,
+      stack_root: 'chainguard/mono#20',
+      stack_depth: 0,
+      is_stacked: true,
+    };
+    const child = {
+      ...standalonePR,
+      id: 'chainguard/mono#21',
+      number: 21,
+      stack_root: 'chainguard/mono#20',
+      stack_depth: 1,
+      is_stacked: true,
+    };
+    const rows = buildDashboardRows({
+      pullRequests: [child, parent],
+      workItems: [workItem],
+      workspaces: [],
+      sessions: [],
+    });
+    const owner = rows.find((row) => row.kind === 'work_item');
+    const childRow = rows.find((row) => row.id === child.id);
+    const parentRow = rows.find((row) => row.id === parent.id);
+    const input = /** @type {import('../types').DashboardWorkRow[]} */ ([childRow, owner, parentRow].filter(Boolean));
+
+    expect(sortDashboardRows(input, [], true).map((row) => row.id)).toEqual([parent.id, workItem.id, child.id]);
   });
 });

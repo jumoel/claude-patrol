@@ -51,3 +51,14 @@ test('synchronizes acknowledgements from another tab', async () => {
     assert.equal(result.current.acknowledgedIdle.get(idleSession.id), idleSession.activity_changed_at),
   );
 });
+
+test('prunes acknowledgements after a reconciled session exits', async () => {
+  const { result, rerender } = renderHook(({ sessions }) => useWaitingAcknowledgements(sessions, true), {
+    initialProps: { sessions: [idleSession] },
+  });
+  act(() => result.current.acknowledge(idleSession.id));
+  rerender({ sessions: [] });
+
+  await waitFor(() => assert.equal(result.current.acknowledgedIdle.size, 0));
+  assert.deepEqual(JSON.parse(localStorage.getItem('claude-patrol-waiting-ack-v1') || '{}'), {});
+});

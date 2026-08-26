@@ -21,7 +21,6 @@ import {
 } from '../PRDetail/PRDetail.jsx';
 import { PullRequestStatusBadges } from '../PullRequestStatusBadges/PullRequestStatusBadges.jsx';
 import { RuleControls } from '../RuleControls/RuleControls.jsx';
-import { Box } from '../ui/Box/Box.jsx';
 import { Button } from '../ui/Button/Button.jsx';
 import { LoadingIndicator } from '../ui/LoadingIndicator/LoadingIndicator.jsx';
 import { Stack } from '../ui/Stack/Stack.jsx';
@@ -351,9 +350,9 @@ export function LinkedPullRequests({ workItem, selectedPrId, onWorkItemReload, e
             onRetriggerFailed={handleRetriggerFailed}
             onInvestigateFailures={handleInvestigateFailures}
           />
-          <Box p={0} border bg="white" className={styles.ruleControls}>
+          <section className={styles.ruleControls} aria-label="Rules">
             <RuleControls prId={pr.id} />
-          </Box>
+          </section>
           <PullRequestReviews reviews={pr.reviews} />
           <PullRequestComments comments={comments} loading={commentsLoading} />
           {commentsError && <p className={styles.error}>{commentsError}</p>}

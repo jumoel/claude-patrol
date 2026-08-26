@@ -187,16 +187,6 @@ export async function requestPeerReview(workspaceId) {
 }
 
 /**
- * Fetch scratch workspaces (no PR).
- * @returns {Promise<import('../types').Workspace[]>}
- */
-export async function fetchScratchWorkspaces() {
-  const res = await fetch(`${BASE}/api/workspaces?type=scratch`);
-  if (!res.ok) throw new Error((await readError(res)) || `Failed to fetch scratch workspaces: ${res.status}`);
-  return readJson(res);
-}
-
-/**
  * Destroy a workspace.
  * @param {string} workspaceId
  * @returns {Promise<{ok: boolean}>}

@@ -1,11 +1,27 @@
 @reference "tailwindcss";
 
+.container {
+  padding: 0 18px;
+  background: #fff;
+  border-top: 1px solid #d7dce3;
+  border-bottom: 1px solid #d7dce3;
+}
+
 .toggleButton {
-  @apply p-0 text-sm text-gray-500 hover:text-gray-700 cursor-pointer transition-colors;
-  align-self: flex-start;
+  @apply w-full cursor-pointer text-gray-700;
+  min-height: 44px;
   background: none;
   border: none;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 15px;
+  font-weight: 550;
+  letter-spacing: 0.015em;
   text-align: left;
+}
+
+.toggleButton:focus-visible {
+  outline: 2px solid #2f69bd;
+  outline-offset: -2px;
 }
 
 .loading,
@@ -22,7 +38,7 @@
 }
 
 .sessionRow {
-  @apply flex items-center justify-between w-full py-1.5 px-3 rounded hover:bg-gray-50 transition-colors cursor-pointer;
+  @apply flex items-center justify-between w-full py-1.5 px-3 cursor-pointer;
   background: none;
   border: none;
   text-align: left;
@@ -37,7 +53,7 @@
 }
 
 .sessionRowUnavailable {
-  @apply cursor-default hover:bg-transparent;
+  @apply cursor-default;
 }
 
 .unavailable {

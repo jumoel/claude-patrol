@@ -497,6 +497,20 @@ tbody tr:focus-visible {
 }
 
 @media (max-width: 48rem) {
+  .work > .sectionHeader {
+    flex-wrap: wrap;
+    padding-top: 9px;
+    padding-bottom: 9px;
+  }
+
+  .work > .sectionHeader h2 {
+    flex-basis: 100%;
+  }
+
+  .sectionUtilities {
+    justify-content: flex-start;
+  }
+
   .summary {
     flex-wrap: wrap;
     gap: 8px 20px;

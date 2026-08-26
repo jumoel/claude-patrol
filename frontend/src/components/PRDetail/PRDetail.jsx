@@ -36,7 +36,6 @@ import { RuleControls } from '../RuleControls/RuleControls.jsx';
 import { SessionHistory } from '../SessionHistory/SessionHistory.jsx';
 import { TerminalCard } from '../TerminalCard/TerminalCard.jsx';
 import { Badge } from '../ui/Badge/Badge.jsx';
-import { Box } from '../ui/Box/Box.jsx';
 import { Button } from '../ui/Button/Button.jsx';
 import { LoadingIndicator } from '../ui/LoadingIndicator/LoadingIndicator.jsx';
 import { Stack } from '../ui/Stack/Stack.jsx';
@@ -483,9 +482,9 @@ export function PRDetail({ prId, onBack, workspaceStates }) {
         onInvestigateFailures={handleInvestigateFailures}
       />
 
-      <Box p={0} border bg="white" className={styles.ruleControls}>
+      <section className={styles.ruleControls} aria-label="Rules">
         <RuleControls prId={prId} />
-      </Box>
+      </section>
 
       {pr.body_html && (
         <section className={workPage.section} aria-label="Pull request description">
@@ -515,7 +514,7 @@ export function PullRequestChecks({ pr, retriggering, onRetriggerFailed, onInves
   const scheduledChecks = pr.checks.filter(isScheduledCheck);
   if (pr.checks.length === 0) return null;
   return (
-    <Box p={0} border rounded="lg" bg="white" className={shared.sectionCard}>
+    <section className={shared.sectionCard} aria-label="Checks">
       <Stack justify="between" wrap gap={3} className={shared.sectionHeader}>
         <Stack gap={3} as="h3" className={shared.sectionHeaderTitle}>
           Checks
@@ -575,7 +574,7 @@ export function PullRequestChecks({ pr, retriggering, onRetriggerFailed, onInves
           {passedChecks.length > 0 && <PassedChecksGroup checks={passedChecks} />}
         </Stack>
       </div>
-    </Box>
+    </section>
   );
 }
 
@@ -583,7 +582,7 @@ export function PullRequestChecks({ pr, retriggering, onRetriggerFailed, onInves
 export function PullRequestReviews({ reviews }) {
   if (reviews.length === 0) return null;
   return (
-    <Box p={0} border rounded="lg" bg="white" className={shared.sectionCard}>
+    <section className={shared.sectionCard} aria-label="Reviews">
       <div className={shared.sectionHeader}>
         <h3 className={shared.sectionHeaderTitle}>
           Reviews <span className={shared.sectionHeaderMeta}>{reviews.length}</span>
@@ -603,7 +602,7 @@ export function PullRequestReviews({ reviews }) {
           ))}
         </div>
       </div>
-    </Box>
+    </section>
   );
 }
 
@@ -611,14 +610,14 @@ export function PullRequestReviews({ reviews }) {
 export function PullRequestComments({ comments, loading }) {
   if (!loading && !comments) return null;
   return (
-    <Box p={0} border rounded="lg" bg="white" className={shared.sectionCard}>
+    <section className={shared.sectionCard} aria-label="Comments">
       <div className={shared.sectionHeader}>
         <h3 className={shared.sectionHeaderTitle}>Comments</h3>
       </div>
       <div className={shared.sectionBody}>
         <CommentsList reviews={comments?.reviews} conversation={comments?.conversation} loading={loading} />
       </div>
-    </Box>
+    </section>
   );
 }
 

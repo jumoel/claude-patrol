@@ -1,9 +1,0 @@
-@reference "tailwindcss";
-
-.prSection {
-  @apply mt-6;
-}
-
-.prTitle {
-  @apply mb-2.5 text-xs font-semibold uppercase tracking-wider text-gray-500;
-}

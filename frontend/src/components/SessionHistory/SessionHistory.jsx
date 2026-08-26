@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from 'react';
 import { fetchSessionHistory, fetchSessionTranscript } from '../../lib/api.js';
 import { getErrorMessage } from '../../lib/errors.js';
 import { TranscriptViewer } from '../TranscriptViewer/TranscriptViewer.jsx';
-import { Box } from '../ui/Box/Box.jsx';
 import { LoadingIndicator } from '../ui/LoadingIndicator/LoadingIndicator.jsx';
 import { Stack } from '../ui/Stack/Stack.jsx';
 import styles from './SessionHistory.module.css';
@@ -80,9 +79,14 @@ export function SessionHistory({ target }) {
   );
 
   return (
-    <Box p={5} border rounded="lg" bg="white">
+    <section className={styles.container} aria-label="Past sessions">
       <Stack direction="col" gap={3}>
-        <button className={styles.toggleButton} onClick={() => setExpanded((value) => !value)}>
+        <button
+          className={styles.toggleButton}
+          type="button"
+          aria-expanded={expanded}
+          onClick={() => setExpanded((value) => !value)}
+        >
           {expanded ? 'Hide' : 'Show'} past sessions
         </button>
         {expanded && loading && (
@@ -132,6 +136,6 @@ export function SessionHistory({ target }) {
           </div>
         )}
       </Stack>
-    </Box>
+    </section>
   );
 }

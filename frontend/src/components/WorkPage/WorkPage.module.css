@@ -178,9 +178,11 @@
     align-items: flex-start;
   }
 
-  .headerActions,
-  .sectionHeader,
-  .terminalLauncher {
+  .headerActions {
+    flex-wrap: wrap;
+  }
+
+  .sectionHeader {
     flex-direction: column;
   }
 

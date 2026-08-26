@@ -60,6 +60,7 @@ const defaultProps = {
 
 beforeEach(() => {
   localStorage.clear();
+  vi.clearAllMocks();
   vi.restoreAllMocks();
 });
 
@@ -86,4 +87,103 @@ test('copies the currently visible rows in their rendered order', async () => {
   await vi.waitFor(() => assert.equal(writeText.mock.calls.length, 1));
   assert.match(writeText.mock.calls[0][0], /Work item ONE-1 - Grouped work/);
   assert.match(writeText.mock.calls[0][0], /#2/);
+});
+
+test('renders source failures and retained-data status without replacing available rows', () => {
+  render(
+    <WorkDashboard
+      {...defaultProps}
+      dashboard={{
+        ...dashboard,
+        counts: { ...dashboard.counts, work_items: null, live_sessions: null },
+        sources: {
+          ...dashboard.sources,
+          work_items: { status: 'unavailable', error: 'offline' },
+          workspaces: { status: 'stale', error: 'timeout' },
+          sessions: { status: 'unavailable', error: 'offline' },
+        },
+      }}
+    />,
+  );
+
+  assert.match(screen.getByRole('status').textContent || '', /Unavailable: Work items, Sessions/u);
+  assert.match(screen.getByRole('status').textContent || '', /Showing retained data for: Workspaces/u);
+  assert.ok(screen.getByText('Sessions are unavailable.'));
+  assert.ok(screen.getByRole('link', { name: 'Grouped work' }));
+});
+
+test('shows waiting sessions as a list and acknowledges a global session when opened', () => {
+  const idleSession = /** @type {import('../../types').Session} */ ({
+    id: 'session-1',
+    workspace_id: null,
+    work_item_id: null,
+    name: 'release follow-up',
+    target: { type: 'global' },
+    activity_state: 'idle',
+    activity_changed_at: '2026-08-26T10:30:00.000Z',
+    provider: 'codex',
+    status: 'active',
+    started_at: '2026-08-26T09:00:00.000Z',
+    ended_at: null,
+    pid: 123,
+    claude_project_dir: null,
+    transcript_path: null,
+  });
+  render(
+    <WorkDashboard {...defaultProps} dashboard={{ ...dashboard, sessionSource: { allSessions: [idleSession] } }} />,
+  );
+
+  const waitingList = screen.getByRole('list');
+  assert.ok(waitingList);
+  fireEvent.click(screen.getByRole('button', { name: /release follow-up/u }));
+  assert.deepEqual(defaultProps.onOpenGlobalTerminal.mock.calls, [['session-1']]);
+  assert.equal(screen.queryByText('release follow-up'), null);
+  assert.equal(
+    JSON.parse(localStorage.getItem('claude-patrol-waiting-ack-v1') || '{}')['session-1'],
+    idleSession.activity_changed_at,
+  );
+});
+
+test('keeps the current filter set visible and applies quick filters from the work-list block', () => {
+  render(<WorkDashboard {...defaultProps} />);
+
+  for (const label of [
+    'Merge Ready',
+    'Needs Work',
+    'Review Ready',
+    'All orgs',
+    'All repos',
+    'All CI',
+    'All reviews',
+    'All merge',
+    'All PRs',
+  ]) {
+    assert.ok(screen.getByText(label));
+  }
+  fireEvent.click(screen.getByRole('button', { name: 'Needs Work' }));
+  assert.deepEqual(defaultProps.onFilterChange.mock.calls, [[{ needsWork: true }]]);
+});
+
+test('does not delegate a row click from interactive controls or selected text', () => {
+  render(<WorkDashboard {...defaultProps} />);
+  const primary = screen.getByRole('link', { name: 'Grouped work' });
+  const primaryClick = vi.spyOn(primary, 'click').mockImplementation(() => {});
+
+  fireEvent.click(screen.getByRole('link', { name: 'Open pull request #1: First PR' }));
+  assert.equal(primaryClick.mock.calls.length, 0);
+
+  vi.spyOn(window, 'getSelection').mockReturnValue(/** @type {Selection} */ ({ toString: () => 'selected text' }));
+  fireEvent.click(screen.getByText('org/repo'));
+  assert.equal(primaryClick.mock.calls.length, 0);
+});
+
+test('stores column preferences in the versioned dashboard key', () => {
+  render(<WorkDashboard {...defaultProps} />);
+  fireEvent.click(screen.getByText('Columns'));
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Work ref' }));
+
+  assert.equal(screen.queryByRole('columnheader', { name: 'Work ref' }), null);
+  const stored = JSON.parse(localStorage.getItem('claude-patrol-work-columns-v1') || '[]');
+  assert.equal(stored.includes('work'), true);
+  assert.equal(stored.includes('work_ref'), false);
 });

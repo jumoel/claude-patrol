@@ -7,16 +7,18 @@
 }
 
 .sectionCard {
-  @apply overflow-hidden;
-  box-shadow: 0 1px 2px rgb(15 23 42 / 0.035);
+  @apply overflow-hidden bg-white border-y border-gray-200;
 }
 
 .sectionHeader {
-  @apply flex min-h-11 items-center justify-between gap-4 border-b border-gray-200 bg-gray-50 px-5 py-2.5;
+  @apply flex min-h-11 items-center justify-between gap-4 border-b border-gray-200 bg-white px-[18px] py-2.5;
 }
 
 .sectionHeaderTitle {
-  @apply text-sm font-semibold uppercase tracking-wider text-gray-700;
+  @apply text-[15px] text-gray-700;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-weight: 550;
+  letter-spacing: 0.015em;
 }
 
 .sectionHeaderMeta {
@@ -24,7 +26,7 @@
 }
 
 .sectionBody {
-  @apply p-4;
+  @apply px-[18px] py-3;
 }
 
 .identityRow {

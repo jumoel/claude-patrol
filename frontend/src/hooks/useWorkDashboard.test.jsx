@@ -87,10 +87,114 @@ test.each([
   );
 
   await waitFor(() => assert.equal(result.current.sources.workspaces.status, 'ready'));
+  assert.equal(state.fetchWorkspaces.mock.calls.length, 1);
   assert.deepEqual(result.current.configured, { pull_requests: poll, work_items: workItems });
   assert.equal(result.current.sources.pull_requests.status, poll ? 'ready' : 'disabled');
   assert.equal(result.current.counts.open_pull_requests, poll ? 0 : null);
   assert.equal(result.current.rows[0]?.id, workItem.id);
+});
+
+test('keeps a loaded PR visible when the work-item batch is initially unavailable', async () => {
+  state.fetchWorkspaces.mockResolvedValue([]);
+  state.prSource = {
+    ...state.prSource,
+    prs: [
+      {
+        id: 'org/repo#1',
+        number: 1,
+        title: 'Owned PR with unavailable owner source',
+        org: 'org',
+        repo: 'repo',
+        url: 'https://example.test/1',
+        draft: false,
+        mergeable: 'MERGEABLE',
+        ci_status: 'pass',
+        review_status: 'approved',
+        updated_at: '2026-08-26T11:00:00.000Z',
+        work_item_id: 'missing-owner',
+      },
+    ],
+    loading: false,
+    loaded: true,
+  };
+  state.workItemSource = {
+    workItems: [],
+    loading: false,
+    loaded: false,
+    error: new Error('work items offline'),
+  };
+
+  const { result } = renderHook(() =>
+    useWorkDashboard({
+      enabled: true,
+      pollConfigured: true,
+      workItemsConfigured: true,
+      changeToken: 0,
+    }),
+  );
+
+  await waitFor(() => assert.equal(result.current.sources.workspaces.status, 'ready'));
+  assert.equal(result.current.sources.work_items.status, 'unavailable');
+  assert.deepEqual(
+    result.current.rows.map((dashboardRow) => dashboardRow.id),
+    ['org/repo#1'],
+  );
+});
+
+test.each([
+  'pull request first',
+  'work item first',
+])('reconciles ownership without duplicates when the %s source finishes first', async (firstSource) => {
+  const ownedPR = {
+    id: 'org/repo#2',
+    number: 2,
+    title: 'Eventually reconciled PR',
+    org: 'org',
+    repo: 'repo',
+    url: 'https://example.test/2',
+    draft: false,
+    mergeable: 'MERGEABLE',
+    ci_status: 'pass',
+    review_status: 'approved',
+    updated_at: '2026-08-26T11:00:00.000Z',
+    work_item_id: workItem.id,
+  };
+  state.fetchWorkspaces.mockResolvedValue([]);
+  state.prSource = {
+    ...state.prSource,
+    prs: firstSource === 'pull request first' ? [ownedPR] : [],
+    loading: firstSource !== 'pull request first',
+    loaded: firstSource === 'pull request first',
+  };
+  state.workItemSource = {
+    ...state.workItemSource,
+    workItems: firstSource === 'work item first' ? [workItem] : [],
+    loading: firstSource !== 'work item first',
+    loaded: firstSource === 'work item first',
+  };
+
+  const { result, rerender } = renderHook(() =>
+    useWorkDashboard({
+      enabled: true,
+      pollConfigured: true,
+      workItemsConfigured: true,
+      changeToken: 0,
+    }),
+  );
+  await waitFor(() => assert.equal(result.current.sources.workspaces.status, 'ready'));
+
+  state.prSource = { ...state.prSource, prs: [ownedPR], loading: false, loaded: true };
+  state.workItemSource = { ...state.workItemSource, workItems: [workItem], loading: false, loaded: true };
+  rerender();
+
+  assert.deepEqual(
+    result.current.rows.map((dashboardRow) => dashboardRow.kind),
+    ['work_item'],
+  );
+  assert.deepEqual(
+    result.current.rows[0].pull_requests.map((pr) => pr.id),
+    [ownedPR.id],
+  );
 });
 
 test('marks an initial workspace failure unavailable instead of returning a zero count', async () => {

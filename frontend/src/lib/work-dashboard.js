@@ -72,6 +72,15 @@ function latestTimestamp(values) {
  */
 export function buildDashboardRows({ pullRequests, workItems, workspaces, sessions }) {
   const pullRequestById = new Map(pullRequests.map((pr) => [pr.id, pr]));
+  /** @type {Map<string, import('../types').PullRequest[]>} */
+  const pullRequestsByWorkItem = new Map();
+  for (const pr of pullRequests) {
+    if (!pr.work_item_id) continue;
+    const owned = pullRequestsByWorkItem.get(pr.work_item_id) || [];
+    owned.push(pr);
+    pullRequestsByWorkItem.set(pr.work_item_id, owned);
+  }
+  const ownedPullRequestIds = new Set();
   const liveSessions = sessions.filter((session) => session.status === 'active' || session.status === 'detached');
   const sessionsByWorkItem = new Map();
   const sessionsByWorkspace = new Map();
@@ -86,9 +95,18 @@ export function buildDashboardRows({ pullRequests, workItems, workspaces, sessio
 
   /** @type {import('../types').DashboardWorkRow[]} */
   const rows = workItems.map((workItem) => {
-    const attached = workItem.pull_requests.map((linked) => {
+    const linkedPullRequests = [
+      ...workItem.pull_requests,
+      ...(pullRequestsByWorkItem.get(workItem.id) || []).filter(
+        (pr) => !workItem.pull_requests.some((linked) => linked.id === pr.id),
+      ),
+    ];
+    const attached = linkedPullRequests.flatMap((linked) => {
       const tracked = pullRequestById.get(linked.id);
-      return summarizePullRequest(tracked || linked);
+      if (tracked?.work_item_id && tracked.work_item_id !== workItem.id) return [];
+      if (ownedPullRequestIds.has(linked.id)) return [];
+      ownedPullRequestIds.add(linked.id);
+      return [summarizePullRequest(tracked || linked)];
     });
     const readyWorkspaces = workItem.repository_workspaces.filter((workspace) => workspace.state === 'ready');
     const childSessions = readyWorkspaces.flatMap((workspace) =>
@@ -114,7 +132,7 @@ export function buildDashboardRows({ pullRequests, workItems, workspaces, sessio
   });
 
   for (const pr of pullRequests) {
-    if (pr.work_item_id) continue;
+    if (ownedPullRequestIds.has(pr.id)) continue;
     const workspace = workspaces.find((candidate) => candidate.pr_id === pr.id) || null;
     rows.push({
       kind: 'pull_request',
