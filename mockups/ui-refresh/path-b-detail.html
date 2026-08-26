@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Claude Patrol - Work detail</title>
+    <meta name="description" content="A full-page work detail mockup for the dense Claude Patrol dashboard concept." />
+    <link rel="icon" type="image/png" sizes="32x32" href="./logo-b-favicon-32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="./logo-b-favicon-16.png" />
+    <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="./path-b.css" />
+  </head>
+  <body class="path-b path-b-detail">
+    <div class="b-shell">
+      <header class="b-header">
+        <a class="b-brand" href="./path-b.html">
+          <img src="./logo-concept-b-red-retro.png" alt="" />
+          <span>Claude Patrol</span>
+        </a>
+        <div class="b-header-actions">
+          <span class="b-sync"><span class="sync-dot"></span>Last synced 10:45 AM</span>
+          <button class="button b-sync-button" type="button" id="bDetailSyncButton">↻ Sync now</button>
+          <a class="button secondary b-back-button" href="./path-b.html">← All work</a>
+          <button class="button secondary" type="button" data-b-detail-demo>Settings</button>
+        </div>
+      </header>
+
+      <main class="b-main b-detail-main" id="bDetailMain">
+        <article class="b-detail-page" aria-labelledby="bPageTitle">
+          <header class="b-detail-page-header">
+            <div class="b-detail-identity">
+              <div class="b-detail-topline">
+                <p class="b-detail-eyebrow" id="bPageEyebrow"></p>
+                <div class="b-detail-status" id="bPageStatus"></div>
+              </div>
+              <h1 id="bPageTitle"></h1>
+              <p class="b-detail-meta mono" id="bPageMeta"></p>
+            </div>
+            <div class="b-detail-page-actions">
+              <button class="button primary" type="button" id="bPrimaryAction"></button>
+            </div>
+          </header>
+
+          <section class="b-work-terminal" id="bWorkTerminal" aria-labelledby="bTerminalLabel">
+            <header class="b-work-terminal-header">
+              <div class="b-work-terminal-title">
+                <span class="b-terminal-status" id="bTerminalStatusDot" aria-hidden="true"></span>
+                <span id="bTerminalLabel">Terminal</span>
+                <span class="b-terminal-state" id="bTerminalState"></span>
+              </div>
+              <button class="b-work-terminal-toggle" type="button" id="bTerminalToggle" aria-expanded="true">Collapse</button>
+            </header>
+            <div class="b-work-terminal-body" id="bTerminalBody" tabindex="0"></div>
+          </section>
+
+          <div class="b-detail-page-grid">
+            <div class="b-detail-primary-column">
+              <section class="b-detail-card" aria-labelledby="b-overview-heading">
+                <h2 id="b-overview-heading">Overview</h2>
+                <p id="bOverview"></p>
+              </section>
+
+              <section class="b-detail-card" aria-labelledby="b-related-heading">
+                <div class="b-detail-card-heading">
+                  <h2 id="b-related-heading">Related work</h2>
+                  <span id="bRelatedCount"></span>
+                </div>
+                <div id="bRelatedContent"></div>
+              </section>
+
+              <section class="b-detail-card b-pr-status-card" id="bPrStatusCard" aria-labelledby="bPrStatusHeading" hidden>
+                <header class="b-pr-status-header">
+                  <div>
+                    <p>Selected PR</p>
+                    <h2 id="bPrStatusHeading"><span class="mono" id="bPrStatusNumber"></span><span id="bPrStatusTitle"></span></h2>
+                    <p class="mono" id="bPrStatusBranch"></p>
+                  </div>
+                </header>
+                <div class="b-pr-status-summary" id="bPrStatusSummary"></div>
+                <section class="b-checks-panel" aria-labelledby="bChecksHeading">
+                  <header>
+                    <h3 id="bChecksHeading">CI checks</h3>
+                  </header>
+                  <div class="b-check-list" id="bCheckList"></div>
+                </section>
+              </section>
+
+            </div>
+          </div>
+        </article>
+
+      </main>
+    </div>
+
+    <div class="toast" id="bDetailToast" role="status" aria-live="polite" hidden></div>
+
+    <script src="./path-b-detail.js"></script>
+  </body>
+</html>
