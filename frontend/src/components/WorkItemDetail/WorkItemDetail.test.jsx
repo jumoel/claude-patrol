@@ -27,7 +27,7 @@ vi.mock('../../lib/api.js', () => api);
 vi.mock('../TerminalCard/TerminalCard.jsx', () => ({
   /** @param {{session: import('../../types').Session, presentation?: string}} props */
   TerminalCard: ({ session, presentation }) => (
-    <div data-testid="root-terminal" data-presentation={presentation}>
+    <div data-testid="root-terminal" data-session={session.id} data-presentation={presentation}>
       Terminal {session.id}
     </div>
   ),
@@ -141,6 +141,7 @@ test('ready detail renders one root terminal and no child controls', async () =>
   renderDetail();
 
   assert.equal((await screen.findAllByTestId('root-terminal')).length, 1);
+  assert.equal(screen.getByTestId('root-terminal').getAttribute('data-session'), 'session-1');
   assert.equal(screen.getByTestId('root-terminal').getAttribute('data-presentation'), 'work-page');
   assert.ok(screen.getByText(/Update both repositories\.\s+Keep their changes aligned\./));
   assert.equal(screen.getAllByRole('button', { name: 'Copy path' }).length, 1);

@@ -90,7 +90,7 @@ beforeEach(() => {
   api.destroyWorkspace.mockResolvedValue({});
 });
 
-test('starts a real scratch session through the API and renders an in-flow terminal', async () => {
+test('calls the scratch session API adapter and renders an in-flow terminal', async () => {
   const user = userEvent.setup();
   renderDetail();
 
@@ -101,7 +101,9 @@ test('starts a real scratch session through the API and renders an in-flow termi
   await waitFor(() => {
     assert.deepEqual(api.createSession.mock.calls, [[{ type: 'workspace', id: 'scratch-1' }, 'codex']]);
   });
-  assert.equal((await screen.findByTestId('terminal')).getAttribute('data-presentation'), 'work-page');
+  const terminal = await screen.findByTestId('terminal');
+  assert.equal(terminal.getAttribute('data-session'), 'session-1');
+  assert.equal(terminal.getAttribute('data-presentation'), 'work-page');
 });
 
 test('destroy waits for the API and navigates back only after success', async () => {

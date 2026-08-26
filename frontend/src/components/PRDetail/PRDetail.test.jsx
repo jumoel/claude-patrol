@@ -151,7 +151,7 @@ beforeEach(() => {
   api.setPRDraft.mockResolvedValue({ draft: true });
 });
 
-test('creates a real workspace/session through the API and renders an in-flow terminal', async () => {
+test('calls the workspace and session API adapters and renders an in-flow terminal', async () => {
   const user = userEvent.setup();
   renderDetail();
 
@@ -164,6 +164,7 @@ test('creates a real workspace/session through the API and renders an in-flow te
     assert.deepEqual(api.createSession.mock.calls, [[{ type: 'workspace', id: 'workspace-1' }, 'codex']]);
   });
   const terminal = await screen.findByTestId('terminal');
+  assert.equal(terminal.getAttribute('data-session'), 'session-1');
   assert.equal(terminal.getAttribute('data-presentation'), 'work-page');
   assert.equal(terminal.getAttribute('data-popout'), 'false');
 });
