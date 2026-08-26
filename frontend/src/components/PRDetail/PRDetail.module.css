@@ -10,34 +10,18 @@
   @apply justify-end;
 }
 
-.title {
-  @apply text-lg font-bold text-gray-900 leading-snug;
-}
-
-.statusLabel {
-  @apply text-sm font-medium text-gray-500 uppercase;
-}
-
 .label {
   @apply px-2.5 py-0.5 text-sm font-medium border rounded-full;
 }
 
 .labels {
-  @apply pt-1;
+  @apply mt-3;
 }
 
-.workspaceRow {
-  @apply min-h-10;
+.ruleControls {
+  @apply overflow-hidden border-gray-200;
+  border-radius: 0;
 }
-
-.sectionHint {
-  @apply m-0 text-sm text-gray-500;
-}
-
-.launchError {
-  @apply text-sm text-red-600;
-}
-
 
 /* Checks */
 
@@ -187,6 +171,7 @@
 /* Stack info */
 .stackInfoBar {
   @apply flex items-center gap-2 px-3 py-2 bg-purple-50 border border-purple-200 rounded-md text-sm text-purple-800 flex-wrap;
+  margin-top: 12px;
 }
 
 .stackInfoNode {

@@ -16,10 +16,9 @@ import { AgentProviderButton } from '../AgentProviderButton/AgentProviderButton.
 import { SessionHistory } from '../SessionHistory/SessionHistory.jsx';
 import { TerminalCard } from '../TerminalCard/TerminalCard.jsx';
 import { Badge } from '../ui/Badge/Badge.jsx';
-import { Box } from '../ui/Box/Box.jsx';
 import { Button } from '../ui/Button/Button.jsx';
 import { LoadingIndicator } from '../ui/LoadingIndicator/LoadingIndicator.jsx';
-import { Stack } from '../ui/Stack/Stack.jsx';
+import workPage from '../WorkPage/WorkPage.module.css';
 import styles from './WorkspaceDetail.module.css';
 
 /**
@@ -37,8 +36,12 @@ export function WorkspaceDetail({ workspaceId, onBack, workspaceStates }) {
   const [loading, setLoading] = useState(true);
   const [openingSession, setOpeningSession] = useState(false);
   const [openingError, setOpeningError] = useState('');
+  const [loadError, setLoadError] = useState('');
+  const [actionError, setActionError] = useState('');
+  const [destroying, setDestroying] = useState(false);
 
   const loadData = useCallback(async () => {
+    setLoadError('');
     try {
       const ws = await fetchWorkspace(workspaceId);
       setWorkspace(ws);
@@ -49,7 +52,8 @@ export function WorkspaceDetail({ workspaceId, onBack, workspaceStates }) {
         setSession(null);
       }
     } catch (err) {
-      console.error('Failed to load workspace:', err);
+      setWorkspace(null);
+      setLoadError(getErrorMessage(err, 'Failed to load workspace'));
     } finally {
       setLoading(false);
     }
@@ -68,7 +72,6 @@ export function WorkspaceDetail({ workspaceId, onBack, workspaceStates }) {
       const sess = await apiCreateSession({ type: 'workspace', id: workspace.id }, provider);
       setSession(sess);
     } catch (err) {
-      console.error('Failed to create session:', err);
       setOpeningError(getErrorMessage(err, `Failed to start ${provider === 'codex' ? 'Codex' : 'Claude'}`));
     } finally {
       setOpeningSession(false);
@@ -77,11 +80,12 @@ export function WorkspaceDetail({ workspaceId, onBack, workspaceStates }) {
 
   const handleKillSession = useCallback(async () => {
     if (!session) return;
+    setActionError('');
     try {
       await apiKillSession(session.id);
       setSession(null);
     } catch (err) {
-      console.error('Failed to kill session:', err);
+      setActionError(getErrorMessage(err, 'Failed to stop terminal'));
     }
   }, [session]);
 
@@ -91,21 +95,26 @@ export function WorkspaceDetail({ workspaceId, onBack, workspaceStates }) {
 
   const handleReattach = useCallback(async () => {
     if (!session) return;
+    setActionError('');
     try {
       const updated = await apiReattachSession(session.id);
       setSession(updated);
     } catch (err) {
-      console.error('Failed to reattach session:', err);
+      setActionError(getErrorMessage(err, 'Failed to reattach terminal'));
     }
   }, [session]);
 
-  const handleDestroy = useCallback(() => {
+  const handleDestroy = useCallback(async () => {
     if (!workspace) return;
-    // Navigate back immediately - destroy runs in the background
-    onBack();
-    apiDestroyWorkspace(workspace.id).catch((err) => {
-      console.error('Failed to destroy workspace:', err);
-    });
+    setDestroying(true);
+    setActionError('');
+    try {
+      await apiDestroyWorkspace(workspace.id);
+      onBack();
+    } catch (err) {
+      setActionError(getErrorMessage(err, 'Failed to destroy workspace'));
+      setDestroying(false);
+    }
   }, [workspace, onBack]);
 
   // Auto-redirect to PR detail when a scratch workspace gets adopted
@@ -116,91 +125,100 @@ export function WorkspaceDetail({ workspaceId, onBack, workspaceStates }) {
   }, [workspace?.pr_id, workspace?.repo]);
 
   if (loading) return <LoadingIndicator className={shared.loading}>Loading workspace...</LoadingIndicator>;
-  if (!workspace) return <div className={shared.error}>Workspace not found</div>;
+  if (!workspace) {
+    return (
+      <div className={workPage.unavailable} role="alert">
+        <span>{loadError || 'Workspace not found'}</span>
+        <Button as="a" href="#/" size="sm">
+          Back to work
+        </Button>
+      </div>
+    );
+  }
 
   const adopted = workspace.pr_id && !workspace.repo;
 
   return (
-    <Box pb={16}>
-      <Stack direction="col" gap={4}>
-        {/* Header */}
-        <Box p={5} border rounded="lg" bg="white">
-          <Stack direction="col" gap={3}>
-            <Stack justify="between">
-              <Button size="md" onClick={onBack}>
-                &larr; Back
-              </Button>
-              <Stack gap={2}>
-                {workspace.status === 'active' && (
-                  <Button variant="danger" size="sm" onClick={handleDestroy}>
-                    Destroy
-                  </Button>
-                )}
-              </Stack>
-            </Stack>
-            <div className={styles.title}>{workspace.bookmark}</div>
-            <Stack gap={2} wrap className={shared.identityRow}>
-              {workspace.repo && <span className={shared.repoTag}>{workspace.repo}</span>}
-              <span className={shared.branchTag}>{workspace.bookmark}</span>
-              <span className={shared.separator}>-</span>
-              <span className={shared.updatedText}>Created {getRelativeTime(workspace.created_at)}</span>
-              {workspace.status === 'destroyed' && <Badge color="red">Destroyed</Badge>}
-            </Stack>
-            {adopted && (
-              <div className={styles.adoptedNotice}>
-                Adopted by PR -{' '}
-                <a href={`#/pr/${encodeURIComponent(workspace.pr_id || '')}`} className={styles.prLink}>
-                  View PR
-                </a>
-              </div>
-            )}
-          </Stack>
-        </Box>
+    <div className={workPage.page}>
+      <header className={workPage.header}>
+        <div className={workPage.headerActions}>
+          <Button size="sm" onClick={onBack}>
+            &larr; Work
+          </Button>
+          {workspace.status === 'active' && (
+            <Button variant="danger" size="sm" onClick={handleDestroy} disabled={destroying} busy={destroying}>
+              {destroying ? 'Destroying...' : 'Destroy'}
+            </Button>
+          )}
+        </div>
+        <div className={workPage.kicker}>
+          <span>Scratch workspace</span>
+          <Badge color={workspace.status === 'destroyed' ? 'red' : 'green'}>{workspace.status}</Badge>
+        </div>
+        <h1 className={workPage.title}>{workspace.name || workspace.bookmark}</h1>
+        <div className={workPage.identity}>
+          {workspace.repo && <span>{workspace.repo}</span>}
+          <code>{workspace.bookmark}</code>
+          <span>Created {getRelativeTime(workspace.created_at)}</span>
+        </div>
+        {adopted && (
+          <div className={styles.adoptedNotice}>
+            Adopted by PR -{' '}
+            <a href={`#/pr/${encodeURIComponent(workspace.pr_id || '')}`} className={styles.prLink}>
+              View PR
+            </a>
+          </div>
+        )}
+      </header>
 
-        {/* Terminal */}
-        {workspace.status === 'active' &&
-          (session ? (
-            <TerminalCard
-              session={session}
-              title={`Terminal - ${workspace.bookmark}`}
-              onKill={handleKillSession}
-              onExit={handleSessionExit}
-              onReattach={handleReattach}
-              workspaceId={workspace.id}
-              prId={workspace.pr_id || undefined}
-              sessionState={workspaceStates.get(`workspace:${workspace.id}`)}
-            />
-          ) : (
-            <Box p={5} border rounded="lg" bg="white">
-              <Stack direction="col" gap={3}>
-                <Stack justify="between">
-                  <h3 className={shared.sectionTitle}>Terminal</h3>
-                </Stack>
-                <Stack gap={2} wrap>
-                  <AgentProviderButton
-                    variant="primary"
-                    size="lg"
-                    onClick={handleStartSession}
-                    disabled={openingSession}
-                    busy={openingSession}
-                  >
-                    {openingSession
-                      ? 'Starting session...'
-                      : `Start ${provider === 'codex' ? 'Codex' : 'Claude'} session`}
-                  </AgentProviderButton>
-                </Stack>
-                {openingError && (
-                  <p className={styles.launchError} role="alert">
-                    {openingError}
-                  </p>
-                )}
-              </Stack>
-            </Box>
-          ))}
+      {workspace.status === 'active' &&
+        (session ? (
+          <TerminalCard
+            session={session}
+            title={`Terminal - ${workspace.name || workspace.bookmark}`}
+            onKill={handleKillSession}
+            onExit={handleSessionExit}
+            onReattach={handleReattach}
+            workspaceId={workspace.id}
+            prId={workspace.pr_id || undefined}
+            sessionState={workspaceStates.get(`workspace:${workspace.id}`)}
+            presentation="work-page"
+          />
+        ) : (
+          <section className={workPage.terminalLauncher} aria-labelledby="scratch-terminal-heading">
+            <h2 id="scratch-terminal-heading">Terminal</h2>
+            <p className={workPage.launcherCopy}>Start a session in this scratch workspace.</p>
+            <AgentProviderButton
+              variant="primary"
+              size="lg"
+              onClick={handleStartSession}
+              disabled={openingSession}
+              busy={openingSession}
+            >
+              {openingSession ? 'Starting session...' : `Start ${provider === 'codex' ? 'Codex' : 'Claude'} session`}
+            </AgentProviderButton>
+          </section>
+        ))}
 
-        {/* Past Sessions */}
-        <SessionHistory key={workspaceId} target={{ type: 'workspace', id: workspaceId }} />
-      </Stack>
-    </Box>
+      {workspace.status === 'destroyed' && (
+        <section className={workPage.section} aria-labelledby="scratch-terminal-heading">
+          <h2 id="scratch-terminal-heading">Terminal</h2>
+          <p className={workPage.sectionHint}>This workspace has been destroyed. Its past sessions remain available.</p>
+        </section>
+      )}
+
+      {openingError && (
+        <p className={workPage.error} role="alert">
+          {openingError}
+        </p>
+      )}
+      {actionError && (
+        <p className={workPage.error} role="alert">
+          {actionError}
+        </p>
+      )}
+
+      <SessionHistory key={workspaceId} target={{ type: 'workspace', id: workspaceId }} />
+    </div>
   );
 }

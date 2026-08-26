@@ -30,16 +30,17 @@ import shared from '../../styles/shared.module.css';
 import { AgentProviderButton } from '../AgentProviderButton/AgentProviderButton.jsx';
 import { CheckLogViewer } from '../CheckLogViewer/CheckLogViewer.jsx';
 import { CommentsList } from '../CommentsList/CommentsList.jsx';
+import { PullRequestStatusBadges } from '../PullRequestStatusBadges/PullRequestStatusBadges.jsx';
 import { RenderedHtml } from '../RenderedHtml/RenderedHtml.jsx';
 import { RuleControls } from '../RuleControls/RuleControls.jsx';
 import { SessionHistory } from '../SessionHistory/SessionHistory.jsx';
-import { StatusBadge } from '../StatusBadge/StatusBadge.jsx';
 import { TerminalCard } from '../TerminalCard/TerminalCard.jsx';
 import { Badge } from '../ui/Badge/Badge.jsx';
 import { Box } from '../ui/Box/Box.jsx';
 import { Button } from '../ui/Button/Button.jsx';
 import { LoadingIndicator } from '../ui/LoadingIndicator/LoadingIndicator.jsx';
 import { Stack } from '../ui/Stack/Stack.jsx';
+import workPage from '../WorkPage/WorkPage.module.css';
 import { WorkspaceControls } from '../WorkspaceControls/WorkspaceControls.jsx';
 import styles from './PRDetail.module.css';
 
@@ -85,6 +86,9 @@ export function PRDetail({ prId, onBack, workspaceStates }) {
   );
   const [commentsLoading, setCommentsLoading] = useState(true);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+  const [commentsError, setCommentsError] = useState('');
+  const [actionError, setActionError] = useState('');
   const [openingSession, setOpeningSession] = useState(false);
   const [openingStep, setOpeningStep] = useState('');
   const [openingError, setOpeningError] = useState('');
@@ -98,6 +102,7 @@ export function PRDetail({ prId, onBack, workspaceStates }) {
   const workspacePromiseRef = useRef(/** @type {Promise<import('../../types').Workspace> | null} */ (null));
 
   const loadData = useCallback(async () => {
+    setLoadError('');
     try {
       const [prData, workspaces] = await Promise.all([fetchPR(prId), fetchWorkspaces(prId)]);
       setPR(prData);
@@ -110,15 +115,20 @@ export function PRDetail({ prId, onBack, workspaceStates }) {
         setSession(null);
       }
     } catch (err) {
-      console.error('Failed to load PR data:', err);
+      setPR(null);
+      setLoadError(getErrorMessage(err, 'Failed to load pull request'));
     } finally {
       setLoading(false);
     }
     // Fetch comments in parallel (non-blocking)
     setCommentsLoading(true);
+    setCommentsError('');
     fetchPRComments(prId)
       .then(setComments)
-      .catch((err) => console.error('Failed to load comments:', err))
+      .catch((err) => {
+        setComments(null);
+        setCommentsError(getErrorMessage(err, 'Failed to load comments'));
+      })
       .finally(() => setCommentsLoading(false));
   }, [prId]);
 
@@ -165,7 +175,6 @@ export function PRDetail({ prId, onBack, workspaceStates }) {
       setOpeningStep('Connecting...');
       return { ws, sess };
     } catch (err) {
-      console.error('Failed to set up workspace/session:', err);
       setOpeningError(getErrorMessage(err, `Failed to start ${provider === 'codex' ? 'Codex' : 'Claude'}`));
       return null;
     } finally {
@@ -181,6 +190,7 @@ export function PRDetail({ prId, onBack, workspaceStates }) {
   const handleRetriggerFailed = useCallback(async () => {
     if (!pr) return;
     setRetriggering(true);
+    setActionError('');
     try {
       const res = await fetch('/api/checks/retrigger', {
         method: 'POST',
@@ -189,7 +199,7 @@ export function PRDetail({ prId, onBack, workspaceStates }) {
       });
       if (!res.ok) throw new Error('Retrigger failed');
     } catch (err) {
-      console.error('Retrigger failed:', err);
+      setActionError(getErrorMessage(err, 'Failed to retrigger checks'));
     } finally {
       setRetriggering(false);
     }
@@ -197,11 +207,12 @@ export function PRDetail({ prId, onBack, workspaceStates }) {
 
   const handleKillSession = useCallback(async () => {
     if (!session) return;
+    setActionError('');
     try {
       await apiKillSession(session.id);
       setSession(null);
     } catch (err) {
-      console.error('Failed to kill session:', err);
+      setActionError(getErrorMessage(err, 'Failed to stop terminal'));
     }
   }, [session]);
 
@@ -209,37 +220,21 @@ export function PRDetail({ prId, onBack, workspaceStates }) {
     setSession(null);
   }, []);
 
-  const handlePopOut = useCallback(async () => {
-    if (!session) return;
-    try {
-      await fetch(`/api/sessions/${session.id}/popout`, { method: 'POST' });
-    } catch (err) {
-      console.error('Failed to pop out session:', err);
-    }
-  }, [session]);
-
   const handleReattach = useCallback(async () => {
     if (!session) return;
+    setActionError('');
     try {
       const updated = await apiReattachSession(session.id);
       setSession(updated);
     } catch (err) {
-      console.error('Failed to reattach session:', err);
+      setActionError(getErrorMessage(err, 'Failed to reattach terminal'));
     }
   }, [session]);
-
-  const handleOpenTerminal = useCallback(async () => {
-    if (!workspace) return;
-    try {
-      await fetch(`/api/workspaces/${workspace.id}/terminal`, { method: 'POST' });
-    } catch (err) {
-      console.error('Failed to open terminal:', err);
-    }
-  }, [workspace]);
 
   const handleRefresh = useCallback(async () => {
     if (refreshing) return;
     setRefreshing(true);
+    setActionError('');
     try {
       const fresh = await refreshPR(prId);
       // Server tore down the row because the PR is merged/closed. Surface
@@ -251,8 +246,7 @@ export function PRDetail({ prId, onBack, workspaceStates }) {
       }
       setPR(fresh);
     } catch (err) {
-      console.error('Failed to refresh PR:', err);
-      alert(`Failed to refresh PR: ${getErrorMessage(err)}`);
+      setActionError(getErrorMessage(err, 'Failed to refresh pull request'));
     } finally {
       setRefreshing(false);
     }
@@ -261,12 +255,12 @@ export function PRDetail({ prId, onBack, workspaceStates }) {
   const handleToggleDraft = useCallback(async () => {
     if (!pr) return;
     setTogglingDraft(true);
+    setActionError('');
     try {
       const { draft } = await setPRDraft(prId, !pr.draft);
       setPR((prev) => (prev ? { ...prev, draft } : prev));
     } catch (err) {
-      console.error('Failed to toggle draft:', err);
-      alert(`Failed to toggle draft: ${getErrorMessage(err)}`);
+      setActionError(getErrorMessage(err, 'Failed to update draft status'));
     } finally {
       setTogglingDraft(false);
     }
@@ -274,6 +268,7 @@ export function PRDetail({ prId, onBack, workspaceStates }) {
 
   const handleInvestigateFailures = useCallback(async () => {
     if (!pr) return;
+    setActionError('');
     const failedCheckNames = pr.checks.filter(isFailedCheck).map((c) => c.name);
 
     const result = await ensureWorkspaceAndSession();
@@ -284,7 +279,7 @@ export function PRDetail({ prId, onBack, workspaceStates }) {
     // dropped commands when the handshake took longer (slow tab, slow tmux).
     const ws = await whenWsOpen(wsRef);
     if (!ws) {
-      alert('Terminal failed to connect. Refresh and try again.');
+      setActionError('The PR terminal did not connect. Refresh and try again.');
       return;
     }
 
@@ -297,241 +292,216 @@ export function PRDetail({ prId, onBack, workspaceStates }) {
   }
 
   if (!pr) {
-    return <p className={shared.error}>PR not found</p>;
+    return (
+      <div className={workPage.unavailable} role="alert">
+        <span>{loadError || 'Pull request not found'}</span>
+        <Button as="a" href="#/" size="sm">
+          Back to work
+        </Button>
+      </div>
+    );
   }
 
   const isMergeReady = checkMergeReady(pr);
 
   return (
-    <Box pb={16}>
-      <Stack direction="col" gap={4}>
-        {/* Header */}
-        <Box p={5} border rounded="lg" bg="white" className={shared.sectionCard}>
-          <Stack direction="col" gap={3}>
-            <Stack justify="between">
-              <Button size="md" onClick={onBack}>
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+    <div className={workPage.page}>
+      <header className={workPage.header}>
+        <div className={workPage.headerActions}>
+          <Button size="sm" onClick={onBack}>
+            &larr; Work
+          </Button>
+          <Stack gap={2} wrap className={styles.actionBar}>
+            {isMergeReady && (
+              <Button
+                as="a"
+                variant="success"
+                size="sm"
+                filled
+                href={pr.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={styles.mergeButton}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
                   <path
                     fillRule="evenodd"
-                    d="M7.78 12.53a.75.75 0 01-1.06 0L2.47 8.28a.75.75 0 010-1.06l4.25-4.25a.75.75 0 011.06 1.06L4.81 7h7.44a.75.75 0 010 1.5H4.81l2.97 2.97a.75.75 0 010 1.06z"
+                    d="M5 3.254V3.25v.005a.75.75 0 110-.005v.004zm.45 1.9a2.25 2.25 0 10-1.95.218v5.256a2.25 2.25 0 101.5 0V7.123A5.735 5.735 0 009.25 9h1.378a2.251 2.251 0 100-1.5H9.25a4.25 4.25 0 01-3.8-2.346zM12.75 9a.75.75 0 100-1.5.75.75 0 000 1.5zm-8.5 4.5a.75.75 0 100-1.5.75.75 0 000 1.5z"
                   />
                 </svg>
-                Back
+                Merge on GitHub
               </Button>
-              <Stack gap={2} wrap className={styles.actionBar}>
-                {isMergeReady && (
-                  <Button
-                    as="a"
-                    variant="success"
-                    size="sm"
-                    filled
-                    href={pr.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className={styles.mergeButton}
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-                      <path
-                        fillRule="evenodd"
-                        d="M5 3.254V3.25v.005a.75.75 0 110-.005v.004zm.45 1.9a2.25 2.25 0 10-1.95.218v5.256a2.25 2.25 0 101.5 0V7.123A5.735 5.735 0 009.25 9h1.378a2.251 2.251 0 100-1.5H9.25a4.25 4.25 0 01-3.8-2.346zM12.75 9a.75.75 0 100-1.5.75.75 0 000 1.5zm-8.5 4.5a.75.75 0 100-1.5.75.75 0 000 1.5z"
-                      />
-                    </svg>
-                    Merge on GitHub
-                  </Button>
-                )}
-                <Button
-                  variant={pr.draft ? 'success' : 'default'}
-                  size="sm"
-                  filled={pr.draft}
-                  onClick={handleToggleDraft}
-                  disabled={togglingDraft}
-                  busy={togglingDraft}
-                  type="button"
-                >
-                  {togglingDraft ? 'Updating draft...' : pr.draft ? 'Mark ready' : 'Mark draft'}
-                </Button>
-                <Button
-                  size="sm"
-                  onClick={handleRefresh}
-                  disabled={refreshing}
-                  busy={refreshing}
-                  type="button"
-                  title="Refetch this PR from GitHub now"
-                >
-                  {refreshing ? 'Refreshing...' : 'Refresh'}
-                </Button>
-                <Button as="a" size="sm" href={`${pr.url}/files`} target="_blank" rel="noopener noreferrer">
-                  View diff
-                </Button>
-                {workspace && (
-                  <Button size="sm" onClick={handleOpenTerminal} type="button">
-                    <svg
-                      width="14"
-                      height="14"
-                      viewBox="0 0 16 16"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="1.5"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <rect x="1" y="2" width="14" height="12" rx="2" />
-                      <polyline points="5,6 7.5,8.5 5,11" />
-                      <line x1="9" y1="11" x2="12" y2="11" />
-                    </svg>
-                    Terminal
-                  </Button>
-                )}
-                <Button as="a" size="sm" href={pr.url} target="_blank" rel="noopener noreferrer">
-                  <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-                    <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z" />
-                  </svg>
-                  GitHub
-                </Button>
-              </Stack>
-            </Stack>
-
-            <h2 className={styles.title}>{pr.title}</h2>
-
-            <Stack gap={2} wrap className={shared.identityRow}>
-              <span className={shared.repoTag}>
-                {pr.org}/{pr.repo} #{pr.number}
-              </span>
-              <span className={shared.separator}>·</span>
-              <button
-                className={shared.branchTag}
-                title="Copy branch name"
-                onClick={() => {
-                  navigator.clipboard.writeText(pr.branch);
-                  setCopiedBranch(true);
-                  setTimeout(() => setCopiedBranch(false), 1500);
+            )}
+            <Button
+              variant={pr.draft ? 'success' : 'default'}
+              size="sm"
+              filled={pr.draft}
+              onClick={handleToggleDraft}
+              disabled={togglingDraft}
+              busy={togglingDraft}
+              type="button"
+            >
+              {togglingDraft ? 'Updating draft...' : pr.draft ? 'Mark ready' : 'Mark draft'}
+            </Button>
+            <Button
+              size="sm"
+              onClick={handleRefresh}
+              disabled={refreshing}
+              busy={refreshing}
+              type="button"
+              title="Refetch this PR from GitHub now"
+            >
+              {refreshing ? 'Refreshing...' : 'Refresh'}
+            </Button>
+            <Button as="a" size="sm" href={`${pr.url}/files`} target="_blank" rel="noopener noreferrer">
+              View diff
+            </Button>
+            <Button as="a" size="sm" href={pr.url} target="_blank" rel="noopener noreferrer">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+                <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z" />
+              </svg>
+              GitHub
+            </Button>
+          </Stack>
+        </div>
+        <div className={workPage.kicker}>
+          <a href={pr.url} target="_blank" rel="noopener noreferrer">
+            {pr.org}/{pr.repo} #{pr.number}
+          </a>
+        </div>
+        <h1 className={workPage.title}>{pr.title}</h1>
+        <div className={workPage.identity}>
+          <button
+            title="Copy branch name"
+            onClick={() => {
+              navigator.clipboard.writeText(pr.branch);
+              setCopiedBranch(true);
+              setTimeout(() => setCopiedBranch(false), 1500);
+            }}
+          >
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+              <path
+                fillRule="evenodd"
+                d="M11.75 2.5a.75.75 0 100 1.5.75.75 0 000-1.5zm-2.25.75a2.25 2.25 0 113 2.122V6A2.5 2.5 0 0110 8.5H6a1 1 0 00-1 1v1.128a2.251 2.251 0 11-1.5 0V5.372a2.25 2.25 0 111.5 0v1.836A2.492 2.492 0 016 7h4a1 1 0 001-1v-.628A2.25 2.25 0 019.5 3.25zM4.25 12a.75.75 0 100 1.5.75.75 0 000-1.5zM3.5 3.25a.75.75 0 111.5 0 .75.75 0 01-1.5 0z"
+              />
+            </svg>
+            {pr.branch}
+            {copiedBranch && <span className={styles.copiedToast}>Copied!</span>}
+          </button>
+          <span>Updated {getRelativeTime(pr.updated_at)}</span>
+        </div>
+        <div className={workPage.statusRow}>
+          <PullRequestStatusBadges pullRequest={pr} />
+        </div>
+        {pr.is_stacked && <StackInfo pr={pr} />}
+        {pr.labels.length > 0 && (
+          <Stack gap={2} wrap className={styles.labels}>
+            {pr.labels.map((label) => (
+              <span
+                key={label.name}
+                className={styles.label}
+                style={{
+                  backgroundColor: `#${label.color}20`,
+                  borderColor: `#${label.color}`,
+                  color: `#${label.color}`,
                 }}
               >
-                <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
-                  <path
-                    fillRule="evenodd"
-                    d="M11.75 2.5a.75.75 0 100 1.5.75.75 0 000-1.5zm-2.25.75a2.25 2.25 0 113 2.122V6A2.5 2.5 0 0110 8.5H6a1 1 0 00-1 1v1.128a2.251 2.251 0 11-1.5 0V5.372a2.25 2.25 0 111.5 0v1.836A2.492 2.492 0 016 7h4a1 1 0 001-1v-.628A2.25 2.25 0 019.5 3.25zM4.25 12a.75.75 0 100 1.5.75.75 0 000-1.5zM3.5 3.25a.75.75 0 111.5 0 .75.75 0 01-1.5 0z"
-                  />
-                </svg>
-                {pr.branch}
-                {copiedBranch && <span className={styles.copiedToast}>Copied!</span>}
-              </button>
-              <span className={shared.separator}>·</span>
-              <span className={shared.updatedText}>Updated {getRelativeTime(pr.updated_at)}</span>
-            </Stack>
-
-            {pr.is_stacked && <StackInfo pr={pr} />}
-
-            <Stack gap={4}>
-              <Stack gap={2}>
-                <span className={styles.statusLabel}>CI</span>
-                <StatusBadge status={pr.ci_status} type="ci" />
-              </Stack>
-              <Stack gap={2}>
-                <span className={styles.statusLabel}>Review</span>
-                <StatusBadge status={pr.review_status} type="review" />
-              </Stack>
-              <Stack gap={2}>
-                <span className={styles.statusLabel}>Merge</span>
-                <StatusBadge status={pr.mergeable} type="merge" />
-              </Stack>
-              <Stack gap={2}>
-                <span className={styles.statusLabel}>PR</span>
-                <StatusBadge status={pr.draft ? 'draft' : 'open'} type="status" />
-              </Stack>
-            </Stack>
-
-            {pr.labels.length > 0 && (
-              <Stack gap={2} wrap className={styles.labels}>
-                {pr.labels.map((l) => (
-                  <span
-                    key={l.name}
-                    className={styles.label}
-                    style={{ backgroundColor: `#${l.color}20`, borderColor: `#${l.color}`, color: `#${l.color}` }}
-                  >
-                    {l.name}
-                  </span>
-                ))}
-              </Stack>
-            )}
-
-            {pr.body_html && <PullRequestDescription bodyHtml={pr.body_html} />}
+                {label.name}
+              </span>
+            ))}
           </Stack>
-        </Box>
-
-        {/* Actions row */}
-        <Box p={4} border rounded="lg" bg="white" className={shared.sectionCard}>
-          <Stack direction="col" gap={2}>
-            <Stack justify="between" gap={4} wrap className={styles.workspaceRow}>
-              <Stack direction="col" gap={1}>
-                <h3 className={shared.sectionTitle}>Workspace</h3>
-                {!workspace && (
-                  <p className={styles.sectionHint}>Start an agent or create the workspace without a session.</p>
-                )}
-              </Stack>
-              <Stack gap={2} wrap>
-                {!session && (
-                  <AgentProviderButton
-                    variant="primary"
-                    size="sm"
-                    onClick={handleOpenInAgent}
-                    disabled={openingSession}
-                    busy={openingSession}
-                  >
-                    {openingSession ? openingStep : `Open in ${provider === 'codex' ? 'Codex' : 'Claude'}`}
-                  </AgentProviderButton>
-                )}
-                <WorkspaceControls
-                  prId={prId}
-                  workspace={workspace}
-                  onUpdate={loadData}
-                  getOrCreateWorkspace={getOrCreateWorkspace}
-                  sessionWaiting={openingSession && !workspace}
-                />
-              </Stack>
-            </Stack>
-            {openingError && (
-              <p className={styles.launchError} role="alert">
-                {openingError}
-              </p>
-            )}
-          </Stack>
-        </Box>
-
-        <Box p={0} border rounded="lg" bg="white" className={shared.sectionCard}>
-          <RuleControls prId={prId} />
-        </Box>
-
-        {session && (
-          <TerminalCard
-            session={session}
-            title={`Terminal - ${pr.org}/${pr.repo} #${pr.number}`}
-            onKill={handleKillSession}
-            onExit={handleSessionExit}
-            onPopOut={handlePopOut}
-            onReattach={handleReattach}
-            wsRef={wsRef}
-            baseBranch={pr.base_branch}
-            workspaceId={workspace?.id}
-            prId={pr.id}
-            sessionState={workspace ? workspaceStates.get(`workspace:${workspace.id}`) : undefined}
-          />
         )}
+      </header>
 
-        {/* Past Sessions */}
-        {workspace && <SessionHistory key={workspace.id} target={{ type: 'workspace', id: workspace.id }} />}
-
-        <PullRequestChecks
-          pr={pr}
-          retriggering={retriggering}
-          onRetriggerFailed={handleRetriggerFailed}
-          onInvestigateFailures={handleInvestigateFailures}
+      {session ? (
+        <TerminalCard
+          session={session}
+          title={`Terminal - ${pr.org}/${pr.repo} #${pr.number}`}
+          onKill={handleKillSession}
+          onExit={handleSessionExit}
+          onReattach={handleReattach}
+          wsRef={wsRef}
+          baseBranch={pr.base_branch}
+          workspaceId={workspace?.id}
+          prId={pr.id}
+          sessionState={workspace ? workspaceStates.get(`workspace:${workspace.id}`) : undefined}
+          presentation="work-page"
         />
-        <PullRequestReviews reviews={pr.reviews} />
-        <PullRequestComments comments={comments} loading={commentsLoading} />
-      </Stack>
-    </Box>
+      ) : (
+        <section className={workPage.terminalLauncher} aria-labelledby="pr-terminal-heading">
+          <h2 id="pr-terminal-heading">Terminal</h2>
+          <p className={workPage.launcherCopy}>Start an agent here, or prepare the workspace without a session.</p>
+          <Stack gap={2} wrap>
+            <AgentProviderButton
+              variant="primary"
+              size="lg"
+              onClick={handleOpenInAgent}
+              disabled={openingSession}
+              busy={openingSession}
+            >
+              {openingSession ? openingStep : `Open in ${provider === 'codex' ? 'Codex' : 'Claude'}`}
+            </AgentProviderButton>
+            <WorkspaceControls
+              prId={prId}
+              workspace={workspace}
+              onUpdate={loadData}
+              getOrCreateWorkspace={getOrCreateWorkspace}
+              sessionWaiting={openingSession && !workspace}
+            />
+          </Stack>
+        </section>
+      )}
+
+      {workspace && session && (
+        <section className={workPage.sectionHeader} aria-labelledby="pr-workspace-heading">
+          <h2 id="pr-workspace-heading">Workspace</h2>
+          <WorkspaceControls
+            prId={prId}
+            workspace={workspace}
+            onUpdate={loadData}
+            getOrCreateWorkspace={getOrCreateWorkspace}
+          />
+        </section>
+      )}
+
+      {openingError && (
+        <p className={workPage.error} role="alert">
+          {openingError}
+        </p>
+      )}
+      {actionError && (
+        <p className={workPage.error} role="alert">
+          {actionError}
+        </p>
+      )}
+
+      <PullRequestChecks
+        pr={pr}
+        retriggering={retriggering}
+        onRetriggerFailed={handleRetriggerFailed}
+        onInvestigateFailures={handleInvestigateFailures}
+      />
+
+      <Box p={0} border bg="white" className={styles.ruleControls}>
+        <RuleControls prId={prId} />
+      </Box>
+
+      {pr.body_html && (
+        <section className={workPage.section} aria-label="Pull request description">
+          <PullRequestDescription bodyHtml={pr.body_html} />
+        </section>
+      )}
+
+      {workspace && <SessionHistory key={workspace.id} target={{ type: 'workspace', id: workspace.id }} />}
+      <PullRequestReviews reviews={pr.reviews} />
+      <PullRequestComments comments={comments} loading={commentsLoading} />
+      {commentsError && (
+        <p className={workPage.error} role="alert">
+          {commentsError}
+        </p>
+      )}
+    </div>
   );
 }
 

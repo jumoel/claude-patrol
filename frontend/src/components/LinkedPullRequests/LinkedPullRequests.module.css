@@ -202,49 +202,6 @@
   font-size: 13px;
 }
 
-.statusBadges {
-  display: inline-flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 5px;
-}
-
-.statusBadge {
-  display: inline-flex;
-  min-height: 22px;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 7px;
-  border-radius: 4px;
-  font-size: 12px;
-  line-height: 1;
-  white-space: nowrap;
-}
-
-.statusBadge > span {
-  opacity: 0.72;
-}
-
-.pass {
-  color: #267a58;
-  background: #e4f2e9;
-}
-
-.fail {
-  color: #a13d38;
-  background: #f9e9e7;
-}
-
-.pending {
-  color: #8a5b10;
-  background: #fff1ca;
-}
-
-.neutral {
-  color: #596575;
-  background: #edf0f4;
-}
-
 .viewing {
   color: var(--blue);
   font-size: 12px;
@@ -347,7 +304,8 @@
     grid-template-columns: minmax(0, 1fr) auto;
   }
 
-  .statusBadges {
+  .prRow > :nth-child(2),
+  .prRowSelected > :nth-child(2) {
     grid-column: 1 / -1;
   }
 
@@ -400,7 +358,8 @@
     gap: 8px;
   }
 
-  .statusBadges,
+  .prRow > :nth-child(2),
+  .prRowSelected > :nth-child(2),
   .viewing {
     grid-column: 1;
     grid-row: auto;
