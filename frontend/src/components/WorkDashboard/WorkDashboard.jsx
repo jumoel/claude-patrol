@@ -497,7 +497,7 @@ export function WorkDashboard({
               {rows.map((row) => (
                 <tr key={`${row.kind}:${row.id}`} onClick={delegateRowClick}>
                   {visibleColumns.has('work') && (
-                    <td>
+                    <td data-label="Work">
                       <a data-primary-link className={styles.workTitle} href={rowHref(row)}>
                         {row.title}
                       </a>
@@ -511,7 +511,7 @@ export function WorkDashboard({
                     </td>
                   )}
                   {visibleColumns.has('work_ref') && (
-                    <td>
+                    <td data-label="Work ref">
                       {row.work_reference &&
                         (row.work_reference.url ? (
                           <a
@@ -528,7 +528,7 @@ export function WorkDashboard({
                     </td>
                   )}
                   {visibleColumns.has('repository') && (
-                    <td>
+                    <td data-label="Repository">
                       {row.repositories.length > 0 ? (
                         <span className={styles.repositories}>{row.repositories.join(', ')}</span>
                       ) : (
@@ -537,7 +537,7 @@ export function WorkDashboard({
                     </td>
                   )}
                   {visibleColumns.has('pull_requests') && (
-                    <td>
+                    <td data-label="Pull requests">
                       {row.pull_requests.length > 0 ? (
                         <span className={styles.pullRequests}>
                           {row.pull_requests.map((pr) => (
@@ -558,12 +558,12 @@ export function WorkDashboard({
                     </td>
                   )}
                   {visibleColumns.has('llm') && (
-                    <td>
+                    <td data-label="LLM">
                       <SessionSummary sessions={row.sessions} />
                     </td>
                   )}
                   {visibleColumns.has('local') && (
-                    <td>
+                    <td data-label="Local">
                       {row.workspace_count > 0 ? (
                         <span>
                           {row.workspace_count} {row.workspace_count === 1 ? 'workspace' : 'workspaces'}
@@ -574,7 +574,7 @@ export function WorkDashboard({
                     </td>
                   )}
                   {visibleColumns.has('updated') && (
-                    <td>
+                    <td data-label="Updated">
                       <time dateTime={row.updated_at}>{getRelativeTime(row.updated_at)}</time>
                     </td>
                   )}

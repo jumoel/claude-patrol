@@ -157,7 +157,7 @@ tbody tr:focus-visible {
 
 .tableScroller table {
   width: 100%;
-  min-width: 1120px;
+  min-width: 960px;
   border-collapse: collapse;
   table-layout: fixed;
 }
@@ -514,5 +514,68 @@ tbody tr:focus-visible {
 
   .summaryRow > section {
     margin-left: 0;
+  }
+
+  .tableScroller {
+    overflow: visible;
+  }
+
+  .tableScroller table,
+  .tableScroller tbody,
+  .tableScroller tr,
+  .tableScroller td {
+    display: block;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .tableScroller thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .tableScroller tbody tr {
+    padding: 12px 13px;
+    border-bottom: 1px solid #e3e7ec;
+  }
+
+  .tableScroller tbody tr:last-child {
+    border-bottom: 0;
+  }
+
+  .tableScroller td {
+    display: grid;
+    grid-template-columns: 92px minmax(0, 1fr);
+    gap: 10px;
+    padding: 6px 0;
+    border: 0;
+  }
+
+  .tableScroller td::before {
+    color: var(--muted);
+    content: attr(data-label);
+    font-size: 11px;
+    font-weight: 550;
+    letter-spacing: 0.035em;
+    text-transform: uppercase;
+  }
+
+  .tableScroller td:first-child {
+    display: block;
+    padding-top: 0;
+  }
+
+  .tableScroller td:first-child::before,
+  .tableScroller td:empty {
+    display: none;
+  }
+
+  .tableScroller td:last-child {
+    padding-bottom: 0;
   }
 }
