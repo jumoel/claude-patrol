@@ -82,3 +82,38 @@ test('work-item and scratch lists contain no creation action and escape resolver
   assert.ok(screen.getByText('No scratch workspaces'));
   assert.equal(screen.queryByRole('button', { name: /new|create|start/i }), null);
 });
+
+test('attached pull requests link to their owning work item with the pull request selected', () => {
+  const pullRequest = {
+    id: 'chainguard-dev/mono#50511',
+    org: 'chainguard-dev',
+    repo: 'mono',
+    repository: 'chainguard-dev/mono',
+    number: 50511,
+    title: 'Keep pull requests with their work item',
+    url: 'https://github.com/chainguard-dev/mono/pull/50511',
+    branch: 'work-item-prs',
+    base_branch: 'main',
+    draft: false,
+    mergeable: /** @type {'MERGEABLE'} */ ('MERGEABLE'),
+    ci_status: /** @type {'pass'} */ ('pass'),
+    review_status: /** @type {'approved'} */ ('approved'),
+    updated_at: '2026-08-26T00:00:00.000Z',
+    tracked: true,
+    linked_at: '2026-08-26T00:00:00.000Z',
+    link_source: /** @type {'explicit'} */ ('explicit'),
+  };
+  render(
+    <WorkItems
+      workItems={[{ ...base, pull_request_count: 1, pull_requests: [pullRequest] }]}
+      loading={false}
+      error={null}
+      onRetry={vi.fn()}
+    />,
+  );
+
+  assert.equal(
+    screen.getByRole('link', { name: 'chainguard-dev/mono #50511' }).getAttribute('href'),
+    '#/work-item/item-1?pr=chainguard-dev%2Fmono%2350511',
+  );
+});

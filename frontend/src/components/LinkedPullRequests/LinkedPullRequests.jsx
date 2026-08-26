@@ -10,6 +10,7 @@ import {
 } from '../../lib/api.js';
 import { isFailedCheck, isMergeReady } from '../../lib/checks.js';
 import { getErrorMessage } from '../../lib/errors.js';
+import { workItemPath } from '../../lib/routes.js';
 import { sendTerminalCommand, whenWsOpen } from '../../lib/terminal.js';
 import { getRelativeTime } from '../../lib/time.js';
 import shared from '../../styles/shared.module.css';
@@ -104,7 +105,7 @@ export function LinkedPullRequests({ workItem, selectedPrId, onWorkItemReload, e
         const { pull_request: linked } = await linkWorkItemPullRequest(workItem.id, attachValue.trim());
         setAttachValue('');
         onWorkItemReload();
-        if (linked.tracked) window.location.hash = `/pr/${encodeURIComponent(linked.id)}`;
+        if (linked.tracked) window.location.hash = workItemPath(workItem.id, linked.id);
       } catch (error) {
         setActionError(getErrorMessage(error, 'Failed to attach pull request'));
       } finally {
@@ -125,7 +126,7 @@ export function LinkedPullRequests({ workItem, selectedPrId, onWorkItemReload, e
     try {
       await unlinkWorkItemPullRequest(workItem.id, selectedLink.id);
       onWorkItemReload();
-      window.location.hash = `/work-item/${workItem.id}`;
+      window.location.hash = workItemPath(workItem.id);
     } catch (error) {
       setActionError(getErrorMessage(error, 'Failed to detach pull request'));
     }
@@ -232,7 +233,7 @@ export function LinkedPullRequests({ workItem, selectedPrId, onWorkItemReload, e
               {links.map((link) => (
                 <a
                   key={link.id}
-                  href={`#/pr/${encodeURIComponent(link.id)}`}
+                  href={`#${workItemPath(workItem.id, link.id)}`}
                   className={`${styles.prTab} ${link.id === selectedLink?.id ? styles.prTabActive : ''}`}
                   aria-current={link.id === selectedLink?.id ? 'page' : undefined}
                 >

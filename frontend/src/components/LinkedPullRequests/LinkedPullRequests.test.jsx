@@ -93,6 +93,10 @@ test('renders multiple owned pull requests and attaches another by URL', async (
 
   assert.ok(screen.getByRole('link', { name: /acme\/widgets #11/u }));
   assert.ok(screen.getByRole('link', { name: /acme\/tools #12/u }));
+  assert.equal(
+    screen.getByRole('link', { name: /acme\/tools #12/u }).getAttribute('href'),
+    '#/work-item/item-1?pr=acme%2Ftools%2312',
+  );
   await user.click(screen.getByText('Attach existing PR'));
   await user.type(screen.getByRole('textbox', { name: 'PR URL or ID' }), linked.url);
   await user.click(screen.getByRole('button', { name: 'Attach' }));

@@ -10,6 +10,7 @@ import {
   retryWorkItem,
 } from '../../lib/api.js';
 import { getErrorMessage } from '../../lib/errors.js';
+import { workItemPath } from '../../lib/routes.js';
 import { getRelativeTime } from '../../lib/time.js';
 import shared from '../../styles/shared.module.css';
 import { AgentProviderButton } from '../AgentProviderButton/AgentProviderButton.jsx';
@@ -448,7 +449,7 @@ export function WorkItemDetail({ workItemId, onBack, targetStates, selectedPrId 
               <span className={styles.reference}>{workItem.reference}</span>
               <span>{providerName}</span>
               {selectedPullRequest && (
-                <a className={styles.prIdentity} href={`#/pr/${encodeURIComponent(selectedPullRequest.id)}`}>
+                <a className={styles.prIdentity} href={`#${workItemPath(workItem.id, selectedPullRequest.id)}`}>
                   {selectedPullRequest.repository} #{selectedPullRequest.number}
                 </a>
               )}

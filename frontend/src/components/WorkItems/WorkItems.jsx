@@ -1,4 +1,5 @@
 import { getErrorMessage } from '../../lib/errors.js';
+import { workItemPath } from '../../lib/routes.js';
 import { getRelativeTime } from '../../lib/time.js';
 import { Button } from '../ui/Button/Button.jsx';
 import { LoadingIndicator } from '../ui/LoadingIndicator/LoadingIndicator.jsx';
@@ -69,11 +70,11 @@ export function WorkItems({ workItems, loading, error, onRetry, targetStates, di
                   <tr
                     key={item.id}
                     onClick={() => {
-                      window.location.hash = `/work-item/${item.id}`;
+                      window.location.hash = workItemPath(item.id);
                     }}
                   >
                     <td>
-                      <a href={`#/work-item/${item.id}`} onClick={(event) => event.stopPropagation()}>
+                      <a href={`#${workItemPath(item.id)}`} onClick={(event) => event.stopPropagation()}>
                         <span className={styles.itemTitle}>{item.title || item.reference}</span>
                         <span className={styles.reference}>{item.title ? item.reference : 'Resolving...'}</span>
                       </a>
@@ -91,7 +92,7 @@ export function WorkItems({ workItems, loading, error, onRetry, targetStates, di
                         {item.pull_requests.slice(0, 2).map((pullRequest) => (
                           <a
                             key={pullRequest.id}
-                            href={`#/pr/${encodeURIComponent(pullRequest.id)}`}
+                            href={`#${workItemPath(item.id, pullRequest.id)}`}
                             onClick={(event) => event.stopPropagation()}
                           >
                             {pullRequest.repository} #{pullRequest.number}

@@ -22,7 +22,7 @@ import { usePRs } from './hooks/usePRs.js';
 import { useWorkItems } from './hooks/useWorkItems.js';
 import { fetchConfig, fetchScratchWorkspaces } from './lib/api.js';
 import { getErrorMessage } from './lib/errors.js';
-import { parseAppRoute } from './lib/routes.js';
+import { parseAppRoute, pullRequestPath, workItemPath } from './lib/routes.js';
 
 /** @typedef {import('./types').PullRequest} PullRequest */
 /** @typedef {import('./types').FilterState} FilterState */
@@ -334,9 +334,10 @@ export default function App() {
 
   const navigateToPR = useCallback(
     /** @param {string} prId */ (prId) => {
-      window.location.hash = `/pr/${encodeURIComponent(prId)}`;
+      const pr = allPRs.find((item) => item.id === prId);
+      window.location.hash = pr ? pullRequestPath(pr) : `/pr/${encodeURIComponent(prId)}`;
     },
-    [],
+    [allPRs],
   );
 
   /** @param {string} wsId */
@@ -346,7 +347,7 @@ export default function App() {
 
   /** @param {string} workItemId */
   const navigateToWorkItem = (workItemId) => {
-    window.location.hash = `/work-item/${workItemId}`;
+    window.location.hash = workItemPath(workItemId);
   };
 
   const navigateBack = useCallback(() => {
@@ -412,7 +413,13 @@ export default function App() {
       ) : route.type === 'workspace' ? (
         <WorkspaceDetail workspaceId={route.id} onBack={navigateBack} workspaceStates={targetStates} />
       ) : route.type === 'work_item' ? (
-        <WorkItemDetail key={route.id} workItemId={route.id} onBack={navigateBack} targetStates={targetStates} />
+        <WorkItemDetail
+          key={route.id}
+          workItemId={route.id}
+          selectedPrId={route.selectedPrId}
+          onBack={navigateBack}
+          targetStates={targetStates}
+        />
       ) : route.type === 'not_found' ? (
         <div role="alert">
           <p>Page not found</p>
