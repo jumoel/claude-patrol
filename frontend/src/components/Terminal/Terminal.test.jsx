@@ -10,6 +10,7 @@ const state = vi.hoisted(() => ({
   clearTextureAtlasCalls: 0,
   focusCalls: 0,
   bounds: { width: 800, height: 400 },
+  fitDimensions: { cols: 80, rows: 24 },
   keyHandler: /** @type {((event: KeyboardEvent) => boolean) | null} */ (null),
   resizeCallback: /** @type {(() => void) | null} */ (null),
   sockets: /** @type {FakeWebSocket[]} */ ([]),
@@ -26,7 +27,10 @@ vi.mock('@xterm/xterm', () => ({
       state.constructedTerminals++;
     }
 
-    loadAddon() {}
+    /** @param {{activate?: (terminal: unknown) => void}} addon */
+    loadAddon(addon) {
+      addon.activate?.(this);
+    }
     open() {}
     focus() {
       state.focusCalls++;
@@ -55,8 +59,16 @@ vi.mock('@xterm/xterm/css/xterm.css', () => ({}));
 
 vi.mock('@xterm/addon-fit', () => ({
   FitAddon: class {
+    /** @param {{cols: number, rows: number}} terminal */
+    activate(terminal) {
+      this.terminal = terminal;
+    }
+
     fit() {
       state.fitCalls++;
+      if (!this.terminal) throw new Error('FitAddon must be activated before fitting');
+      this.terminal.cols = state.fitDimensions.cols;
+      this.terminal.rows = state.fitDimensions.rows;
     }
   },
 }));
@@ -114,6 +126,7 @@ describe('Terminal connection lifecycle', () => {
     state.clearTextureAtlasCalls = 0;
     state.focusCalls = 0;
     state.bounds = { width: 800, height: 400 };
+    state.fitDimensions = { cols: 80, rows: 24 };
     state.keyHandler = null;
     state.resizeCallback = null;
     state.sockets = [];
@@ -211,6 +224,42 @@ describe('Terminal connection lifecycle', () => {
     expect(state.clearTextureAtlasCalls).toBeGreaterThan(0);
     expect(state.refreshCalls).toBeGreaterThan(0);
     expect(state.sockets[0].sent).toContain(JSON.stringify({ type: 'resize', cols: 80, rows: 24 }));
+  });
+
+  it('sends one PTY resize when the fitted dimensions change', async () => {
+    const view = render(<Terminal wsUrl="/ws/sessions/one" focusRequest={0} />);
+    await waitFor(() =>
+      expect(state.sockets[0]?.sent).toContain(JSON.stringify({ type: 'resize', cols: 80, rows: 24 })),
+    );
+    const socket = state.sockets[0];
+    socket.sent = [];
+
+    state.fitDimensions = { cols: 120, rows: 40 };
+    view.rerender(<Terminal wsUrl="/ws/sessions/one" focusRequest={1} />);
+
+    await waitFor(() => expect(socket.sent).toEqual([JSON.stringify({ type: 'resize', cols: 120, rows: 40 })]));
+
+    state.resizeCallback?.();
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    expect(socket.sent).toEqual([JSON.stringify({ type: 'resize', cols: 120, rows: 40 })]);
+  });
+
+  it('jiggles an unchanged size when a redraw is forced', async () => {
+    const view = render(<Terminal wsUrl="/ws/sessions/one" focusRequest={0} />);
+    await waitFor(() =>
+      expect(state.sockets[0]?.sent).toContain(JSON.stringify({ type: 'resize', cols: 80, rows: 24 })),
+    );
+    const socket = state.sockets[0];
+    socket.sent = [];
+
+    view.rerender(<Terminal wsUrl="/ws/sessions/one" focusRequest={1} />);
+
+    await waitFor(() =>
+      expect(socket.sent).toEqual([
+        JSON.stringify({ type: 'resize', cols: 80, rows: 23 }),
+        JSON.stringify({ type: 'resize', cols: 80, rows: 24 }),
+      ]),
+    );
   });
 
   it('waits for a hidden terminal to become visible before fitting it', async () => {

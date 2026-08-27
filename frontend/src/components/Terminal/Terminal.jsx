@@ -55,6 +55,8 @@ export function Terminal({
     /** @type {number | null} */
     let redrawFrame = null;
     let pendingForceRedraw = false;
+    let syncedCols = 0;
+    let syncedRows = 0;
 
     const term = new XTerm({
       allowProposedApi: true,
@@ -102,9 +104,9 @@ export function Terminal({
 
     /**
      * Re-fit and notify the server of the new dimensions.
-     * When forceRedraw is true, jiggle the size by 1 row first to force
-     * tmux to SIGWINCH even when dimensions haven't changed - this makes
-     * the app inside tmux redraw at the correct size after stale replay.
+     * When forceRedraw is true and dimensions haven't changed, jiggle the
+     * size by 1 row first to force tmux to SIGWINCH. This makes the app
+     * inside tmux redraw at the correct size after stale replay.
      */
     function fitAndSync(forceRedraw = false) {
       const wrapper = containerRef.current?.parentElement;
@@ -125,10 +127,15 @@ export function Terminal({
       });
       const ws = wsRef.current;
       if (ws && ws.readyState === WebSocket.OPEN) {
-        if (forceRedraw && term.rows > 2) {
+        const dimensionsChanged = term.cols !== syncedCols || term.rows !== syncedRows;
+        if (forceRedraw && !dimensionsChanged && term.rows > 2) {
           ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows - 1 }));
         }
-        ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+        if (forceRedraw || dimensionsChanged) {
+          ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+          syncedCols = term.cols;
+          syncedRows = term.rows;
+        }
       }
     }
 
@@ -208,6 +215,8 @@ export function Terminal({
           term.write('\r\n\x1b[32m[Reconnected]\x1b[0m\r\n');
         }
         reconnectAttempt = 0;
+        syncedCols = 0;
+        syncedRows = 0;
         // Re-fit now that the connection is live - layout is settled by this point
         scheduleFit();
       };
