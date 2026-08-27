@@ -146,6 +146,11 @@
   color: var(--amber);
 }
 
+.workingSessions > .sectionHeader h2 span,
+.workingMarker {
+  color: var(--purple);
+}
+
 .waitingList {
   margin: 0;
   padding: 0;

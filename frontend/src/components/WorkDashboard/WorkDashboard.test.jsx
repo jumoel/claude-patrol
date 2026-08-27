@@ -209,7 +209,7 @@ test('renders source failures and retained-data status without replacing availab
     fireEvent.click(screen.getByRole('button', { name: `Retry ${name}` }));
     assert.equal(reload.mock.calls.length, 1);
   }
-  assert.ok(screen.getByText('Sessions are unavailable.'));
+  assert.equal(screen.getAllByText('Sessions are unavailable.').length, 2);
   assert.ok(screen.getByRole('link', { name: 'Grouped work' }));
 });
 
@@ -247,6 +247,55 @@ test('shows waiting sessions as a list and acknowledges a global session when op
     JSON.parse(localStorage.getItem('claude-patrol-waiting-ack-v1') || '{}')['session-1'],
     idleSession.activity_changed_at,
   );
+});
+
+test('shows currently working sessions with shared work and global navigation', () => {
+  const workingSessions = /** @type {import('../../types').Session[]} */ ([
+    {
+      id: 'work-session',
+      workspace_id: null,
+      work_item_id: row.id,
+      name: null,
+      target: { type: 'work_item', id: row.id },
+      activity_state: 'working',
+      activity_changed_at: '2026-08-26T10:30:00.000Z',
+      provider: 'codex',
+      status: 'active',
+      started_at: '2026-08-26T09:00:00.000Z',
+      ended_at: null,
+      pid: 123,
+      claude_project_dir: null,
+      transcript_path: null,
+    },
+    {
+      id: 'global-session',
+      workspace_id: null,
+      work_item_id: null,
+      name: 'release build',
+      target: { type: 'global' },
+      activity_state: 'working',
+      activity_changed_at: '2026-08-26T10:25:00.000Z',
+      provider: 'claude',
+      status: 'active',
+      started_at: '2026-08-26T09:00:00.000Z',
+      ended_at: null,
+      pid: 124,
+      claude_project_dir: null,
+      transcript_path: null,
+    },
+  ]);
+  render(
+    <WorkDashboard
+      {...defaultProps}
+      dashboard={{ ...dashboard, sessionSource: { ...dashboard.sessionSource, allSessions: workingSessions } }}
+    />,
+  );
+
+  const section = screen.getByRole('region', { name: 'Currently working 2' });
+  assert.equal(section.querySelectorAll('[data-spinner="true"]').length, 2);
+  assert.equal(section.querySelector('a')?.getAttribute('href'), '#/work-item/work-1');
+  fireEvent.click(screen.getByRole('button', { name: /release build/u }));
+  assert.deepEqual(defaultProps.onOpenGlobalTerminal.mock.calls, [['global-session']]);
 });
 
 test('keeps the current filter set visible and applies quick filters from the work-list block', () => {

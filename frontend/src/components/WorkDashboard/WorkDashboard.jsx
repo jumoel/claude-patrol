@@ -3,6 +3,7 @@ import { useWaitingAcknowledgements } from '../../hooks/useWaitingAcknowledgemen
 import { getRelativeTime } from '../../lib/time.js';
 import {
   buildWaitingSessions,
+  buildWorkingSessions,
   dashboardFiltersMatch,
   filterDashboardRows,
   MERGE_READY_FILTERS,
@@ -10,6 +11,7 @@ import {
   serializeDashboardRowsMarkdown,
   sortDashboardRows,
 } from '../../lib/work-dashboard.js';
+import { Spinner } from '../ui/Spinner/Spinner.jsx';
 import { WORKING_LABEL, WorkingBadge } from '../ui/WorkingBadge/WorkingBadge.jsx';
 import styles from './WorkDashboard.module.css';
 
@@ -183,10 +185,95 @@ function pullRequestHref(row, prId) {
 }
 
 /** @param {import('../../types').DashboardSessionSummary} session */
-function waitingHref(session) {
+function sessionHref(session) {
   if (session.target.type === 'work_item') return `#/work-item/${encodeURIComponent(session.target.id)}`;
   if (session.target.type === 'workspace') return `#/workspace/${encodeURIComponent(session.target.id)}`;
   return null;
+}
+
+/**
+ * @param {{
+ *   id: string,
+ *   title: string,
+ *   sessions: import('../../types').DashboardSessionSummary[],
+ *   sourceStatus: import('../../types').DashboardSourceState['status'],
+ *   state: 'waiting' | 'working',
+ *   emptyMessage: string,
+ *   labelForSession: (session: import('../../types').DashboardSessionSummary) => string,
+ *   contextForSession: (session: import('../../types').DashboardSessionSummary) => string,
+ *   onAcknowledge: (sessionId: string) => void,
+ *   onOpenGlobalTerminal: (sessionId: string) => void,
+ * }} props
+ */
+function SessionActivitySection({
+  id,
+  title,
+  sessions,
+  sourceStatus,
+  state,
+  emptyMessage,
+  labelForSession,
+  contextForSession,
+  onAcknowledge,
+  onOpenGlobalTerminal,
+}) {
+  const working = state === 'working';
+  return (
+    <section className={`${styles.waiting} ${working ? styles.workingSessions : ''}`} aria-labelledby={`${id}-heading`}>
+      <div className={styles.sectionHeader}>
+        <h2 id={`${id}-heading`}>
+          {title} <span>{sessions.length}</span>
+        </h2>
+      </div>
+      {sourceStatus === 'loading' && sessions.length === 0 ? (
+        <p className={styles.emptyState}>Loading sessions...</p>
+      ) : sourceStatus === 'unavailable' ? (
+        <p className={styles.emptyState}>Sessions are unavailable.</p>
+      ) : sessions.length === 0 ? (
+        <p className={styles.emptyState}>{emptyMessage}</p>
+      ) : (
+        <ul className={styles.waitingList}>
+          {sessions.map((session) => {
+            const href = sessionHref(session);
+            const content = (
+              <>
+                {working ? (
+                  <Spinner size="xxs" className={styles.workingMarker} />
+                ) : (
+                  <span className={styles.waitingDot} data-state-marker="waiting" aria-hidden="true" />
+                )}
+                <span className={styles.waitingCopy}>
+                  <span className={styles.waitingTitle}>{labelForSession(session)}</span>
+                  <span className={styles.waitingMeta}>{contextForSession(session)}</span>
+                </span>
+                <time dateTime={session.activity_changed_at || session.started_at}>
+                  {getRelativeTime(session.activity_changed_at || session.started_at)}
+                </time>
+                <span className={styles.waitingAction}>{working ? 'View' : 'Resume'}</span>
+              </>
+            );
+            const activate = () => {
+              if (!working) onAcknowledge(session.id);
+              if (!href) onOpenGlobalTerminal(session.id);
+            };
+            return (
+              <li key={session.id}>
+                {href ? (
+                  <a href={href} onClick={activate}>
+                    {content}
+                  </a>
+                ) : (
+                  <button type="button" onClick={activate}>
+                    {content}
+                  </button>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
+  );
 }
 
 /**
@@ -262,6 +349,10 @@ export function WorkDashboard({
     () => buildWaitingSessions(dashboard.sessionSource.allSessions, acknowledgedIdle),
     [acknowledgedIdle, dashboard.sessionSource.allSessions],
   );
+  const working = useMemo(
+    () => buildWorkingSessions(dashboard.sessionSource.allSessions),
+    [dashboard.sessionSource.allSessions],
+  );
   const rows = useMemo(
     () => sortDashboardRows(filterDashboardRows(dashboard.rows, filters), sorting, stackView),
     [dashboard.rows, filters, sorting, stackView],
@@ -290,21 +381,21 @@ export function WorkDashboard({
   const hasStacks = dashboard.rows.some((row) => row.kind === 'pull_request' && row.pull_requests[0]?.is_stacked);
   const hasFilters = Object.values(filters).some((value) => value === true || (Array.isArray(value) && value.length));
 
-  const ownerForWaiting = (/** @type {import('../../types').DashboardSessionSummary} */ session) =>
+  const ownerForSession = (/** @type {import('../../types').DashboardSessionSummary} */ session) =>
     dashboard.rows.find(
       (row) =>
         (session.target.type === 'work_item' && row.kind === 'work_item' && row.id === session.target.id) ||
         (session.target.type === 'workspace' && row.workspace_id === session.target.id),
     );
 
-  const labelForWaiting = (/** @type {import('../../types').DashboardSessionSummary} */ session) => {
+  const labelForSession = (/** @type {import('../../types').DashboardSessionSummary} */ session) => {
     if (session.target.type === 'global') return session.name || 'Global session';
-    const owner = ownerForWaiting(session);
+    const owner = ownerForSession(session);
     return owner?.title || session.name || 'LLM session';
   };
 
-  const contextForWaiting = (/** @type {import('../../types').DashboardSessionSummary} */ session) => {
-    const owner = ownerForWaiting(session);
+  const contextForSession = (/** @type {import('../../types').DashboardSessionSummary} */ session) => {
+    const owner = ownerForSession(session);
     const kind =
       owner?.kind === 'work_item'
         ? 'work item'
@@ -402,58 +493,31 @@ export function WorkDashboard({
         </div>
       )}
 
-      <section className={styles.waiting} aria-labelledby="waiting-heading">
-        <div className={styles.sectionHeader}>
-          <h2 id="waiting-heading">
-            Waiting for you <span>{waiting.length}</span>
-          </h2>
-        </div>
-        {dashboard.sources.sessions.status === 'loading' && waiting.length === 0 ? (
-          <p className={styles.emptyState}>Loading sessions...</p>
-        ) : dashboard.sources.sessions.status === 'unavailable' ? (
-          <p className={styles.emptyState}>Sessions are unavailable.</p>
-        ) : waiting.length === 0 ? (
-          <p className={styles.emptyState}>No LLM sessions are waiting for you.</p>
-        ) : (
-          <ul className={styles.waitingList}>
-            {waiting.map((session) => {
-              const href = waitingHref(session);
-              const content = (
-                <>
-                  <span className={styles.waitingDot} data-state-marker="waiting" aria-hidden="true" />
-                  <span className={styles.waitingCopy}>
-                    <span className={styles.waitingTitle}>{labelForWaiting(session)}</span>
-                    <span className={styles.waitingMeta}>{contextForWaiting(session)}</span>
-                  </span>
-                  <time dateTime={session.activity_changed_at || session.started_at}>
-                    {getRelativeTime(session.activity_changed_at || session.started_at)}
-                  </time>
-                  <span className={styles.waitingAction}>Resume</span>
-                </>
-              );
-              return (
-                <li key={session.id}>
-                  {href ? (
-                    <a href={href} onClick={() => acknowledge(session.id)}>
-                      {content}
-                    </a>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        acknowledge(session.id);
-                        onOpenGlobalTerminal(session.id);
-                      }}
-                    >
-                      {content}
-                    </button>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </section>
+      <SessionActivitySection
+        id="waiting"
+        title="Waiting for you"
+        sessions={waiting}
+        sourceStatus={dashboard.sources.sessions.status}
+        state="waiting"
+        emptyMessage="No LLM sessions are waiting for you."
+        labelForSession={labelForSession}
+        contextForSession={contextForSession}
+        onAcknowledge={acknowledge}
+        onOpenGlobalTerminal={onOpenGlobalTerminal}
+      />
+
+      <SessionActivitySection
+        id="working"
+        title="Currently working"
+        sessions={working}
+        sourceStatus={dashboard.sources.sessions.status}
+        state="working"
+        emptyMessage="No LLM sessions are currently working."
+        labelForSession={labelForSession}
+        contextForSession={contextForSession}
+        onAcknowledge={acknowledge}
+        onOpenGlobalTerminal={onOpenGlobalTerminal}
+      />
 
       <section className={styles.work} aria-labelledby="work-heading">
         <div className={styles.sectionHeader}>

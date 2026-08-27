@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildDashboardRows,
   buildWaitingSessions,
+  buildWorkingSessions,
   dashboardSourceState,
   filterDashboardRows,
   serializeDashboardRowsMarkdown,
@@ -222,6 +223,28 @@ describe('buildWaitingSessions', () => {
       'session-work',
       'session-workspace-idle',
       'session-global',
+    ]);
+  });
+});
+
+describe('buildWorkingSessions', () => {
+  it('lists live working sessions in activity order', () => {
+    const candidates = /** @type {import('../types').Session[]} */ ([
+      ...sessions,
+      {
+        ...sessions[1],
+        id: 'session-global-working',
+        name: 'release build',
+        target: { type: 'global' },
+        activity_changed_at: '2026-08-26T12:40:00.000Z',
+        provider: 'codex',
+      },
+      { ...sessions[1], id: 'session-killed-working', status: 'killed' },
+    ]);
+
+    expect(buildWorkingSessions(candidates).map((session) => session.id)).toEqual([
+      'session-global-working',
+      'session-child',
     ]);
   });
 });

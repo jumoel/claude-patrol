@@ -190,6 +190,17 @@ export function buildWaitingSessions(sessions, acknowledgedIdle) {
     .sort((a, b) => (b.activity_changed_at || b.started_at).localeCompare(a.activity_changed_at || a.started_at));
 }
 
+/**
+ * @param {import('../types').Session[]} sessions
+ * @returns {import('../types').DashboardSessionSummary[]}
+ */
+export function buildWorkingSessions(sessions) {
+  return sessions
+    .filter((session) => ['active', 'detached'].includes(session.status) && session.activity_state === 'working')
+    .map(summarizeSession)
+    .sort((a, b) => (b.activity_changed_at || b.started_at).localeCompare(a.activity_changed_at || a.started_at));
+}
+
 export const REVIEW_READY_FILTERS = Object.freeze({
   ci: ['pass'],
   review: ['changes_requested', 'pending'],
