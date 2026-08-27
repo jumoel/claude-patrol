@@ -87,8 +87,9 @@
   border-radius: 50%;
 }
 
+.workingIndicator { color: #8b7df0; }
+
 .waiting { background: #ffc857; }
-.working { background: #8b7df0; }
 .inactive { background: #748194; }
 
 .sessionProvider,

@@ -279,6 +279,20 @@ test('cleanup failure shows one retry, retained root, and copy feedback', async 
   assert.ok(await screen.findByRole('button', { name: 'Copied' }));
 });
 
+test('shows a spinner for the active work-item lifecycle step', () => {
+  hook.workItem = {
+    ...detail(),
+    state: 'resolving',
+    stage: 'reference_resolution',
+  };
+
+  renderDetail();
+
+  const activeStep = screen.getByText('Resolve reference').closest('li');
+  assert.equal(activeStep?.getAttribute('aria-current'), 'step');
+  assert.ok(activeStep?.querySelector('[data-spinner="true"]'));
+});
+
 test('destroy uses the bookmark-preservation confirmation and keeps request failures inline', async () => {
   const user = userEvent.setup();
   const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);

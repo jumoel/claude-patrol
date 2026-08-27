@@ -124,6 +124,23 @@ test('restores a maximized work-page terminal from the route', () => {
   assert.ok(screen.getByTestId('terminal'));
 });
 
+test('shows a spinner when the terminal session is working', () => {
+  render(
+    <TerminalCard
+      session={session('active')}
+      title="Terminal - Repair JavaScript CVEs"
+      onKill={vi.fn()}
+      onExit={vi.fn()}
+      sessionState="working"
+      presentation="work-page"
+    />,
+  );
+
+  const heading = screen.getByRole('heading', { name: 'Repair JavaScript CVEs · codex Working' });
+  assert.ok(heading.querySelector('[data-spinner="true"]'));
+  assert.equal(heading.querySelector('[data-state-marker="working"]'), null);
+});
+
 test('resizes an inline work-page terminal by dragging its lower edge', () => {
   render(
     <TerminalCard

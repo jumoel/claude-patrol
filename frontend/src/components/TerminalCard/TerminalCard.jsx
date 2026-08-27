@@ -9,6 +9,7 @@ import { QuickActions } from '../QuickActions/QuickActions.jsx';
 import { LazyTerminal } from '../Terminal/LazyTerminal.jsx';
 import { Box } from '../ui/Box/Box.jsx';
 import { Button } from '../ui/Button/Button.jsx';
+import { Spinner } from '../ui/Spinner/Spinner.jsx';
 import { Stack } from '../ui/Stack/Stack.jsx';
 import { WORKING_LABEL } from '../ui/WorkingBadge/WorkingBadge.jsx';
 import styles from './TerminalCard.module.css';
@@ -165,8 +166,7 @@ export function TerminalCard({
     const isGlobal = presentation === 'global';
     const workPageTitle = title.replace(/^Terminal\s*-\s*/, '');
     const stateLabel = sessionState === 'working' ? WORKING_LABEL : sessionState === 'idle' ? 'Waiting' : 'Idle';
-    const stateClass =
-      sessionState === 'working' ? styles.working : sessionState === 'idle' ? styles.waiting : styles.inactive;
+    const stateClass = sessionState === 'idle' ? styles.waiting : styles.inactive;
     if (session.status === 'detached') {
       return (
         <section
@@ -213,11 +213,15 @@ export function TerminalCard({
       >
         <div className={styles.workPageHeader}>
           <h2 id={`terminal-${session.id}`} className={styles.workPageTitle}>
-            <span
-              className={`${styles.workPageStatus} ${stateClass}`}
-              data-state-marker={sessionState === 'working' ? 'working' : sessionState === 'idle' ? 'waiting' : 'idle'}
-              aria-hidden="true"
-            />
+            {sessionState === 'working' ? (
+              <Spinner size="xs" className={styles.workingIndicator} />
+            ) : (
+              <span
+                className={`${styles.workPageStatus} ${stateClass}`}
+                data-state-marker={sessionState === 'idle' ? 'waiting' : 'idle'}
+                aria-hidden="true"
+              />
+            )}
             {workPageTitle}
             <span className={styles.sessionProvider}>· {session.provider}</span>
             <span className={styles.sessionState}>{stateLabel}</span>

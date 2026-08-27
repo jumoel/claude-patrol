@@ -21,6 +21,7 @@ import { Badge } from '../ui/Badge/Badge.jsx';
 import { Box } from '../ui/Box/Box.jsx';
 import { Button } from '../ui/Button/Button.jsx';
 import { LoadingIndicator } from '../ui/LoadingIndicator/LoadingIndicator.jsx';
+import { Spinner } from '../ui/Spinner/Spinner.jsx';
 import { Stack } from '../ui/Stack/Stack.jsx';
 import { WorkingBadge } from '../ui/WorkingBadge/WorkingBadge.jsx';
 import { WORK_ITEM_STATE_LABELS } from '../WorkItemStatusBadge/WorkItemStatusBadge.jsx';
@@ -170,9 +171,13 @@ function ProgressSteps({ steps }) {
           className={styles[step.status]}
           aria-current={step.status === 'active' ? 'step' : undefined}
         >
-          <span aria-hidden="true">
-            {step.status === 'done' ? '\u2713' : step.status === 'failed' ? '!' : '\u2022'}
-          </span>
+          {step.status === 'active' ? (
+            <Spinner size="xs" />
+          ) : (
+            <span aria-hidden="true">
+              {step.status === 'done' ? '\u2713' : step.status === 'failed' ? '!' : '\u2022'}
+            </span>
+          )}
           {step.label}
           {step.status === 'failed' ? ' failed' : ''}
         </li>

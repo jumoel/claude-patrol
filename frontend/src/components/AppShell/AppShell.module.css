@@ -92,10 +92,6 @@
   border-radius: 50%;
 }
 
-.syncDotActive {
-  background: var(--amber);
-}
-
 .countdown {
   display: inline-block;
   min-width: 4.5rem;

@@ -145,7 +145,6 @@
 
 .dotPass { background: #1b7f5a; }
 .dotFail { background: #c94b45; }
-.dotRunning { background: #2764b0; }
 .dotScheduled { background: #a26900; }
 
 .toggleButton {

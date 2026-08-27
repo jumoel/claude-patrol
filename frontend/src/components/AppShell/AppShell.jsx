@@ -164,7 +164,7 @@ export function AppShell({
             {pollConfigured && (
               <>
                 <span className={styles.syncStatus}>
-                  <span className={`${styles.syncDot} ${syncing ? styles.syncDotActive : ''}`} aria-hidden="true" />
+                  {syncing ? <Spinner size="xs" /> : <span className={styles.syncDot} aria-hidden="true" />}
                   {syncTime}
                   {!onBackToWork && nextSync && (
                     <>

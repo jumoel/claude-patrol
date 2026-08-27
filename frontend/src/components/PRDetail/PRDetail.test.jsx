@@ -227,6 +227,25 @@ test('failed-check log and workspace cleanup actions keep their API contracts', 
   });
 });
 
+test('shows a spinner instead of a dot for a running CI check', async () => {
+  const running = pullRequest();
+  running.checks = [
+    {
+      name: 'unit-tests',
+      status: 'IN_PROGRESS',
+      conclusion: null,
+      url: 'https://github.com/acme/widgets/actions/runs/98765/job/1',
+    },
+  ];
+  running.ci_status = 'pending';
+  api.fetchPR.mockResolvedValue(running);
+
+  renderDetail();
+
+  const check = await screen.findByRole('link', { name: 'unit-tests' });
+  assert.ok(check.parentElement?.querySelector('[data-spinner="true"]'));
+});
+
 test('load failures are rendered as truthful unavailable state', async () => {
   api.fetchPR.mockRejectedValue(new Error('GitHub source unavailable'));
   renderDetail();

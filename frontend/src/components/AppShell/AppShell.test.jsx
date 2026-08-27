@@ -59,3 +59,14 @@ test('shows all-work navigation on detail pages', () => {
   screen.getByRole('button', { name: '← All work' }).click();
   assert.equal(onBackToWork.mock.calls.length, 1);
 });
+
+test('shows a spinner instead of a status dot while syncing', () => {
+  render(
+    <AppShell {...baseProps} pollConfigured syncing>
+      <p>Work</p>
+    </AppShell>,
+  );
+
+  const syncStatus = screen.getByText(/Last synced now/u);
+  assert.ok(syncStatus.querySelector('[data-spinner="true"]'));
+});

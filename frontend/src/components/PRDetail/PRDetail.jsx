@@ -37,15 +37,16 @@ import { TerminalCard } from '../TerminalCard/TerminalCard.jsx';
 import { Badge } from '../ui/Badge/Badge.jsx';
 import { Button } from '../ui/Button/Button.jsx';
 import { LoadingIndicator } from '../ui/LoadingIndicator/LoadingIndicator.jsx';
+import { Spinner } from '../ui/Spinner/Spinner.jsx';
 import { Stack } from '../ui/Stack/Stack.jsx';
 import workPage from '../WorkPage/WorkPage.module.css';
 import { WorkspaceControls } from '../WorkspaceControls/WorkspaceControls.jsx';
 import styles from './PRDetail.module.css';
 
+/** @type {Partial<Record<string, string>>} */
 const DOT_STYLES = {
   green: styles.dotPass,
   red: styles.dotFail,
-  blue: styles.dotRunning,
   yellow: styles.dotScheduled,
   gray: styles.dotScheduled,
 };
@@ -693,7 +694,7 @@ function CheckRow({ check, prId }) {
     <div>
       <div className={styles.checkRow}>
         <Stack gap={2} className={styles.checkInfo}>
-          <span className={`${styles.checkDot} ${dotClass}`} />
+          {isRunningCheck(check) ? <Spinner size="xs" /> : <span className={`${styles.checkDot} ${dotClass}`} />}
           {check.url ? (
             <a href={check.url} target="_blank" rel="noopener noreferrer" className={styles.checkName}>
               {check.name}
