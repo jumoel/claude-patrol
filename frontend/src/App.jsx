@@ -300,7 +300,13 @@ export default function App() {
       currentSha={currentSha}
       ghRateLimit={ghRateLimit}
       startWorkLauncher={
-        applicationDataEnabled ? <StartWorkLauncher workItemsConfigured={workItemsConfigured} /> : undefined
+        applicationDataEnabled ? (
+          <StartWorkLauncher
+            workItemsConfigured={workItemsConfigured}
+            manualWorkConfigured={publicConfig?.manual_work?.configured ?? false}
+            manualRepositories={publicConfig?.manual_work?.repositories ?? []}
+          />
+        ) : undefined
       }
       bottomBar={
         applicationDataEnabled ? (

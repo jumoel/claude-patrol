@@ -59,7 +59,7 @@ function fuzzyMatchWorkItem(query, item) {
   if (!query) return { match: true, score: 0 };
   const pullRequests = item.pull_requests.map((pr) => `${pr.id} ${pr.title || ''} ${pr.branch || ''}`).join(' ');
   const haystack =
-    `${item.title || ''} ${item.reference} ${item.repositories.join(' ')} ${pullRequests} work item`.toLowerCase();
+    `${item.title || ''} ${item.reference || ''} ${item.repositories.join(' ')} ${pullRequests} work item`.toLowerCase();
   const tokens = query.toLowerCase().split(/\s+/).filter(Boolean);
   for (const token of tokens) {
     if (!haystack.includes(token)) return { match: false, score: 0 };
@@ -402,9 +402,9 @@ function WorkspaceResult({ ws, sessionState, dismissed }) {
 function WorkItemResult({ item, sessionState, dismissed }) {
   return (
     <Stack direction="col" gap={1} className={styles.resultInfo}>
-      <div className={styles.resultTitle}>{item.title || item.reference}</div>
+      <div className={styles.resultTitle}>{item.title || item.reference || 'Untitled work item'}</div>
       <Stack gap={2} className={styles.resultMeta}>
-        <span className={styles.resultRepo}>{item.reference}</span>
+        {item.reference && <span className={styles.resultRepo}>{item.reference}</span>}
         {item.repositories.slice(0, 2).map((repository) => (
           <span key={repository}>{repository}</span>
         ))}

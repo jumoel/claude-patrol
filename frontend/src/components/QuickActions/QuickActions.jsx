@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { useAgentProvider } from '../../context/AgentProviderContext.jsx';
 import { usePeerReviewState } from '../../hooks/usePeerReviewState.js';
 import { sendTerminalCommand } from '../../lib/terminal.js';
@@ -37,14 +38,33 @@ function getActions(baseBranch) {
  *   onSend?: (text: string) => void,
  *   baseBranch?: string,
  *   workspaceId?: string,
+ *   workItemId?: string,
  *   prId?: string,
  *   sessionState?: 'working' | 'idle',
  *   sessionProvider: import('../../types').AgentProvider,
  * }} props
  */
-export function QuickActions({ wsRef, onSend, baseBranch, workspaceId, prId, sessionState, sessionProvider }) {
+export function QuickActions({
+  wsRef,
+  onSend,
+  baseBranch,
+  workspaceId,
+  workItemId,
+  prId,
+  sessionState,
+  sessionProvider,
+}) {
   const { capabilities } = useAgentProvider();
-  const peerReview = usePeerReviewState(prId ? workspaceId : undefined);
+  const reviewTarget = useMemo(
+    () =>
+      workItemId
+        ? { type: /** @type {const} */ ('work_item'), id: workItemId }
+        : workspaceId
+          ? { type: /** @type {const} */ ('workspace'), id: workspaceId }
+          : undefined,
+    [workItemId, workspaceId],
+  );
+  const peerReview = usePeerReviewState(prId ? reviewTarget : undefined, prId);
   const presenterProvider = peerReview.presenterProvider ?? sessionProvider;
   const reviewerProvider = peerReview.reviewerProvider ?? (sessionProvider === 'claude' ? 'codex' : 'claude');
   const presenterName = presenterProvider === 'codex' ? 'Codex' : 'Claude';
@@ -99,7 +119,7 @@ export function QuickActions({ wsRef, onSend, baseBranch, workspaceId, prId, ses
           {action.label}
         </Button>
       ))}
-      {prId && workspaceId && (
+      {prId && reviewTarget && (
         <Button
           size="md"
           variant="primary"
@@ -111,7 +131,7 @@ export function QuickActions({ wsRef, onSend, baseBranch, workspaceId, prId, ses
           {peerReview.requesting ? `Requesting ${reviewerName}...` : `Review with ${reviewerName}`}
         </Button>
       )}
-      {prId && workspaceId && statusText && (
+      {prId && reviewTarget && statusText && (
         <span
           className={peerReview.error || peerReview.review?.error ? styles.error : styles.status}
           role="status"

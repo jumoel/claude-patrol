@@ -31,6 +31,7 @@ const MAX_TERMINAL_HEIGHT = 900;
  *   wsRef?: { current: WebSocket | null },
  *   baseBranch?: string,
  *   workspaceId?: string,
+ *   workItemId?: string,
  *   prId?: string,
  *   attentionState?: 'working' | 'waiting' | 'idle',
  *   presentation?: 'card' | 'work-page' | 'global',
@@ -48,6 +49,7 @@ export function TerminalCard({
   wsRef: externalWsRef,
   baseBranch,
   workspaceId,
+  workItemId,
   prId,
   attentionState = 'idle',
   presentation = 'card',
@@ -271,6 +273,17 @@ export function TerminalCard({
             borderless
           />
         </div>
+        {!isGlobal && prId && (
+          <QuickActions
+            onSend={handleSendCommand}
+            baseBranch={baseBranch}
+            workspaceId={workspaceId}
+            workItemId={workItemId}
+            prId={prId}
+            sessionState={sessionState}
+            sessionProvider={session.provider}
+          />
+        )}
         {!maximized && terminalOpen && (
           <div
             className={styles.workPageResizeHandle}
@@ -361,6 +374,7 @@ export function TerminalCard({
           onSend={handleSendCommand}
           baseBranch={baseBranch}
           workspaceId={workspaceId}
+          workItemId={workItemId}
           prId={prId}
           sessionState={sessionState}
           sessionProvider={session.provider}
@@ -420,6 +434,7 @@ export function TerminalCard({
         onSend={handleSendCommand}
         baseBranch={baseBranch}
         workspaceId={workspaceId}
+        workItemId={workItemId}
         prId={prId}
         sessionState={sessionState}
         sessionProvider={session.provider}

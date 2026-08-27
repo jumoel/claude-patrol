@@ -8,6 +8,7 @@ import { parseConfig } from './config.js';
 import { closeDb, getDb, initDb } from './db.js';
 import { ensureSessionAndSend } from './dispatcher.js';
 import { createServer } from './server.js';
+import { insertTestWorkItem } from './test-support/work-items.js';
 
 afterEach(() => closeDb());
 
@@ -33,9 +34,9 @@ function configFixture() {
 function listItem(id = 'item-1') {
   return {
     id,
+    creation_source: 'reference',
     reference: 'PROJECT-1',
     title: null,
-    work_provider: 'codex',
     resolver_provider: 'codex',
     state: 'resolving',
     stage: 'provider_check',
@@ -66,13 +67,18 @@ async function serverFixture(workItemService, overrides = {}) {
 
 test('work-item routes use the fixed asynchronous DTO and structured errors', async () => {
   const item = listItem();
+  const creationRequests = [];
   const service = {
-    create: ({ reference, workProvider }) => ({ ...item, reference, work_provider: workProvider }),
+    create: (request) => {
+      creationRequests.push(request);
+      return { ...item, reference: request.reference ?? null, title: request.title ?? item.title };
+    },
     list: () => [item],
     detail: (id) => (id === item.id ? { ...item, root_path: '/tmp/item-1', repository_workspaces: [] } : null),
     retry: () => item,
     destroy: () => ({ accepted: true }),
     waitForIdle: async () => {},
+    availableRepositories: () => [],
   };
   const server = await serverFixture(service);
   try {
@@ -92,12 +98,36 @@ test('work-item routes use the fixed asynchronous DTO and structured errors', as
     assert.equal(created.statusCode, 202);
     assert.equal(created.headers.location, '/api/work-items/item-1');
     assert.equal(created.json().work_item.reference, 'PROJECT-1');
+    assert.deepEqual(creationRequests[0], { reference: 'PROJECT-1', workProvider: 'codex' });
+
+    const mixedManual = await server.inject({
+      method: 'POST',
+      url: '/api/work-items',
+      payload: {
+        source: 'manual',
+        title: 'Manual work',
+        repositories: ['acme/widgets'],
+        reference: 'PROJECT-1',
+      },
+    });
+    assert.equal(mixedManual.statusCode, 400);
+    const manual = await server.inject({
+      method: 'POST',
+      url: '/api/work-items',
+      payload: { source: 'manual', title: 'Manual work', repositories: ['acme/widgets'] },
+    });
+    assert.equal(manual.statusCode, 202);
+    assert.deepEqual(creationRequests[1], {
+      source: 'manual',
+      title: 'Manual work',
+      repositories: ['acme/widgets'],
+    });
     const startAction = actionRegistry.start_work_item;
     const startArgs = startAction.schema.parse({ reference: 'PROJECT-1', work_provider: 'codex' });
     assert.deepEqual(startAction.dispatch(startArgs), {
       method: 'POST',
       path: '/api/work-items',
-      body: { reference: 'PROJECT-1', work_provider: 'codex' },
+      body: { source: 'reference', reference: 'PROJECT-1', resolver_provider: 'codex' },
     });
     assert.deepEqual(startAction.transform(created.json()), created.json().work_item);
     const started = await startAction.mcpHandler(server, {
@@ -131,18 +161,20 @@ test('repository workspace MCP calls support inferred and explicit work-item tar
       calls.push({ id, repository, revision });
       return { added: true, work_item: { id }, repository_workspace: { identifier: repository } };
     },
+    availableRepositories: (id) => [
+      {
+        repository: 'acme/widgets',
+        default_revision: 'main@origin',
+        attached: id === 'item-1',
+        membership_state: id === 'item-1' ? 'ready' : null,
+        available: true,
+        unavailable_code: null,
+      },
+    ],
   };
   const server = await serverFixture(service);
   const now = new Date().toISOString();
-  getDb()
-    .prepare(
-      `INSERT INTO work_items (
-        id, reference, path, resolved_repositories_json, work_provider, resolver_provider, state, stage,
-        progress_current, progress_total, created_at, updated_at
-      ) VALUES ('item-1', 'PROJECT-1', '/tmp/item-1', '["acme/widgets"]', 'codex', 'codex',
-        'ready', 'complete', 0, 0, ?, ?)`,
-    )
-    .run(now, now);
+  insertTestWorkItem(getDb(), { id: 'item-1', repositories: ['acme/widgets'], createdAt: now });
   getDb()
     .prepare(
       `INSERT INTO sessions (id, work_item_id, pid, provider, status, started_at)
@@ -167,6 +199,13 @@ test('repository workspace MCP calls support inferred and explicit work-item tar
       { id: 'item-1', repository: 'acme/widgets', revision: undefined },
       { id: 'item-2', repository: 'acme/widgets', revision: 'feature@git' },
     ]);
+    const available = await actionRegistry.list_available_repositories.mcpHandler(
+      server,
+      {},
+      { callerSessionId: 'work-session' },
+    );
+    assert.equal(available.ok, true);
+    assert.equal(available.repositories[0].attached, true);
 
     const firstPullRequest = await actionRegistry.link_pull_request.mcpHandler(
       server,
@@ -227,15 +266,12 @@ test('work-item session creation accepts a selected provider and persists it', a
     },
   });
   const now = new Date().toISOString();
-  getDb()
-    .prepare(
-      `INSERT INTO work_items (
-        id, reference, path, work_provider, resolver_provider, state, stage,
-        progress_current, progress_total, created_at, updated_at
-      ) VALUES ('provider-item', 'PROJECT-PROVIDER', '/tmp/provider-item', 'codex', 'codex',
-        'ready', 'complete', 0, 0, ?, ?)`,
-    )
-    .run(now, now);
+  insertTestWorkItem(getDb(), {
+    id: 'provider-item',
+    reference: 'PROJECT-PROVIDER',
+    path: '/tmp/provider-item',
+    createdAt: now,
+  });
 
   try {
     const missingProvider = await server.inject({
@@ -257,10 +293,6 @@ test('work-item session creation accepts a selected provider and persists it', a
     assert.equal(launches[0].cwd, '/tmp/provider-item');
     assert.equal(launches[0].provider, 'claude');
     assert.deepEqual(launches[0].options, { enablePatrolMcp: true });
-    assert.equal(
-      getDb().prepare('SELECT work_provider FROM work_items WHERE id = ?').get('provider-item').work_provider,
-      'claude',
-    );
   } finally {
     await server.close();
   }
@@ -437,15 +469,7 @@ test('session filters distinguish global, work-item, and managed child targets',
     ],
   });
   const now = new Date().toISOString();
-  getDb()
-    .prepare(
-      `INSERT INTO work_items (
-        id, reference, path, work_provider, resolver_provider, state, stage,
-        progress_current, progress_total, created_at, updated_at
-      ) VALUES ('item-1', 'PROJECT-1', '/tmp/item-1', 'codex', 'codex',
-        'ready', 'complete', 0, 0, ?, ?)`,
-    )
-    .run(now, now);
+  insertTestWorkItem(getDb(), { id: 'item-1', repositories: ['acme/widgets'], createdAt: now });
   getDb()
     .prepare(
       `INSERT INTO workspaces (

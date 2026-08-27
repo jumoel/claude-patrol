@@ -139,6 +139,7 @@ function renderDetail(onBack = vi.fn()) {
 
 beforeEach(() => {
   for (const fn of Object.values(api)) fn.mockReset();
+  window.location.hash = '';
   localStorage.setItem('claude-patrol-agent-provider', 'codex');
   api.fetchProviderCapabilities.mockResolvedValue({
     claude: { available: true, checking: false, reason: null, version: 'test', checkedAt: null },
@@ -148,7 +149,7 @@ beforeEach(() => {
   api.fetchWorkspaces.mockResolvedValue([]);
   api.fetchPRComments.mockResolvedValue({ reviews: [], conversation: [] });
   api.fetchSessions.mockResolvedValue([]);
-  api.createWorkspace.mockResolvedValue(workspace());
+  api.createWorkspace.mockResolvedValue({ work_item: { id: 'work-item-42' } });
   api.createSession.mockResolvedValue(session());
   api.destroyWorkspace.mockResolvedValue({});
   api.fetchCheckLogs.mockResolvedValue({ logs: [] });
@@ -156,7 +157,7 @@ beforeEach(() => {
   api.setPRDraft.mockResolvedValue({ draft: true });
 });
 
-test('calls the workspace and session API adapters and renders an in-flow terminal', async () => {
+test('creates PR local work as a work item and routes to its page', async () => {
   const user = userEvent.setup();
   renderDetail();
 
@@ -169,11 +170,9 @@ test('calls the workspace and session API adapters and renders an in-flow termin
 
   await waitFor(() => {
     assert.deepEqual(api.createWorkspace.mock.calls, [['acme/widgets#42']]);
-    assert.deepEqual(api.createSession.mock.calls, [[{ type: 'workspace', id: 'workspace-1' }, 'codex']]);
+    assert.equal(window.location.hash, '#/work-item/work-item-42?pr=acme%2Fwidgets%2342');
   });
-  const terminal = await screen.findByTestId('terminal');
-  assert.equal(terminal.getAttribute('data-session'), 'session-1');
-  assert.equal(terminal.getAttribute('data-presentation'), 'work-page');
+  assert.equal(api.createSession.mock.calls.length, 0);
 });
 
 test('refresh and draft actions call their real API adapters', async () => {

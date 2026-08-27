@@ -1,27 +1,33 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAgentProvider } from '../../context/AgentProviderContext.jsx';
-import { createScratchWorkspace, createWorkItem } from '../../lib/api.js';
+import { createManualWorkItem, createWorkItem } from '../../lib/api.js';
 import { getErrorMessage } from '../../lib/errors.js';
 import { AgentProviderButton } from '../AgentProviderButton/AgentProviderButton.jsx';
 import { Box } from '../ui/Box/Box.jsx';
 import { Button } from '../ui/Button/Button.jsx';
-import { RepoCombobox } from '../ui/RepoCombobox/RepoCombobox.jsx';
 import { Stack } from '../ui/Stack/Stack.jsx';
 import styles from './StartWorkLauncher.module.css';
 
-/** @typedef {'project' | 'scratch'} LauncherMode */
+/** @typedef {'reference' | 'manual'} LauncherMode */
 
-/** @param {{workItemsConfigured: boolean}} props */
-export function StartWorkLauncher({ workItemsConfigured }) {
+/**
+ * @param {{
+ *   workItemsConfigured: boolean,
+ *   manualWorkConfigured: boolean,
+ *   manualRepositories: Array<{repository: string, default_revision: string | null}>,
+ * }} props
+ */
+export function StartWorkLauncher({ workItemsConfigured, manualWorkConfigured, manualRepositories }) {
   const { provider } = useAgentProvider();
   const triggerRef = useRef(/** @type {HTMLDivElement | null} */ (null));
   const [open, setOpen] = useState(false);
-  const [mode, setMode] = useState(/** @type {LauncherMode} */ (workItemsConfigured ? 'project' : 'scratch'));
+  const [mode, setMode] = useState(/** @type {LauncherMode} */ (workItemsConfigured ? 'reference' : 'manual'));
   const [reference, setReference] = useState('');
-  const [projectError, setProjectError] = useState('');
-  const [repo, setRepo] = useState('');
-  const [branch, setBranch] = useState('');
-  const [scratchError, setScratchError] = useState('');
+  const [referenceError, setReferenceError] = useState('');
+  const [title, setTitle] = useState('');
+  const [bookmark, setBookmark] = useState('');
+  const [repositories, setRepositories] = useState(/** @type {string[]} */ ([]));
+  const [manualError, setManualError] = useState('');
   const [pending, setPending] = useState(false);
 
   useEffect(() => {
@@ -31,7 +37,7 @@ export function StartWorkLauncher({ workItemsConfigured }) {
   }, []);
 
   const show = useCallback(() => {
-    setMode(workItemsConfigured ? 'project' : 'scratch');
+    setMode(workItemsConfigured ? 'reference' : 'manual');
     setOpen(true);
   }, [workItemsConfigured]);
 
@@ -45,50 +51,65 @@ export function StartWorkLauncher({ workItemsConfigured }) {
   const changeMode = (nextMode) => {
     if (pending) return;
     setMode(nextMode);
-    if (nextMode === 'project') setProjectError('');
-    else setScratchError('');
+    if (nextMode === 'reference') setReferenceError('');
+    else setManualError('');
   };
 
-  const submitProject = useCallback(async () => {
+  const submitReference = useCallback(async () => {
     const trimmed = reference.trim();
     if (!trimmed) {
-      setProjectError('Enter a project reference.');
+      setReferenceError('Enter a project reference.');
       return;
     }
     if (new TextEncoder().encode(trimmed).length > 512) {
-      setProjectError('Reference must be 512 UTF-8 bytes or fewer.');
+      setReferenceError('Reference must be 512 UTF-8 bytes or fewer.');
       return;
     }
     setPending(true);
-    setProjectError('');
+    setReferenceError('');
     try {
       const { work_item: item } = await createWorkItem(reference, provider);
       setOpen(false);
       setPending(false);
       window.location.hash = `/work-item/${item.id}`;
     } catch (error) {
-      setProjectError(getErrorMessage(error, 'Failed to start work item'));
+      setReferenceError(getErrorMessage(error, 'Failed to start work item'));
       setPending(false);
     }
   }, [provider, reference]);
 
-  const submitScratch = useCallback(async () => {
-    if (!repo || !branch.trim()) {
-      setScratchError('Select a repository and enter a branch.');
+  const submitManual = useCallback(async () => {
+    const trimmedTitle = title.trim();
+    if (!trimmedTitle) {
+      setManualError('Enter a title.');
+      return;
+    }
+    if (new TextEncoder().encode(trimmedTitle).length > 512) {
+      setManualError('Title must be 512 UTF-8 bytes or fewer.');
+      return;
+    }
+    if (repositories.length === 0) {
+      setManualError('Select at least one repository.');
       return;
     }
     setPending(true);
-    setScratchError('');
+    setManualError('');
     try {
-      const workspace = await createScratchWorkspace(repo, branch.trim());
+      const { work_item: item } = await createManualWorkItem(trimmedTitle, repositories, bookmark);
       setOpen(false);
       setPending(false);
-      window.location.hash = `/workspace/${workspace.id}`;
+      window.location.hash = `/work-item/${item.id}`;
     } catch (error) {
-      setScratchError(getErrorMessage(error, 'Failed to create scratch workspace'));
+      setManualError(getErrorMessage(error, 'Failed to create work item'));
       setPending(false);
     }
-  }, [branch, repo]);
+  }, [bookmark, repositories, title]);
+
+  const toggleRepository = useCallback((/** @type {string} */ repository) => {
+    setRepositories((current) =>
+      current.includes(repository) ? current.filter((candidate) => candidate !== repository) : [...current, repository],
+    );
+  }, []);
 
   return (
     <section className={styles.container}>
@@ -122,25 +143,25 @@ export function StartWorkLauncher({ workItemsConfigured }) {
             <fieldset className={styles.modeGroup} disabled={pending}>
               <legend className={styles.legend}>Workspace type</legend>
               <Stack gap={2} wrap className={styles.modeOptions}>
-                <label className={`${styles.modeOption} ${mode === 'project' ? styles.modeOptionActive : ''}`}>
+                <label className={`${styles.modeOption} ${mode === 'reference' ? styles.modeOptionActive : ''}`}>
                   <input
                     type="radio"
                     name="start-work-mode"
-                    value="project"
-                    checked={mode === 'project'}
-                    onChange={() => changeMode('project')}
+                    value="reference"
+                    checked={mode === 'reference'}
+                    onChange={() => changeMode('reference')}
                   />
                   <span>Project reference</span>
                 </label>
-                <label className={`${styles.modeOption} ${mode === 'scratch' ? styles.modeOptionActive : ''}`}>
+                <label className={`${styles.modeOption} ${mode === 'manual' ? styles.modeOptionActive : ''}`}>
                   <input
                     type="radio"
                     name="start-work-mode"
-                    value="scratch"
-                    checked={mode === 'scratch'}
-                    onChange={() => changeMode('scratch')}
+                    value="manual"
+                    checked={mode === 'manual'}
+                    onChange={() => changeMode('manual')}
                   />
-                  <span>Scratch repository</span>
+                  <span>Manual work</span>
                 </label>
               </Stack>
             </fieldset>
@@ -149,12 +170,12 @@ export function StartWorkLauncher({ workItemsConfigured }) {
             </Button>
           </div>
           <div className={styles.body}>
-            {mode === 'project' &&
+            {mode === 'reference' &&
               (workItemsConfigured ? (
                 <form
                   onSubmit={(event) => {
                     event.preventDefault();
-                    if (!pending) submitProject();
+                    if (!pending) submitReference();
                   }}
                 >
                   <Stack gap={3} wrap align="end" className={styles.fields}>
@@ -174,7 +195,7 @@ export function StartWorkLauncher({ workItemsConfigured }) {
                     <AgentProviderButton
                       variant="primary"
                       size="md"
-                      onClick={submitProject}
+                      onClick={submitReference}
                       disabled={pending || !reference.trim()}
                       providerDisabled={pending}
                       providerDisabledTitle="Provider cannot be changed while the work item is starting"
@@ -183,9 +204,9 @@ export function StartWorkLauncher({ workItemsConfigured }) {
                       {pending ? 'Creating work item...' : 'Create work item'}
                     </AgentProviderButton>
                   </Stack>
-                  {projectError && (
+                  {referenceError && (
                     <p className={styles.error} role="alert">
-                      {projectError}
+                      {referenceError}
                     </p>
                   )}
                 </form>
@@ -195,53 +216,80 @@ export function StartWorkLauncher({ workItemsConfigured }) {
                   <a href="#/setup?section=work-items">Open Work Items settings</a>
                 </div>
               ))}
-            {mode === 'scratch' && (
-              <form
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  if (!pending) submitScratch();
-                }}
-              >
-                <Stack gap={3} wrap align="end" className={styles.fields}>
-                  <div className={styles.field}>
-                    <span id="start-work-repository-label">Repository</span>
-                    <RepoCombobox
-                      value={repo}
-                      onChange={setRepo}
-                      disabled={pending}
-                      ariaLabelledBy="start-work-repository-label"
-                    />
-                  </div>
-                  <label className={`${styles.field} ${styles.branchField}`}>
-                    <span>Branch</span>
-                    <input
-                      id="start-work-branch"
-                      name="scratch-branch"
-                      value={branch}
-                      onChange={(event) => setBranch(event.target.value)}
-                      placeholder="feat/my-feature"
-                      disabled={pending}
-                      autoFocus
-                    />
-                  </label>
-                  <Button
-                    type="submit"
-                    variant="primary"
-                    size="md"
-                    filled
-                    disabled={pending || !repo || !branch.trim()}
-                    busy={pending}
-                  >
-                    {pending ? 'Creating...' : 'Create scratch workspace'}
-                  </Button>
-                </Stack>
-                {scratchError && (
-                  <p className={styles.error} role="alert">
-                    {scratchError}
-                  </p>
-                )}
-              </form>
-            )}
+            {mode === 'manual' &&
+              (manualWorkConfigured ? (
+                <form
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    if (!pending) submitManual();
+                  }}
+                >
+                  <Stack gap={3} className={styles.manualFields}>
+                    <Stack gap={3} wrap className={styles.fields}>
+                      <label className={styles.field}>
+                        <span>Title</span>
+                        <input
+                          name="manual-title"
+                          value={title}
+                          onChange={(event) => setTitle(event.target.value)}
+                          placeholder="Describe the work"
+                          maxLength={512}
+                          disabled={pending}
+                          autoFocus
+                        />
+                      </label>
+                      <label className={styles.field}>
+                        <span>Bookmark (optional)</span>
+                        <input
+                          name="manual-bookmark"
+                          value={bookmark}
+                          onChange={(event) => setBookmark(event.target.value)}
+                          placeholder="Generated when omitted"
+                          maxLength={255}
+                          disabled={pending}
+                        />
+                      </label>
+                    </Stack>
+                    <fieldset className={styles.repositories} disabled={pending}>
+                      <legend>Repositories</legend>
+                      <div className={styles.repositoryOptions}>
+                        {manualRepositories.map(({ repository, default_revision: defaultRevision }) => (
+                          <label key={repository} className={styles.repositoryOption}>
+                            <input
+                              type="checkbox"
+                              checked={repositories.includes(repository)}
+                              onChange={() => toggleRepository(repository)}
+                            />
+                            <span>{repository}</span>
+                            {defaultRevision && <code>{defaultRevision}</code>}
+                          </label>
+                        ))}
+                      </div>
+                    </fieldset>
+                    <Button
+                      type="submit"
+                      variant="primary"
+                      size="md"
+                      filled
+                      disabled={pending || !title.trim() || repositories.length === 0}
+                      busy={pending}
+                      className={styles.manualSubmit}
+                    >
+                      {pending ? 'Creating work item...' : 'Create work item'}
+                    </Button>
+                  </Stack>
+                  {manualError && (
+                    <p className={styles.error} role="alert">
+                      {manualError}
+                    </p>
+                  )}
+                </form>
+              ) : (
+                <div className={styles.unconfigured}>
+                  <p>No repositories are configured for manual work</p>
+                  <a href="#/setup?section=repositories">Open Repository settings</a>
+                </div>
+              ))}
           </div>
         </Box>
       )}

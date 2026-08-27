@@ -158,7 +158,7 @@ export function isWorkItemsConfigured(cfg) {
 }
 
 export function isConfigured(cfg) {
-  return isPollConfigured(cfg) || isWorkItemsConfigured(cfg);
+  return isPollConfigured(cfg) || isWorkItemsConfigured(cfg) || Object.keys(cfg?.repos ?? {}).length > 0;
 }
 
 /**

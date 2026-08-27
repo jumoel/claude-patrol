@@ -49,13 +49,13 @@ vi.mock('../LinkedPullRequests/LinkedPullRequests.jsx', () => ({
 function detail() {
   return {
     id: 'item-1',
+    creation_source: 'reference',
     reference: 'ECO-3632',
     reference_display: 'ECO-3632',
     reference_system: 'linear.app',
     reference_url: 'https://linear.app/acme/issue/ECO-3632/title',
     title: 'Repair JavaScript CVEs',
     summary: 'Update both repositories.\nKeep their changes aligned.',
-    work_provider: 'codex',
     resolver_provider: 'codex',
     state: 'ready',
     stage: 'complete',
@@ -145,7 +145,7 @@ test('ready detail renders one root terminal and no child controls', async () =>
   hook.workItem = {
     ...detail(),
     has_session_history: true,
-    session: { id: 'session-1', status: 'active', activity_state: null, activity_changed_at: null },
+    session: { id: 'session-1', provider: 'codex', status: 'active', activity_state: null, activity_changed_at: null },
   };
   api.fetchSessions.mockResolvedValue([liveSession]);
 
@@ -181,6 +181,7 @@ test('acknowledges the visible idle session and renders it as idle once acknowle
     ...detail(),
     session: {
       id: idleSession.id,
+      provider: idleSession.provider,
       status: idleSession.status,
       activity_state: idleSession.activity_state,
       activity_changed_at: idleSession.activity_changed_at,
@@ -228,7 +229,7 @@ test('overview stays visible while the repository pane remembers collapsed state
 test('terminal is the first work surface after the header', async () => {
   hook.workItem = {
     ...detail(),
-    session: { id: 'session-1', status: 'active', activity_state: null, activity_changed_at: null },
+    session: { id: 'session-1', provider: 'codex', status: 'active', activity_state: null, activity_changed_at: null },
   };
   api.fetchSessions.mockResolvedValue([
     {

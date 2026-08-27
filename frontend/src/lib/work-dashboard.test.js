@@ -36,12 +36,12 @@ const standalonePR = /** @type {import('../types').PullRequest} */ ({
 
 const workItem = /** @type {import('../types').WorkItemListItem} */ ({
   id: 'work-1',
+  creation_source: 'reference',
   reference: 'eco-1',
   reference_display: 'ECO-1',
   reference_system: 'linear',
   reference_url: 'https://example.test/ECO-1',
   title: 'Fix the thing',
-  work_provider: 'codex',
   resolver_provider: 'codex',
   repositories: ['chainguard/mono'],
   state: 'ready',

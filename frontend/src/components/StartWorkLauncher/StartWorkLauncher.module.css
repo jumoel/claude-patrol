@@ -120,10 +120,6 @@
   font-weight: 400;
 }
 
-.branchField {
-  flex: 1;
-}
-
 .field input {
   min-height: 32px;
   padding: 0 9px;
@@ -135,6 +131,64 @@
   font-size: 14px;
   font-weight: 400;
   outline: none;
+}
+
+.manualFields {
+  align-items: stretch;
+}
+
+.repositories {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.repositories legend {
+  margin-bottom: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.repositoryOptions {
+  display: grid;
+  max-height: 220px;
+  overflow-y: auto;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+}
+
+.repositoryOption {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 0 9px;
+  color: var(--ink);
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.repositoryOption:last-child {
+  border-bottom: 0;
+}
+
+.repositoryOption:has(input:checked) {
+  background: var(--blue-soft);
+}
+
+.repositoryOption input {
+  accent-color: var(--blue);
+}
+
+.repositoryOption code {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.manualSubmit {
+  align-self: flex-end;
 }
 
 .field input:focus {
@@ -201,5 +255,9 @@
   .field {
     width: 100%;
     min-width: 0;
+  }
+
+  .manualSubmit {
+    align-self: stretch;
   }
 }

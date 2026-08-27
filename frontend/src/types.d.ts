@@ -69,7 +69,7 @@ export interface PullRequest {
   work_item_id: string | null;
   work_item: null | {
     id: string;
-    reference: string;
+    reference: string | null;
     title: string | null;
     state: WorkItemState;
   };
@@ -161,13 +161,13 @@ export interface RecoveryAction {
 
 export interface WorkItemListItem {
   id: string;
-  reference: string;
+  creation_source: 'manual' | 'reference' | 'pull_request';
+  reference: string | null;
   reference_display: string | null;
   reference_system: string | null;
   reference_url: string | null;
   title: string | null;
-  work_provider: AgentProvider;
-  resolver_provider: AgentProvider;
+  resolver_provider: AgentProvider | null;
   state: WorkItemState;
   stage: WorkItemStage;
   progress: { current: number; total: number };
@@ -179,6 +179,7 @@ export interface WorkItemListItem {
   has_session_history: boolean;
   session: null | {
     id: string;
+    provider: AgentProvider;
     status: 'active' | 'detached';
     activity_state: 'working' | 'idle' | null;
     activity_changed_at: string | null;
@@ -282,7 +283,7 @@ export type DashboardWorkRow =
       kind: 'work_item';
       id: string;
       title: string;
-      work_reference: { display: string; system: string | null; url: string | null };
+      work_reference: { display: string; system: string | null; url: string | null } | null;
       repositories: string[];
       pull_requests: DashboardPullRequestSummary[];
       sessions: DashboardSessionSummary[];
@@ -478,6 +479,10 @@ export interface PublicConfig {
       { model_login_command: string; resolver_mcp_commands: string[] }
     >;
   };
+  manual_work: {
+    configured: boolean;
+    repositories: Array<{ repository: string; default_revision: string | null }>;
+  };
   update_available?: boolean;
   commits_behind?: number;
   restart_needed?: boolean;
@@ -508,7 +513,8 @@ export type PeerReviewStatus =
 
 export interface PeerReview {
   id: string;
-  workspaceId: string;
+  workspaceId?: string;
+  workItemId?: string;
   sessionId: string;
   prId: string;
   presenterProvider: AgentProvider;

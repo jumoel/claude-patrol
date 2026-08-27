@@ -2,9 +2,9 @@ import { useCallback, useEffect, useState } from 'react';
 import { fetchPeerReviewState, requestPeerReview } from '../lib/api.js';
 import { subscribeAppEvent } from '../lib/event-stream.js';
 
-/** Track one workspace's inverse-provider review lifecycle across component remounts. */
-/** @param {string | undefined} workspaceId */
-export function usePeerReviewState(workspaceId) {
+/** Track one local-work target's inverse-provider review lifecycle across component remounts. */
+/** @param {{type: 'workspace'|'work_item', id: string} | undefined} target @param {string | undefined} prId */
+export function usePeerReviewState(target, prId) {
   const [review, setReview] = useState(/** @type {import('../types').PeerReview | null} */ (null));
   const [ready, setReady] = useState(false);
   const [reason, setReason] = useState(/** @type {string | null} */ (null));
@@ -25,9 +25,9 @@ export function usePeerReviewState(workspaceId) {
     setPresenterProvider(null);
     setReviewerProvider(null);
     setError(null);
-    if (!workspaceId) return undefined;
+    if (!target) return undefined;
 
-    fetchPeerReviewState(workspaceId)
+    fetchPeerReviewState(target, prId)
       .then((state) => {
         if (!active) return;
         setReview(state.review);
@@ -42,20 +42,25 @@ export function usePeerReviewState(workspaceId) {
 
     const unsubscribe = subscribeAppEvent('peer-review-state', (event) => {
       const update = JSON.parse(event.data);
-      if (update.workspaceId === workspaceId) setReview(update.review);
+      if (
+        (target.type === 'workspace' && update.workspaceId === target.id) ||
+        (target.type === 'work_item' && update.workItemId === target.id)
+      ) {
+        setReview(update.review);
+      }
     });
     return () => {
       active = false;
       unsubscribe();
     };
-  }, [workspaceId]);
+  }, [prId, target]);
 
   const requestReview = useCallback(async () => {
-    if (!workspaceId) return;
+    if (!target) return;
     setRequesting(true);
     setError(null);
     try {
-      const result = await requestPeerReview(workspaceId);
+      const result = await requestPeerReview(target, prId);
       setReview(result.review);
       setPresenterProvider(result.review.presenterProvider);
       setReviewerProvider(result.review.reviewerProvider);
@@ -64,7 +69,7 @@ export function usePeerReviewState(workspaceId) {
     } finally {
       setRequesting(false);
     }
-  }, [workspaceId]);
+  }, [prId, target]);
 
   return { review, ready, reason, presenterProvider, reviewerProvider, requesting, error, requestReview };
 }

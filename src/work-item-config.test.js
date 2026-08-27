@@ -48,6 +48,16 @@ test('a work-item-only configuration passes the application gate', () => {
   assert.equal(isConfigured(config), true);
 });
 
+test('configured repositories enable manual work without polling or a reference resolver', () => {
+  const config = parseConfig({
+    poll: { orgs: [], repos: [] },
+    repos: { 'acme/widgets': { defaultRevision: 'main@origin' } },
+  });
+  assert.equal(isPollConfigured(config), false);
+  assert.equal(isWorkItemsConfigured(config), false);
+  assert.equal(isConfigured(config), true);
+});
+
 test('default_session_provider accepts supported providers and rejects other values', () => {
   assert.equal(parseConfig(workItemConfig({ default_session_provider: 'codex' })).default_session_provider, 'codex');
   assert.throws(() => parseConfig(workItemConfig({ default_session_provider: 'other' })), /default_session_provider/);

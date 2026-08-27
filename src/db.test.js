@@ -7,6 +7,7 @@ import { afterEach, test } from 'node:test';
 import { parseConfig, updateConfig } from './config.js';
 import { closeDb, initDb } from './db.js';
 import { CURRENT_SCHEMA_VERSION } from './migrations.js';
+import { insertTestWorkItem } from './test-support/work-items.js';
 
 const temporaryDirectories = [];
 
@@ -45,14 +46,9 @@ test('a new database is migrated to the current schema', () => {
   assert.ok(sessionColumns.has('provider'));
   assert.ok(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'sync_state'").get());
   assert.ok(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'automation_jobs'").get());
+  assert.ok(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'work_item_references'").get());
   assert.ok(
-    db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'work_item_repository_additions'").get(),
-  );
-  assert.ok(
-    db
-      .prepare("PRAGMA table_info('work_item_repository_additions')")
-      .all()
-      .some((column) => column.name === 'start_revision'),
+    db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'work_item_repositories'").get(),
   );
   assert.ok(
     db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'work_item_pull_requests'").get(),
@@ -76,21 +72,16 @@ test('a new database is migrated to the current schema', () => {
       .all()
       .map((column) => column.name),
   );
-  assert.ok(workItemColumns.has('reference_display'));
-  assert.ok(workItemColumns.has('reference_system'));
-  assert.ok(workItemColumns.has('reference_url'));
+  assert.ok(workItemColumns.has('creation_source'));
+  assert.ok(workItemColumns.has('bookmark'));
+  assert.equal(workItemColumns.has('reference'), false);
 });
 
 test('the v13 migration creates workspace orphan storage for existing databases', () => {
   const path = join(temporaryDirectory(), 'v13.db');
   let db = initDb(path);
   const now = '2026-08-27T12:00:00.000Z';
-  db.prepare(
-    `INSERT INTO work_items (
-      id, reference, path, work_provider, resolver_provider, state, stage,
-      created_at, updated_at
-    ) VALUES ('item-1', 'ECO-2364', '/tmp/item-1', 'codex', 'codex', 'ready', 'complete', ?, ?)`,
-  ).run(now, now);
+  insertTestWorkItem(db, { id: 'item-1', reference: 'ECO-2364', path: '/tmp/item-1', createdAt: now });
   db.exec('DROP TABLE workspace_orphans; PRAGMA user_version = 13');
   closeDb();
 
@@ -99,7 +90,16 @@ test('the v13 migration creates workspace orphan storage for existing databases'
   assert.equal(db.prepare('PRAGMA user_version').get().user_version, CURRENT_SCHEMA_VERSION);
   assert.ok(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'workspace_orphans'").get());
   assert.deepEqual(
-    { ...db.prepare('SELECT id, reference FROM work_items WHERE id = ?').get('item-1') },
+    {
+      ...db
+        .prepare(
+          `SELECT wi.id, wr.reference
+             FROM work_items wi
+             JOIN work_item_references wr ON wr.work_item_id = wi.id
+            WHERE wi.id = ?`,
+        )
+        .get('item-1'),
+    },
     {
       id: 'item-1',
       reference: 'ECO-2364',
@@ -134,10 +134,10 @@ test('the v12 migration preserves work items and adds provider-native reference 
       destroyed_at TEXT
     );
     INSERT INTO work_items (
-      id, reference, path, work_provider, resolver_provider, state, stage,
+      id, reference, resolved_repositories_json, path, work_provider, resolver_provider, state, stage,
       created_at, updated_at
     ) VALUES (
-      'item-1', 'eco-3351', '/tmp/item-1', 'codex', 'codex', 'ready', 'complete',
+      'item-1', 'eco-3351', '["acme/widgets"]', '/tmp/item-1', 'codex', 'codex', 'ready', 'complete',
       '2026-08-26T00:00:00.000Z', '2026-08-26T00:00:00.000Z'
     );
     CREATE TABLE sessions (
@@ -156,14 +156,27 @@ test('the v12 migration preserves work items and adds provider-native reference 
   const db = initDb(path);
   assert.equal(db.prepare('PRAGMA user_version').get().user_version, CURRENT_SCHEMA_VERSION);
   assert.deepEqual(
-    { ...db.prepare('SELECT id, reference, reference_display, reference_system, reference_url FROM work_items').get() },
+    {
+      ...db
+        .prepare(
+          `SELECT wi.id, wi.creation_source, wr.reference, wr.reference_display, wr.reference_system, wr.reference_url
+             FROM work_items wi
+             JOIN work_item_references wr ON wr.work_item_id = wi.id`,
+        )
+        .get(),
+    },
     {
       id: 'item-1',
+      creation_source: 'reference',
       reference: 'eco-3351',
       reference_display: null,
       reference_system: null,
       reference_url: null,
     },
+  );
+  assert.deepEqual(
+    { ...db.prepare('SELECT repo, position, membership_source, state FROM work_item_repositories').get() },
+    { repo: 'acme/widgets', position: 0, membership_source: 'initial', state: 'ready' },
   );
 });
 
@@ -412,13 +425,7 @@ test('configuration updates are validated before replacing the file', () => {
 test('the current schema enforces work-item progress and exclusive workspace and session targets', () => {
   const db = initDb(':memory:');
   const now = new Date().toISOString();
-  db.prepare(
-    `INSERT INTO work_items (
-      id, reference, path, work_provider, resolver_provider, state, stage,
-      progress_current, progress_total, created_at, updated_at
-    ) VALUES ('item-1', 'PROJECT-1', '/tmp/item-1', 'claude', 'claude',
-      'ready', 'complete', 0, 0, ?, ?)`,
-  ).run(now, now);
+  insertTestWorkItem(db, { id: 'item-1', repositories: ['acme/widgets'], createdAt: now });
   db.prepare(
     `INSERT INTO workspaces (
       id, work_item_id, name, path, bookmark, repo, status, created_at,
@@ -468,13 +475,14 @@ test('the current schema enforces work-item progress and exclusive workspace and
 test('the current schema allows one active child per work-item repository', () => {
   const db = initDb(':memory:');
   const now = new Date().toISOString();
-  db.prepare(
-    `INSERT INTO work_items (
-      id, reference, path, work_provider, resolver_provider, state, stage,
-      progress_current, progress_total, created_at, updated_at
-    ) VALUES ('item-1', 'PROJECT-1', '/tmp/item-1', 'codex', 'codex',
-      'preparing', 'child_creation', 0, 1, ?, ?)`,
-  ).run(now, now);
+  insertTestWorkItem(db, {
+    id: 'item-1',
+    repositories: ['acme/widgets'],
+    state: 'preparing',
+    stage: 'child_creation',
+    progressTotal: 1,
+    createdAt: now,
+  });
   const insert = db.prepare(
     `INSERT INTO workspaces (
       id, work_item_id, name, path, bookmark, repo, status, created_at,

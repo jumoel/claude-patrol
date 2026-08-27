@@ -1,6 +1,6 @@
 /** Schema v7 intentionally resets every pre-v7 database. */
 
-export const CURRENT_SCHEMA_VERSION = 14;
+export const CURRENT_SCHEMA_VERSION = 15;
 
 function createWorkspaceOrphansTable(db) {
   db.exec(`
@@ -77,16 +77,11 @@ function createWorkItemTables(db) {
   db.exec(`
     CREATE TABLE work_items (
       id TEXT PRIMARY KEY,
-      reference TEXT NOT NULL,
-      reference_display TEXT,
-      reference_system TEXT,
-      reference_url TEXT,
       title TEXT,
       summary TEXT,
-      resolved_repositories_json JSON,
+      creation_source TEXT NOT NULL CHECK(creation_source IN ('manual', 'reference', 'pull_request')),
       path TEXT NOT NULL UNIQUE,
-      work_provider TEXT NOT NULL CHECK(work_provider IN ('claude', 'codex')),
-      resolver_provider TEXT NOT NULL CHECK(resolver_provider IN ('claude', 'codex')),
+      bookmark TEXT NOT NULL,
       state TEXT NOT NULL CHECK(state IN ('resolving', 'preparing', 'ready', 'error', 'destroying', 'destroyed')),
       stage TEXT NOT NULL CHECK(stage IN (
         'provider_check', 'reference_resolution', 'root_generation', 'child_creation',
@@ -104,6 +99,30 @@ function createWorkItemTables(db) {
     );
 
     CREATE INDEX idx_work_items_state ON work_items(state);
+
+    CREATE TABLE work_item_references (
+      work_item_id TEXT PRIMARY KEY REFERENCES work_items(id),
+      reference TEXT NOT NULL,
+      reference_display TEXT,
+      reference_system TEXT,
+      reference_url TEXT,
+      resolver_provider TEXT NOT NULL CHECK(resolver_provider IN ('claude', 'codex'))
+    );
+
+    CREATE TABLE work_item_repositories (
+      work_item_id TEXT NOT NULL REFERENCES work_items(id),
+      repo TEXT NOT NULL,
+      start_revision TEXT,
+      position INTEGER NOT NULL CHECK(position >= 0),
+      membership_source TEXT NOT NULL CHECK(membership_source IN ('initial', 'addition')),
+      state TEXT NOT NULL CHECK(state IN ('adding', 'ready', 'error')),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (work_item_id, repo)
+    );
+
+    CREATE INDEX idx_work_item_repositories_state
+      ON work_item_repositories(work_item_id, state, position);
   `);
 }
 
@@ -232,6 +251,7 @@ function addWorkItemReferenceMetadata(db) {
       .all()
       .map((column) => column.name),
   );
+  if (!columns.has('reference')) return;
   if (!columns.has('reference_display')) db.exec('ALTER TABLE work_items ADD COLUMN reference_display TEXT');
   if (!columns.has('reference_system')) db.exec('ALTER TABLE work_items ADD COLUMN reference_system TEXT');
   if (!columns.has('reference_url')) db.exec('ALTER TABLE work_items ADD COLUMN reference_url TEXT');
@@ -244,6 +264,8 @@ function resetSchema(db) {
     DROP TABLE IF EXISTS rule_runs;
     DROP TABLE IF EXISTS work_item_pull_requests;
     DROP TABLE IF EXISTS work_item_repository_additions;
+    DROP TABLE IF EXISTS work_item_repositories;
+    DROP TABLE IF EXISTS work_item_references;
     DROP TABLE IF EXISTS workspace_orphans;
     DROP TABLE IF EXISTS workspace_claims;
     DROP TABLE IF EXISTS sessions;
@@ -333,7 +355,6 @@ function resetSchema(db) {
   `);
   createWorkItemTables(db);
   createWorkspaceTablesV9(db);
-  createWorkItemRepositoryAdditionTable(db);
   createWorkItemPullRequestTable(db);
   createWorkspaceOrphansTable(db);
 }
@@ -407,6 +428,218 @@ function migrateV8ToV9(db) {
   `);
 }
 
+function tableExists(db, name) {
+  return Boolean(db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(name));
+}
+
+function parsedRepositories(value) {
+  try {
+    const parsed = JSON.parse(value ?? '[]');
+    return Array.isArray(parsed) ? parsed.filter((repo) => typeof repo === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+function migratedRepositoryState(item, workspace, pending) {
+  if (pending) return item.state === 'error' ? 'error' : 'adding';
+  if (workspace?.operation_state === 'error') return 'error';
+  if (['resolving', 'preparing'].includes(item.state)) return 'adding';
+  if (item.state === 'error' && ['root_generation', 'child_creation', 'child_compensation'].includes(item.stage)) {
+    return 'error';
+  }
+  return 'ready';
+}
+
+function migrateWorkItemsToV15(db) {
+  if (!tableExists(db, 'work_items')) return;
+  const columns = new Set(
+    db
+      .prepare("PRAGMA table_info('work_items')")
+      .all()
+      .map((column) => column.name),
+  );
+  if (columns.has('bookmark')) return;
+
+  const items = db.prepare('SELECT * FROM work_items').all();
+  const workspaces = tableExists(db, 'workspaces') ? db.prepare('SELECT rowid, * FROM workspaces').all() : [];
+  const sessions = tableExists(db, 'sessions') ? db.prepare('SELECT * FROM sessions').all() : [];
+  const claims = tableExists(db, 'workspace_claims') ? db.prepare('SELECT * FROM workspace_claims').all() : [];
+  const pullRequests = tableExists(db, 'work_item_pull_requests')
+    ? db.prepare('SELECT * FROM work_item_pull_requests ORDER BY linked_at, pr_id').all()
+    : [];
+  const pendingAdditions = tableExists(db, 'work_item_repository_additions')
+    ? db.prepare('SELECT * FROM work_item_repository_additions ORDER BY created_at, work_item_id').all()
+    : [];
+
+  if (tableExists(db, 'workspace_claims')) db.exec('DROP TABLE workspace_claims');
+  if (tableExists(db, 'sessions')) db.exec('DROP TABLE sessions');
+  if (tableExists(db, 'workspaces')) db.exec('DROP TABLE workspaces');
+  db.exec('DROP TABLE IF EXISTS work_item_pull_requests');
+  db.exec('DROP TABLE IF EXISTS work_item_repository_additions');
+  db.exec('DROP TABLE work_items');
+
+  createWorkItemTables(db);
+  createWorkspaceTablesV9(db);
+  createWorkItemPullRequestTable(db);
+
+  const insertItem = db.prepare(`
+    INSERT INTO work_items (
+      id, title, summary, creation_source, path, bookmark, state, stage, progress_current, progress_total,
+      error_code, error_detail, error_provider, created_at, updated_at, destroyed_at
+    ) VALUES (?, ?, ?, 'reference', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  const insertReference = db.prepare(`
+    INSERT INTO work_item_references (
+      work_item_id, reference, reference_display, reference_system, reference_url, resolver_provider
+    ) VALUES (?, ?, ?, ?, ?, ?)
+  `);
+  const insertRepository = db.prepare(`
+    INSERT INTO work_item_repositories (
+      work_item_id, repo, start_revision, position, membership_source, state, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  const childrenByItem = new Map();
+  for (const workspace of workspaces) {
+    if (!workspace.work_item_id) continue;
+    const key = `${workspace.work_item_id}\0${workspace.repo}`;
+    const previous = childrenByItem.get(key);
+    if (!previous || `${workspace.created_at}\0${workspace.rowid}` > `${previous.created_at}\0${previous.rowid}`) {
+      childrenByItem.set(key, workspace);
+    }
+  }
+  const pendingByItem = new Map(
+    pendingAdditions.map((addition) => [`${addition.work_item_id}\0${addition.repository}`, addition]),
+  );
+
+  for (const item of items) {
+    const existingChild = workspaces.find((workspace) => workspace.work_item_id === item.id);
+    const bookmark = existingChild?.bookmark ?? `patrol/work-item-${item.id.replaceAll('-', '').slice(0, 12)}`;
+    insertItem.run(
+      item.id,
+      item.title,
+      item.summary,
+      item.path,
+      bookmark,
+      item.state,
+      item.stage,
+      item.progress_current,
+      item.progress_total,
+      item.error_code,
+      item.error_detail,
+      item.error_provider,
+      item.created_at,
+      item.updated_at,
+      item.destroyed_at,
+    );
+    insertReference.run(
+      item.id,
+      item.reference,
+      item.reference_display,
+      item.reference_system,
+      item.reference_url,
+      item.resolver_provider,
+    );
+
+    const repositories = parsedRepositories(item.resolved_repositories_json);
+    for (const workspace of workspaces) {
+      if (workspace.work_item_id === item.id && workspace.repo && !repositories.includes(workspace.repo)) {
+        repositories.push(workspace.repo);
+      }
+    }
+    for (const addition of pendingAdditions) {
+      if (addition.work_item_id === item.id && !repositories.includes(addition.repository)) {
+        repositories.push(addition.repository);
+      }
+    }
+    repositories.slice(0, 32).forEach((repo, position) => {
+      const key = `${item.id}\0${repo}`;
+      const workspace = childrenByItem.get(key) ?? null;
+      const pending = pendingByItem.get(key) ?? null;
+      insertRepository.run(
+        item.id,
+        repo,
+        pending?.start_revision ?? workspace?.start_revision ?? null,
+        position,
+        pending ? 'addition' : 'initial',
+        migratedRepositoryState(item, workspace, pending),
+        pending?.created_at ?? workspace?.created_at ?? item.created_at,
+        item.updated_at,
+      );
+    });
+  }
+
+  if (workspaces.length > 0) {
+    const insertWorkspace = db.prepare(`
+      INSERT INTO workspaces (
+        id, pr_id, work_item_id, name, path, bookmark, repo, status, created_at, destroyed_at,
+        operation_state, operation_step, operation_error, operation_updated_at, start_revision,
+        base_commit, setup_warnings_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    for (const workspace of workspaces) {
+      insertWorkspace.run(
+        workspace.id,
+        workspace.pr_id,
+        workspace.work_item_id,
+        workspace.name,
+        workspace.path,
+        workspace.bookmark,
+        workspace.repo,
+        workspace.status,
+        workspace.created_at,
+        workspace.destroyed_at,
+        workspace.operation_state,
+        workspace.operation_step,
+        workspace.operation_error,
+        workspace.operation_updated_at,
+        workspace.start_revision,
+        workspace.base_commit,
+        workspace.setup_warnings_json,
+      );
+    }
+  }
+
+  const insertSession = db.prepare(`
+    INSERT INTO sessions (
+      id, workspace_id, work_item_id, name, pid, provider, status, started_at, ended_at,
+      claude_project_dir, transcript_path
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  for (const session of sessions) {
+    insertSession.run(
+      session.id,
+      session.workspace_id,
+      session.work_item_id,
+      session.name ?? null,
+      session.pid,
+      session.provider,
+      session.status,
+      session.started_at,
+      session.ended_at,
+      session.claude_project_dir,
+      session.transcript_path,
+    );
+  }
+
+  const insertClaim = db.prepare(`
+    INSERT INTO workspace_claims (repo, bookmark, workspace_id, operation, created_at)
+    VALUES (?, ?, ?, ?, ?)
+  `);
+  for (const claim of claims) {
+    insertClaim.run(claim.repo, claim.bookmark, claim.workspace_id, claim.operation, claim.created_at);
+  }
+
+  const insertPullRequest = db.prepare(`
+    INSERT INTO work_item_pull_requests (pr_id, work_item_id, source, linked_at)
+    VALUES (?, ?, ?, ?)
+  `);
+  for (const pullRequest of pullRequests) {
+    insertPullRequest.run(pullRequest.pr_id, pullRequest.work_item_id, pullRequest.source, pullRequest.linked_at);
+  }
+}
+
 /**
  * Upgrade a database to the current schema. Databases older than v7 still
  * take the intentional clean reset. Later migrations preserve authored rows.
@@ -421,6 +654,7 @@ export function migrateDb(db) {
 
   db.exec('BEGIN IMMEDIATE');
   try {
+    db.exec('PRAGMA defer_foreign_keys = ON');
     const resetWorkspaceOwnership = version < 7 ? captureResetWorkspaceOwnership(db) : [];
     if (version < 7) {
       resetSchema(db);
@@ -432,10 +666,20 @@ export function migrateDb(db) {
     } else if (version === 8) {
       migrateV8ToV9(db);
     }
-    createWorkItemRepositoryAdditionTable(db);
+    if (version >= 9) {
+      addWorkItemReferenceMetadata(db);
+      const legacyWorkItems = new Set(
+        db
+          .prepare("PRAGMA table_info('work_items')")
+          .all()
+          .map((column) => column.name),
+      ).has('reference');
+      if (legacyWorkItems) createWorkItemRepositoryAdditionTable(db);
+      createWorkItemPullRequestTable(db);
+      migrateWorkItemsToV15(db);
+    }
     addSessionNames(db);
     addPrHeadOid(db);
-    addWorkItemReferenceMetadata(db);
     createWorkItemPullRequestTable(db);
     createWorkspaceOrphansTable(db);
     restoreResetWorkspaceOwnership(db, resetWorkspaceOwnership);

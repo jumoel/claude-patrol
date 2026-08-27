@@ -20,7 +20,10 @@ vi.mock('../Terminal/LazyTerminal.jsx', () => ({
 }));
 
 vi.mock('../QuickActions/QuickActions.jsx', () => ({
-  QuickActions: () => <div data-testid="quick-actions" />,
+  /** @param {{workspaceId?: string, workItemId?: string, prId?: string}} props */
+  QuickActions: ({ workspaceId, workItemId, prId }) => (
+    <div data-testid="quick-actions" data-workspace={workspaceId} data-work-item={workItemId} data-pr={prId} />
+  ),
 }));
 
 /** @param {'active' | 'detached'} status */
@@ -122,6 +125,25 @@ test('restores a maximized work-page terminal from the route', () => {
   assert.ok(screen.getByRole('button', { name: 'Restore' }));
   assert.equal(screen.queryByRole('button', { name: 'Collapse' }), null);
   assert.ok(screen.getByTestId('terminal'));
+});
+
+test('work-item terminals expose peer review against their selected PR', () => {
+  render(
+    <TerminalCard
+      session={session('active')}
+      title="Terminal - Repair JavaScript CVEs"
+      onKill={vi.fn()}
+      onExit={vi.fn()}
+      workItemId="item-1"
+      prId="org/repo#1"
+      presentation="work-page"
+    />,
+  );
+
+  const actions = screen.getByTestId('quick-actions');
+  assert.equal(actions.getAttribute('data-work-item'), 'item-1');
+  assert.equal(actions.getAttribute('data-pr'), 'org/repo#1');
+  assert.equal(actions.getAttribute('data-workspace'), null);
 });
 
 test('shows a spinner when the terminal session is working', () => {

@@ -13,7 +13,7 @@ import { execFile, expandPath, toClaudeProjectKey } from './utils.js';
 import { generatedRootFileNames, publishRootFiles, writeTemporaryRootFiles } from './work-item-files.js';
 import { listWorkItemPullRequests, listWorkItemPullRequestsBatch } from './work-item-prs.js';
 import { createWorkItemResolver } from './work-item-resolver.js';
-import { createWorkItemChild, destroyWorkItemChild } from './workspace.js';
+import { createWorkItemChild, destroyWorkItemChild, sourceRepositoryPath } from './workspace.js';
 
 const workItemLocks = new Map();
 const WORK_ITEM_STATES = new Set(['resolving', 'preparing', 'ready', 'error', 'destroying', 'destroyed']);
@@ -50,15 +50,36 @@ function transaction(db, fn) {
   }
 }
 
+const WORK_ITEM_SELECT = `
+  SELECT wi.*,
+         wr.reference,
+         wr.reference_display,
+         wr.reference_system,
+         wr.reference_url,
+         wr.resolver_provider
+    FROM work_items wi
+    LEFT JOIN work_item_references wr ON wr.work_item_id = wi.id
+`;
+
+function getWorkItem(id) {
+  return getDb().prepare(`${WORK_ITEM_SELECT} WHERE wi.id = ?`).get(id);
+}
+
+function repositoryMemberships(id) {
+  return getDb()
+    .prepare(
+      `SELECT * FROM work_item_repositories
+       WHERE work_item_id = ?
+       ORDER BY position, created_at, repo`,
+    )
+    .all(id);
+}
+
 function mutateWorkItem(id, patch, expectedStates = null) {
   const db = getDb();
   const allowed = new Set([
     'title',
     'summary',
-    'reference_display',
-    'reference_system',
-    'reference_url',
-    'resolved_repositories_json',
     'state',
     'stage',
     'progress_current',
@@ -88,7 +109,20 @@ function mutateWorkItem(id, patch, expectedStates = null) {
     throw workItemError('invalid_state', 'Work item state changed before this operation could start');
   }
   emitLocalChange();
-  return db.prepare('SELECT * FROM work_items WHERE id = ?').get(id);
+  return getWorkItem(id);
+}
+
+function mutateReference(id, patch) {
+  const allowed = new Set(['reference_display', 'reference_system', 'reference_url', 'resolver_provider']);
+  for (const key of Object.keys(patch)) {
+    if (!allowed.has(key)) throw new TypeError(`Unsupported work-item reference mutation: ${key}`);
+  }
+  const assignments = Object.keys(patch).map((key) => `${key} = ?`);
+  if (assignments.length === 0) return getWorkItem(id);
+  getDb()
+    .prepare(`UPDATE work_item_references SET ${assignments.join(', ')} WHERE work_item_id = ?`)
+    .run(...Object.values(patch), id);
+  return getWorkItem(id);
 }
 
 function clearErrorPatch() {
@@ -113,25 +147,26 @@ function retryAction(row) {
 function pendingRepositoryAddition(row) {
   return getDb()
     .prepare(
-      `SELECT a.repository AS repo, a.workspace_id AS id,
-              a.start_revision,
-              w.id AS persisted_workspace_id, w.status, w.operation_state,
+      `SELECT r.repo, r.start_revision,
+              w.id, w.id AS persisted_workspace_id, w.status, w.operation_state,
               w.operation_step, w.operation_error
-       FROM work_item_repository_additions a
-       LEFT JOIN workspaces w ON w.id = a.workspace_id
-       WHERE a.work_item_id = ?`,
+         FROM work_item_repositories r
+         LEFT JOIN workspaces w
+           ON w.rowid = (
+             SELECT candidate.rowid FROM workspaces candidate
+              WHERE candidate.work_item_id = r.work_item_id AND candidate.repo = r.repo
+              ORDER BY candidate.created_at DESC, candidate.rowid DESC LIMIT 1
+           )
+        WHERE r.work_item_id = ?
+          AND r.membership_source = 'addition'
+          AND r.state IN ('adding', 'error')
+        ORDER BY r.position LIMIT 1`,
     )
     .get(row.id);
 }
 
 function repositoriesFor(row) {
-  if (!row?.resolved_repositories_json) return [];
-  try {
-    const parsed = JSON.parse(row.resolved_repositories_json);
-    return Array.isArray(parsed) ? parsed.filter((repo) => typeof repo === 'string').slice(0, 32) : [];
-  } catch {
-    return [];
-  }
+  return row?.id ? repositoryMemberships(row.id).map((membership) => membership.repo) : [];
 }
 
 function validateRepository(value, config) {
@@ -228,13 +263,13 @@ export function workItemListItem(
   const activity = session ? activities.get(session.id) : null;
   return {
     id: row.id,
-    reference: row.reference,
+    creation_source: row.creation_source,
+    reference: row.reference ?? null,
     reference_display: row.reference_display ?? null,
     reference_system: row.reference_system ?? null,
     reference_url: row.reference_url ?? null,
     title: row.title,
-    work_provider: row.work_provider,
-    resolver_provider: row.resolver_provider,
+    resolver_provider: row.resolver_provider ?? null,
     state: row.state,
     stage: row.stage,
     progress: { current: row.progress_current, total: row.progress_total },
@@ -247,6 +282,7 @@ export function workItemListItem(
     session: session
       ? {
           id: session.id,
+          provider: session.provider,
           status: session.status,
           activity_state: activity?.state ?? null,
           activity_changed_at: activity?.activity_changed_at ?? null,
@@ -267,19 +303,20 @@ function repositoryWorkspacesFor(row, children, config) {
   for (const child of children) {
     if (!byRepo.has(child.repo)) byRepo.set(child.repo, child);
   }
-  const bookmark = deterministicBookmark(row.id);
-  return repositoriesFor(row).map((identifier) => {
+  return repositoryMemberships(row.id).map((membership) => {
+    const identifier = membership.repo;
     const child = byRepo.get(identifier) ?? null;
     return {
       identifier,
       workspace_id: child?.id ?? null,
-      state: repositoryState(child),
+      state: child ? repositoryState(child) : membership.state === 'error' ? 'error' : 'pending',
       path: child?.path ?? null,
       checkout_available: Boolean(
         child && child.status === 'active' && child.operation_state !== 'destroyed' && existsSync(child.path),
       ),
-      bookmark: child?.bookmark ?? bookmark,
-      start_revision: child?.start_revision ?? config.repos?.[identifier]?.defaultRevision ?? '',
+      bookmark: child?.bookmark ?? row.bookmark,
+      start_revision:
+        child?.start_revision ?? membership.start_revision ?? config.repos?.[identifier]?.defaultRevision ?? '',
       base_commit: child?.base_commit ?? null,
       warnings: parseWarnings(child?.setup_warnings_json),
     };
@@ -439,6 +476,38 @@ function validateReference(value) {
   return reference;
 }
 
+function validateTitle(value) {
+  if (typeof value !== 'string') throw workItemError('invalid_title', 'Title must be a string');
+  const title = value.trim();
+  const bytes = Buffer.byteLength(title, 'utf8');
+  if (bytes < 1 || bytes > 512 || /[\u0000-\u001f\u007f-\u009f]/u.test(title)) {
+    throw workItemError('invalid_title', 'Title must contain 1 to 512 UTF-8 bytes and no control characters');
+  }
+  return title;
+}
+
+function validateBookmark(value, id) {
+  if (value === undefined || value === null || value === '') return deterministicBookmark(id);
+  if (typeof value !== 'string') throw workItemError('invalid_bookmark', 'Bookmark must be a string');
+  const bookmark = value.trim();
+  const bytes = Buffer.byteLength(bookmark, 'utf8');
+  if (bytes < 1 || bytes > 255 || /[\s\u0000-\u001f\u007f-\u009f]/u.test(bookmark)) {
+    throw workItemError('invalid_bookmark', 'Bookmark must contain 1 to 255 bytes and no whitespace or controls');
+  }
+  return bookmark;
+}
+
+function validateRepositoryList(value, config) {
+  if (!Array.isArray(value) || value.length < 1 || value.length > 32) {
+    throw workItemError('invalid_repositories', 'repositories must contain 1 to 32 configured repositories');
+  }
+  const repositories = value.map((repository) => validateRepository(repository, config));
+  if (new Set(repositories).size !== repositories.length) {
+    throw workItemError('invalid_repositories', 'repositories must not contain duplicates');
+  }
+  return repositories;
+}
+
 function workItemLogId(id) {
   return id.replaceAll('-', '').slice(0, 8);
 }
@@ -509,12 +578,14 @@ export function createWorkItemService({
     });
   };
 
+  const rootTask = (item) => ({
+    ...(item.reference ? { reference: item.reference } : {}),
+    ...(item.title ? { title: item.title } : {}),
+    ...(item.summary ? { summary: item.summary } : {}),
+  });
+
   const publishCurrentRootFiles = (item, repositories) => {
-    writeTemporaryRootFiles(item.path, rootFileChildren(item, repositories), {
-      reference: item.reference,
-      title: item.title,
-      summary: item.summary,
-    });
+    writeTemporaryRootFiles(item.path, rootFileChildren(item, repositories), rootTask(item));
     publishRootFiles(item.path);
   };
 
@@ -530,11 +601,21 @@ export function createWorkItemService({
     const db = getDb();
     const now = new Date().toISOString();
     transaction(db, () => {
+      const nextPosition = db
+        .prepare(
+          'SELECT COALESCE(MAX(position), -1) + 1 AS position FROM work_item_repositories WHERE work_item_id = ?',
+        )
+        .get(item.id).position;
       db.prepare(
-        `INSERT INTO work_item_repository_additions (
-           work_item_id, repository, start_revision, workspace_id, created_at
-         ) VALUES (?, ?, ?, ?, ?)`,
-      ).run(item.id, child.repo, startRevision, child.id, now);
+        `INSERT INTO work_item_repositories (
+           work_item_id, repo, start_revision, position, membership_source, state, created_at, updated_at
+         ) VALUES (?, ?, ?, ?, 'addition', 'adding', ?, ?)
+         ON CONFLICT(work_item_id, repo) DO UPDATE SET
+           start_revision = excluded.start_revision,
+           membership_source = 'addition',
+           state = 'adding',
+           updated_at = excluded.updated_at`,
+      ).run(item.id, child.repo, startRevision, nextPosition, now, now);
       const result = db
         .prepare(
           `UPDATE work_items
@@ -550,27 +631,25 @@ export function createWorkItemService({
     emitLocalChange();
   };
 
-  const finishRepositoryAddition = (id, repositories = null) => {
+  const finishRepositoryAddition = (id, repository, { remove = false } = {}) => {
     const db = getDb();
     const now = new Date().toISOString();
     transaction(db, () => {
-      if (repositories) {
-        db.prepare(
-          `UPDATE work_items
-           SET resolved_repositories_json = ?, state = 'ready', stage = 'complete',
-               progress_current = 0, progress_total = 0,
-               error_code = NULL, error_detail = NULL, error_provider = NULL, updated_at = ?
-           WHERE id = ?`,
-        ).run(JSON.stringify(repositories), now, id);
+      if (remove) {
+        db.prepare('DELETE FROM work_item_repositories WHERE work_item_id = ? AND repo = ?').run(id, repository);
       } else {
         db.prepare(
-          `UPDATE work_items
-           SET state = 'ready', stage = 'complete', progress_current = 0, progress_total = 0,
-               error_code = NULL, error_detail = NULL, error_provider = NULL, updated_at = ?
-           WHERE id = ?`,
-        ).run(now, id);
+          `UPDATE work_item_repositories
+              SET state = 'ready', updated_at = ?
+            WHERE work_item_id = ? AND repo = ?`,
+        ).run(now, id, repository);
       }
-      db.prepare('DELETE FROM work_item_repository_additions WHERE work_item_id = ?').run(id);
+      db.prepare(
+        `UPDATE work_items
+         SET state = 'ready', stage = 'complete', progress_current = 0, progress_total = 0,
+             error_code = NULL, error_detail = NULL, error_provider = NULL, updated_at = ?
+         WHERE id = ?`,
+      ).run(now, id);
     });
     emitLocalChange();
   };
@@ -599,8 +678,10 @@ export function createWorkItemService({
   const launchTerminal = async (id, { replaceExisting = false } = {}) => {
     let session = null;
     try {
-      const item = getDb().prepare('SELECT * FROM work_items WHERE id = ?').get(id);
-      await checkProvider(item.work_provider, providerCapabilities);
+      const item = getWorkItem(id);
+      const existing = latestSession(getDb(), id);
+      const provider = existing?.provider ?? item.error_provider ?? getConfig().default_session_provider;
+      await checkProvider(provider, providerCapabilities);
       mutateWorkItem(id, {
         state: 'preparing',
         stage: 'session_launch',
@@ -608,12 +689,11 @@ export function createWorkItemService({
         progress_total: 0,
         ...clearErrorPatch(),
       });
-      const existing = latestSession(getDb(), id);
       if (existing) {
         if (!replaceExisting) throw workItemError('session_exists', 'A session is already running for this work item');
         await stopSession(existing.id);
       }
-      session = launchSession({ type: 'work_item', id }, item.path, item.work_provider, {
+      session = launchSession({ type: 'work_item', id }, item.path, provider, {
         enablePatrolMcp: true,
       });
       await startupDelay(1000);
@@ -689,15 +769,22 @@ export function createWorkItemService({
       recordFailure(id, error, { code: 'compensation_failed', stage: 'child_compensation' });
       throw error;
     }
-    const repositories = repositoriesFor(getDb().prepare('SELECT * FROM work_items WHERE id = ?').get(id));
+    const repositories = repositoriesFor(getWorkItem(id));
+    getDb()
+      .prepare("UPDATE work_item_repositories SET state = 'error', updated_at = ? WHERE work_item_id = ?")
+      .run(new Date().toISOString(), id);
     recordFailure(id, originalError, { stage: 'child_creation' });
     mutateWorkItem(id, { progress_current: 0, progress_total: repositories.length });
   };
 
   const prepare = async (id, task) => {
-    const item = getDb().prepare('SELECT * FROM work_items WHERE id = ?').get(id);
-    const repositories = repositoriesFor(item);
-    const children = repositories.map((repo) => childDescriptor(item, repo));
+    const item = getWorkItem(id);
+    const memberships = repositoryMemberships(id);
+    const repositories = memberships.map((membership) => membership.repo);
+    const children = memberships.map((membership) => ({
+      ...childDescriptor(item, membership.repo),
+      startRevision: membership.start_revision ?? getConfig().repos?.[membership.repo]?.defaultRevision,
+    }));
     const rootPath = item.path;
     let childCreationStarted = false;
     try {
@@ -710,11 +797,7 @@ export function createWorkItemService({
       });
       logStage(id, 'root_generation', `generating files for ${repositories.length} repos`);
       await mkdir(resolve(rootPath, 'repos'), { recursive: true });
-      writeTemporaryRootFiles(rootPath, children, {
-        reference: item.reference,
-        title: item.title,
-        summary: item.summary,
-      });
+      writeTemporaryRootFiles(rootPath, children, rootTask(item));
       mutateWorkItem(id, {
         state: 'preparing',
         stage: 'child_creation',
@@ -733,9 +816,15 @@ export function createWorkItemService({
           repo: child.repo,
           name: child.name,
           workspacePath: resolve(rootPath, 'repos', child.directory),
-          bookmark: deterministicBookmark(id),
+          bookmark: item.bookmark,
           config: getConfig(),
+          startRevision: child.startRevision,
         });
+        getDb()
+          .prepare(
+            "UPDATE work_item_repositories SET state = 'ready', updated_at = ? WHERE work_item_id = ? AND repo = ?",
+          )
+          .run(new Date().toISOString(), id, child.repo);
         current += 1;
         mutateWorkItem(id, { progress_current: current, progress_total: repositories.length });
         updateTaskProgress(task.id, { current, total: repositories.length });
@@ -757,7 +846,7 @@ export function createWorkItemService({
   };
 
   const addRepositoryLifecycle = async (id, repository, startRevision, task) => {
-    const item = getDb().prepare('SELECT * FROM work_items WHERE id = ?').get(id);
+    const item = getWorkItem(id);
     const repositories = repositoriesFor(item);
     const child = childDescriptor(item, repository);
     beginRepositoryAddition(item, child, startRevision);
@@ -771,16 +860,16 @@ export function createWorkItemService({
         repo: repository,
         name: child.name,
         workspacePath: resolve(item.path, 'repos', child.directory),
-        bookmark: deterministicBookmark(id),
+        bookmark: item.bookmark,
         config: getConfig(),
         startRevision,
       });
       const updatedRepositories = [...repositories, repository];
       publishCurrentRootFiles(item, updatedRepositories);
-      finishRepositoryAddition(id, updatedRepositories);
+      finishRepositoryAddition(id, repository);
       updateTaskProgress(task.id, { current: 1, total: 1 });
       logStage(id, 'complete', `ready with ${workspaceCount(updatedRepositories.length)}`);
-      const workItem = workItemDetail(getDb().prepare('SELECT * FROM work_items WHERE id = ?').get(id), {
+      const workItem = workItemDetail(getWorkItem(id), {
         config: getConfig(),
         getSessionStates,
       });
@@ -806,23 +895,29 @@ export function createWorkItemService({
           'compensation_failed',
           `Failed to clean up repository workspace ${repository}: ${cleanupError.message}`,
         );
+        getDb()
+          .prepare(
+            "UPDATE work_item_repositories SET state = 'error', updated_at = ? WHERE work_item_id = ? AND repo = ?",
+          )
+          .run(new Date().toISOString(), id, repository);
         recordFailure(id, failure, { code: 'compensation_failed', stage: 'child_compensation' });
         throw failure;
       }
-      finishRepositoryAddition(id);
+      finishRepositoryAddition(id, repository, { remove: true });
       throw error;
     }
   };
 
   const recoverRepositoryAddition = async (id, repository, startRevision, task) => {
-    const item = getDb().prepare('SELECT * FROM work_items WHERE id = ?').get(id);
+    const item = getWorkItem(id);
     const pendingWorkspace = pendingRepositoryAddition(item);
     try {
       if (pendingWorkspace?.persisted_workspace_id) {
         await destroyChild(pendingWorkspace.id, getConfig(), { deleteBookmark: true });
       }
-      publishCurrentRootFiles(item, repositoriesFor(item));
-      finishRepositoryAddition(id);
+      const previousRepositories = repositoriesFor(item).filter((candidate) => candidate !== repository);
+      publishCurrentRootFiles(item, previousRepositories);
+      finishRepositoryAddition(id, repository, { remove: true });
     } catch (error) {
       recordFailure(id, error, { code: 'compensation_failed', stage: 'child_compensation' });
       throw error;
@@ -832,7 +927,7 @@ export function createWorkItemService({
 
   const resolveAndPrepare = async (id, task) => {
     try {
-      let item = getDb().prepare('SELECT * FROM work_items WHERE id = ?').get(id);
+      let item = getWorkItem(id);
       mutateWorkItem(id, {
         state: 'resolving',
         stage: 'provider_check',
@@ -847,16 +942,29 @@ export function createWorkItemService({
       const result = await resolver.resolve({
         reference: item.reference,
         provider: item.resolver_provider,
-        workProvider: item.work_provider,
         config: getConfig().work_items,
+      });
+      mutateReference(id, {
+        reference_display: result.work_reference?.display ?? null,
+        reference_system: result.work_reference?.system ?? null,
+        reference_url: result.work_reference?.url ?? null,
+      });
+      const now = new Date().toISOString();
+      const config = getConfig();
+      transaction(getDb(), () => {
+        getDb().prepare('DELETE FROM work_item_repositories WHERE work_item_id = ?').run(id);
+        const insert = getDb().prepare(
+          `INSERT INTO work_item_repositories (
+             work_item_id, repo, start_revision, position, membership_source, state, created_at, updated_at
+           ) VALUES (?, ?, ?, ?, 'initial', 'adding', ?, ?)`,
+        );
+        result.repositories.forEach((repository, position) => {
+          insert.run(id, repository, config.repos?.[repository]?.defaultRevision ?? null, position, now, now);
+        });
       });
       item = mutateWorkItem(id, {
         title: result.title,
         summary: result.summary,
-        reference_display: result.work_reference?.display ?? null,
-        reference_system: result.work_reference?.system ?? null,
-        reference_url: result.work_reference?.url ?? null,
-        resolved_repositories_json: JSON.stringify(result.repositories),
         state: 'preparing',
         stage: 'root_generation',
         progress_current: 0,
@@ -865,7 +973,7 @@ export function createWorkItemService({
       });
       await prepare(item.id, task);
     } catch (error) {
-      const current = getDb().prepare('SELECT * FROM work_items WHERE id = ?').get(id);
+      const current = getWorkItem(id);
       if (current?.state !== 'error') {
         recordFailure(id, error, {
           provider:
@@ -877,7 +985,7 @@ export function createWorkItemService({
   };
 
   const finishCompensation = async (id, task) => {
-    const item = getDb().prepare('SELECT * FROM work_items WHERE id = ?').get(id);
+    const item = getWorkItem(id);
     const rows = getDb()
       .prepare(
         "SELECT * FROM workspaces WHERE work_item_id = ? AND status != 'destroyed' ORDER BY created_at DESC, rowid DESC",
@@ -924,7 +1032,7 @@ export function createWorkItemService({
 
   const destroyLifecycle = async (id, task) => {
     try {
-      let item = getDb().prepare('SELECT * FROM work_items WHERE id = ?').get(id);
+      let item = getWorkItem(id);
       const resumedStage = item.stage;
       const resumedCurrent = item.progress_current;
       const resumedTotal = item.progress_total;
@@ -937,7 +1045,7 @@ export function createWorkItemService({
       mutateWorkItem(id, { state: 'destroying', stage: 'transcript_archive' });
       await archiveRootSessions(item);
 
-      item = getDb().prepare('SELECT * FROM work_items WHERE id = ?').get(id);
+      item = getWorkItem(id);
       const children = getDb()
         .prepare(
           "SELECT * FROM workspaces WHERE work_item_id = ? AND status != 'destroyed' ORDER BY created_at DESC, rowid DESC",
@@ -975,7 +1083,6 @@ export function createWorkItemService({
         destroyed_at: new Date().toISOString(),
         ...clearErrorPatch(),
       });
-      getDb().prepare('DELETE FROM work_item_repository_additions WHERE work_item_id = ?').run(id);
       return { warnings };
     } catch (error) {
       const row = getDb().prepare('SELECT stage FROM work_items WHERE id = ?').get(id);
@@ -988,34 +1095,117 @@ export function createWorkItemService({
   };
 
   return {
-    create({ reference: rawReference, workProvider }) {
+    create(input) {
       const config = getConfig();
-      if (!config.work_items) throw workItemError('work_items_not_configured', 'Work items are not configured');
-      const reference = validateReference(rawReference);
-      if (!['claude', 'codex'].includes(workProvider)) {
-        throw workItemError('invalid_provider', 'work_provider must be claude or codex');
+      const request =
+        input?.source === undefined && Object.hasOwn(input ?? {}, 'reference')
+          ? {
+              source: 'reference',
+              reference: input.reference,
+              resolver_provider: input.resolver_provider ?? input.workProvider,
+            }
+          : input;
+      if (!request || !['manual', 'reference', 'pull_request'].includes(request.source)) {
+        throw workItemError('invalid_source', 'source must be manual, reference, or pull_request');
       }
       const id = randomUUID();
       const now = new Date().toISOString();
       const path = resolve(expandPath(config.workspace_base_path), 'work-items', id);
-      const resolverProvider = config.work_items.resolver.provider ?? workProvider;
-      getDb()
-        .prepare(
-          `INSERT INTO work_items (
-            id, reference, path, work_provider, resolver_provider, state, stage,
-            progress_current, progress_total, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, 'resolving', 'provider_check', 0, 0, ?, ?)`,
-        )
-        .run(id, reference, path, workProvider, resolverProvider, now, now);
-      emitLocalChange();
-      queue(id, 'work-item.create', (task) => resolveAndPrepare(id, task));
-      return workItemListItem(getDb().prepare('SELECT * FROM work_items WHERE id = ?').get(id), {
-        getSessionStates,
+      const bookmark = validateBookmark(request.bookmark, id);
+      let title = null;
+      let state = 'preparing';
+      let stage = 'root_generation';
+      let reference = null;
+      let resolverProvider = null;
+      let repositories = [];
+      let pullRequest = null;
+
+      if (request.source === 'reference') {
+        if (!config.work_items) throw workItemError('work_items_not_configured', 'Reference work is not configured');
+        reference = validateReference(request.reference);
+        resolverProvider =
+          config.work_items.resolver.provider ?? request.resolver_provider ?? config.default_session_provider;
+        if (!['claude', 'codex'].includes(resolverProvider)) {
+          throw workItemError('invalid_provider', 'resolver_provider must be claude or codex');
+        }
+        state = 'resolving';
+        stage = 'provider_check';
+      } else if (request.source === 'manual') {
+        title = validateTitle(request.title);
+        repositories = validateRepositoryList(request.repositories, config).map((repo) => {
+          sourceRepositoryPath(repo, config);
+          return {
+            repo,
+            startRevision: validateRevision(request.startRevisions?.[repo], repo, config),
+          };
+        });
+      } else {
+        if (typeof request.pr_id !== 'string' || !request.pr_id.trim()) {
+          throw workItemError('invalid_pull_request', 'pr_id is required for pull_request work');
+        }
+        pullRequest = getDb().prepare('SELECT * FROM prs WHERE id = ?').get(request.pr_id.trim());
+        if (!pullRequest) throw workItemError('pull_request_not_found', 'Pull request not found');
+        const existingOwner = getDb()
+          .prepare('SELECT work_item_id FROM work_item_pull_requests WHERE pr_id = ?')
+          .get(pullRequest.id);
+        if (existingOwner) {
+          return workItemListItem(getWorkItem(existingOwner.work_item_id), { getSessionStates });
+        }
+        const legacyWorkspace = getDb()
+          .prepare("SELECT id FROM workspaces WHERE pr_id = ? AND work_item_id IS NULL AND status = 'active' LIMIT 1")
+          .get(pullRequest.id);
+        if (legacyWorkspace) {
+          throw workItemError('legacy_workspace_exists', 'Pull request already has a legacy workspace');
+        }
+        const repo = `${pullRequest.org}/${pullRequest.repo}`;
+        sourceRepositoryPath(repo, config);
+        title = validateTitle(pullRequest.title);
+        repositories = [{ repo, startRevision: pullRequest.head_oid ?? pullRequest.branch }];
+      }
+
+      transaction(getDb(), () => {
+        getDb()
+          .prepare(
+            `INSERT INTO work_items (
+              id, title, summary, creation_source, path, bookmark, state, stage, progress_current, progress_total,
+              created_at, updated_at
+            ) VALUES (?, ?, NULL, ?, ?, ?, ?, ?, 0, 0, ?, ?)`,
+          )
+          .run(id, title, request.source, path, bookmark, state, stage, now, now);
+        if (reference) {
+          getDb()
+            .prepare(
+              `INSERT INTO work_item_references (work_item_id, reference, resolver_provider)
+               VALUES (?, ?, ?)`,
+            )
+            .run(id, reference, resolverProvider);
+        }
+        const insertRepository = getDb().prepare(
+          `INSERT INTO work_item_repositories (
+             work_item_id, repo, start_revision, position, membership_source, state, created_at, updated_at
+           ) VALUES (?, ?, ?, ?, 'initial', 'adding', ?, ?)`,
+        );
+        repositories.forEach((repository, position) => {
+          insertRepository.run(id, repository.repo, repository.startRevision, position, now, now);
+        });
+        if (pullRequest) {
+          getDb()
+            .prepare(
+              `INSERT INTO work_item_pull_requests (pr_id, work_item_id, source, linked_at)
+               VALUES (?, ?, 'explicit', ?)`,
+            )
+            .run(pullRequest.id, id, now);
+        }
       });
+      emitLocalChange();
+      queue(id, 'work-item.create', (task) =>
+        request.source === 'reference' ? resolveAndPrepare(id, task) : prepare(id, task),
+      );
+      return workItemListItem(getWorkItem(id), { getSessionStates });
     },
 
     retry(id) {
-      const row = getDb().prepare('SELECT * FROM work_items WHERE id = ?').get(id);
+      const row = getWorkItem(id);
       if (!row) throw workItemError('work_item_not_found', 'Work item not found');
       const action = retryAction(row);
       if (!action) throw workItemError('invalid_state', 'Work item has no retryable operation');
@@ -1041,18 +1231,55 @@ export function createWorkItemService({
         mutateWorkItem(id, { state: 'destroying', ...clearErrorPatch() }, ['error']);
         queue(id, 'work-item.destroy', (task) => destroyLifecycle(id, task));
       }
-      return workItemListItem(getDb().prepare('SELECT * FROM work_items WHERE id = ?').get(id), {
-        getSessionStates,
-      });
+      return workItemListItem(getWorkItem(id), { getSessionStates });
+    },
+
+    availableRepositories(id) {
+      const item = getWorkItem(id);
+      if (!item) throw workItemError('work_item_not_found', 'Work item not found');
+      if (item.state === 'destroyed') throw workItemError('work_item_destroyed', 'Work item is destroyed');
+      const config = getConfig();
+      const attached = new Map(repositoryMemberships(id).map((membership) => [membership.repo, membership.state]));
+      return Object.keys(config.repos ?? {})
+        .sort()
+        .map((repository) => {
+          let available = true;
+          let unavailableCode = null;
+          try {
+            sourceRepositoryPath(repository, config);
+          } catch (error) {
+            available = false;
+            unavailableCode = error.code ?? 'repository_unavailable';
+          }
+          return {
+            repository,
+            default_revision: config.repos?.[repository]?.defaultRevision ?? null,
+            attached: attached.has(repository),
+            membership_state: attached.get(repository) ?? null,
+            available,
+            unavailable_code: unavailableCode,
+          };
+        });
     },
 
     async addRepository(id, rawRepository, rawRevision) {
       const config = getConfig();
-      const repository = validateRepository(rawRepository, config);
       return withWorkItemLock(id, async () => {
-        const row = getDb().prepare('SELECT * FROM work_items WHERE id = ?').get(id);
+        const row = getWorkItem(id);
         if (!row) throw workItemError('work_item_not_found', 'Work item not found');
+        const repository = validateRepository(rawRepository, config);
         const existingRepositories = repositoriesFor(row);
+        const pendingWorkspace = pendingRepositoryAddition(row);
+        if (row.state === 'error' && pendingWorkspace?.repo === repository) {
+          return runTask(
+            {
+              kind: 'work-item.add-repository',
+              label: `Add ${repository}`,
+              context: { workItemId: id, repo: repository },
+            },
+            (task) => recoverRepositoryAddition(id, repository, pendingWorkspace.start_revision, task),
+          );
+        }
         if (existingRepositories.includes(repository)) {
           const workItem = workItemDetail(row, { config: getConfig(), getSessionStates });
           const repositoryWorkspace = workItem.repository_workspaces.find(
@@ -1067,18 +1294,10 @@ export function createWorkItemService({
             repository_workspace: repositoryWorkspace,
           };
         }
-        const pendingWorkspace = pendingRepositoryAddition(row);
-        if (row.state === 'error' && pendingWorkspace?.repo === repository) {
-          return runTask(
-            {
-              kind: 'work-item.add-repository',
-              label: `Add ${repository}`,
-              context: { workItemId: id, repo: repository },
-            },
-            (task) => recoverRepositoryAddition(id, repository, pendingWorkspace.start_revision, task),
-          );
-        }
         if (row.state !== 'ready') throw workItemError('work_item_busy', 'Work item is not ready');
+        if (existingRepositories.length >= 32) {
+          throw workItemError('repository_limit', 'Work items can contain at most 32 repositories');
+        }
         const startRevision = validateRevision(rawRevision, repository, config);
         return runTask(
           {
@@ -1092,7 +1311,7 @@ export function createWorkItemService({
     },
 
     destroy(id) {
-      const row = getDb().prepare('SELECT * FROM work_items WHERE id = ?').get(id);
+      const row = getWorkItem(id);
       if (!row) throw workItemError('work_item_not_found', 'Work item not found');
       if (row.state === 'destroyed') return { accepted: false, row };
       if (['resolving', 'preparing', 'destroying'].includes(row.state)) {
@@ -1109,12 +1328,12 @@ export function createWorkItemService({
         ['ready', 'error'],
       );
       queue(id, 'work-item.destroy', (task) => destroyLifecycle(id, task));
-      return { accepted: true, row: getDb().prepare('SELECT * FROM work_items WHERE id = ?').get(id) };
+      return { accepted: true, row: getWorkItem(id) };
     },
 
     list() {
       const db = getDb();
-      const rows = db.prepare("SELECT * FROM work_items WHERE state != 'destroyed' ORDER BY updated_at DESC").all();
+      const rows = db.prepare(`${WORK_ITEM_SELECT} WHERE wi.state != 'destroyed' ORDER BY wi.updated_at DESC`).all();
       const ids = rows.map((row) => row.id);
       const latestSessions = new Map();
       for (const session of db
@@ -1156,7 +1375,7 @@ export function createWorkItemService({
     },
 
     detail(id) {
-      const row = getDb().prepare('SELECT * FROM work_items WHERE id = ?').get(id);
+      const row = getWorkItem(id);
       return row ? workItemDetail(row, { config: getConfig(), getSessionStates }) : null;
     },
 

@@ -2,30 +2,12 @@ import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
 import { actionRegistry } from './actions.js';
 import { closeDb, getDb, initDb } from './db.js';
+import { insertTestWorkItem } from './test-support/work-items.js';
 
 afterEach(() => closeDb());
 
 function insertWorkItem(id, state = 'ready', provider = 'codex') {
-  const now = '2026-08-27T12:00:00.000Z';
-  getDb()
-    .prepare(
-      `INSERT INTO work_items (
-        id, reference, title, path, work_provider, resolver_provider, state, stage,
-        progress_current, progress_total, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?)`,
-    )
-    .run(
-      id,
-      `PROJECT-${id}`,
-      `Work ${id}`,
-      `/tmp/${id}`,
-      provider,
-      provider,
-      state,
-      state === 'ready' || state === 'destroyed' ? 'complete' : 'child_creation',
-      now,
-      now,
-    );
+  insertTestWorkItem(getDb(), { id, state, resolverProvider: provider });
 }
 
 function dispatcherFixture() {
@@ -100,10 +82,7 @@ test('work-item MCP dispatch creates, reuses, and self-rejects one root session'
   assert.deepEqual(calls.created, [
     { target: { type: 'work_item', id: 'ready' }, cwd: '/tmp/ready', provider: 'claude' },
   ]);
-  assert.equal(
-    getDb().prepare("SELECT work_provider FROM work_items WHERE id = 'ready'").get().work_provider,
-    'claude',
-  );
+  assert.equal(getDb().prepare("SELECT provider FROM sessions WHERE id = 'created-1'").get().provider, 'claude');
   assert.equal(calls.waited.length, 1);
 
   const reused = await action.mcpHandler(app, { ...args, prompt: 'continue' }, { callerSessionId: 'caller' });

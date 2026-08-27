@@ -7,7 +7,7 @@ import { StartWorkLauncher } from './StartWorkLauncher.jsx';
 
 const api = vi.hoisted(() => ({
   createWorkItem: vi.fn(),
-  createScratchWorkspace: vi.fn(),
+  createManualWorkItem: vi.fn(),
   fetchProviderCapabilities: vi.fn(async () => ({
     claude: { available: true, checking: false, reason: null, version: 'test', checkedAt: null },
     codex: { available: true, checking: false, reason: null, version: 'test', checkedAt: null },
@@ -15,33 +15,26 @@ const api = vi.hoisted(() => ({
 }));
 
 vi.mock('../../lib/api.js', () => api);
-vi.mock('../ui/RepoCombobox/RepoCombobox.jsx', () => ({
-  /** @param {{value: string, onChange: (value: string) => void, disabled?: boolean}} props */
-  RepoCombobox: ({ value, onChange, disabled }) => (
-    <select
-      aria-label="Repository"
-      value={value}
-      onChange={(event) => onChange(event.target.value)}
-      disabled={disabled}
-    >
-      <option value="">Select repo</option>
-      <option value="acme/widgets">acme/widgets</option>
-    </select>
-  ),
-}));
 
-/** @param {boolean} configured */
-function renderLauncher(configured) {
+/** @param {boolean} configured @param {boolean} [manualConfigured] */
+function renderLauncher(configured, manualConfigured = true) {
   return render(
     <AgentProviderProvider>
-      <StartWorkLauncher workItemsConfigured={configured} />
+      <StartWorkLauncher
+        workItemsConfigured={configured}
+        manualWorkConfigured={manualConfigured}
+        manualRepositories={[
+          { repository: 'acme/widgets', default_revision: 'main@origin' },
+          { repository: 'acme/api', default_revision: 'main@origin' },
+        ]}
+      />
     </AgentProviderProvider>,
   );
 }
 
 beforeEach(() => {
   api.createWorkItem.mockReset();
-  api.createScratchWorkspace.mockReset();
+  api.createManualWorkItem.mockReset();
   window.location.hash = '';
   localStorage.clear();
 });
@@ -69,19 +62,16 @@ test('defaults to Project reference when configured and dispatches only work-ite
   await user.keyboard('{Enter}');
 
   assert.deepEqual(api.createWorkItem.mock.calls, [['ECO-3632', 'codex']]);
-  assert.equal(api.createScratchWorkspace.mock.calls.length, 0);
+  assert.equal(api.createManualWorkItem.mock.calls.length, 0);
   assert.equal(window.location.hash, '#/work-item/work-item-1');
 });
 
-test('defaults to Scratch repository when project references are unconfigured', async () => {
+test('defaults to Manual work when project references are unconfigured', async () => {
   const user = userEvent.setup();
   renderLauncher(false);
 
   await user.click(screen.getByRole('button', { name: '+ Start work' }));
-  assert.equal(
-    /** @type {HTMLInputElement} */ (screen.getByRole('radio', { name: /Scratch repository/ })).checked,
-    true,
-  );
+  assert.equal(/** @type {HTMLInputElement} */ (screen.getByRole('radio', { name: /Manual work/ })).checked, true);
   await user.click(screen.getByRole('radio', { name: /Project reference/ }));
   assert.ok(screen.getByText('Project references are not configured for this Patrol instance'));
   assert.equal(
@@ -90,21 +80,25 @@ test('defaults to Scratch repository when project references are unconfigured', 
   );
 });
 
-test('scratch mode creates no session and dispatches only scratch creation', async () => {
+test('manual mode creates a multi-repository work item without selecting a session provider', async () => {
   const user = userEvent.setup();
-  api.createScratchWorkspace.mockResolvedValue({ id: 'workspace-1' });
+  api.createManualWorkItem.mockResolvedValue({ work_item: { id: 'work-item-1' } });
   renderLauncher(true);
 
   await user.click(screen.getByRole('button', { name: '+ Start work' }));
-  await user.click(screen.getByRole('radio', { name: /Scratch repository/ }));
-  await user.selectOptions(screen.getByLabelText('Repository'), 'acme/widgets');
-  await user.type(screen.getByLabelText('Branch'), 'feat/widgets');
+  await user.click(screen.getByRole('radio', { name: /Manual work/ }));
+  await user.type(screen.getByLabelText('Title'), 'Cross-repository cleanup');
+  await user.type(screen.getByLabelText('Bookmark (optional)'), 'feat/cleanup');
+  await user.click(screen.getByRole('checkbox', { name: /acme\/widgets/ }));
+  await user.click(screen.getByRole('checkbox', { name: /acme\/api/ }));
   assert.equal(screen.queryByLabelText(/Choose agent provider/), null);
-  await user.click(screen.getByRole('button', { name: 'Create scratch workspace' }));
+  await user.click(screen.getByRole('button', { name: 'Create work item' }));
 
-  assert.deepEqual(api.createScratchWorkspace.mock.calls, [['acme/widgets', 'feat/widgets']]);
+  assert.deepEqual(api.createManualWorkItem.mock.calls, [
+    ['Cross-repository cleanup', ['acme/widgets', 'acme/api'], 'feat/cleanup'],
+  ]);
   assert.equal(api.createWorkItem.mock.calls.length, 0);
-  assert.equal(window.location.hash, '#/workspace/workspace-1');
+  assert.equal(window.location.hash, '#/work-item/work-item-1');
 });
 
 test('mode switching preserves values and cancel restores focus', async () => {
@@ -114,7 +108,7 @@ test('mode switching preserves values and cancel restores focus', async () => {
   const trigger = screen.getByRole('button', { name: '+ Start work' });
   await user.click(trigger);
   await user.type(screen.getByLabelText('Reference'), 'PROJECT-42');
-  await user.click(screen.getByRole('radio', { name: /Scratch repository/ }));
+  await user.click(screen.getByRole('radio', { name: /Manual work/ }));
   await user.click(screen.getByRole('radio', { name: /Project reference/ }));
   assert.equal(/** @type {HTMLInputElement} */ (screen.getByLabelText('Reference')).value, 'PROJECT-42');
   await user.click(screen.getByRole('button', { name: 'Cancel' }));

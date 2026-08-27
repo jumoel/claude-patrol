@@ -115,12 +115,15 @@ export function buildDashboardRows({ pullRequests, workItems, workspaces, sessio
     return {
       kind: /** @type {const} */ ('work_item'),
       id: workItem.id,
-      title: workItem.title || workItem.reference_display || workItem.reference,
-      work_reference: {
-        display: workItem.reference_display || workItem.reference,
-        system: workItem.reference_system,
-        url: workItem.reference_url,
-      },
+      title: workItem.title || workItem.reference_display || workItem.reference || 'Untitled work item',
+      work_reference:
+        workItem.reference_display || workItem.reference
+          ? {
+              display: workItem.reference_display || workItem.reference || '',
+              system: workItem.reference_system,
+              url: workItem.reference_url,
+            }
+          : null,
       repositories: workItem.repositories,
       pull_requests: attached,
       sessions: [...(sessionsByWorkItem.get(workItem.id) || []), ...childSessions],

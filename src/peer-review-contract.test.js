@@ -8,6 +8,7 @@ import { parseConfig } from './config.js';
 import { migrateDb } from './migrations.js';
 import { PeerReviewCoordinator } from './peer-review-coordinator.js';
 import { createServer } from './server.js';
+import { insertTestWorkItem } from './test-support/work-items.js';
 
 const MATRICES = [
   { presenter: 'claude', reviewer: 'codex', tool: 'review_with_codex' },
@@ -128,3 +129,101 @@ for (const { presenter, reviewer, tool } of MATRICES) {
     }
   });
 }
+
+test('a work-item root session reviews the selected linked PR from its repository child', async () => {
+  const db = new DatabaseSync(':memory:');
+  migrateDb(db);
+  const now = new Date().toISOString();
+  insertTestWorkItem(db, {
+    id: 'work-item-1',
+    reference: null,
+    creationSource: 'manual',
+    repositories: ['acme/app'],
+    path: '/tmp/work-item-1',
+    createdAt: now,
+  });
+  db.prepare(
+    `INSERT INTO prs
+      (id, number, title, repo, org, author, url, branch, base_branch, created_at, updated_at, synced_at)
+     VALUES ('acme/app#2', 2, 'Review work item', 'app', 'acme', 'octocat',
+       'https://example.test/2', 'feature', 'main', ?, ?, ?)`,
+  ).run(now, now, now);
+  db.prepare(
+    `INSERT INTO work_item_pull_requests (pr_id, work_item_id, source, linked_at)
+     VALUES ('acme/app#2', 'work-item-1', 'explicit', ?)`,
+  ).run(now);
+  db.prepare(
+    `INSERT INTO workspaces
+      (id, work_item_id, name, path, bookmark, repo, status, created_at,
+       operation_state, operation_step, operation_updated_at)
+     VALUES ('child-1', 'work-item-1', 'child', '/tmp/work-item-1/repos/app', 'patrol/work-item-1',
+       'acme/app', 'active', ?, 'ready', 'create:complete', ?)`,
+  ).run(now, now);
+  db.prepare(
+    `INSERT INTO sessions (id, work_item_id, pid, provider, status, started_at)
+     VALUES ('root-session', 'work-item-1', 123, 'codex', 'active', ?)`,
+  ).run(now);
+
+  const appEvents = new EventEmitter();
+  const coordinator = new PeerReviewCoordinator({ events: appEvents });
+  const serviceCalls = [];
+  const capability = {
+    environment: { PATH: '/bin' },
+    getSnapshot: () => ({ available: true, checking: false, reason: null, version: 'test', checkedAt: now }),
+    refreshIfStale: async () => ({ available: true, checking: false, reason: null, version: 'test', checkedAt: now }),
+  };
+  const reviewService = {
+    run: async (input) => {
+      serviceCalls.push(input);
+      return {
+        result: 'Work-item finding.',
+        noChanges: false,
+        range: { fork: '1'.repeat(40), head: '2'.repeat(40) },
+      };
+    },
+  };
+  const config = parseConfig({ poll: { interval_seconds: 30, orgs: [], repos: [] } });
+  const context = createAppContext({
+    getConfig: () => config,
+    getDb: () => db,
+    appEvents,
+    pollerEvents: new EventEmitter(),
+    getSessionStates: () => [],
+    getGhRateLimitState: () => ({ limited: false }),
+    providerCapabilities: { claude: capability, codex: capability },
+    peerReviewCoordinator: coordinator,
+    getSessionPeerReviewReadiness: () => ({ ready: true, reason: null }),
+    waitForFirstIdle: async () => {},
+    dispatchToSession: async () => 1234,
+    reviewServices: { claude: reviewService, codex: reviewService },
+  });
+  const server = await createServer({ context, config });
+
+  try {
+    const requested = await server.inject({
+      method: 'POST',
+      url: '/api/work-items/work-item-1/peer-review',
+      payload: { pr_id: 'acme/app#2' },
+    });
+    assert.equal(requested.statusCode, 202);
+    assert.equal(requested.json().review.workItemId, 'work-item-1');
+
+    const result = await actionRegistry.review_with_claude.mcpHandler(server, {}, { callerSessionId: 'root-session' });
+    assert.equal(result.ok, true);
+    assert.equal(serviceCalls[0].workspace.id, 'child-1');
+    assert.equal(serviceCalls[0].workspace.path, '/tmp/work-item-1/repos/app');
+    assert.equal(serviceCalls[0].pr.id, 'acme/app#2');
+    assert.equal(coordinator.getByWorkItem('work-item-1').status, 'delivering');
+
+    appEvents.emit('session-state', { sessionId: 'root-session', workItemId: 'work-item-1', state: 'idle' });
+    const status = await server.inject({
+      method: 'GET',
+      url: '/api/work-items/work-item-1/peer-review?pr_id=acme%2Fapp%232',
+    });
+    assert.equal(status.json().review.status, 'complete');
+    assert.equal(status.json().ready, true);
+  } finally {
+    await server.close();
+    db.close();
+  }
+});

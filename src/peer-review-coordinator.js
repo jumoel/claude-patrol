@@ -17,7 +17,7 @@ function publicReview(review) {
   if (!review) return null;
   return {
     id: review.id,
-    workspaceId: review.workspaceId,
+    ...(review.workspaceId ? { workspaceId: review.workspaceId } : { workItemId: review.workItemId }),
     sessionId: review.sessionId,
     prId: review.prId,
     presenterProvider: review.presenterProvider,
@@ -38,7 +38,7 @@ function normalizeError(error) {
   };
 }
 
-/** Owns one user-requested peer review lifecycle per workspace. */
+/** Owns one user-requested peer review lifecycle per local-work target. */
 export class PeerReviewCoordinator {
   constructor({
     events,
@@ -58,15 +58,19 @@ export class PeerReviewCoordinator {
     this.events.on('session-state', this.handleSessionState);
   }
 
-  request({ workspaceId, sessionId, prId, presenterProvider, reviewerProvider }) {
-    const existing = this.reviews.get(workspaceId);
+  request({ workspaceId = null, workItemId = null, sessionId, prId, presenterProvider, reviewerProvider }) {
+    const targetKey = workspaceId ? `workspace:${workspaceId}` : workItemId ? `work_item:${workItemId}` : null;
+    if (!targetKey) throw reviewError('review_target_required', 'A workspace or work item is required');
+    const existing = this.reviews.get(targetKey);
     if (existing && ACTIVE_STATUSES.has(existing.status)) {
-      throw reviewError('review_in_progress', 'A peer review is already in progress for this workspace');
+      throw reviewError('review_in_progress', 'A peer review is already in progress for this work target');
     }
 
     const review = {
       id: randomUUID(),
       workspaceId,
+      workItemId,
+      targetKey,
       sessionId,
       prId,
       presenterProvider,
@@ -79,7 +83,7 @@ export class PeerReviewCoordinator {
       error: null,
       observedDeliveryWork: false,
     };
-    this.reviews.set(workspaceId, review);
+    this.reviews.set(targetKey, review);
     this.setTimer(review.id, this.requestTimeoutMs, () => {
       this.fail(
         review.id,
@@ -93,10 +97,11 @@ export class PeerReviewCoordinator {
     return publicReview(review);
   }
 
-  claim({ workspaceId, sessionId, reviewerProvider }) {
-    const review = this.reviews.get(workspaceId);
+  claim({ workspaceId = null, workItemId = null, sessionId, reviewerProvider }) {
+    const targetKey = workspaceId ? `workspace:${workspaceId}` : workItemId ? `work_item:${workItemId}` : null;
+    const review = targetKey ? this.reviews.get(targetKey) : null;
     if (!review || review.status !== 'requested') {
-      throw reviewError('review_not_requested', 'No peer review was requested for this workspace');
+      throw reviewError('review_not_requested', 'No peer review was requested for this work target');
     }
     if (review.sessionId !== sessionId) {
       throw reviewError('review_session_mismatch', 'This peer review belongs to a different presenter session');
@@ -137,7 +142,11 @@ export class PeerReviewCoordinator {
   }
 
   getByWorkspace(workspaceId) {
-    return publicReview(this.reviews.get(workspaceId));
+    return publicReview(this.reviews.get(`workspace:${workspaceId}`));
+  }
+
+  getByWorkItem(workItemId) {
+    return publicReview(this.reviews.get(`work_item:${workItemId}`));
   }
 
   handleSessionState({ sessionId, state, confirmed, completion_outcome: completionOutcome }) {
@@ -168,9 +177,12 @@ export class PeerReviewCoordinator {
     review.error = error;
     this.emit(review);
     this.setTimer(review.id, this.retentionMs, () => {
-      if (this.reviews.get(review.workspaceId)?.id === review.id) {
-        this.reviews.delete(review.workspaceId);
-        this.events.emit('peer-review-state', { workspaceId: review.workspaceId, review: null });
+      if (this.reviews.get(review.targetKey)?.id === review.id) {
+        this.reviews.delete(review.targetKey);
+        this.events.emit('peer-review-state', {
+          ...(review.workspaceId ? { workspaceId: review.workspaceId } : { workItemId: review.workItemId }),
+          review: null,
+        });
       }
       this.clearTimer(review.id);
     });
@@ -185,7 +197,10 @@ export class PeerReviewCoordinator {
   }
 
   emit(review) {
-    this.events.emit('peer-review-state', { workspaceId: review.workspaceId, review: publicReview(review) });
+    this.events.emit('peer-review-state', {
+      ...(review.workspaceId ? { workspaceId: review.workspaceId } : { workItemId: review.workItemId }),
+      review: publicReview(review),
+    });
   }
 
   setTimer(reviewId, delay, callback) {

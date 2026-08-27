@@ -2,27 +2,32 @@ import { execFile as execFileCb } from 'node:child_process';
 import { emitLocalChange } from '../app-events.js';
 import { formatPR } from '../pr-status.js';
 import { runTask } from '../tasks.js';
-import { createScratchWorkspace, createWorkspace, destroyWorkspace } from '../workspace.js';
+import { destroyWorkspace } from '../workspace.js';
 
 /**
  * Register workspace routes.
  * @param {import('fastify').FastifyInstance} app
  */
 export function registerWorkspaceRoutes(app) {
-  const { getConfig, getDb } = app.appContext;
+  const { getConfig, getDb, workItemService } = app.appContext;
   app.post('/api/workspaces', async (request, reply) => {
     const { pr_id, repo, branch } = request.body || {};
     if (!pr_id && (!repo || !branch)) {
       return reply.code(400).send({ error: 'Either pr_id or both repo and branch are required' });
     }
     try {
-      const workspace = pr_id
-        ? await createWorkspace(pr_id, getConfig())
-        : await createScratchWorkspace(repo, branch, getConfig());
+      const workItem = workItemService.create(
+        pr_id
+          ? { source: 'pull_request', pr_id }
+          : { source: 'manual', title: branch, bookmark: branch, repositories: [repo] },
+      );
       emitLocalChange();
-      return reply.code(201).send(workspace);
+      reply.header('Location', `/api/work-items/${workItem.id}`);
+      return reply.code(202).send({ work_item: workItem });
     } catch (err) {
-      return reply.code(err.code === 'pr_owned_by_work_item' ? 409 : 400).send({ error: err.message, code: err.code });
+      return reply
+        .code(['legacy_workspace_exists', 'pull_request_owned'].includes(err.code) ? 409 : 400)
+        .send({ error: err.message, code: err.code });
     }
   });
 

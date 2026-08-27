@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
 import { closeDb, getDb, initDb } from './db.js';
 import { ensureSessionAndSend } from './dispatcher.js';
+import { insertTestWorkItem } from './test-support/work-items.js';
 import {
   getPullRequestOwner,
   linkWorkItemPullRequest,
@@ -15,15 +16,7 @@ import { createWorkspace } from './workspace.js';
 afterEach(() => closeDb());
 
 function insertWorkItem(id, repositories, createdAt = '2026-08-20T00:00:00.000Z') {
-  getDb()
-    .prepare(
-      `INSERT INTO work_items (
-        id, reference, title, resolved_repositories_json, path, work_provider,
-        resolver_provider, state, stage, progress_current, progress_total,
-        created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, 'codex', 'codex', 'ready', 'complete', 0, 0, ?, ?)`,
-    )
-    .run(id, `PROJECT-${id}`, `Work ${id}`, JSON.stringify(repositories), `/tmp/${id}`, createdAt, createdAt);
+  insertTestWorkItem(getDb(), { id, repositories, createdAt });
 }
 
 function insertPullRequest(id, headOid = null, createdAt = '2026-08-22T00:00:00.000Z') {

@@ -117,7 +117,9 @@ export function LinkedPullRequests({ workItem, selectedPrId, onWorkItemReload, e
   const handleDetach = useCallback(async () => {
     if (!selectedLink) return;
     if (
-      !window.confirm(`Detach ${selectedLink.id} from ${workItem.reference}? The pull request will not be changed.`)
+      !window.confirm(
+        `Detach ${selectedLink.id} from ${workItem.title || workItem.reference || 'this work item'}? The pull request will not be changed.`,
+      )
     ) {
       return;
     }
@@ -129,7 +131,7 @@ export function LinkedPullRequests({ workItem, selectedPrId, onWorkItemReload, e
     } catch (error) {
       setActionError(getErrorMessage(error, 'Failed to detach pull request'));
     }
-  }, [onWorkItemReload, selectedLink, workItem.id, workItem.reference]);
+  }, [onWorkItemReload, selectedLink, workItem.id, workItem.reference, workItem.title]);
 
   const handleRefresh = useCallback(async () => {
     if (!pr) return;

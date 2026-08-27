@@ -47,12 +47,11 @@ export function parsePullRequestReference(value) {
 }
 
 function repositoriesFor(row) {
-  try {
-    const parsed = JSON.parse(row?.resolved_repositories_json ?? '[]');
-    return Array.isArray(parsed) ? parsed.filter((item) => typeof item === 'string') : [];
-  } catch {
-    return [];
-  }
+  if (!row?.id) return [];
+  return getDb()
+    .prepare('SELECT repo FROM work_item_repositories WHERE work_item_id = ? ORDER BY position, repo')
+    .all(row.id)
+    .map((entry) => entry.repo);
 }
 
 function linkedPullRequest(link, row = null) {
@@ -153,9 +152,10 @@ export function getPullRequestOwner(prId) {
   return (
     getDb()
       .prepare(
-        `SELECT wi.id, wi.reference, wi.title, wi.state, l.source, l.linked_at
+        `SELECT wi.id, wr.reference, wi.title, wi.state, l.source, l.linked_at
            FROM work_item_pull_requests l
            JOIN work_items wi ON wi.id = l.work_item_id
+           LEFT JOIN work_item_references wr ON wr.work_item_id = wi.id
           WHERE l.pr_id = ?`,
       )
       .get(prId) ?? null
@@ -167,9 +167,10 @@ export function enrichPullRequestsWithOwners(prs, db = getDb()) {
   const owners = new Map(
     db
       .prepare(
-        `SELECT l.pr_id, wi.id, wi.reference, wi.title, wi.state, l.source, l.linked_at
+        `SELECT l.pr_id, wi.id, wr.reference, wi.title, wi.state, l.source, l.linked_at
            FROM work_item_pull_requests l
-           JOIN work_items wi ON wi.id = l.work_item_id`,
+           JOIN work_items wi ON wi.id = l.work_item_id
+           LEFT JOIN work_item_references wr ON wr.work_item_id = wi.id`,
       )
       .all()
       .map((row) => [row.pr_id, row]),

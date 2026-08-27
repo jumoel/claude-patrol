@@ -30,6 +30,15 @@ export function registerConfigRoutes(app) {
         repositories: cfg.work_items?.repositories ?? [],
         provider_setup: setup,
       },
+      manual_work: {
+        configured: Object.keys(cfg.repos ?? {}).length > 0,
+        repositories: Object.entries(cfg.repos ?? {})
+          .map(([repository, repositoryConfig]) => ({
+            repository,
+            default_revision: repositoryConfig.defaultRevision ?? null,
+          }))
+          .sort((left, right) => left.repository.localeCompare(right.repository)),
+      },
       capabilities: {
         providers: Object.fromEntries(
           Object.entries(providerCapabilities).map(([provider, capability]) => [provider, capability.getSnapshot()]),

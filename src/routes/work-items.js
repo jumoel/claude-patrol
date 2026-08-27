@@ -17,15 +17,25 @@ function recoveryActions(error, config) {
 function errorStatus(code) {
   if (code === 'work_item_not_found') return 404;
   if (
-    ['work_item_busy', 'invalid_state', 'session_exists', 'work_item_child_managed', 'pull_request_owned'].includes(
-      code,
-    )
+    [
+      'work_item_busy',
+      'work_item_destroyed',
+      'invalid_state',
+      'session_exists',
+      'work_item_child_managed',
+      'pull_request_owned',
+      'legacy_workspace_exists',
+    ].includes(code)
   )
     return 409;
   if (
     [
       'invalid_request',
       'invalid_reference',
+      'invalid_title',
+      'invalid_bookmark',
+      'invalid_repositories',
+      'invalid_source',
       'invalid_repository',
       'repository_not_configured',
       'invalid_revision',
@@ -33,6 +43,8 @@ function errorStatus(code) {
       'invalid_provider',
       'work_items_not_configured',
       'invalid_pull_request',
+      'pull_request_not_found',
+      'repository_limit',
       'repository_not_in_work_item',
     ].includes(code)
   ) {
@@ -63,20 +75,38 @@ export function registerWorkItemRoutes(app) {
 
   app.post('/api/work-items', (request, reply) => {
     const body = request.body;
-    if (
-      !body ||
-      typeof body !== 'object' ||
-      Array.isArray(body) ||
-      Object.keys(body).some((key) => !['reference', 'work_provider'].includes(key))
-    ) {
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
       return sendError(
         reply,
-        { code: 'invalid_request', message: 'Expected reference and work_provider' },
+        { code: 'invalid_request', message: 'Expected a work-item creation request' },
         getConfig(),
       );
     }
+    const keys = Object.keys(body);
+    const allowedBySource = {
+      manual: new Set(['source', 'title', 'repositories', 'bookmark']),
+      reference: new Set(['source', 'reference', 'resolver_provider']),
+      pull_request: new Set(['source', 'pr_id']),
+      legacy: new Set(['reference', 'work_provider']),
+    };
+    const contract = body.source === undefined ? allowedBySource.legacy : allowedBySource[body.source];
+    if (!contract || keys.some((key) => !contract.has(key))) {
+      return sendError(reply, { code: 'invalid_request', message: 'Unknown work-item creation field' }, getConfig());
+    }
     try {
-      const workItem = workItemService.create({ reference: body.reference, workProvider: body.work_provider });
+      const workItem = workItemService.create(
+        body.source === undefined
+          ? { reference: body.reference, workProvider: body.work_provider }
+          : {
+              source: body.source,
+              ...(Object.hasOwn(body, 'title') ? { title: body.title } : {}),
+              ...(Object.hasOwn(body, 'repositories') ? { repositories: body.repositories } : {}),
+              ...(Object.hasOwn(body, 'bookmark') ? { bookmark: body.bookmark } : {}),
+              ...(Object.hasOwn(body, 'reference') ? { reference: body.reference } : {}),
+              ...(Object.hasOwn(body, 'resolver_provider') ? { resolver_provider: body.resolver_provider } : {}),
+              ...(Object.hasOwn(body, 'pr_id') ? { pr_id: body.pr_id } : {}),
+            },
+      );
       reply.header('Location', `/api/work-items/${workItem.id}`);
       return reply.code(202).send({ work_item: workItem });
     } catch (error) {
@@ -92,6 +122,14 @@ export function registerWorkItemRoutes(app) {
       return sendError(reply, { code: 'work_item_not_found', message: 'Work item not found' }, getConfig());
     }
     return { work_item: workItem };
+  });
+
+  app.get('/api/work-items/:id/repositories/available', (request, reply) => {
+    try {
+      return { repositories: workItemService.availableRepositories(request.params.id) };
+    } catch (error) {
+      return sendError(reply, error, getConfig());
+    }
   });
 
   const validatePullRequestBody = (body) =>

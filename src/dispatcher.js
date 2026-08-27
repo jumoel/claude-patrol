@@ -26,8 +26,8 @@ import { createWorkspace } from './workspace.js';
  *    Killed/missing rows error `no_session`. `autoCreate` does not apply: a
  *    session id implies a specific session.
  *  - `pr_id` resolves to its owning work-item session when linked, otherwise
- *    to the PR's active workspace session. With `autoCreate`, the missing
- *    session and the appropriate target are created.
+ *    to a legacy PR workspace session. With `autoCreate`, new local PR work
+ *    is created as a one-repository work item when the work-item service is available.
  *  - `workspace_id` resolves to the workspace's session. The workspace
  *    itself must already exist (we don't create workspaces from raw ids).
  *  - `work_item_id` resolves to a ready work item's root session. With
@@ -91,6 +91,7 @@ export async function ensureSessionAndSend(
   const sessionSnapshot = dependencies.getSessionSnapshot ?? getSessionSnapshot;
   const waitForSessionIdle = dependencies.waitForFirstIdle ?? waitForFirstIdle;
   const sendToSession = dependencies.dispatchToSession ?? dispatchToSession;
+  const workItemService = dependencies.workItemService ?? null;
   const requestedProvider = rawProvider === undefined ? null : normalizeSessionProvider(rawProvider);
   const targetCount =
     (session_id ? 1 : 0) + (pr_id ? 1 : 0) + (workspace_id ? 1 : 0) + (work_item_id ? 1 : 0) + (isGlobal ? 1 : 0);
@@ -172,8 +173,15 @@ export async function ensureSessionAndSend(
           .get(pr_id);
         if (!workspace) {
           if (!autoCreate) throw taggedError('no_workspace', `no active workspace for pr ${pr_id}`);
-          const created = await createWorkspace(pr_id, resolveConfig());
-          workspace = db.prepare('SELECT * FROM workspaces WHERE id = ?').get(created.id);
+          if (workItemService) {
+            const created = workItemService.create({ source: 'pull_request', pr_id });
+            await workItemService.waitForIdle(created.id);
+            workItem = findReadyWorkItem(created.id);
+            resolvedWorkItemId = workItem.id;
+          } else {
+            const created = await createWorkspace(pr_id, resolveConfig());
+            workspace = db.prepare('SELECT * FROM workspaces WHERE id = ?').get(created.id);
+          }
         }
       }
     } else if (workspace_id) {
@@ -242,20 +250,13 @@ export async function ensureSessionAndSend(
         : workspace
           ? { type: 'workspace', id: workspace.id }
           : { type: 'global' };
-      const provider = requestedProvider ?? workItem?.work_provider ?? 'claude';
+      const provider = requestedProvider ?? resolveConfig().default_session_provider ?? 'claude';
       const created = launchSession(target, cwd, provider);
       const createdSession =
         created.status === 'detached' && workItem ? restoreDetachedWorkItemSession(created) : created;
       resolvedSessionId = createdSession.id;
       resolvedProvider = createdSession.provider;
       isFresh = !wasReattached;
-      if (workItem) {
-        db.prepare('UPDATE work_items SET work_provider = ?, updated_at = ? WHERE id = ?').run(
-          resolvedProvider,
-          new Date().toISOString(),
-          workItem.id,
-        );
-      }
     } else {
       resolvedSessionId = sessionRow.id;
       resolvedProvider = sessionRow.provider;

@@ -17,12 +17,12 @@ vi.mock('./useGlobalSessions.js', () => ({ useGlobalSessions: () => state.sessio
 
 const workItem = /** @type {import('../types').WorkItemListItem} */ ({
   id: 'work-1',
+  creation_source: 'reference',
   reference: 'one',
   reference_display: 'ONE-1',
   reference_system: 'tracker',
   reference_url: null,
   title: 'Historical work',
-  work_provider: 'codex',
   resolver_provider: 'codex',
   repositories: ['org/repo'],
   pull_request_count: 0,

@@ -20,18 +20,24 @@ import {
   parseTranscript,
 } from '../transcripts.js';
 import { execFile, expandPath, toClaudeProjectKey } from '../utils.js';
-import { createScratchWorkspace } from '../workspace.js';
 
 /**
  * Register session routes.
  * @param {import('fastify').FastifyInstance} app
  */
 export function registerSessionRoutes(app) {
-  const { getConfig, getDb, getSessionStates, recordProviderActivity } = app.appContext;
+  const { getConfig, getDb, getSessionStates, recordProviderActivity, workItemService } = app.appContext;
   const launchSession = app.appContext.createSession ?? createSession;
   const formatSession = (row, stateBySessionId = null) => {
     const workItem = row.work_item_id
-      ? getDb().prepare('SELECT title, reference, path FROM work_items WHERE id = ?').get(row.work_item_id)
+      ? getDb()
+          .prepare(
+            `SELECT wi.title, wi.path, wr.reference
+               FROM work_items wi
+               LEFT JOIN work_item_references wr ON wr.work_item_id = wi.id
+              WHERE wi.id = ?`,
+          )
+          .get(row.work_item_id)
       : null;
     const activity =
       stateBySessionId === null
@@ -150,13 +156,6 @@ export function registerSessionRoutes(app) {
 
     try {
       const session = launchSession(target, cwd, provider, sessionOptions);
-      if (work_item_id) {
-        db.prepare('UPDATE work_items SET work_provider = ?, updated_at = ? WHERE id = ?').run(
-          provider,
-          new Date().toISOString(),
-          work_item_id,
-        );
-      }
       const persistedSession = db.prepare('SELECT * FROM sessions WHERE id = ?').get(session.id) ?? session;
       emitLocalChange();
       return reply.code(201).send({
@@ -372,7 +371,7 @@ export function registerSessionRoutes(app) {
     }
   });
 
-  // Promote a global session to a scratch workspace
+  // Promote a global session to a one-repository manual work item.
   app.post('/api/sessions/:id/promote', async (request, reply) => {
     const { repo, branch } = request.body || {};
     if (!repo || !branch) {
@@ -396,15 +395,31 @@ export function registerSessionRoutes(app) {
     const mainRepoPath = resolve(expandPath(config.work_dir), org, repoName);
 
     try {
-      const { workspace, session: newSession } = await runTask(
+      const { workItem, session: newSession } = await runTask(
         {
           kind: 'session.promote',
-          label: `Promote session to scratch-${branch.replace(/[^a-z0-9-]/gi, '-').toLowerCase()}`,
+          label: `Promote session to ${branch}`,
           context: { sessionId: session.id, repo, branch },
         },
         async () => {
-          // 1. Create scratch workspace starting from default@- (parent of main working copy)
-          const workspace = await createScratchWorkspace(repo, branch, config, { startRevision: 'default@-' });
+          const created = workItemService.create({
+            source: 'manual',
+            title: branch,
+            bookmark: branch,
+            repositories: [repo],
+            startRevisions: { [repo]: 'default@-' },
+          });
+          await workItemService.waitForIdle(created.id);
+          const workItem = workItemService.detail(created.id);
+          if (workItem.state !== 'ready') {
+            throw new Error(workItem.error?.detail ?? 'Manual work-item preparation failed');
+          }
+          const workspace = getDb()
+            .prepare(
+              "SELECT * FROM workspaces WHERE work_item_id = ? AND repo = ? AND status = 'active' AND operation_state = 'ready'",
+            )
+            .get(workItem.id, repo);
+          if (!workspace) throw new Error('Promoted repository workspace is unavailable');
 
           // 2. Migrate changes via jj squash (non-fatal if empty)
           try {
@@ -419,7 +434,10 @@ export function registerSessionRoutes(app) {
             const jsonlPath = findSessionJsonl(session.claude_project_dir, session.started_at, null);
             if (jsonlPath) {
               claudeSessionUuid = basename(jsonlPath, '.jsonl');
-              const targetProjectDir = resolve(expandPath('~/.claude/projects'), toClaudeProjectKey(workspace.path));
+              const targetProjectDir = resolve(
+                expandPath('~/.claude/projects'),
+                toClaudeProjectKey(workItem.root_path),
+              );
               mkdirSync(targetProjectDir, { recursive: true });
 
               // Copy the .jsonl file
@@ -437,17 +455,19 @@ export function registerSessionRoutes(app) {
           // 4. Kill the old global session
           await killSessionAndWait(session.id);
 
-          // 5. Create new session in workspace with --resume
+          // Resume from the common work-item root so later repositories are visible.
           const newSession = claudeSessionUuid
-            ? createResumedSession({ type: 'workspace', id: workspace.id }, workspace.path, claudeSessionUuid)
-            : createSession({ type: 'workspace', id: workspace.id }, workspace.path);
+            ? createResumedSession({ type: 'work_item', id: workItem.id }, workItem.root_path, claudeSessionUuid)
+            : createSession({ type: 'work_item', id: workItem.id }, workItem.root_path, session.provider, {
+                enablePatrolMcp: true,
+              });
 
-          return { workspace, session: newSession };
+          return { workItem, session: newSession };
         },
       );
 
       emitLocalChange();
-      return reply.code(201).send({ workspace, session: newSession });
+      return reply.code(201).send({ work_item: workItem, session: newSession });
     } catch (err) {
       return reply.code(500).send({ error: `Promote failed: ${err.message}` });
     }

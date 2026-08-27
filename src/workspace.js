@@ -275,7 +275,7 @@ export async function createWorkspace(prId, config) {
   if (owner) {
     throw workspaceError(
       'pr_owned_by_work_item',
-      `PR ${prId} belongs to work item ${owner.reference}; use its shared workspace and session`,
+      `PR ${prId} belongs to work item ${owner.title ?? owner.reference ?? owner.id}; use its shared workspace and session`,
     );
   }
 

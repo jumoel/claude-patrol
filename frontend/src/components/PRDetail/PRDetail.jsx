@@ -24,6 +24,7 @@ import {
   statusColorGroup,
 } from '../../lib/checks.js';
 import { getErrorMessage } from '../../lib/errors.js';
+import { workItemPath } from '../../lib/routes.js';
 import { sessionAttentionState } from '../../lib/session-attention.js';
 import { sendTerminalCommand, whenWsOpen } from '../../lib/terminal.js';
 import { getRelativeTime } from '../../lib/time.js';
@@ -121,8 +122,8 @@ export function PRDetail({ prId, onBack, workspaceStates, acknowledgedSessionIds
   const [refreshing, setRefreshing] = useState(false);
   const wsRef = useRef(/** @type {WebSocket | null} */ (null));
 
-  /** Deduped workspace creation promise so both buttons share a single in-flight request. */
-  const workspacePromiseRef = useRef(/** @type {Promise<import('../../types').Workspace> | null} */ (null));
+  /** Deduped local-work creation promise so both buttons share a single in-flight request. */
+  const workspacePromiseRef = useRef(/** @type {Promise<import('../../types').Workspace | null> | null} */ (null));
 
   const loadData = useCallback(async () => {
     setLoadError('');
@@ -161,18 +162,18 @@ export function PRDetail({ prId, onBack, workspaceStates, acknowledgedSessionIds
   useSyncEvents(loadData);
 
   /**
-   * Get or create a workspace, deduping concurrent requests.
-   * Workspace creation and agent launch share this so clicking
+   * Use a legacy workspace or create a work item, deduping concurrent requests.
+   * Local-work creation and agent launch share this so clicking
    * either one while the other is in-flight reuses the same promise.
    */
   const getOrCreateWorkspace = useCallback(async () => {
     if (workspace) return workspace;
     if (workspacePromiseRef.current) return workspacePromiseRef.current;
     const promise = apiCreateWorkspace(prId)
-      .then((ws) => {
-        setWorkspace(ws);
+      .then(({ work_item: workItem }) => {
         workspacePromiseRef.current = null;
-        return ws;
+        window.location.hash = workItemPath(workItem.id, prId);
+        return null;
       })
       .catch((err) => {
         workspacePromiseRef.current = null;
@@ -182,13 +183,14 @@ export function PRDetail({ prId, onBack, workspaceStates, acknowledgedSessionIds
     return promise;
   }, [prId, workspace]);
 
-  /** Ensure workspace + session exist, creating them if needed. Returns { ws, sess } or null on failure. */
+  /** Ensure a legacy workspace and session exist, or route new local work to its work item. */
   const ensureWorkspaceAndSession = useCallback(async () => {
     setOpeningSession(true);
     setOpeningError('');
     try {
-      setOpeningStep('Creating workspace...');
+      setOpeningStep('Creating work item...');
       const ws = await getOrCreateWorkspace();
+      if (!ws) return null;
       let sess = session;
       if (!sess) {
         setOpeningStep('Starting session...');
@@ -505,8 +507,8 @@ export function PRDetail({ prId, onBack, workspaceStates, acknowledgedSessionIds
         <h2 id="pr-related-work-heading">Related work</h2>
         {pr.work_item ? (
           <a className={styles.parentWork} href={`#/work-item/${pr.work_item.id}?pr=${encodeURIComponent(pr.id)}`}>
-            <span>{pr.work_item.reference}</span>
-            <strong>{pr.work_item.title || pr.work_item.reference}</strong>
+            {pr.work_item.reference && <span>{pr.work_item.reference}</span>}
+            <strong>{pr.work_item.title || pr.work_item.reference || 'Untitled work item'}</strong>
           </a>
         ) : (
           <div className={styles.relatedEmpty}>

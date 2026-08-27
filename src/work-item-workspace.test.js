@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, test } from 'node:test';
 import { closeDb, getDb, initDb } from './db.js';
+import { insertTestWorkItem } from './test-support/work-items.js';
 import { execFile } from './utils.js';
 import { createWorkItemChild, destroyWorkItemChild } from './workspace.js';
 
@@ -31,15 +32,17 @@ test('work-item children are independent jj workspaces under one non-repository 
   createSource(alphaSource);
   createSource(betaSource);
   const now = new Date().toISOString();
-  getDb()
-    .prepare(
-      `INSERT INTO work_items (
-        id, reference, path, work_provider, resolver_provider, state, stage,
-        progress_current, progress_total, created_at, updated_at
-      ) VALUES ('item-1', 'PROJECT-1', ?, 'codex', 'codex', 'preparing',
-        'child_creation', 0, 2, ?, ?)`,
-    )
-    .run(parent, now, now);
+  const bookmark = 'patrol/work-item-item1';
+  insertTestWorkItem(getDb(), {
+    id: 'item-1',
+    repositories: ['acme/alpha', 'acme/beta'],
+    path: parent,
+    bookmark,
+    state: 'preparing',
+    stage: 'child_creation',
+    progressTotal: 2,
+    createdAt: now,
+  });
   const config = {
     work_dir: workDir,
     workspace_base_path: join(root, 'workspaces'),
@@ -49,7 +52,6 @@ test('work-item children are independent jj workspaces under one non-repository 
       'acme/beta': { defaultRevision: '@' },
     },
   };
-  const bookmark = 'patrol/work-item-item1';
   const children = [
     { id: 'child-alpha', repo: 'acme/alpha', name: 'item-alpha', path: join(parent, 'repos', 'alpha') },
     { id: 'child-beta', repo: 'acme/beta', name: 'item-beta', path: join(parent, 'repos', 'beta') },

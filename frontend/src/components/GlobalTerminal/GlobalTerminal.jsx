@@ -192,7 +192,7 @@ export function GlobalTerminal({
       setPromoteBranch('');
       if (maximizedTerminalId() === activeSession.id) clearMaximizedTerminal(activeSession.id);
       onToggle();
-      window.location.hash = `#/workspace/${result.workspace.id}`;
+      window.location.hash = `#/work-item/${result.work_item.id}`;
     } catch (error) {
       setActionError(actionFailure(activeSession.id, error, 'Failed to promote session'));
     } finally {

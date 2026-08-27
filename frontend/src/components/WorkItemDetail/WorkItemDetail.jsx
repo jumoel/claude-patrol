@@ -437,6 +437,7 @@ export function WorkItemDetail({
   const selectedPullRequest =
     workItem.pull_requests.find((pullRequest) => pullRequest.id === selectedPrId) ?? workItem.pull_requests[0] ?? null;
   const referenceDisplay = workItem.reference_display || workItem.reference;
+  const displayTitle = workItem.title || referenceDisplay || 'Untitled work item';
   const sessionState = targetStates.get(`work-item:${workItem.id}`);
   const attentionState = session ? sessionAttentionState(session, sessionState, acknowledgedSessionIds) : null;
   const repositorySummary = workItem.repository_workspaces.map((repository) => repository.identifier).join(', ');
@@ -501,15 +502,16 @@ export function WorkItemDetail({
             </Badge>
           )}
         </div>
-        <h1 className={styles.title}>{workItem.title || workItem.reference}</h1>
+        <h1 className={styles.title}>{displayTitle}</h1>
         <div className={styles.identity}>
-          {workItem.reference_url ? (
-            <a href={workItem.reference_url} target="_blank" rel="noopener noreferrer" className={styles.reference}>
-              {referenceDisplay}
-            </a>
-          ) : (
-            <span className={styles.reference}>{referenceDisplay}</span>
-          )}
+          {referenceDisplay &&
+            (workItem.reference_url ? (
+              <a href={workItem.reference_url} target="_blank" rel="noopener noreferrer" className={styles.reference}>
+                {referenceDisplay}
+              </a>
+            ) : (
+              <span className={styles.reference}>{referenceDisplay}</span>
+            ))}
           {repositorySummary && (
             <>
               <span aria-hidden="true">·</span>
@@ -518,9 +520,7 @@ export function WorkItemDetail({
           )}
           <span aria-hidden="true">·</span>
           <span>Updated {getRelativeTime(workItem.updated_at)}</span>
-          {workItem.error && workItem.resolver_provider !== workItem.work_provider && (
-            <span>Reference resolver: {resolverName}</span>
-          )}
+          {workItem.error && workItem.resolver_provider && <span>Reference resolver: {resolverName}</span>}
         </div>
         {(creationBusy || destroying) && (
           <p className={styles.actionNote}>
@@ -535,12 +535,13 @@ export function WorkItemDetail({
         (session ? (
           <TerminalCard
             session={session}
-            title={`Terminal - ${referenceDisplay}`}
+            title={`Terminal - ${displayTitle}`}
             onKill={handleKillSession}
             onExit={handleSessionExit}
             onReattach={handleReattach}
             wsRef={wsRef}
             baseBranch={selectedPullRequest?.base_branch ?? undefined}
+            workItemId={workItem.id}
             prId={selectedPullRequest?.tracked ? selectedPullRequest.id : undefined}
             attentionState={attentionState ?? 'idle'}
             presentation="work-page"

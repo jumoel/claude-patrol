@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, test } from 'node:test';
 import { closeDb, getDb, initDb } from './db.js';
+import { insertTestWorkItem } from './test-support/work-items.js';
 import {
   createWorkItemService,
   deterministicBookmark,
@@ -51,6 +52,10 @@ function fixture({
       },
     },
   };
+  for (const repository of Object.keys(config.repos)) {
+    const [owner, name] = repository.split('/');
+    mkdirSync(join(config.work_dir, owner, name, '.jj'), { recursive: true });
+  }
   const childPolicies = [];
   const sessionOptions = [];
   let sessionNumber = 0;
@@ -190,6 +195,57 @@ test('a two-repository item creates sibling children and waits for the root sess
   ]);
 });
 
+test('manual work creates one aggregate for multiple configured repositories without a reference', async () => {
+  const { service } = fixture();
+  const created = service.create({
+    source: 'manual',
+    title: 'Coordinate the release',
+    repositories: ['acme/alpha', 'acme/beta'],
+  });
+  assert.equal(created.creation_source, 'manual');
+  assert.equal(created.reference, null);
+  assert.equal(created.resolver_provider, null);
+  await service.waitForIdle(created.id);
+
+  const detail = service.detail(created.id);
+  assert.equal(detail.state, 'ready');
+  assert.equal(detail.title, 'Coordinate the release');
+  assert.deepEqual(detail.repositories, ['acme/alpha', 'acme/beta']);
+  assert.equal(detail.repository_workspaces[0].bookmark, deterministicBookmark(created.id));
+  const task = JSON.parse(readFileSync(join(detail.root_path, 'TASK.json'), 'utf8'));
+  assert.equal(Object.hasOwn(task, 'reference'), false);
+  assert.equal(task.title, 'Coordinate the release');
+});
+
+test('pull-request local work creates a one-repository aggregate and owns the PR', async () => {
+  const { service } = fixture();
+  const now = new Date().toISOString();
+  getDb()
+    .prepare(
+      `INSERT INTO prs (
+        id, number, title, repo, org, author, url, branch, head_oid,
+        created_at, updated_at, synced_at
+      ) VALUES ('acme/alpha#42', 42, 'Repair the release', 'alpha', 'acme', 'octocat',
+        'https://github.com/acme/alpha/pull/42', 'repair-release', ?, ?, ?, ?)`,
+    )
+    .run('a'.repeat(64), now, now, now);
+
+  const created = service.create({ source: 'pull_request', pr_id: 'acme/alpha#42' });
+  assert.equal(created.creation_source, 'pull_request');
+  assert.equal(created.reference, null);
+  await service.waitForIdle(created.id);
+
+  const detail = service.detail(created.id);
+  assert.deepEqual(detail.repositories, ['acme/alpha']);
+  assert.equal(detail.repository_workspaces[0].start_revision, 'a'.repeat(64));
+  assert.equal(detail.pull_requests[0].id, 'acme/alpha#42');
+  assert.equal(
+    getDb().prepare("SELECT work_item_id FROM work_item_pull_requests WHERE pr_id = 'acme/alpha#42'").get()
+      .work_item_id,
+    created.id,
+  );
+});
+
 test('provider-native work-reference metadata is persisted without UI-specific normalization', async () => {
   const { service } = fixture({
     resolver: {
@@ -244,6 +300,31 @@ test('a repository can be added to a ready work item and duplicate additions are
       .get(created.id).count,
     1,
   );
+});
+
+test('repository discovery reflects additions immediately in the running work item', async () => {
+  const { service } = fixture({
+    resolver: {
+      resolve: async () => ({
+        title: 'Discover more work',
+        summary: 'Start with alpha.',
+        repositories: ['acme/alpha'],
+      }),
+    },
+  });
+  const created = service.create({ source: 'reference', reference: 'PROJECT-DISCOVERY', resolver_provider: 'codex' });
+  await service.waitForIdle(created.id);
+
+  let available = service.availableRepositories(created.id);
+  assert.equal(available.find((entry) => entry.repository === 'acme/alpha').attached, true);
+  assert.equal(available.find((entry) => entry.repository === 'acme/beta').attached, false);
+  assert.equal(available.find((entry) => entry.repository === 'acme/gamma').default_revision, null);
+
+  await service.addRepository(created.id, 'acme/beta');
+  available = service.availableRepositories(created.id);
+  const beta = available.find((entry) => entry.repository === 'acme/beta');
+  assert.equal(beta.attached, true);
+  assert.equal(beta.membership_state, 'ready');
 });
 
 test('repository additions reject repositories outside the configured repos', async () => {
@@ -306,7 +387,12 @@ test('a failed repository addition restores the ready work item and its root fil
   assert.equal(detail.state, 'ready');
   assert.deepEqual(detail.repositories, ['acme/alpha']);
   assert.doesNotMatch(readFileSync(join(detail.root_path, 'AGENTS.md'), 'utf8'), /acme\/beta/);
-  assert.equal(getDb().prepare('SELECT COUNT(*) AS count FROM work_item_repository_additions').get().count, 0);
+  assert.equal(
+    getDb()
+      .prepare("SELECT COUNT(*) AS count FROM work_item_repositories WHERE work_item_id = ? AND repo = 'acme/beta'")
+      .get(created.id).count,
+    0,
+  );
 });
 
 test('destruction removes owned checkouts, preserves bookmark policy, and retains detail and history', async () => {
@@ -523,15 +609,17 @@ test('invalid references fail synchronously without inserting a work item', () =
 test('startup converts interrupted work items into retryable errors', () => {
   fixture();
   const now = new Date().toISOString();
-  getDb()
-    .prepare(
-      `INSERT INTO work_items (
-        id, reference, path, work_provider, resolver_provider, state, stage,
-        progress_current, progress_total, created_at, updated_at
-      ) VALUES ('interrupted', 'PROJECT-3', '/tmp/interrupted', 'claude', 'claude',
-        'preparing', 'child_creation', 1, 2, ?, ?)`,
-    )
-    .run(now, now);
+  insertTestWorkItem(getDb(), {
+    id: 'interrupted',
+    reference: 'PROJECT-3',
+    path: '/tmp/interrupted',
+    resolverProvider: 'claude',
+    state: 'preparing',
+    stage: 'child_creation',
+    progressCurrent: 1,
+    progressTotal: 2,
+    createdAt: now,
+  });
   const recovered = recoverInterruptedWorkItems();
   assert.deepEqual(
     recovered.map((row) => ({ ...row })),
@@ -555,16 +643,19 @@ test('startup requires partial child cleanup before preparation can retry', asyn
   const itemPath = join(config.workspace_base_path, 'work-items', 'interrupted-child');
   const childPath = join(itemPath, 'repos', 'partial-child');
   mkdirSync(childPath, { recursive: true });
-  getDb()
-    .prepare(
-      `INSERT INTO work_items (
-        id, reference, title, summary, resolved_repositories_json, path,
-        work_provider, resolver_provider, state, stage, progress_current,
-        progress_total, created_at, updated_at
-      ) VALUES ('interrupted-child', 'PROJECT-4', 'Interrupted', 'Partial setup', ?, ?,
-        'codex', 'codex', 'preparing', 'child_creation', 1, 2, ?, ?)`,
-    )
-    .run(JSON.stringify(['acme/alpha', 'acme/beta']), itemPath, now, now);
+  insertTestWorkItem(getDb(), {
+    id: 'interrupted-child',
+    reference: 'PROJECT-4',
+    title: 'Interrupted',
+    summary: 'Partial setup',
+    repositories: ['acme/alpha', 'acme/beta'],
+    path: itemPath,
+    state: 'preparing',
+    stage: 'child_creation',
+    progressCurrent: 1,
+    progressTotal: 2,
+    createdAt: now,
+  });
   getDb()
     .prepare(
       `INSERT INTO workspaces (
@@ -603,15 +694,15 @@ test('startup requires partial child cleanup before preparation can retry', asyn
 test('startup accepts a reattached root session as a completed terminal launch', () => {
   fixture();
   const now = new Date().toISOString();
-  getDb()
-    .prepare(
-      `INSERT INTO work_items (
-        id, reference, path, work_provider, resolver_provider, state, stage,
-        progress_current, progress_total, created_at, updated_at
-      ) VALUES ('reattached', 'PROJECT-5', '/tmp/reattached', 'claude', 'claude',
-        'preparing', 'session_launch', 0, 0, ?, ?)`,
-    )
-    .run(now, now);
+  insertTestWorkItem(getDb(), {
+    id: 'reattached',
+    reference: 'PROJECT-5',
+    path: '/tmp/reattached',
+    resolverProvider: 'claude',
+    state: 'preparing',
+    stage: 'session_launch',
+    createdAt: now,
+  });
   getDb()
     .prepare(
       `INSERT INTO sessions (id, work_item_id, pid, provider, status, started_at)

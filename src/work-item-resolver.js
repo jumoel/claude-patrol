@@ -42,7 +42,7 @@ function tomlString(value) {
   return JSON.stringify(value);
 }
 
-export function resolverInput(reference, config, workProvider) {
+export function resolverInput(reference, config) {
   return `${JSON.stringify({
     trusted_instructions: config.resolver.instructions,
     trusted_requirements: [
@@ -51,7 +51,6 @@ export function resolverInput(reference, config, workProvider) {
       'Do not guess the title, summary, or repository selection when the reference content is unavailable.',
     ],
     untrusted_reference: reference,
-    requested_work_provider: workProvider,
     candidate_repositories: config.repositories,
     output_contract: RESULT_SCHEMA,
   })}\n`;
@@ -675,7 +674,7 @@ export function validateResolverResult(value, candidates, workReference = null) 
 
 export function createWorkItemResolver({ run = execFile, spawnProcess = spawn } = {}) {
   return {
-    async resolve({ reference, provider, workProvider = provider, config }) {
+    async resolve({ reference, provider, config }) {
       const directory = mkdtempSync(resolve(tmpdir(), 'patrol-resolver-'));
       try {
         let command;
@@ -740,7 +739,7 @@ export function createWorkItemResolver({ run = execFile, spawnProcess = spawn } 
           args,
           cwd: directory,
           env: environment,
-          input: resolverInput(reference, config, workProvider),
+          input: resolverInput(reference, config),
           inspectStdoutLine: createToolInspector(provider, config),
           spawnProcess,
         });

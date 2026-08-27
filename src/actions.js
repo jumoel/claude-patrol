@@ -82,34 +82,21 @@ function createPeerReviewAction(reviewerProvider) {
       }
 
       const { getDb, peerReviewCoordinator, reviewServices } = app.appContext;
-      const row = getDb()
+      const session = getDb()
         .prepare(
-          `SELECT s.id AS session_id,
-                  s.provider AS presenter_provider,
-                  w.id AS workspace_id,
-                  w.path AS workspace_path,
-                  w.pr_id AS pr_id,
-                  p.number,
-                  p.org,
-                  p.repo,
-                  p.base_branch
-             FROM sessions s
-             JOIN workspaces w ON w.id = s.workspace_id
-             JOIN prs p ON p.id = w.pr_id
-            WHERE s.id = ?
-              AND s.status = 'active'
-              AND w.status = 'active'
-              AND w.operation_state = 'ready'`,
+          `SELECT id AS session_id, provider AS presenter_provider, workspace_id, work_item_id
+             FROM sessions
+            WHERE id = ? AND status = 'active'`,
         )
         .get(callerSessionId);
-      if (!row) {
+      if (!session || (!session.workspace_id && !session.work_item_id)) {
         return {
           ok: false,
           error: 'review_not_ready',
-          message: 'A ready PR workspace with an attached agent session is required',
+          message: 'A ready work item or PR workspace with an attached agent session is required',
         };
       }
-      if (row.presenter_provider !== presenterProvider) {
+      if (session.presenter_provider !== presenterProvider) {
         return {
           ok: false,
           error: 'review_provider_mismatch',
@@ -119,20 +106,82 @@ function createPeerReviewAction(reviewerProvider) {
 
       let review;
       try {
-        review = peerReviewCoordinator.claim({
-          workspaceId: row.workspace_id,
-          sessionId: row.session_id,
-          reviewerProvider,
-        });
+        let target;
+        if (session.work_item_id) {
+          const item = getDb().prepare('SELECT state FROM work_items WHERE id = ?').get(session.work_item_id);
+          if (item?.state !== 'ready') {
+            throw Object.assign(new Error('The work item is not ready for review'), { code: 'review_not_ready' });
+          }
+          review = peerReviewCoordinator.claim({
+            workItemId: session.work_item_id,
+            sessionId: session.session_id,
+            reviewerProvider,
+          });
+          target = getDb()
+            .prepare(
+              `SELECT child.id AS workspace_id,
+                      child.path AS workspace_path,
+                      p.id AS pr_id,
+                      p.number,
+                      p.org,
+                      p.repo,
+                      p.base_branch
+                 FROM work_item_pull_requests l
+                 JOIN prs p ON p.id = l.pr_id
+                 JOIN workspaces child
+                   ON child.rowid = (
+                     SELECT candidate.rowid
+                       FROM workspaces candidate
+                      WHERE candidate.work_item_id = l.work_item_id
+                        AND candidate.repo = p.org || '/' || p.repo
+                        AND candidate.status = 'active'
+                        AND candidate.operation_state = 'ready'
+                      ORDER BY candidate.created_at DESC, candidate.rowid DESC
+                      LIMIT 1
+                   )
+                WHERE l.work_item_id = ? AND l.pr_id = ?`,
+            )
+            .get(session.work_item_id, review.prId);
+        } else {
+          target = getDb()
+            .prepare(
+              `SELECT w.id AS workspace_id,
+                      w.path AS workspace_path,
+                      w.pr_id AS pr_id,
+                      p.number,
+                      p.org,
+                      p.repo,
+                      p.base_branch
+                 FROM workspaces w
+                 JOIN prs p ON p.id = w.pr_id
+                WHERE w.id = ?
+                  AND w.work_item_id IS NULL
+                  AND w.status = 'active'
+                  AND w.operation_state = 'ready'`,
+            )
+            .get(session.workspace_id);
+          if (target) {
+            review = peerReviewCoordinator.claim({
+              workspaceId: session.workspace_id,
+              sessionId: session.session_id,
+              reviewerProvider,
+            });
+          }
+        }
+        if (!target) {
+          throw Object.assign(new Error('The selected pull request workspace is not ready for review'), {
+            code: 'review_not_ready',
+          });
+        }
         const response = await reviewServices[reviewerProvider].run({
           reviewId: review.id,
-          workspace: { id: row.workspace_id, path: row.workspace_path },
+          workspace: { id: target.workspace_id, path: target.workspace_path },
           pr: {
-            id: row.pr_id,
-            number: row.number,
-            org: row.org,
-            repo: row.repo,
-            base_branch: row.base_branch,
+            id: target.pr_id,
+            number: target.number,
+            org: target.org,
+            repo: target.repo,
+            base_branch: target.base_branch,
           },
           signal: ctx?.signal,
         });
@@ -183,20 +232,21 @@ export const actionRegistry = {
       'Start a reference-based work item and wait for Patrol to prepare its repository workspaces. Returns the ready work item, or its structured error state when preparation fails.',
     schema: z.object({
       reference: z.string().min(1).max(512).describe('Issue or task reference understood by the configured resolver'),
-      work_provider: z.enum(['claude', 'codex']).describe('Agent provider to use for the work item'),
+      resolver_provider: z.enum(['claude', 'codex']).optional().describe('Provider used only to resolve the reference'),
+      work_provider: z.enum(['claude', 'codex']).optional().describe('Deprecated alias for resolver_provider'),
     }),
     ruleFireable: false,
-    dispatch: ({ reference, work_provider }) => ({
+    dispatch: ({ reference, resolver_provider, work_provider }) => ({
       method: 'POST',
       path: '/api/work-items',
-      body: { reference, work_provider },
+      body: { source: 'reference', reference, resolver_provider: resolver_provider ?? work_provider },
     }),
     transform: (result) => result.work_item,
-    mcpHandler: async (app, { reference, work_provider }) => {
+    mcpHandler: async (app, { reference, resolver_provider, work_provider }) => {
       const result = await inject(app, {
         method: 'POST',
         path: '/api/work-items',
-        body: { reference, work_provider },
+        body: { source: 'reference', reference, resolver_provider: resolver_provider ?? work_provider },
       });
       await app.appContext.workItemService.waitForIdle(result.work_item.id);
       return app.appContext.workItemService.detail(result.work_item.id);
@@ -237,6 +287,35 @@ export const actionRegistry = {
         path: `/api/work-items/${encodeURIComponent(targetId)}/repositories`,
         body: { repository: repo, ...(revision === undefined ? {} : { revision }) },
       });
+    },
+  },
+
+  list_available_repositories: {
+    description:
+      "List configured local repositories that can be added to a work item. Omit work_item_id when calling from that work item's own session. Returns default revisions, attachment state, and truthful availability without exposing unattached filesystem paths.",
+    schema: z.object({
+      work_item_id: z.string().min(1).optional().describe('Target work-item ID; inferred from a work-item caller'),
+    }),
+    ruleFireable: false,
+    mcpHandler: async (app, { work_item_id }, ctx) => {
+      const targetId =
+        work_item_id ??
+        (ctx?.callerSessionId
+          ? app.appContext.getDb().prepare('SELECT work_item_id FROM sessions WHERE id = ?').get(ctx.callerSessionId)
+              ?.work_item_id
+          : null);
+      if (!targetId) {
+        return {
+          ok: false,
+          error: 'work_item_id_required',
+          message: 'work_item_id is required outside a work-item session',
+        };
+      }
+      try {
+        return { ok: true, repositories: app.appContext.workItemService.availableRepositories(targetId) };
+      } catch (error) {
+        return { ok: false, error: error.code ?? 'repository_listing_failed', message: error.message };
+      }
     },
   },
 
@@ -337,23 +416,51 @@ export const actionRegistry = {
   },
 
   create_workspace: {
-    description: 'Create a jj workspace (colocated worktree) for a PR. Returns the workspace path you should cd into.',
+    description: 'Create a one-repository work item for a PR and prepare its jj checkout.',
     schema: z.object({
       pr_id: z.string().describe('PR database ID (e.g. "org/repo#42")'),
     }),
     ruleFireable: true,
-    dispatch: ({ pr_id }) => ({ method: 'POST', path: '/api/workspaces', body: { pr_id } }),
+    dispatch: ({ pr_id }) => ({
+      method: 'POST',
+      path: '/api/work-items',
+      body: { source: 'pull_request', pr_id },
+    }),
+    transform: (result) => result.work_item,
+    mcpHandler: async (app, { pr_id }) => {
+      const result = await inject(app, {
+        method: 'POST',
+        path: '/api/work-items',
+        body: { source: 'pull_request', pr_id },
+      });
+      await app.appContext.workItemService.waitForIdle(result.work_item.id);
+      return app.appContext.workItemService.detail(result.work_item.id);
+    },
   },
 
   create_scratch_workspace: {
     description:
-      'Create a scratch workspace to start new work without an existing PR. Specify a repo and branch name. Returns the workspace path you should cd into.',
+      'Create a manual work item without an external reference. The compatibility name is retained for callers that previously created one-repository scratch workspaces.',
     schema: z.object({
       repo: z.string().describe('Repository in "org/repo" format (e.g. "myorg/myrepo")'),
       branch: z.string().describe('Branch name for the new work (e.g. "feat/dark-mode")'),
     }),
     ruleFireable: true,
-    dispatch: ({ repo, branch }) => ({ method: 'POST', path: '/api/workspaces', body: { repo, branch } }),
+    dispatch: ({ repo, branch }) => ({
+      method: 'POST',
+      path: '/api/work-items',
+      body: { source: 'manual', title: branch, bookmark: branch, repositories: [repo] },
+    }),
+    transform: (result) => result.work_item,
+    mcpHandler: async (app, { repo, branch }) => {
+      const result = await inject(app, {
+        method: 'POST',
+        path: '/api/work-items',
+        body: { source: 'manual', title: branch, bookmark: branch, repositories: [repo] },
+      });
+      await app.appContext.workItemService.waitForIdle(result.work_item.id);
+      return app.appContext.workItemService.detail(result.work_item.id);
+    },
   },
 
   list_workspaces: {
@@ -808,11 +915,12 @@ export const actionRegistry = {
                   w.bookmark      AS bookmark,
                   w.path          AS workspace_path,
                   wi.title        AS work_item_title,
-                  wi.reference    AS work_item_reference,
+                  wir.reference   AS work_item_reference,
                   wi.path         AS work_item_path
              FROM sessions s
              LEFT JOIN workspaces w ON w.id = s.workspace_id
              LEFT JOIN work_items wi ON wi.id = s.work_item_id
+             LEFT JOIN work_item_references wir ON wir.work_item_id = wi.id
             WHERE (s.status = 'active' OR (s.status = 'detached' AND s.work_item_id IS NOT NULL))
               AND (s.workspace_id IS NULL OR w.work_item_id IS NULL)
             ORDER BY s.started_at DESC`,

@@ -575,12 +575,15 @@ async function dispatchClaude(ctx, prompt, runRow) {
   if (existing) updateRunRow(runRow, { workspace_id: existing.id });
 
   try {
-    const result = await ensureSessionAndSend({
-      pr_id: ctx.pr_id,
-      prompt,
-      autoCreate: true,
-      waitForBusy: !!ctx.waitForBusy,
-    });
+    const result = await ensureSessionAndSend(
+      {
+        pr_id: ctx.pr_id,
+        prompt,
+        autoCreate: true,
+        waitForBusy: !!ctx.waitForBusy,
+      },
+      app?.appContext,
+    );
     updateRunRow(runRow, { workspace_id: result.workspace_id, session_id: result.session_id });
   } catch (e) {
     // Best-effort observability: if the dispatcher created a workspace

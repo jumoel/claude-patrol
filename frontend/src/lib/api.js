@@ -117,13 +117,13 @@ export async function fetchWorkspaces(prId) {
 /**
  * Create a workspace for a PR.
  * @param {string} prId
- * @returns {Promise<import('../types').Workspace>}
+ * @returns {Promise<{work_item: import('../types').WorkItemListItem}>}
  */
 export async function createWorkspace(prId) {
-  const res = await fetch(`${BASE}/api/workspaces`, {
+  const res = await fetch(`${BASE}/api/work-items`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ pr_id: prId }),
+    body: JSON.stringify({ source: 'pull_request', pr_id: prId }),
   });
   if (!res.ok) {
     throw new Error((await readError(res)) || `Failed to create workspace: ${res.status}`);
@@ -135,13 +135,13 @@ export async function createWorkspace(prId) {
  * Create a scratch workspace (no PR).
  * @param {string} repo - "org/repo" format
  * @param {string} branch - branch name
- * @returns {Promise<import('../types').Workspace>}
+ * @returns {Promise<{work_item: import('../types').WorkItemListItem}>}
  */
 export async function createScratchWorkspace(repo, branch) {
-  const res = await fetch(`${BASE}/api/workspaces`, {
+  const res = await fetch(`${BASE}/api/work-items`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ repo, branch }),
+    body: JSON.stringify({ source: 'manual', title: branch, bookmark: branch, repositories: [repo] }),
   });
   if (!res.ok) {
     throw new Error((await readError(res)) || `Failed to create scratch workspace: ${res.status}`);
@@ -161,26 +161,31 @@ export async function fetchWorkspace(id) {
 }
 
 /**
- * Fetch the current explicit peer review lifecycle for a workspace.
- * @param {string} workspaceId
+ * Fetch the current explicit peer review lifecycle for a local-work target.
+ * @param {{type: 'workspace'|'work_item', id: string}} target
+ * @param {string} [prId]
  * @returns {Promise<import('../types').PeerReviewStatusResponse>}
  */
-export async function fetchPeerReviewState(workspaceId) {
-  const res = await fetch(`${BASE}/api/workspaces/${workspaceId}/peer-review`);
+export async function fetchPeerReviewState(target, prId) {
+  const type = target.type === 'work_item' ? 'work-items' : 'workspaces';
+  const query = target.type === 'work_item' && prId ? `?pr_id=${encodeURIComponent(prId)}` : '';
+  const res = await fetch(`${BASE}/api/${type}/${encodeURIComponent(target.id)}/peer-review${query}`);
   if (!res.ok) throw new Error((await readError(res)) || `Failed to fetch peer review: ${res.status}`);
   return readJson(res);
 }
 
 /**
  * Ask the attached session to run its reserved inverse-provider review tool.
- * @param {string} workspaceId
+ * @param {{type: 'workspace'|'work_item', id: string}} target
+ * @param {string} [prId]
  * @returns {Promise<{review: import('../types').PeerReview, dispatchedAt: number}>}
  */
-export async function requestPeerReview(workspaceId) {
-  const res = await fetch(`${BASE}/api/workspaces/${workspaceId}/peer-review`, {
+export async function requestPeerReview(target, prId) {
+  const type = target.type === 'work_item' ? 'work-items' : 'workspaces';
+  const res = await fetch(`${BASE}/api/${type}/${encodeURIComponent(target.id)}/peer-review`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({}),
+    body: JSON.stringify(target.type === 'work_item' ? { pr_id: prId } : {}),
   });
   if (!res.ok) throw new Error((await readError(res)) || `Failed to request peer review: ${res.status}`);
   return readJson(res);
@@ -286,11 +291,11 @@ export async function killSession(sessionId) {
 }
 
 /**
- * Promote a global session to a scratch workspace.
+ * Promote a global session to a one-repository manual work item.
  * @param {string} sessionId
  * @param {string} repo - "org/repo" format
  * @param {string} branch - branch name
- * @returns {Promise<{workspace: import('../types').Workspace, session: import('../types').Session}>}
+ * @returns {Promise<{work_item: import('../types').WorkItemDetail, session: import('../types').Session}>}
  */
 export async function promoteSession(sessionId, repo, branch) {
   const res = await fetch(`${BASE}/api/sessions/${sessionId}/promote`, {
@@ -377,15 +382,33 @@ export async function unlinkWorkItemPullRequest(workItemId, pr) {
   return /** @type {Promise<{removed: boolean, pr_id: string, work_item_id: string}>} */ (readJson(response));
 }
 
-/** @param {string} reference @param {import('../types').AgentProvider} workProvider */
-export async function createWorkItem(reference, workProvider) {
+/** @param {string} reference @param {import('../types').AgentProvider} resolverProvider */
+export async function createWorkItem(reference, resolverProvider) {
   const response = await fetch(`${BASE}/api/work-items`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ reference, work_provider: workProvider }),
+    body: JSON.stringify({ source: 'reference', reference, resolver_provider: resolverProvider }),
   });
   if (!response.ok) {
     throw new Error((await readError(response)) || `Failed to create work item: ${response.status}`);
+  }
+  return /** @type {Promise<{work_item: import('../types').WorkItemListItem}>} */ (readJson(response));
+}
+
+/** @param {string} title @param {string[]} repositories @param {string} [bookmark] */
+export async function createManualWorkItem(title, repositories, bookmark) {
+  const response = await fetch(`${BASE}/api/work-items`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      source: 'manual',
+      title,
+      repositories,
+      ...(bookmark?.trim() ? { bookmark: bookmark.trim() } : {}),
+    }),
+  });
+  if (!response.ok) {
+    throw new Error((await readError(response)) || `Failed to create manual work item: ${response.status}`);
   }
   return /** @type {Promise<{work_item: import('../types').WorkItemListItem}>} */ (readJson(response));
 }
