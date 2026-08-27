@@ -1,6 +1,6 @@
 /** Schema v7 intentionally resets every pre-v7 database. */
 
-export const CURRENT_SCHEMA_VERSION = 13;
+export const CURRENT_SCHEMA_VERSION = 14;
 
 function createWorkspaceOrphansTable(db) {
   db.exec(`

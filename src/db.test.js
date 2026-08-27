@@ -81,6 +81,33 @@ test('a new database is migrated to the current schema', () => {
   assert.ok(workItemColumns.has('reference_url'));
 });
 
+test('the v13 migration creates workspace orphan storage for existing databases', () => {
+  const path = join(temporaryDirectory(), 'v13.db');
+  let db = initDb(path);
+  const now = '2026-08-27T12:00:00.000Z';
+  db.prepare(
+    `INSERT INTO work_items (
+      id, reference, path, work_provider, resolver_provider, state, stage,
+      created_at, updated_at
+    ) VALUES ('item-1', 'ECO-2364', '/tmp/item-1', 'codex', 'codex', 'ready', 'complete', ?, ?)`,
+  ).run(now, now);
+  db.exec('DROP TABLE workspace_orphans; PRAGMA user_version = 13');
+  closeDb();
+
+  db = initDb(path);
+
+  assert.equal(db.prepare('PRAGMA user_version').get().user_version, CURRENT_SCHEMA_VERSION);
+  assert.ok(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'workspace_orphans'").get());
+  assert.deepEqual(
+    { ...db.prepare('SELECT id, reference FROM work_items WHERE id = ?').get('item-1') },
+    {
+      id: 'item-1',
+      reference: 'ECO-2364',
+    },
+  );
+  assert.equal(readFileSync(`${path}.backup-v13-to-v${CURRENT_SCHEMA_VERSION}`).length > 0, true);
+});
+
 test('the v12 migration preserves work items and adds provider-native reference fields', () => {
   const path = join(temporaryDirectory(), 'v12.db');
   const legacy = new DatabaseSync(path);
