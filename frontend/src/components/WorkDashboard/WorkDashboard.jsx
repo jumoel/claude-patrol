@@ -453,25 +453,7 @@ export function WorkDashboard({
 
   return (
     <div className={styles.dashboard}>
-      <div className={styles.summaryRow}>
-        <nav className={styles.summary} aria-label="Dashboard summary">
-          {dashboard.sources.pull_requests.status !== 'disabled' && (
-            <span>
-              <b>{dashboard.counts.open_pull_requests ?? 'Unavailable'}</b> open PRs
-            </span>
-          )}
-          <span>
-            <b>{dashboard.counts.work_items ?? 'Unavailable'}</b> work items
-          </span>
-          <span>
-            <b>{dashboard.counts.active_workspaces ?? 'Unavailable'}</b> active workspaces
-          </span>
-          <span>
-            <b>{dashboard.counts.live_sessions ?? 'Unavailable'}</b> live sessions
-          </span>
-        </nav>
-        {startWorkLauncher}
-      </div>
+      {startWorkLauncher && <div className={styles.launcherRow}>{startWorkLauncher}</div>}
 
       {(unavailableSources.length > 0 || staleSources.length > 0) && (
         <div className={styles.sourceNotice}>

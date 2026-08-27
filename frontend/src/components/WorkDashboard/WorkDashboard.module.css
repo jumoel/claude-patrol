@@ -18,48 +18,16 @@
   font-size: 14px;
 }
 
-.summaryRow {
+.launcherRow {
   display: flex;
   min-height: 28px;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 2px;
+  justify-content: flex-end;
   margin-bottom: 8px;
 }
 
-.summary {
-  display: flex;
-  min-height: 28px;
-  align-items: center;
-  gap: 2px;
-  color: var(--muted);
-}
-
-.summary span {
-  display: inline-flex;
-  height: 28px;
-  align-items: center;
-  justify-content: center;
-  padding: 3px 8px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 12px;
-  white-space: nowrap;
-}
-
-.summary b {
-  margin-right: 3px;
-  color: var(--ink);
-  font-weight: 500;
-  font-variant-numeric: tabular-nums;
-}
-
-.summaryRow > section {
-  margin: 0 0 0 auto;
-}
-
-.summaryRow > section:has(h2) {
+.launcherRow > section:has(h2) {
   width: 100%;
-  margin-left: 0;
 }
 
 .sourceNotice {
@@ -664,17 +632,8 @@ tbody tr:focus-visible {
     flex-basis: 100%;
   }
 
-  .summaryRow {
-    flex-wrap: wrap;
-    gap: 8px;
-  }
-
-  .summary {
-    flex-wrap: wrap;
-  }
-
-  .summaryRow > section {
-    margin-left: 0;
+  .launcherRow {
+    justify-content: flex-start;
   }
 
   .waitingList a,

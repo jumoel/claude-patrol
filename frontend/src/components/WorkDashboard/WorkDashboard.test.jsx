@@ -85,6 +85,23 @@ test('renders a multi-PR work item once and keeps child PR links independent', (
   assert.equal(container.querySelectorAll('[aria-label="PR Open"]').length, 0);
 });
 
+test('omits aggregate counters without hiding the start-work action', () => {
+  render(
+    <WorkDashboard
+      {...defaultProps}
+      startWorkLauncher={
+        <section>
+          <button type="button">+ Start work</button>
+        </section>
+      }
+    />,
+  );
+
+  assert.equal(screen.queryByRole('navigation', { name: 'Dashboard summary' }), null);
+  assert.equal(screen.queryByText('open PRs'), null);
+  assert.ok(screen.getByRole('button', { name: '+ Start work' }));
+});
+
 test('places LLM progress before repository and pull-request detail', () => {
   const { container } = render(<WorkDashboard {...defaultProps} />);
   const headings = [...container.querySelectorAll('thead th')].map((heading) => heading.textContent?.trim());
