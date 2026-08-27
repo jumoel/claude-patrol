@@ -44,7 +44,7 @@ export function registerSessionRoutes(app) {
         ? (getSessionStates().find((entry) => entry.sessionId === row.id) ?? null)
         : (stateBySessionId.get(row.id) ?? null);
     const activityChangedAt =
-      activity?.state === 'idle' && row.work_item_id
+      activity?.state === 'idle'
         ? (row.last_idle_at ?? activity.activity_changed_at)
         : (activity?.activity_changed_at ?? null);
     return {

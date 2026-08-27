@@ -35,6 +35,19 @@ test('persists one acknowledgement per session idle transition', async () => {
   assert.equal(result.current.acknowledgedIdle.size, 0);
 });
 
+test('keeps an acknowledgement when restart restores the same idle timestamp', async () => {
+  localStorage.setItem(
+    'claude-patrol-waiting-ack-v1',
+    JSON.stringify({ [idleSession.id]: idleSession.activity_changed_at }),
+  );
+
+  const { result } = renderHook(() => useWaitingAcknowledgements([idleSession], true));
+
+  await waitFor(() =>
+    assert.equal(result.current.acknowledgedIdle.get(idleSession.id), idleSession.activity_changed_at),
+  );
+});
+
 test('synchronizes acknowledgements from another tab', async () => {
   const { result } = renderHook(() => useWaitingAcknowledgements([idleSession], true));
   localStorage.setItem(

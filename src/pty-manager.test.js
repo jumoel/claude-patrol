@@ -790,6 +790,69 @@ it('polls reattached sessions until their provider reports a terminal state', as
   killSession('reattach-status', { killTmux() {}, isTmuxAlive: () => false });
 });
 
+it('restores the stored idle timestamp instead of creating a new waiting transition', async () => {
+  initDb(':memory:');
+  const storedIdleAt = '2026-08-27T12:00:00.000Z';
+  const now = new Date().toISOString();
+  const insert = getDb().prepare(
+    `INSERT INTO sessions (id, name, pid, provider, status, started_at, last_idle_at)
+     VALUES (?, ?, 11, 'codex', 'active', ?, ?)`,
+  );
+  insert.run('reattach-with-stored-idle', 'Stored idle', now, storedIdleAt);
+  insert.run('reattach-never-idle', 'No stored idle', now, null);
+
+  const exitHandlers = new Map();
+  const runtime = {
+    isTmuxAlive: () => true,
+    execFileSync() {},
+    spawnPty(_file, args) {
+      const sessionId = args.at(-1).replace('patrol-', '');
+      return {
+        pid: 12,
+        onData() {},
+        onExit(handler) {
+          exitHandlers.set(sessionId, handler);
+        },
+        kill() {
+          exitHandlers.get(sessionId)?.({ exitCode: 0 });
+        },
+        write() {},
+        resize() {},
+      };
+    },
+  };
+
+  assert.equal(reattachOrphanedSessions(runtime), 2);
+  assert.equal(
+    await pollReattachedSessionStatuses({
+      probe: async () =>
+        new Map([
+          ['reattach-with-stored-idle', { state: 'idle', source: 'codex_status_poll' }],
+          ['reattach-never-idle', { state: 'idle', source: 'codex_status_poll' }],
+        ]),
+    }),
+    2,
+  );
+
+  const states = new Map(getSessionStates().map((state) => [state.sessionId, state]));
+  assert.equal(states.get('reattach-with-stored-idle').activity_changed_at, storedIdleAt);
+  assert.equal(states.get('reattach-never-idle').activity_changed_at, null);
+  assert.deepEqual(
+    getDb()
+      .prepare('SELECT id, last_idle_at FROM sessions ORDER BY id')
+      .all()
+      .map((row) => ({ ...row })),
+    [
+      { id: 'reattach-never-idle', last_idle_at: null },
+      { id: 'reattach-with-stored-idle', last_idle_at: storedIdleAt },
+    ],
+  );
+
+  for (const sessionId of states.keys()) {
+    killSession(sessionId, { killTmux() {}, isTmuxAlive: () => false });
+  }
+});
+
 it('restores provider activity credentials when reattaching a session', () => {
   initDb(':memory:');
   const now = new Date().toISOString();

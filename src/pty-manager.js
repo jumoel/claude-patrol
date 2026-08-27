@@ -254,20 +254,29 @@ function attachPtyToTmux(sessionId, meta = {}, runtime = DEFAULT_SESSION_RUNTIME
     lastWorkingAt: null,
     lastIdleAt: null,
     persistedIdleAt: sessionRow.last_idle_at ?? null,
+    activityChangedAt: null,
+    // The first post-reattach idle observation restores persisted UI state. It
+    // does not prove that a new idle transition happened during the restart.
+    restoringPersistedIdle: false,
   };
   const activity = new SessionActivityTracker({
     idleThresholdMs: runtime.activityIdleThresholdMs,
     onState: ({ state, changedAt, confirmed, outcome, source }) => {
       const snapshot = activity.snapshot();
-      const activityChangedAt = new Date(changedAt).toISOString();
+      const transitionChangedAt = new Date(changedAt).toISOString();
       entry.activityState = snapshot.activityState;
       entry.lastWorkingAt = snapshot.lastWorkingAt;
       entry.lastIdleAt = snapshot.lastIdleAt;
-      if (state === 'idle' && target.type === 'work_item') {
-        entry.persistedIdleAt = activityChangedAt;
-        db.prepare('UPDATE sessions SET last_idle_at = ? WHERE id = ?').run(activityChangedAt, sessionId);
+      if (state === 'idle') {
+        if (!entry.restoringPersistedIdle) {
+          entry.persistedIdleAt = transitionChangedAt;
+          db.prepare('UPDATE sessions SET last_idle_at = ? WHERE id = ?').run(transitionChangedAt, sessionId);
+        }
+        entry.activityChangedAt = entry.persistedIdleAt;
+      } else {
+        entry.activityChangedAt = transitionChangedAt;
       }
-      emitSessionState(sessionId, target, state, activityChangedAt, {
+      emitSessionState(sessionId, target, state, entry.activityChangedAt, {
         confirmed,
         outcome,
         source,
@@ -372,7 +381,12 @@ export async function pollReattachedSessionStatuses({ probe = pollProviderSessio
         reattachedSessionsAwaitingStatus.delete(sessionId);
         continue;
       }
-      entry.activity.handleStatusPoll(status);
+      entry.restoringPersistedIdle = entry.activity.snapshot().activityState === null && status.state !== 'working';
+      try {
+        entry.activity.handleStatusPoll(status);
+      } finally {
+        entry.restoringPersistedIdle = false;
+      }
       applied++;
       if (status.state !== 'working') reattachedSessionsAwaitingStatus.delete(sessionId);
     }
@@ -1007,26 +1021,20 @@ export function getSessionSnapshot(sessionId) {
 /**
  * Get the current activity state for all tracked sessions.
  * Used to seed new SSE clients with the current state.
- * @returns {Array<{ sessionId: string, target: object, workspaceId: string | null, workItemId: string | null, state: 'working' | 'idle', activity_changed_at: string }>}
+ * @returns {Array<{ sessionId: string, target: object, workspaceId: string | null, workItemId: string | null, state: 'working' | 'idle', activity_changed_at: string | null }>}
  */
 export function getSessionStates() {
   const results = [];
   for (const [sessionId, entry] of sessions) {
     const snapshot = entry.activity.snapshot();
     if (snapshot.activityState) {
-      const inMemoryChangedAt = new Date(
-        snapshot.activityState === 'idle' ? snapshot.lastIdleAt : snapshot.lastWorkingAt,
-      ).toISOString();
       results.push({
         sessionId,
         target: entry.target,
         workspaceId: entry.target.type === 'workspace' ? entry.target.id : null,
         workItemId: entry.target.type === 'work_item' ? entry.target.id : null,
         state: snapshot.activityState,
-        activity_changed_at:
-          snapshot.activityState === 'idle' && entry.target.type === 'work_item'
-            ? (entry.persistedIdleAt ?? inMemoryChangedAt)
-            : inMemoryChangedAt,
+        activity_changed_at: entry.activityChangedAt,
         confirmed: snapshot.completionConfirmed,
         completion_outcome: snapshot.completionOutcome,
         activity_source: snapshot.activitySource,
