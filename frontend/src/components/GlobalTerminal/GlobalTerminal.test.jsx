@@ -127,7 +127,9 @@ test('renders accessible tabs and mounts only the selected terminal', async () =
 
 test('keeps the session bar visible while the terminal panel is closed', () => {
   const { callbacks } = renderTerminal({ open: false });
+  const region = screen.getByRole('region', { name: 'Global sessions' });
   assert.ok(screen.getByRole('button', { name: /Global sessions.*2/u }));
+  assert.equal(region.previousElementSibling, null);
   assert.equal(screen.getAllByRole('tab').length, 2);
   assert.ok(screen.getByRole('button', { name: /Create/u }));
   assert.equal(screen.queryByRole('separator', { name: 'Resize terminal' }), null);

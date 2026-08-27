@@ -66,7 +66,7 @@ test('uses the same content container on dashboard and detail pages', () => {
       <p>Work</p>
     </AppShell>,
   );
-  const dashboardContentClass = container.querySelector('main')?.className;
+  const dashboardContentClass = container.querySelector('main > div')?.className;
 
   rerender(
     <AppShell {...baseProps} pollConfigured onBackToWork={vi.fn()}>
@@ -74,7 +74,20 @@ test('uses the same content container on dashboard and detail pages', () => {
     </AppShell>,
   );
 
-  assert.equal(container.querySelector('main')?.className, dashboardContentClass);
+  assert.equal(container.querySelector('main > div')?.className, dashboardContentClass);
+});
+
+test('keeps the bottom bar outside the scrolling page viewport', () => {
+  const { container } = render(
+    <AppShell {...baseProps} pollConfigured bottomBar={<div data-testid="bottom-bar">Shells</div>}>
+      <p>Work</p>
+    </AppShell>,
+  );
+  const main = container.querySelector('main');
+  const bottomBar = screen.getByTestId('bottom-bar');
+
+  assert.equal(main?.contains(bottomBar), false);
+  assert.equal(bottomBar.parentElement, main?.parentElement);
 });
 
 test('shows a spinner instead of a status dot while syncing', () => {

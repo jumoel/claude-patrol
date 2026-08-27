@@ -1,13 +1,15 @@
 @reference "tailwindcss";
 
 .drawer {
-  @apply fixed bottom-0 left-0 right-0 flex flex-col;
+  @apply flex shrink-0 flex-col;
   --line: #d7dce3;
   --ink: #1c2430;
   --muted: #606b78;
   --blue: #2764b0;
   --blue-soft: #e7f0fb;
+  position: relative;
   z-index: 70;
+  max-height: calc(100dvh - var(--app-header-height, 0px));
   color: var(--ink);
   background: #fff;
   border-top: 1px solid var(--line);
@@ -168,6 +170,7 @@
 
 .content {
   @apply min-h-0;
+  overflow: hidden;
 }
 
 .contentHidden {

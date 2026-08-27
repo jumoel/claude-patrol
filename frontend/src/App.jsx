@@ -282,6 +282,22 @@ export default function App() {
       startupSha={startupSha}
       currentSha={currentSha}
       ghRateLimit={ghRateLimit}
+      bottomBar={
+        applicationDataEnabled ? (
+          <GlobalTerminal
+            open={terminalOpen}
+            onToggle={toggleTerminal}
+            sessions={globalSessionState.sessions}
+            activeSession={globalSessionState.activeSession}
+            loading={globalSessionState.loading}
+            loadError={globalSessionState.error}
+            onReload={globalSessionState.reload}
+            onSelectSession={globalSessionState.selectSession}
+            onUpsertSession={globalSessionState.upsertSession}
+            onRemoveSession={globalSessionState.removeSession}
+          />
+        ) : null
+      }
     >
       {route.type === 'setup' ? (
         <SetupMode onConfigured={handleConfigured} isFirstRun={needsSetup === true} section={route.section} />
@@ -317,33 +333,19 @@ export default function App() {
         />
       )}
       {applicationDataEnabled && (
-        <>
-          <GlobalTerminal
-            open={terminalOpen}
-            onToggle={toggleTerminal}
-            sessions={globalSessionState.sessions}
-            activeSession={globalSessionState.activeSession}
-            loading={globalSessionState.loading}
-            loadError={globalSessionState.error}
-            onReload={globalSessionState.reload}
-            onSelectSession={globalSessionState.selectSession}
-            onUpsertSession={globalSessionState.upsertSession}
-            onRemoveSession={globalSessionState.removeSession}
-          />
-          <CommandPalette
-            prs={allPRs}
-            workItems={workItemSource.workItems}
-            scratchWorkspaces={scratchWorkspaces}
-            workspaceStates={targetStates}
-            dismissedIdle={dismissedIdle}
-            globalSessions={globalSessionState.sessions}
-            onNavigate={navigateToPR}
-            onNavigateWorkspace={navigateToWorkspace}
-            onNavigateWorkItem={navigateToWorkItem}
-            onOpenGlobalTerminal={openGlobalTerminal}
-            onCloseGlobalTerminal={closeGlobalTerminal}
-          />
-        </>
+        <CommandPalette
+          prs={allPRs}
+          workItems={workItemSource.workItems}
+          scratchWorkspaces={scratchWorkspaces}
+          workspaceStates={targetStates}
+          dismissedIdle={dismissedIdle}
+          globalSessions={globalSessionState.sessions}
+          onNavigate={navigateToPR}
+          onNavigateWorkspace={navigateToWorkspace}
+          onNavigateWorkItem={navigateToWorkItem}
+          onOpenGlobalTerminal={openGlobalTerminal}
+          onCloseGlobalTerminal={closeGlobalTerminal}
+        />
       )}
     </AppShell>
   );

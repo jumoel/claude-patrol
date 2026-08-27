@@ -20,12 +20,24 @@
   --red-soft: #fbe5e2;
   --purple: #7751aa;
   --purple-soft: #efe7f8;
-  min-height: 100vh;
+  display: flex;
+  height: 100vh;
+  height: 100dvh;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
   color: var(--ink);
   background: var(--canvas);
   font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-size: 14px;
   line-height: 1.45;
+}
+
+.pageViewport {
+  width: 100%;
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-y: auto;
 }
 
 .header {

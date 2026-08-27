@@ -44,6 +44,7 @@ function formatResetCountdown(resetAt) {
  *   startupSha: string,
  *   currentSha: string,
  *   ghRateLimit: import('../../types').GhRateLimit | null,
+ *   bottomBar?: React.ReactNode,
  *   children: React.ReactNode,
  * }} props
  */
@@ -62,6 +63,7 @@ export function AppShell({
   startupSha,
   currentSha,
   ghRateLimit,
+  bottomBar,
   children,
 }) {
   const [dismissed, setDismissed] = useState(false);
@@ -303,7 +305,10 @@ export function AppShell({
           </div>
         </div>
       )}
-      <main className={styles.content}>{children}</main>
+      <main className={styles.pageViewport}>
+        <div className={styles.content}>{children}</div>
+      </main>
+      {bottomBar}
     </div>
   );
 }

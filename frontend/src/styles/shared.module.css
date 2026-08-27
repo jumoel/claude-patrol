@@ -82,8 +82,9 @@
 /* ---- Terminal ---- */
 
 .terminalOverlay {
-  @apply fixed left-0 right-0 bottom-0 z-40 bg-gray-900 flex flex-col overflow-hidden;
+  @apply fixed left-0 right-0 z-40 bg-gray-900 flex flex-col overflow-hidden;
   top: var(--app-header-height, 0px);
+  bottom: var(--global-terminal-height, 0px);
 }
 
 .overlayHeader {
