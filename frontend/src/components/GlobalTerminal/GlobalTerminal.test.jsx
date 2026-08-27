@@ -155,6 +155,8 @@ test('creates a global session only from the explicit create control', async () 
   api.createSession.mockResolvedValue(created);
   const { callbacks } = renderTerminal({ open: false, sessions: [], activeSession: null });
 
+  assert.ok(screen.getByRole('button', { name: 'Global sessions, 0 running' }));
+  assert.equal(screen.queryByText('No running sessions'), null);
   assert.equal(api.createSession.mock.calls.length, 0);
   await user.click(screen.getByRole('button', { name: /Create/u }));
 

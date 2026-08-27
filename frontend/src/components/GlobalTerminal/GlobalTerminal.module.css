@@ -89,14 +89,6 @@
   background: var(--blue-soft);
 }
 
-.emptyState {
-  @apply shrink-0;
-  padding: 0 4px;
-  color: var(--muted);
-  font-size: 12px;
-  white-space: nowrap;
-}
-
 .createGroup {
   @apply shrink-0;
 }

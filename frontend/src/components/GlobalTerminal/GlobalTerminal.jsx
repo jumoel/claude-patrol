@@ -301,9 +301,6 @@ export function GlobalTerminal({
           </button>
           <div className={styles.tabsWrap}>
             <div className={styles.tabList} role="tablist" aria-label="Global sessions">
-              {sessions.length === 0 && (
-                <span className={styles.emptyState}>{loading ? 'Loading...' : 'No running sessions'}</span>
-              )}
               {sessions.map((session, index) => {
                 const selected = activeSession?.id === session.id;
                 const sessionName = session.name || (session.provider === 'codex' ? 'Codex' : 'Claude');
