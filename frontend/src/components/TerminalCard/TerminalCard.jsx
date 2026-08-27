@@ -33,6 +33,7 @@ const MAX_TERMINAL_HEIGHT = 900;
  *   prId?: string,
  *   sessionState?: 'working' | 'idle',
  *   presentation?: 'card' | 'work-page' | 'global',
+ *   focusRequest?: number,
  *   controlsDisabled?: boolean,
  *   killPending?: boolean,
  * }} props
@@ -49,6 +50,7 @@ export function TerminalCard({
   prId,
   sessionState,
   presentation = 'card',
+  focusRequest = 0,
   controlsDisabled = false,
   killPending = false,
 }) {
@@ -260,7 +262,7 @@ export function TerminalCard({
             onExit={handleExit}
             onToggleMaximize={toggleWorkPageMaximize}
             focus={terminalOpen || maximized}
-            focusRequest={terminalFocusRequest}
+            focusRequest={terminalFocusRequest + focusRequest}
             borderless
           />
         </div>
@@ -346,7 +348,7 @@ export function TerminalCard({
             onExit={handleExit}
             onToggleMaximize={toggleMaximize}
             focus
-            focusRequest={terminalFocusRequest}
+            focusRequest={terminalFocusRequest + focusRequest}
             borderless
           />
         </div>
@@ -423,7 +425,7 @@ export function TerminalCard({
           wsRef={wsRef}
           onExit={handleExit}
           onToggleMaximize={toggleMaximize}
-          focusRequest={terminalFocusRequest}
+          focusRequest={terminalFocusRequest + focusRequest}
         />
       </div>
       <div className={shared.resizeHandle} {...handleProps}>

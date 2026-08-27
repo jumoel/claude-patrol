@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { useEffect, useRef } from 'react';
 import { beforeEach, test, vi } from 'vitest';
 import { AgentProviderProvider } from '../../context/AgentProviderContext.jsx';
 import { GlobalTerminal } from './GlobalTerminal.jsx';
@@ -19,14 +20,21 @@ const api = vi.hoisted(() => ({
 
 vi.mock('../../lib/api.js', () => api);
 vi.mock('../Terminal/LazyTerminal.jsx', () => ({
-  /** @param {{wsUrl: string, borderless?: boolean, onExit?: (code: number) => void}} props */
-  LazyTerminal: ({ wsUrl, borderless, onExit }) => (
-    <div data-testid="terminal" data-ws-url={wsUrl} data-borderless={String(borderless)}>
-      <button type="button" onClick={() => onExit?.(0)}>
-        Simulate exit
-      </button>
-    </div>
-  ),
+  /** @param {{wsUrl: string, borderless?: boolean, focus?: boolean, focusRequest?: number, onExit?: (code: number) => void}} props */
+  LazyTerminal: ({ wsUrl, borderless, focus, focusRequest, onExit }) => {
+    const inputRef = useRef(/** @type {HTMLTextAreaElement | null} */ (null));
+    useEffect(() => {
+      if (focus || focusRequest) inputRef.current?.focus();
+    }, [focus, focusRequest]);
+    return (
+      <div data-testid="terminal" data-ws-url={wsUrl} data-borderless={String(borderless)}>
+        <textarea ref={inputRef} aria-label="Terminal input" />
+        <button type="button" onClick={() => onExit?.(0)}>
+          Simulate exit
+        </button>
+      </div>
+    );
+  },
 }));
 
 /** @param {Partial<import('../../types').Session> & {id: string}} overrides */
@@ -129,6 +137,16 @@ test('keeps the session bar visible while the terminal panel is closed', () => {
   fireEvent.click(screen.getByRole('tab', { name: 'Reviewer' }));
   assert.deepEqual(callbacks.onSelectSession.mock.calls, [['reviewer']]);
   assert.equal(callbacks.onToggle.mock.calls.length, 1);
+});
+
+test('focuses the terminal after clicking its global session tab', async () => {
+  const user = userEvent.setup();
+  renderTerminal({ sessions: [planner], activeSession: planner });
+  const tab = screen.getByRole('tab', { name: 'Planner' });
+
+  await user.click(tab);
+
+  await waitFor(() => assert.equal(document.activeElement, screen.getByRole('textbox', { name: 'Terminal input' })));
 });
 
 test('creates a global session only from the explicit create control', async () => {

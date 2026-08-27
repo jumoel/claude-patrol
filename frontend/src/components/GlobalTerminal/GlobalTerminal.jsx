@@ -71,6 +71,7 @@ export function GlobalTerminal({
   const [renameValue, setRenameValue] = useState('');
   const [savingName, setSavingName] = useState(false);
   const [drawerHeight, setDrawerHeight] = useState(BAR_HEIGHT);
+  const [terminalFocusRequest, setTerminalFocusRequest] = useState(0);
   const sessionMutationPending = killing || reattaching || promoting || savingName;
   const previousActiveSessionId = useRef(activeSession?.id);
   const drawerRef = useRef(/** @type {HTMLDivElement | null} */ (null));
@@ -217,13 +218,17 @@ export function GlobalTerminal({
   );
 
   const selectTab = useCallback(
-    /** @param {string} sessionId */ (sessionId) => {
+    /** @param {string} sessionId @param {'tab' | 'terminal'} focusTarget */ (sessionId, focusTarget = 'tab') => {
       onSelectSession(sessionId);
       if (maximizedTerminalId()) replaceMaximizedTerminal(sessionId);
       if (!open) onToggle();
-      const tab = document.getElementById(`global-session-tab-${sessionId}`);
-      tab?.focus();
-      requestAnimationFrame(() => tab?.focus());
+      if (focusTarget === 'terminal') {
+        setTerminalFocusRequest((request) => request + 1);
+      } else {
+        const tab = document.getElementById(`global-session-tab-${sessionId}`);
+        tab?.focus();
+        requestAnimationFrame(() => tab?.focus());
+      }
     },
     [onSelectSession, onToggle, open],
   );
@@ -313,7 +318,7 @@ export function GlobalTerminal({
                     tabIndex={selected || (!activeSession && index === 0) ? 0 : -1}
                     className={`${styles.tab} ${selected ? styles.tabActive : ''}`}
                     title={session.status === 'detached' ? `${sessionName} - external terminal` : sessionName}
-                    onClick={() => selectTab(session.id)}
+                    onClick={() => selectTab(session.id, 'terminal')}
                     onKeyDown={(event) => handleTabKeyDown(event, index)}
                   >
                     {sessionName}
@@ -460,6 +465,7 @@ export function GlobalTerminal({
               onReattach={reattachSession}
               sessionState={activeSession.activity_state ?? undefined}
               presentation="global"
+              focusRequest={terminalFocusRequest}
               controlsDisabled={sessionMutationPending}
               killPending={killing}
             />
