@@ -22,9 +22,9 @@ import { Badge } from '../ui/Badge/Badge.jsx';
 import { Box } from '../ui/Box/Box.jsx';
 import { Button } from '../ui/Button/Button.jsx';
 import { LoadingIndicator } from '../ui/LoadingIndicator/LoadingIndicator.jsx';
+import { SessionStateBadge } from '../ui/SessionStateBadge/SessionStateBadge.jsx';
 import { Spinner } from '../ui/Spinner/Spinner.jsx';
 import { Stack } from '../ui/Stack/Stack.jsx';
-import { WorkingBadge } from '../ui/WorkingBadge/WorkingBadge.jsx';
 import { WORK_ITEM_STATE_LABELS } from '../WorkItemStatusBadge/WorkItemStatusBadge.jsx';
 import styles from './WorkItemDetail.module.css';
 
@@ -441,22 +441,15 @@ export function WorkItemDetail({
   const sessionState = targetStates.get(`work-item:${workItem.id}`);
   const attentionState = session ? sessionAttentionState(session, sessionState, acknowledgedSessionIds) : null;
   const repositorySummary = workItem.repository_workspaces.map((repository) => repository.identifier).join(', ');
-  const headerIsWorking = attentionState === 'working';
-  const headerStatusLabel = session
-    ? attentionState === 'waiting'
-      ? 'Waiting'
-      : 'Idle'
-    : WORK_ITEM_STATE_LABELS[workItem.state];
+  const headerStatusLabel = WORK_ITEM_STATE_LABELS[workItem.state];
   const headerStatusColor =
-    headerStatusLabel === 'Waiting'
-      ? /** @type {const} */ ('amber')
-      : headerStatusLabel === 'Failed'
-        ? /** @type {const} */ ('red')
-        : headerStatusLabel === 'Ready'
-          ? /** @type {const} */ ('green')
-          : headerStatusLabel === 'Destroyed' || headerStatusLabel === 'Idle'
-            ? /** @type {const} */ ('gray')
-            : /** @type {const} */ ('blue');
+    headerStatusLabel === 'Failed'
+      ? /** @type {const} */ ('red')
+      : headerStatusLabel === 'Ready'
+        ? /** @type {const} */ ('green')
+        : headerStatusLabel === 'Destroyed'
+          ? /** @type {const} */ ('gray')
+          : /** @type {const} */ ('blue');
 
   return (
     <div className={styles.page}>
@@ -489,8 +482,8 @@ export function WorkItemDetail({
         </div>
         <div className={styles.referenceLine}>
           <span>Work item</span>
-          {headerIsWorking ? (
-            <WorkingBadge className={styles.headerStatus} />
+          {attentionState ? (
+            <SessionStateBadge attentionState={attentionState} className={styles.headerStatus} />
           ) : (
             <Badge color={headerStatusColor} className={styles.headerStatus}>
               <span

@@ -121,7 +121,7 @@ function session() {
   };
 }
 
-function renderDetail(onBack = vi.fn()) {
+function renderDetail(onBack = vi.fn(), workspaceStates = new Map()) {
   return {
     onBack,
     rendered: render(
@@ -129,7 +129,7 @@ function renderDetail(onBack = vi.fn()) {
         <PRDetail
           prId="acme/widgets#42"
           onBack={onBack}
-          workspaceStates={new Map()}
+          workspaceStates={workspaceStates}
           acknowledgedSessionIds={new Set()}
           onAcknowledgeSession={vi.fn()}
         />
@@ -201,6 +201,36 @@ test('existing workspace session stays above PR detail content without duplicate
   assert.equal(terminal.getAttribute('data-workspace'), 'workspace-1');
   assert.equal(terminal.getAttribute('data-pr'), 'acme/widgets#42');
   assert.equal(screen.queryByRole('button', { name: '← Work' }), null);
+});
+
+test('shows the work-item working indicator ahead of failed CI for an active session', async () => {
+  const failing = pullRequest();
+  failing.ci_status = 'fail';
+  api.fetchPR.mockResolvedValue(failing);
+  api.fetchWorkspaces.mockResolvedValue([workspace()]);
+  api.fetchSessions.mockResolvedValue([session()]);
+
+  renderDetail(vi.fn(), new Map([['workspace:workspace-1', 'working']]));
+
+  const working = await screen.findByText('Working');
+  assert.ok(working.closest('[title="Agent is actively working"]'));
+  assert.ok(working.parentElement?.querySelector('[data-spinner="true"]'));
+  assert.equal(screen.queryByText('CI failed'), null);
+  assert.equal(document.querySelector('[data-state-marker="failed"]'), null);
+});
+
+test('shows the shared waiting badge ahead of CI for a session that needs attention', async () => {
+  const failing = pullRequest();
+  failing.ci_status = 'fail';
+  api.fetchPR.mockResolvedValue(failing);
+  api.fetchWorkspaces.mockResolvedValue([workspace()]);
+  api.fetchSessions.mockResolvedValue([session()]);
+
+  renderDetail(vi.fn(), new Map([['workspace:workspace-1', 'idle']]));
+
+  const waiting = await screen.findByText('Waiting');
+  assert.equal(waiting.getAttribute('title'), 'Session waiting for input - needs attention');
+  assert.equal(screen.queryByText('CI failed'), null);
 });
 
 test('failed-check log and workspace cleanup actions keep their API contracts', async () => {

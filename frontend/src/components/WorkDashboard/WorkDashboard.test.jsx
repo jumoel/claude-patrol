@@ -28,7 +28,10 @@ const row = /** @type {import('../../types').DashboardWorkRow} */ ({
   title: 'Grouped work',
   work_reference: { display: 'ONE-1', system: 'tracker', url: null },
   repositories: ['org/repo'],
-  pull_requests: [pullRequest, { ...pullRequest, id: 'org/repo#2', number: 2, title: 'Second PR' }],
+  pull_requests: [
+    pullRequest,
+    { ...pullRequest, id: 'org/repo#2', number: 2, title: 'Second PR', url: 'https://example.test/2' },
+  ],
   sessions: [],
   workspace_count: 1,
   workspace_id: null,
@@ -81,6 +84,14 @@ test('renders a multi-PR work item once and keeps child PR links independent', (
   assert.equal(screen.getAllByText('Grouped work').length, 1);
   assert.ok(screen.getByRole('link', { name: 'Open pull request #1: First PR' }));
   assert.ok(screen.getByRole('link', { name: 'Open pull request #2: Second PR' }));
+  const githubLinks = screen.getAllByRole('link', { name: /on GitHub$/u });
+  assert.deepEqual(
+    githubLinks.map((link) => [link.getAttribute('href'), link.getAttribute('target'), link.textContent]),
+    [
+      ['https://example.test/1', '_blank', 'GitHub'],
+      ['https://example.test/2', '_blank', 'GitHub'],
+    ],
+  );
 
   const primary = screen.getByRole('link', { name: 'Grouped work' });
   const primaryClick = vi.spyOn(primary, 'click').mockImplementation(() => {});
@@ -88,6 +99,8 @@ test('renders a multi-PR work item once and keeps child PR links independent', (
   assert.equal(primaryClick.mock.calls.length, 1);
 
   fireEvent.click(screen.getByRole('link', { name: 'Open pull request #1: First PR' }));
+  assert.equal(primaryClick.mock.calls.length, 1);
+  fireEvent.click(screen.getByRole('link', { name: 'Open pull request #1 on GitHub' }));
   assert.equal(primaryClick.mock.calls.length, 1);
   assert.ok(screen.getByText('PR workspace'));
   assert.ok(screen.getByText('Ready'));

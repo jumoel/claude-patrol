@@ -19,7 +19,7 @@ import { TerminalCard } from '../TerminalCard/TerminalCard.jsx';
 import { Badge } from '../ui/Badge/Badge.jsx';
 import { Button } from '../ui/Button/Button.jsx';
 import { LoadingIndicator } from '../ui/LoadingIndicator/LoadingIndicator.jsx';
-import { WorkingBadge } from '../ui/WorkingBadge/WorkingBadge.jsx';
+import { SessionStateBadge } from '../ui/SessionStateBadge/SessionStateBadge.jsx';
 import workPage from '../WorkPage/WorkPage.module.css';
 import styles from './WorkspaceDetail.module.css';
 
@@ -153,23 +153,9 @@ export function WorkspaceDetail({
   const adopted = Boolean(workspace.pr_id);
   const sessionState = workspaceStates.get(`workspace:${workspace.id}`);
   const attentionState = session ? sessionAttentionState(session, sessionState, acknowledgedSessionIds) : null;
-  const headerIsWorking = attentionState === 'working';
-  const headerStatusLabel =
-    session && attentionState === 'waiting'
-      ? 'Waiting'
-      : session
-        ? 'Idle'
-        : workspace.status === 'destroyed'
-          ? 'Destroyed'
-          : 'Active';
+  const headerStatusLabel = workspace.status === 'destroyed' ? 'Destroyed' : 'Active';
   const headerStatusColor =
-    headerStatusLabel === 'Waiting'
-      ? /** @type {const} */ ('amber')
-      : headerStatusLabel === 'Destroyed'
-        ? /** @type {const} */ ('red')
-        : headerStatusLabel === 'Idle'
-          ? /** @type {const} */ ('gray')
-          : /** @type {const} */ ('green');
+    headerStatusLabel === 'Destroyed' ? /** @type {const} */ ('red') : /** @type {const} */ ('green');
 
   return (
     <div className={workPage.page}>
@@ -183,8 +169,8 @@ export function WorkspaceDetail({
         </div>
         <div className={workPage.kicker}>
           <span>Scratch workspace</span>
-          {headerIsWorking ? (
-            <WorkingBadge className={workPage.detailStatus} />
+          {attentionState ? (
+            <SessionStateBadge attentionState={attentionState} className={workPage.detailStatus} />
           ) : (
             <Badge color={headerStatusColor} className={workPage.detailStatus}>
               <span

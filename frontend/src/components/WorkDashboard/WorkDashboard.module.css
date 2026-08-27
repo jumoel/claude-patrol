@@ -444,7 +444,8 @@ tbody tr:focus-visible {
 }
 
 .workReference,
-.pullRequest > a {
+.pullRequestLink,
+.githubLink {
   color: var(--blue);
   text-decoration: none;
 }
@@ -456,7 +457,8 @@ tbody tr:focus-visible {
 }
 
 .workReference:hover,
-.pullRequest > a:hover,
+.pullRequestLink:hover,
+.githubLink:hover,
 .workTitle:hover {
   text-decoration: underline;
   text-underline-offset: 2px;
@@ -485,15 +487,29 @@ tbody tr:focus-visible {
   gap: 3px;
 }
 
+.pullRequestHeading {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
 .pullRequest + .pullRequest {
   padding-top: 5px;
   border-top: 1px solid var(--line);
 }
 
-.pullRequest > a {
+.pullRequestLink {
   color: var(--ink);
   font-size: 12px;
   overflow-wrap: anywhere;
+}
+
+.githubLink {
+  flex: 0 0 auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
 }
 
 .badges {

@@ -679,12 +679,26 @@ export function WorkDashboard({
                         <span className={styles.pullRequests}>
                           {row.pull_requests.map((pr) => (
                             <span className={styles.pullRequest} key={pr.id}>
-                              <a
-                                href={pullRequestHref(row, pr.id)}
-                                aria-label={`Open pull request #${pr.number}: ${pr.title}`}
-                              >
-                                #{pr.number} {pr.title}
-                              </a>
+                              <span className={styles.pullRequestHeading}>
+                                <a
+                                  className={styles.pullRequestLink}
+                                  href={pullRequestHref(row, pr.id)}
+                                  aria-label={`Open pull request #${pr.number}: ${pr.title}`}
+                                >
+                                  #{pr.number} {pr.title}
+                                </a>
+                                {pr.url && (
+                                  <a
+                                    className={styles.githubLink}
+                                    href={pr.url}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    aria-label={`Open pull request #${pr.number} on GitHub`}
+                                  >
+                                    GitHub
+                                  </a>
+                                )}
+                              </span>
                               <PullRequestBadges pr={pr} />
                             </span>
                           ))}

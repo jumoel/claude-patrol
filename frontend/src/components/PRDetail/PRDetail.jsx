@@ -39,6 +39,7 @@ import { TerminalCard } from '../TerminalCard/TerminalCard.jsx';
 import { Badge } from '../ui/Badge/Badge.jsx';
 import { Button } from '../ui/Button/Button.jsx';
 import { LoadingIndicator } from '../ui/LoadingIndicator/LoadingIndicator.jsx';
+import { SessionStateBadge } from '../ui/SessionStateBadge/SessionStateBadge.jsx';
 import { Spinner } from '../ui/Spinner/Spinner.jsx';
 import { Stack } from '../ui/Stack/Stack.jsx';
 import workPage from '../WorkPage/WorkPage.module.css';
@@ -333,6 +334,13 @@ export function PRDetail({ prId, onBack, workspaceStates, acknowledgedSessionIds
 
   const isMergeReady = checkMergeReady(pr);
   const headlineStatus = getHeadlineStatus(pr);
+  const attentionState = session
+    ? sessionAttentionState(
+        session,
+        workspace ? workspaceStates.get(`workspace:${workspace.id}`) : undefined,
+        acknowledgedSessionIds,
+      )
+    : null;
 
   return (
     <div className={workPage.page}>
@@ -394,10 +402,14 @@ export function PRDetail({ prId, onBack, workspaceStates, acknowledgedSessionIds
         </div>
         <div className={workPage.kicker}>
           <span>Pull request</span>
-          <Badge color={headlineStatus.color} className={styles.headlineStatus}>
-            <span className={styles.headlineStatusDot} data-state-marker={headlineStatus.marker} aria-hidden="true" />
-            {headlineStatus.label}
-          </Badge>
+          {attentionState ? (
+            <SessionStateBadge attentionState={attentionState} className={styles.headlineStatus} />
+          ) : (
+            <Badge color={headlineStatus.color} className={styles.headlineStatus}>
+              <span className={styles.headlineStatusDot} data-state-marker={headlineStatus.marker} aria-hidden="true" />
+              {headlineStatus.label}
+            </Badge>
+          )}
           {pr.labels.map((label) => (
             <span
               key={label.name}
@@ -456,11 +468,7 @@ export function PRDetail({ prId, onBack, workspaceStates, acknowledgedSessionIds
           baseBranch={pr.base_branch}
           workspaceId={workspace?.id}
           prId={pr.id}
-          attentionState={sessionAttentionState(
-            session,
-            workspace ? workspaceStates.get(`workspace:${workspace.id}`) : undefined,
-            acknowledgedSessionIds,
-          )}
+          attentionState={attentionState ?? 'idle'}
           presentation="work-page"
         />
       ) : (
