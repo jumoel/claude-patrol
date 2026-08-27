@@ -21,6 +21,7 @@ import {
   MAX_LIVE_GLOBAL_SESSIONS,
   normalizeGlobalSessionName,
   PATROL_MCP_TIMEOUT_MS,
+  pollReattachedSessionStatuses,
   RingBuffer,
   reattachOrphanedSessions,
   recordProviderActivity,
@@ -724,6 +725,69 @@ it('reattaches every surviving global session after an update', () => {
     killSession(sessionId, { killTmux() {}, isTmuxAlive: () => false });
   }
   assert.equal(activeSessionCount(), 0);
+});
+
+it('polls reattached sessions until their provider reports a terminal state', async () => {
+  initDb(':memory:');
+  getDb()
+    .prepare(
+      `INSERT INTO sessions (id, name, pid, provider, status, started_at)
+       VALUES ('reattach-status', 'Active turn', 11, 'codex', 'active', ?)`,
+    )
+    .run(new Date().toISOString());
+  let exitHandler = null;
+  const runtime = {
+    isTmuxAlive: () => true,
+    execFileSync() {},
+    spawnPty() {
+      return {
+        pid: 12,
+        onData() {},
+        onExit(handler) {
+          exitHandler = handler;
+        },
+        kill() {
+          exitHandler?.({ exitCode: 0 });
+        },
+        write() {},
+        resize() {},
+      };
+    },
+  };
+
+  assert.equal(reattachOrphanedSessions(runtime), 1);
+  const observedCandidates = [];
+  assert.equal(
+    await pollReattachedSessionStatuses({
+      probe: async (candidates) => {
+        observedCandidates.push(candidates);
+        return new Map([['reattach-status', { state: 'working', source: 'codex_status_poll' }]]);
+      },
+    }),
+    1,
+  );
+  assert.equal(getSessionSnapshot('reattach-status').activityState, 'working');
+
+  assert.equal(
+    await pollReattachedSessionStatuses({
+      probe: async () => new Map([['reattach-status', { state: 'idle', source: 'codex_status_poll' }]]),
+    }),
+    1,
+  );
+  assert.equal(getSessionSnapshot('reattach-status').activityState, 'idle');
+  assert.equal(getSessionSnapshot('reattach-status').completionConfirmed, true);
+  assert.deepEqual(observedCandidates, [[{ sessionId: 'reattach-status', provider: 'codex' }]]);
+
+  assert.equal(
+    await pollReattachedSessionStatuses({
+      probe: async () => {
+        assert.fail('idle reattached sessions should leave the polling set');
+      },
+    }),
+    0,
+  );
+
+  killSession('reattach-status', { killTmux() {}, isTmuxAlive: () => false });
 });
 
 it('restores provider activity credentials when reattaching a session', () => {

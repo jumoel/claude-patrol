@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import pty from 'node-pty';
 import { appEvents, emitLocalChange, emitSessionState } from './app-events.js';
 import { getDb } from './db.js';
+import { pollProviderSessionStatuses } from './provider-status-poller.js';
 import { normalizeProviderActivity, SessionActivityTracker } from './session-activity.js';
 import {
   activityCredentialPathForSession,
@@ -211,12 +212,17 @@ export class TerminalOutputBatcher {
 const sessions = new Map();
 /** @type {Map<string, {provider: 'claude'|'codex', token: string}>} */
 const activityCredentials = new Map();
+const reattachedSessionsAwaitingStatus = new Set();
+export const SESSION_STATUS_POLL_INTERVAL_MS = 1_000;
+let sessionStatusPollingEnabled = false;
+let sessionStatusPollTimer = null;
+let sessionStatusPollInFlight = null;
 
 /**
  * Spawn a node-pty attached to an existing tmux session and wire up
  * output buffering, WebSocket broadcast, and exit handling.
  * @param {string} sessionId
- * @param {{ claudeProjectDir?: string, startedAt?: string, tempPaths?: string[] }} meta
+ * @param {{ claudeProjectDir?: string, startedAt?: string, tempPaths?: string[], pollActivity?: boolean }} meta
  * @param {typeof DEFAULT_SESSION_RUNTIME} runtime
  * @returns {SessionEntry}
  */
@@ -272,10 +278,12 @@ function attachPtyToTmux(sessionId, meta = {}, runtime = DEFAULT_SESSION_RUNTIME
 
   const credential = readActivityCredential(sessionId);
   if (credential?.provider === sessionRow.provider) activityCredentials.set(sessionId, credential);
-  entry.markWorking = (source = 'dispatch') =>
+  entry.markWorking = (source = 'dispatch') => {
+    reattachedSessionsAwaitingStatus.delete(sessionId);
     activity.markWorking(source, {
       expectNative: credential?.provider === 'codex',
     });
+  };
 
   proc.onData((data) => {
     entry.buffer.append(data);
@@ -294,6 +302,7 @@ function attachPtyToTmux(sessionId, meta = {}, runtime = DEFAULT_SESSION_RUNTIME
     }
     sessions.delete(sessionId);
     activityCredentials.delete(sessionId);
+    reattachedSessionsAwaitingStatus.delete(sessionId);
     const tempPaths = new Set([
       ...(meta.tempPaths ?? []),
       activityCredentialPathForSession(sessionId),
@@ -319,7 +328,75 @@ function attachPtyToTmux(sessionId, meta = {}, runtime = DEFAULT_SESSION_RUNTIME
   });
 
   sessions.set(sessionId, entry);
+  if (meta.pollActivity) {
+    reattachedSessionsAwaitingStatus.add(sessionId);
+    scheduleSessionStatusPoll();
+  }
   return entry;
+}
+
+function scheduleSessionStatusPoll(delay = SESSION_STATUS_POLL_INTERVAL_MS) {
+  if (!sessionStatusPollingEnabled || sessionStatusPollTimer !== null || sessionStatusPollInFlight !== null) return;
+  if (reattachedSessionsAwaitingStatus.size === 0) return;
+  sessionStatusPollTimer = setTimeout(async () => {
+    sessionStatusPollTimer = null;
+    try {
+      await pollReattachedSessionStatuses();
+    } catch (error) {
+      console.warn(`[pty-manager] Session status poll failed: ${error.message}`);
+    } finally {
+      scheduleSessionStatusPoll();
+    }
+  }, delay);
+  sessionStatusPollTimer.unref?.();
+}
+
+/** Poll every reattached session whose post-restart state is still unresolved or working. */
+export async function pollReattachedSessionStatuses({ probe = pollProviderSessionStatuses } = {}) {
+  if (sessionStatusPollInFlight) return sessionStatusPollInFlight;
+  const candidates = [...reattachedSessionsAwaitingStatus]
+    .map((sessionId) => {
+      const row = getDb().prepare('SELECT provider FROM sessions WHERE id = ?').get(sessionId);
+      return row ? { sessionId, provider: row.provider } : null;
+    })
+    .filter(Boolean);
+  if (candidates.length === 0) return 0;
+
+  sessionStatusPollInFlight = (async () => {
+    const statuses = await probe(candidates);
+    let applied = 0;
+    for (const [sessionId, status] of statuses) {
+      if (!reattachedSessionsAwaitingStatus.has(sessionId)) continue;
+      const entry = sessions.get(sessionId);
+      if (!entry) {
+        reattachedSessionsAwaitingStatus.delete(sessionId);
+        continue;
+      }
+      entry.activity.handleStatusPoll(status);
+      applied++;
+      if (status.state !== 'working') reattachedSessionsAwaitingStatus.delete(sessionId);
+    }
+    return applied;
+  })().finally(() => {
+    sessionStatusPollInFlight = null;
+  });
+  return sessionStatusPollInFlight;
+}
+
+export function startSessionStatusPolling() {
+  sessionStatusPollingEnabled = true;
+  scheduleSessionStatusPoll(0);
+}
+
+export async function stopSessionStatusPolling() {
+  sessionStatusPollingEnabled = false;
+  if (sessionStatusPollTimer !== null) clearTimeout(sessionStatusPollTimer);
+  sessionStatusPollTimer = null;
+  try {
+    await sessionStatusPollInFlight;
+  } catch {
+    // The polling loop already reports probe failures.
+  }
 }
 
 function activityTokenEqual(actual, expected) {
@@ -363,6 +440,7 @@ export function recordProviderActivity(sessionId, rawProvider, token, payload) {
 
   const result = entry.activity.handleProviderEvent(event);
   if (!result.accepted) return { ...result, status: 409 };
+  reattachedSessionsAwaitingStatus.delete(sessionId);
   return { ...result, status: 202 };
 }
 
@@ -436,6 +514,7 @@ export function reattachOrphanedSessions(runtimeOverrides = {}) {
         {
           claudeProjectDir: session.claude_project_dir,
           startedAt: session.started_at,
+          pollActivity: true,
         },
         runtime,
       );
@@ -1027,6 +1106,7 @@ export function reattachSession(sessionId) {
   attachPtyToTmux(sessionId, {
     claudeProjectDir: row.claude_project_dir,
     startedAt: row.started_at,
+    pollActivity: true,
   });
 
   return db.prepare('SELECT * FROM sessions WHERE id = ?').get(sessionId);

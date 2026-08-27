@@ -19,8 +19,11 @@ import {
   cleanupOrphanedSessions,
   cleanupOrphanedTmuxSessions,
   killAllSessions,
+  pollReattachedSessionStatuses,
   reattachOrphanedSessions,
   setMcpPort,
+  startSessionStatusPolling,
+  stopSessionStatusPolling,
 } from './pty-manager.js';
 import { startRulesEngine, stopRulesEngine } from './rules.js';
 import { createServer } from './server.js';
@@ -97,6 +100,8 @@ export async function startServer(options = {}) {
     // Default: reattach surviving tmux sessions, kill dead ones.
     const count = reattachOrphanedSessions();
     if (count > 0) console.log(`[claude-patrol] Reattached ${count} surviving session(s)`);
+    await pollReattachedSessionStatuses();
+    startSessionStatusPolling();
   }
   const interruptedWorkItems = recoverInterruptedWorkItems();
   if (interruptedWorkItems.length > 0) {
@@ -281,6 +286,7 @@ export async function startServer(options = {}) {
     await stopRulesEngine({ drain: true });
     stopHealthChecks();
     stopUpdateChecks();
+    await stopSessionStatusPolling();
     workspaceReconciliationScheduler.stop();
     if (killSessions) {
       console.log('Killing all sessions...');

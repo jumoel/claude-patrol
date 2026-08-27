@@ -76,6 +76,22 @@ describe('SessionActivityTracker', () => {
     assert.equal(harness.tracker.snapshot().nativeTracking, true);
   });
 
+  it('restores working and terminal states from provider status polls', () => {
+    const harness = activityHarness();
+    harness.tracker.handleStatusPoll({ state: 'working', source: 'codex_status_poll' });
+    assert.equal(harness.tracker.snapshot().activityState, 'working');
+    assert.equal(harness.tracker.snapshot().activitySource, 'codex_status_poll');
+
+    harness.advance(10);
+    harness.tracker.handleStatusPoll({ state: 'idle', source: 'codex_status_poll' });
+    assert.equal(harness.tracker.snapshot().activityState, 'idle');
+    assert.equal(harness.tracker.snapshot().completionConfirmed, true);
+    assert.equal(harness.tracker.snapshot().completionOutcome, 'completed');
+
+    harness.tracker.handleStatusPoll({ state: 'blocked', source: 'claude_status_poll' });
+    assert.equal(harness.tracker.snapshot().completionOutcome, 'blocked');
+  });
+
   it('publishes Claude Stop immediately but confirms it without moving the timing anchor', () => {
     const harness = activityHarness();
     harness.tracker.handleProviderEvent({ kind: 'working', runId: 'prompt-1', source: 'prompt' });

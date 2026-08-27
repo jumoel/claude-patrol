@@ -160,6 +160,17 @@ export class SessionActivityTracker {
     }
   }
 
+  handleStatusPoll({ state, source }) {
+    if (state === 'working') {
+      return this.transitionToWorking({ source });
+    }
+    return this.transitionToIdle({
+      source,
+      confirmed: true,
+      outcome: state === 'blocked' ? 'blocked' : 'completed',
+    });
+  }
+
   handleProviderEvent(event) {
     this.nativeTracking = true;
 
