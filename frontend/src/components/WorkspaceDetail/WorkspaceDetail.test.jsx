@@ -150,3 +150,18 @@ test('an existing session is the first work surface without duplicate page navig
   assert.ok(terminal.compareDocumentPosition(history) & Node.DOCUMENT_POSITION_FOLLOWING);
   assert.equal(screen.queryByRole('button', { name: '← Work' }), null);
 });
+
+test('redirects an adopted workspace to its pull request when the workspace retains its repository', async () => {
+  window.location.hash = '#/workspace/scratch-1';
+  api.fetchWorkspace.mockResolvedValue({
+    ...workspace(),
+    pr_id: 'chainguard-dev/ecosystems-rebuilder.js#1452',
+    repo: 'chainguard-dev/ecosystems-rebuilder.js',
+  });
+
+  renderDetail();
+
+  await waitFor(() => {
+    assert.equal(window.location.hash, '#/pr/chainguard-dev%2Fecosystems-rebuilder.js%231452');
+  });
+});

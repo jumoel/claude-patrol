@@ -133,10 +133,10 @@ export function WorkspaceDetail({
 
   // Auto-redirect to PR detail when a scratch workspace gets adopted
   useEffect(() => {
-    if (workspace?.pr_id && !workspace.repo) {
+    if (workspace?.pr_id) {
       window.location.hash = `/pr/${encodeURIComponent(workspace.pr_id)}`;
     }
-  }, [workspace?.pr_id, workspace?.repo]);
+  }, [workspace?.pr_id]);
 
   if (loading) return <LoadingIndicator className={shared.loading}>Loading workspace...</LoadingIndicator>;
   if (!workspace) {
@@ -150,7 +150,7 @@ export function WorkspaceDetail({
     );
   }
 
-  const adopted = workspace.pr_id && !workspace.repo;
+  const adopted = Boolean(workspace.pr_id);
   const sessionState = workspaceStates.get(`workspace:${workspace.id}`);
   const attentionState = session ? sessionAttentionState(session, sessionState, acknowledgedSessionIds) : null;
   const headerIsWorking = attentionState === 'working';
