@@ -14,7 +14,15 @@ import {
   refreshSinglePR,
   triggerPoll,
 } from './poller.js';
-import { dispatchToSession, getSessionPeerReviewReadiness, getSessionStates, waitForFirstIdle } from './pty-manager.js';
+import {
+  createSession,
+  dispatchToSession,
+  getSessionPeerReviewReadiness,
+  getSessionSnapshot,
+  getSessionStates,
+  reattachSession,
+  waitForFirstIdle,
+} from './pty-manager.js';
 import { createWorkItemService } from './work-items.js';
 
 /**
@@ -61,6 +69,9 @@ export function createAppContext(overrides = {}) {
     pollerEvents,
     getGhRateLimitState,
     getSessionStates: sessionStates,
+    getSessionSnapshot,
+    createSession,
+    reattachSession,
     dispatchToSession,
     waitForFirstIdle,
     getSessionPeerReviewReadiness,

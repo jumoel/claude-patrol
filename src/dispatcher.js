@@ -5,6 +5,7 @@ import {
   createSession,
   dispatchToSession,
   getSessionSnapshot,
+  reattachSession,
   taggedError,
   waitForFirstIdle,
 } from './pty-manager.js';
@@ -16,18 +17,21 @@ import { createWorkspace } from './workspace.js';
  * engine's legacy `dispatch_claude` action and by the
  * `send_prompt_to_session` MCP tool.
  *
- * Exactly one of `session_id`, `pr_id`, `workspace_id`, or `global: true`
- * must be provided.
+ * Exactly one of `session_id`, `pr_id`, `workspace_id`, `work_item_id`, or
+ * `global: true` must be provided.
  *
  * Resolution rules:
- *  - `session_id` selects a specific session row. Detached sessions are
- *    rejected (lt#4 design lock); killed/missing rows error `no_session`.
- *    `autoCreate` does not apply: a session id implies a specific session.
+ *  - `session_id` selects a specific session row. Detached work-item root
+ *    sessions are reattached; other detached sessions remain unsupported.
+ *    Killed/missing rows error `no_session`. `autoCreate` does not apply: a
+ *    session id implies a specific session.
  *  - `pr_id` resolves to its owning work-item session when linked, otherwise
  *    to the PR's active workspace session. With `autoCreate`, the missing
  *    session and the appropriate target are created.
  *  - `workspace_id` resolves to the workspace's session. The workspace
  *    itself must already exist (we don't create workspaces from raw ids).
+ *  - `work_item_id` resolves to a ready work item's root session. With
+ *    `autoCreate`, a missing root session is created at the work-item path.
  *  - `global: true` resolves only when zero or one global session exists.
  *    `autoCreate` spawns one in `global_terminal_cwd` if missing; multiple
  *    sessions error `ambiguous_target` so callers must use `session_id`.
@@ -42,13 +46,16 @@ import { createWorkspace } from './workspace.js';
  *
  * Errors thrown carry `.code` in:
  *   `no_target`, `multiple_targets`, `invalid_prompt`, `no_session`,
- *   `no_workspace`, `session_detached`, `self_target`, `session_busy`,
+ *   `no_workspace`, `work_item_not_found`, `work_item_resolving`,
+ *   `work_item_preparing`, `work_item_error`, `work_item_destroying`,
+ *   `work_item_destroyed`, `session_detached`, `self_target`, `session_busy`,
  *   `ambiguous_target`, `boot_timeout`, `session_exited`.
  *
  * @param {object} args
  * @param {string} [args.session_id]
  * @param {string} [args.pr_id]
  * @param {string} [args.workspace_id]
+ * @param {string} [args.work_item_id]
  * @param {boolean} [args.global]
  * @param {'claude'|'codex'} [args.provider]
  * @param {string} args.prompt
@@ -62,35 +69,72 @@ import { createWorkspace } from './workspace.js';
  */
 const BUSY_WAIT_TIMEOUT_MS = 15 * 60_000;
 
-export async function ensureSessionAndSend({
-  session_id,
-  pr_id,
-  workspace_id,
-  global: isGlobal,
-  provider: rawProvider,
-  prompt,
-  autoCreate = false,
-  callerSessionId = null,
-  waitForBusy = false,
-}) {
+export async function ensureSessionAndSend(
+  {
+    session_id,
+    pr_id,
+    workspace_id,
+    work_item_id,
+    global: isGlobal,
+    provider: rawProvider,
+    prompt,
+    autoCreate = false,
+    callerSessionId = null,
+    waitForBusy = false,
+  },
+  dependencies = {},
+) {
+  const resolveDb = dependencies.getDb ?? getDb;
+  const resolveConfig = dependencies.getConfig ?? getCurrentConfig;
+  const launchSession = dependencies.createSession ?? createSession;
+  const restoreSession = dependencies.reattachSession ?? reattachSession;
+  const sessionSnapshot = dependencies.getSessionSnapshot ?? getSessionSnapshot;
+  const waitForSessionIdle = dependencies.waitForFirstIdle ?? waitForFirstIdle;
+  const sendToSession = dependencies.dispatchToSession ?? dispatchToSession;
   const requestedProvider = rawProvider === undefined ? null : normalizeSessionProvider(rawProvider);
-  const targetCount = (session_id ? 1 : 0) + (pr_id ? 1 : 0) + (workspace_id ? 1 : 0) + (isGlobal ? 1 : 0);
+  const targetCount =
+    (session_id ? 1 : 0) + (pr_id ? 1 : 0) + (workspace_id ? 1 : 0) + (work_item_id ? 1 : 0) + (isGlobal ? 1 : 0);
   if (targetCount === 0) {
-    throw taggedError('no_target', 'one of session_id, pr_id, workspace_id, global is required');
+    throw taggedError('no_target', 'one of session_id, pr_id, workspace_id, work_item_id, global is required');
   }
   if (targetCount > 1) {
-    throw taggedError('multiple_targets', 'only one of session_id, pr_id, workspace_id, global may be set');
+    throw taggedError(
+      'multiple_targets',
+      'only one of session_id, pr_id, workspace_id, work_item_id, global may be set',
+    );
   }
 
   // Prompt validation lives upstream: the MCP zod schema enforces min(1) and
   // the rules engine config loader does the same. Trust the caller here.
 
-  const db = getDb();
+  const db = resolveDb();
   let resolvedSessionId;
   let resolvedWorkspaceId = null;
   let resolvedWorkItemId = null;
   let isFresh = false;
+  let wasReattached = false;
   let resolvedProvider;
+
+  const findReadyWorkItem = (id) => {
+    const item = db.prepare('SELECT * FROM work_items WHERE id = ?').get(id);
+    if (!item) throw taggedError('work_item_not_found', `work item ${id} not found`);
+    if (item.state !== 'ready') {
+      throw taggedError(`work_item_${item.state}`, `work item ${id} is ${item.state}`);
+    }
+    return item;
+  };
+
+  const restoreDetachedWorkItemSession = (row, { replaceDead = false } = {}) => {
+    try {
+      restoreSession(row.id);
+      wasReattached = true;
+      return db.prepare('SELECT * FROM sessions WHERE id = ?').get(row.id) ?? { ...row, status: 'active' };
+    } catch {
+      const current = db.prepare('SELECT status FROM sessions WHERE id = ?').get(row.id);
+      if (replaceDead && current?.status === 'killed') return null;
+      throw taggedError('session_detached', `work-item session ${row.id} could not be reattached`);
+    }
+  };
 
   if (session_id) {
     const row = db.prepare('SELECT * FROM sessions WHERE id = ?').get(session_id);
@@ -101,22 +145,24 @@ export async function ensureSessionAndSend({
         throw taggedError('unsupported_target', 'Patrol dispatch is unavailable for work-item child sessions');
       }
     }
-    if (row.status === 'detached') throw taggedError('session_detached', `session ${session_id} is detached`);
-    resolvedSessionId = row.id;
-    resolvedWorkspaceId = row.workspace_id;
-    resolvedWorkItemId = row.work_item_id;
-    resolvedProvider = row.provider;
+    if (row.status === 'detached' && !row.work_item_id) {
+      throw taggedError('session_detached', `session ${session_id} is detached`);
+    }
     if (requestedProvider && requestedProvider !== row.provider) {
       throw taggedError('provider_conflict', `session ${row.id} uses ${row.provider}, not ${requestedProvider}`);
     }
+    const sessionRow = row.status === 'detached' ? restoreDetachedWorkItemSession(row) : row;
+    resolvedSessionId = sessionRow.id;
+    resolvedWorkspaceId = sessionRow.workspace_id;
+    resolvedWorkItemId = sessionRow.work_item_id;
+    resolvedProvider = sessionRow.provider;
   } else {
     let workspace = null;
     let workItem = null;
     if (pr_id) {
       const owner = db.prepare('SELECT work_item_id FROM work_item_pull_requests WHERE pr_id = ?').get(pr_id);
       if (owner) {
-        workItem = db.prepare("SELECT * FROM work_items WHERE id = ? AND state = 'ready'").get(owner.work_item_id);
-        if (!workItem) throw taggedError('no_workspace', `work item for PR ${pr_id} is not ready`);
+        workItem = findReadyWorkItem(owner.work_item_id);
         resolvedWorkItemId = workItem.id;
       } else {
         workspace = db
@@ -126,7 +172,7 @@ export async function ensureSessionAndSend({
           .get(pr_id);
         if (!workspace) {
           if (!autoCreate) throw taggedError('no_workspace', `no active workspace for pr ${pr_id}`);
-          const created = await createWorkspace(pr_id, getCurrentConfig());
+          const created = await createWorkspace(pr_id, resolveConfig());
           workspace = db.prepare('SELECT * FROM workspaces WHERE id = ?').get(created.id);
         }
       }
@@ -137,6 +183,9 @@ export async function ensureSessionAndSend({
         )
         .get(workspace_id);
       if (!workspace) throw taggedError('no_workspace', `workspace ${workspace_id} not found or not active`);
+    } else if (work_item_id) {
+      workItem = findReadyWorkItem(work_item_id);
+      resolvedWorkItemId = workItem.id;
     }
     // workspace stays null for the global path
 
@@ -169,15 +218,16 @@ export async function ensureSessionAndSend({
       sessionRow = globalSessions[0];
     }
 
-    if (sessionRow?.status === 'detached') {
-      throw taggedError('session_detached', `target session ${sessionRow.id} is detached`);
-    }
-
     if (sessionRow && requestedProvider && sessionRow.provider !== requestedProvider) {
       throw taggedError(
         'provider_conflict',
         `${sessionRow.provider} session ${sessionRow.id} is already active for this target`,
       );
+    }
+
+    if (sessionRow?.status === 'detached') {
+      if (!workItem) throw taggedError('session_detached', `target session ${sessionRow.id} is detached`);
+      sessionRow = restoreDetachedWorkItemSession(sessionRow, { replaceDead: autoCreate });
     }
 
     if (!sessionRow) {
@@ -186,16 +236,26 @@ export async function ensureSessionAndSend({
         ? workItem.path
         : workspace
           ? workspace.path
-          : getCurrentConfig().global_terminal_cwd || process.cwd();
+          : resolveConfig().global_terminal_cwd || process.cwd();
       const target = workItem
         ? { type: 'work_item', id: workItem.id }
         : workspace
           ? { type: 'workspace', id: workspace.id }
           : { type: 'global' };
-      const created = createSession(target, cwd, requestedProvider ?? 'claude');
-      resolvedSessionId = created.id;
-      resolvedProvider = created.provider;
-      isFresh = true;
+      const provider = requestedProvider ?? workItem?.work_provider ?? 'claude';
+      const created = launchSession(target, cwd, provider);
+      const createdSession =
+        created.status === 'detached' && workItem ? restoreDetachedWorkItemSession(created) : created;
+      resolvedSessionId = createdSession.id;
+      resolvedProvider = createdSession.provider;
+      isFresh = !wasReattached;
+      if (workItem) {
+        db.prepare('UPDATE work_items SET work_provider = ?, updated_at = ? WHERE id = ?').run(
+          resolvedProvider,
+          new Date().toISOString(),
+          workItem.id,
+        );
+      }
     } else {
       resolvedSessionId = sessionRow.id;
       resolvedProvider = sessionRow.provider;
@@ -214,14 +274,14 @@ export async function ensureSessionAndSend({
   // For sessions already in 'idle' state, waitForFirstIdle resolves
   // immediately. For 'working' state we don't wait here; the busy check
   // in dispatchToSession will throw session_busy.
-  const snap = isFresh ? null : getSessionSnapshot(resolvedSessionId);
-  if (isFresh || snap?.activityState === null) {
-    await waitForFirstIdle(resolvedSessionId, BOOT_TIMEOUT_MS_DEFAULT);
+  const snap = isFresh ? null : sessionSnapshot(resolvedSessionId);
+  if (isFresh || (!wasReattached && snap?.activityState === null)) {
+    await waitForSessionIdle(resolvedSessionId, BOOT_TIMEOUT_MS_DEFAULT);
   } else if (snap?.activityState === 'working' && waitForBusy) {
     // Manual Run Now opts into queueing: rather than failing fast, wait for
     // the current turn to finish before writing the prompt. Capped so a stuck
     // session can't hang the caller forever.
-    await waitForFirstIdle(resolvedSessionId, BUSY_WAIT_TIMEOUT_MS);
+    await waitForSessionIdle(resolvedSessionId, BUSY_WAIT_TIMEOUT_MS);
   }
 
   // Strip newlines (TUI submits on Enter, embedded newlines split the prompt
@@ -234,7 +294,7 @@ export async function ensureSessionAndSend({
 
   let dispatched_at;
   try {
-    dispatched_at = await dispatchToSession(resolvedSessionId, cleaned);
+    dispatched_at = await sendToSession(resolvedSessionId, cleaned);
   } catch (e) {
     // Attach the resolved session id so callers can record which session
     // blocked (e.g. rule_runs.session_id for a session_busy error row).

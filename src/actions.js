@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { appEvents } from './app-events.js';
 import { getDb } from './db.js';
 import { ensureSessionAndSend } from './dispatcher.js';
-import { getSessionSnapshot, getSessionStates } from './pty-manager.js';
+import { getSessionSnapshot } from './pty-manager.js';
 
 /**
  * Strip verbose fields from a PR for compact list responses.
@@ -720,11 +720,12 @@ export const actionRegistry = {
 
   send_prompt_to_session: {
     description:
-      'Send a prompt to another Claude or Codex session. Target with exactly one of: session_id (direct), pr_id (the owning work-item session when linked, otherwise the PR workspace session), workspace_id (workspace session), or global: true (the global terminal session). When multiple global sessions exist, use list_sessions and target the chosen session_id. Auto-creates the appropriate target when create_if_missing is true. Set provider when creating a target; an existing target keeps its provider. Returns dispatched_at; pass it to wait_for_idle to wait for the response. Cannot target your own session (errors with self_target). Errors with session_busy if the target is currently working. Single-line prompts only: newlines in prompt are stripped at write time.',
+      'Send a prompt to another Claude or Codex session. Target with exactly one of: session_id (direct), pr_id (the owning work-item session when linked, otherwise the PR workspace session), workspace_id (workspace session), work_item_id (work-item root session), or global: true (the global terminal session). When multiple global sessions exist, use list_sessions and target the chosen session_id. Auto-creates the appropriate target when create_if_missing is true. Set provider when creating a target; an existing target keeps its provider. Ready work items can create or reuse their root session, including reattaching a detached root session. Returns dispatched_at; pass it to wait_for_idle to wait for the response. Cannot target your own session (errors with self_target). Errors with session_busy if the target is currently working. Single-line prompts only: newlines in prompt are stripped at write time.',
     schema: z.object({
       session_id: z.string().optional().describe('Direct session id from list_sessions'),
       pr_id: z.string().optional().describe('PR database id (e.g. "org/repo#42")'),
       workspace_id: z.string().optional().describe('Workspace id'),
+      work_item_id: z.string().min(1).optional().describe('Ready work-item id'),
       global: z
         .boolean()
         .optional()
@@ -734,21 +735,25 @@ export const actionRegistry = {
       create_if_missing: z
         .boolean()
         .optional()
-        .describe('If the target has no active session (or pr_id has no workspace), create one. Default true.'),
+        .describe('If the target has no reusable session (or pr_id has no workspace), create one. Default true.'),
     }),
     ruleFireable: false,
-    mcpHandler: async (_app, args, ctx) => {
+    mcpHandler: async (app, args, ctx) => {
       try {
-        const result = await ensureSessionAndSend({
-          session_id: args.session_id,
-          pr_id: args.pr_id,
-          workspace_id: args.workspace_id,
-          global: args.global,
-          provider: args.provider,
-          prompt: args.prompt,
-          autoCreate: args.create_if_missing ?? true,
-          callerSessionId: ctx?.callerSessionId ?? null,
-        });
+        const result = await ensureSessionAndSend(
+          {
+            session_id: args.session_id,
+            pr_id: args.pr_id,
+            workspace_id: args.workspace_id,
+            work_item_id: args.work_item_id,
+            global: args.global,
+            provider: args.provider,
+            prompt: args.prompt,
+            autoCreate: args.create_if_missing ?? true,
+            callerSessionId: ctx?.callerSessionId ?? null,
+          },
+          app.appContext,
+        );
         return { ok: true, ...result };
       } catch (e) {
         if (e.code) return { ok: false, error: e.code, message: e.message };
@@ -763,43 +768,53 @@ export const actionRegistry = {
 
   list_sessions: {
     description:
-      'List active Claude and Codex sessions known to Patrol. Returns each provider, session id, global session name, workspace context (PR id, repo, branch, workspace path), activity state (working, idle, or null when untracked), and started_at. Use this before send_prompt_to_session to pick a target. Detached sessions are not listed because send_prompt_to_session cannot target them.',
+      'List dispatchable Claude and Codex sessions known to Patrol. Returns each provider, session id, status, global session name, workspace context, work-item context, activity state (working, idle, or null when untracked), and started_at. Active sessions and reusable detached work-item root sessions are listed. Use this before send_prompt_to_session to pick a target.',
     schema: z.object({}),
     ruleFireable: false,
-    mcpHandler: async () => {
-      const db = getDb();
+    mcpHandler: async (app) => {
+      const db = app.appContext.getDb();
       const rows = db
         .prepare(
           `SELECT s.id            AS session_id,
                   s.workspace_id  AS workspace_id,
+                  s.work_item_id  AS work_item_id,
                   s.name          AS name,
                   s.provider      AS provider,
+                  s.status        AS status,
                   s.started_at    AS started_at,
                   w.pr_id         AS pr_id,
                   w.repo          AS repo,
                   w.bookmark      AS bookmark,
-                  w.path          AS workspace_path
+                  w.path          AS workspace_path,
+                  wi.title        AS work_item_title,
+                  wi.reference    AS work_item_reference,
+                  wi.path         AS work_item_path
              FROM sessions s
              LEFT JOIN workspaces w ON w.id = s.workspace_id
-            WHERE s.status = 'active'
-              AND s.work_item_id IS NULL
+             LEFT JOIN work_items wi ON wi.id = s.work_item_id
+            WHERE (s.status = 'active' OR (s.status = 'detached' AND s.work_item_id IS NOT NULL))
               AND (s.workspace_id IS NULL OR w.work_item_id IS NULL)
             ORDER BY s.started_at DESC`,
         )
         .all();
-      const states = new Map(getSessionStates().map((s) => [s.sessionId, s.state]));
+      const states = new Map(app.appContext.getSessionStates().map((s) => [s.sessionId, s.state]));
       return rows.map((r) => ({
         session_id: r.session_id,
         name: r.name,
         provider: r.provider,
+        status: r.status,
         workspace_id: r.workspace_id,
+        work_item_id: r.work_item_id,
         pr_id: r.pr_id,
         repo: r.repo,
         bookmark: r.bookmark,
         workspace_path: r.workspace_path,
+        work_item_title: r.work_item_title,
+        work_item_reference: r.work_item_reference,
+        work_item_path: r.work_item_path,
         activity_state: states.get(r.session_id) ?? null,
         started_at: r.started_at,
-        is_global: r.workspace_id === null,
+        is_global: r.workspace_id === null && r.work_item_id === null,
       }));
     },
   },
