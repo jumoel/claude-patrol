@@ -73,6 +73,7 @@
   color: #6d4d11;
   background: #fff8e7;
   border: 1px solid #ead8ac;
+  border-radius: 2px;
   font-size: 12px;
 }
 
@@ -102,6 +103,7 @@
 .work {
   background: #fff;
   border: 1px solid var(--line);
+  border-radius: 2px;
 }
 
 .waiting {
@@ -587,6 +589,8 @@ tbody tr:focus-visible {
 }
 
 .runtimeWaiting { color: var(--amber); }
+
+.runtimeIdle { color: var(--muted); }
 
 .sessionDot {
   width: 6px;

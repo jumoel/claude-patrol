@@ -5,7 +5,10 @@ import { Terminal } from './Terminal.jsx';
 const state = vi.hoisted(() => ({
   constructedTerminals: 0,
   disposedTerminals: 0,
+  fitCalls: 0,
   refreshCalls: 0,
+  clearTextureAtlasCalls: 0,
+  bounds: { width: 800, height: 400 },
   keyHandler: /** @type {((event: KeyboardEvent) => boolean) | null} */ (null),
   resizeCallback: /** @type {(() => void) | null} */ (null),
   sockets: /** @type {FakeWebSocket[]} */ ([]),
@@ -27,6 +30,9 @@ vi.mock('@xterm/xterm', () => ({
     focus() {}
     onData() {}
     write() {}
+    clearTextureAtlas() {
+      state.clearTextureAtlasCalls++;
+    }
     refresh() {
       state.refreshCalls++;
     }
@@ -46,7 +52,9 @@ vi.mock('@xterm/xterm/css/xterm.css', () => ({}));
 
 vi.mock('@xterm/addon-fit', () => ({
   FitAddon: class {
-    fit() {}
+    fit() {
+      state.fitCalls++;
+    }
   },
 }));
 
@@ -98,16 +106,33 @@ describe('Terminal connection lifecycle', () => {
   beforeEach(() => {
     state.constructedTerminals = 0;
     state.disposedTerminals = 0;
+    state.fitCalls = 0;
     state.refreshCalls = 0;
+    state.clearTextureAtlasCalls = 0;
+    state.bounds = { width: 800, height: 400 };
     state.keyHandler = null;
     state.resizeCallback = null;
     state.sockets = [];
     vi.stubGlobal('ResizeObserver', FakeResizeObserver);
     vi.stubGlobal('WebSocket', FakeWebSocket);
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(
+      () =>
+        /** @type {DOMRect} */ ({
+          ...state.bounds,
+          x: 0,
+          y: 0,
+          top: 0,
+          right: state.bounds.width,
+          bottom: state.bounds.height,
+          left: 0,
+          toJSON: () => ({}),
+        }),
+    );
   });
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.restoreAllMocks();
   });
 
   it('updates callbacks and the exposed socket ref without reconnecting', async () => {
@@ -163,9 +188,28 @@ describe('Terminal connection lifecycle', () => {
     render(<Terminal wsUrl="/ws/sessions/one" />);
     await waitFor(() => expect(state.sockets).toHaveLength(1));
 
+    const fitsBeforeResize = state.fitCalls;
     state.resizeCallback?.();
 
+    await waitFor(() => expect(state.fitCalls).toBeGreaterThan(fitsBeforeResize));
+    expect(state.clearTextureAtlasCalls).toBeGreaterThan(0);
     expect(state.refreshCalls).toBeGreaterThan(0);
     expect(state.sockets[0].sent).toContain(JSON.stringify({ type: 'resize', cols: 80, rows: 24 }));
+  });
+
+  it('waits for a hidden terminal to become visible before fitting it', async () => {
+    state.bounds = { width: 0, height: 0 };
+    render(<Terminal wsUrl="/ws/sessions/one" />);
+    await waitFor(() => expect(state.sockets).toHaveLength(1));
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+
+    expect(state.fitCalls).toBe(0);
+    expect(state.clearTextureAtlasCalls).toBe(0);
+
+    state.bounds = { width: 800, height: 400 };
+    state.resizeCallback?.();
+
+    await waitFor(() => expect(state.fitCalls).toBeGreaterThan(0));
+    expect(state.clearTextureAtlasCalls).toBeGreaterThan(0);
   });
 });

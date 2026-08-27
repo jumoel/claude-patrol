@@ -1,13 +1,25 @@
 .workPageTerminal,
 .workPageDetached {
   width: calc(100% - 40px);
-  height: 280px;
   margin: 12px 20px 0;
   overflow: hidden;
   color: #dce3eb;
   background: #0e141c;
   border: 1px solid #34404e;
-  transition: height 140ms ease;
+  border-radius: 2px;
+}
+
+.workPageTerminal { height: auto; }
+.workPageDetached { height: 280px; }
+
+.globalTerminal,
+.globalDetached {
+  width: 100%;
+  margin: 0;
+  border-right: 0;
+  border-bottom: 0;
+  border-left: 0;
+  border-radius: 0;
 }
 
 .workPageCollapsed { height: 36px; }
@@ -22,6 +34,7 @@
   width: 100%;
   height: auto;
   margin: 0;
+  border-radius: 0;
 }
 
 .workPageMaximized .workPageViewport { height: calc(100% - 36px); }
@@ -96,6 +109,30 @@
   background: #0e141c;
 }
 
+.workPageResizeHandle {
+  display: flex;
+  height: 8px;
+  align-items: center;
+  justify-content: center;
+  cursor: ns-resize;
+  touch-action: none;
+  user-select: none;
+  background: #17202a;
+  border-top: 1px solid #34404e;
+}
+
+.workPageResizeHandle:focus-visible {
+  outline: 2px solid #8bb9ef;
+  outline-offset: -2px;
+}
+
+.workPageResizeGrip {
+  width: 36px;
+  height: 3px;
+  background: #4d5969;
+  border-radius: 999px;
+}
+
 .detachedMessage {
   display: flex;
   height: 242px;
@@ -126,11 +163,4 @@
 
   .workPageTitle { max-width: 100%; }
   .sessionState { display: none; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .workPageTerminal,
-  .workPageDetached {
-    transition: none;
-  }
 }

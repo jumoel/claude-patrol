@@ -19,9 +19,9 @@ const api = vi.hoisted(() => ({
 
 vi.mock('../../lib/api.js', () => api);
 vi.mock('../Terminal/LazyTerminal.jsx', () => ({
-  /** @param {{wsUrl: string, onExit?: (code: number) => void}} props */
-  LazyTerminal: ({ wsUrl, onExit }) => (
-    <div data-testid="terminal" data-ws-url={wsUrl}>
+  /** @param {{wsUrl: string, borderless?: boolean, onExit?: (code: number) => void}} props */
+  LazyTerminal: ({ wsUrl, borderless, onExit }) => (
+    <div data-testid="terminal" data-ws-url={wsUrl} data-borderless={String(borderless)}>
       <button type="button" onClick={() => onExit?.(0)}>
         Simulate exit
       </button>
@@ -89,6 +89,7 @@ function renderTerminal(/** @type {Partial<React.ComponentProps<typeof GlobalTer
 beforeEach(() => {
   for (const mock of Object.values(api)) mock.mockClear();
   localStorage.clear();
+  history.replaceState(null, '', '/#/');
 });
 
 test('renders accessible tabs and mounts only the selected terminal', async () => {
@@ -99,6 +100,8 @@ test('renders accessible tabs and mounts only the selected terminal', async () =
   assert.equal(tabs[1].getAttribute('aria-selected'), 'false');
   assert.equal(screen.getAllByTestId('terminal').length, 1);
   assert.equal(screen.getByTestId('terminal').getAttribute('data-ws-url'), '/ws/sessions/planner');
+  assert.equal(screen.getByTestId('terminal').getAttribute('data-borderless'), 'true');
+  assert.ok(screen.getByRole('heading', { name: 'Planner · claude Idle' }));
 
   tabs[0].focus();
   fireEvent.keyDown(tabs[0], { key: 'ArrowRight' });
@@ -119,7 +122,7 @@ test('keeps the session bar visible while the terminal panel is closed', () => {
   assert.ok(screen.getByRole('button', { name: /Global sessions.*2/u }));
   assert.equal(screen.getAllByRole('tab').length, 2);
   assert.ok(screen.getByRole('button', { name: /Create/u }));
-  assert.equal(screen.queryByRole('separator', { name: 'Resize global terminal' }), null);
+  assert.equal(screen.queryByRole('separator', { name: 'Resize terminal' }), null);
   assert.equal(screen.queryByRole('button', { name: 'Close global sessions' }), null);
   assert.equal(document.getElementById('global-session-panel')?.getAttribute('aria-hidden'), 'true');
 
@@ -152,13 +155,12 @@ test('does not create a session when an empty panel is opened', async () => {
 test('exposes mouse and keyboard sizing controls', () => {
   renderTerminal({ sessions: [planner], activeSession: planner });
 
-  const resizeHandle = screen.getByRole('separator', { name: 'Resize global terminal' });
+  const resizeHandle = screen.getByRole('separator', { name: 'Resize terminal' });
   assert.equal(resizeHandle.getAttribute('aria-orientation'), 'horizontal');
-  assert.equal(resizeHandle.getAttribute('aria-valuenow'), '410');
+  assert.equal(resizeHandle.getAttribute('aria-valuenow'), '400');
 
-  fireEvent.keyDown(resizeHandle, { key: 'ArrowUp' });
-  assert.equal(resizeHandle.getAttribute('aria-valuenow'), '450');
-  assert.equal(localStorage.getItem('claude-patrol-terminal-height'), '450');
+  fireEvent.keyDown(resizeHandle, { key: 'ArrowDown' });
+  assert.equal(resizeHandle.getAttribute('aria-valuenow'), '440');
 
   fireEvent.keyDown(resizeHandle, { key: 'Home' });
   assert.equal(resizeHandle.getAttribute('aria-valuenow'), '150');
@@ -170,18 +172,35 @@ test('keeps the relevant global session controls available in each size', async 
 
   assert.ok(screen.getByRole('button', { name: 'Rename' }));
   assert.ok(screen.getByRole('button', { name: 'Promote' }));
-  assert.ok(screen.getByRole('button', { name: 'Pop out' }));
-  assert.ok(screen.getByRole('button', { name: 'Kill' }));
+  assert.equal(screen.queryByRole('button', { name: 'Pop out' }), null);
+  assert.ok(screen.getByRole('button', { name: 'Kill session' }));
   assert.ok(screen.getByRole('button', { name: 'Close global sessions' }));
   assert.ok(screen.getByRole('button', { name: /Create/u }));
 
   await user.click(screen.getByRole('button', { name: 'Maximize' }));
   assert.ok(screen.getByRole('button', { name: 'Restore' }));
-  assert.equal(screen.queryByRole('separator', { name: 'Resize global terminal' }), null);
+  assert.equal(window.location.hash, '#/?terminal=planner');
+  assert.equal(screen.queryByRole('separator', { name: 'Resize terminal' }), null);
 
   await user.click(screen.getByRole('button', { name: 'Restore' }));
+  assert.equal(window.location.hash, '#/');
   assert.ok(screen.getByRole('button', { name: 'Maximize' }));
-  assert.ok(screen.getByRole('separator', { name: 'Resize global terminal' }));
+  assert.ok(screen.getByRole('separator', { name: 'Resize terminal' }));
+});
+
+test('restores and selects a maximized global terminal from the route', async () => {
+  history.replaceState(null, '', '/#/?terminal=reviewer');
+  const { callbacks, props, view } = renderTerminal({ open: false, activeSession: planner });
+
+  await waitFor(() => assert.deepEqual(callbacks.onSelectSession.mock.calls, [['reviewer']]));
+  assert.equal(callbacks.onToggle.mock.calls.length, 1);
+  view.rerender(
+    <AgentProviderProvider>
+      <GlobalTerminal {...props} open activeSession={reviewer} />
+    </AgentProviderProvider>,
+  );
+  assert.ok(screen.getByRole('button', { name: 'Restore' }));
+  assert.equal(screen.getByTestId('terminal').getAttribute('data-ws-url'), '/ws/sessions/reviewer');
 });
 
 test('renames the selected tab and keeps it when kill fails', async () => {
@@ -198,7 +217,7 @@ test('renames the selected tab and keeps it when kill fails', async () => {
   await user.click(screen.getByRole('button', { name: 'Save' }));
   await waitFor(() => assert.deepEqual(callbacks.onUpsertSession.mock.calls, [[renamed]]));
 
-  await user.click(screen.getByRole('button', { name: 'Kill' }));
+  await user.click(screen.getByRole('button', { name: 'Kill session' }));
   await screen.findByText('tmux refused');
   assert.equal(callbacks.onRemoveSession.mock.calls.length, 0);
 });
@@ -215,7 +234,7 @@ test('keeps asynchronous action errors attached to their session', async () => {
   );
   const { props, view } = renderTerminal({ activeSession: planner });
 
-  await user.click(screen.getByRole('button', { name: 'Kill' }));
+  await user.click(screen.getByRole('button', { name: 'Kill session' }));
   view.rerender(
     <AgentProviderProvider>
       <GlobalTerminal {...props} activeSession={reviewer} />

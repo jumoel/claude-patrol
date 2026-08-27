@@ -85,6 +85,17 @@ test('renders a multi-PR work item once and keeps child PR links independent', (
   assert.equal(container.querySelectorAll('[aria-label="PR Open"]').length, 0);
 });
 
+test('places LLM progress before repository and pull-request detail', () => {
+  const { container } = render(<WorkDashboard {...defaultProps} />);
+  const headings = [...container.querySelectorAll('thead th')].map((heading) => heading.textContent?.trim());
+
+  assert.deepEqual(headings, ['Work', 'Work ref', 'LLM', 'Repository', 'Pull requests', 'Local', 'Updated']);
+  const labels = [...container.querySelectorAll('tbody tr:first-child > td')].map((cell) =>
+    cell.getAttribute('data-label'),
+  );
+  assert.deepEqual(labels, ['Work', 'Work ref', 'LLM', 'Repository', 'Pull requests', 'Local', 'Updated']);
+});
+
 test('places a spinner beside working LLM state and a dot beside waiting state', () => {
   const workingSession = /** @type {import('../../types').DashboardSessionSummary} */ ({
     id: 'working-session',
@@ -103,6 +114,60 @@ test('places a spinner beside working LLM state and a dot beside waiting state',
   assert.ok(screen.getByText('Working'));
   assert.ok(container.querySelector('[data-spinner="true"]'));
   assert.equal(container.querySelector('[data-state-marker="waiting"]'), null);
+});
+
+test('labels an untracked session idle instead of live', () => {
+  const idleSession = /** @type {import('../../types').DashboardSessionSummary} */ ({
+    id: 'idle-session',
+    name: null,
+    provider: 'codex',
+    target: { type: 'work_item', id: row.id },
+    status: 'active',
+    activity_state: null,
+    activity_changed_at: null,
+    started_at: '2026-08-26T09:00:00.000Z',
+  });
+  const { container } = render(
+    <WorkDashboard {...defaultProps} dashboard={{ ...dashboard, rows: [{ ...row, sessions: [idleSession] }] }} />,
+  );
+
+  assert.ok(screen.getByText('Idle'));
+  assert.ok(container.querySelector('[data-state-marker="idle"]'));
+  assert.equal(screen.queryByText('Live'), null);
+});
+
+test('returns an acknowledged waiting session to idle', () => {
+  const idleSession = /** @type {import('../../types').Session & import('../../types').DashboardSessionSummary} */ ({
+    id: 'waiting-session',
+    workspace_id: null,
+    work_item_id: row.id,
+    name: null,
+    provider: 'codex',
+    target: { type: 'work_item', id: row.id },
+    status: 'active',
+    activity_state: 'idle',
+    activity_changed_at: '2026-08-26T10:30:00.000Z',
+    started_at: '2026-08-26T09:00:00.000Z',
+    ended_at: null,
+    pid: 123,
+    claude_project_dir: null,
+    transcript_path: null,
+  });
+  render(
+    <WorkDashboard
+      {...defaultProps}
+      dashboard={{
+        ...dashboard,
+        rows: [{ ...row, sessions: [idleSession] }],
+        sessionSource: { ...dashboard.sessionSource, allSessions: [idleSession] },
+      }}
+    />,
+  );
+
+  assert.ok(screen.getByText('Waiting'));
+  fireEvent.click(screen.getByRole('link', { name: /Resume/u }));
+  assert.ok(screen.getByText('Idle'));
+  assert.equal(screen.queryByText('Waiting'), null);
 });
 
 test('copies the currently visible rows in their rendered order', async () => {

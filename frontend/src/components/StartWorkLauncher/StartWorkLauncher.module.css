@@ -17,6 +17,7 @@
 .card {
   width: 100%;
   border-color: #d7dce3;
+  border-radius: 2px;
 }
 
 .header {
@@ -151,6 +152,7 @@
   color: #80540c;
   background: #fff8e7;
   border: 1px solid #ead8ac;
+  border-radius: 2px;
   font-size: 12px;
 }
 

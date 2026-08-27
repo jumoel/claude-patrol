@@ -1,7 +1,6 @@
 import { execFile, execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { accessSync, chmodSync, constants, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { accessSync, chmodSync, constants, readFileSync, unlinkSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import pty from 'node-pty';
@@ -1006,58 +1005,7 @@ export function isSessionAlive(sessionId) {
 }
 
 /**
- * Pop out a session into a Ghostty terminal window.
- * Opens a new Ghostty instance attached to the same tmux session.
- * @param {string} sessionId
- */
-export function popOutSession(sessionId) {
-  const entry = sessions.get(sessionId);
-  if (!entry) {
-    throw new Error('Session not found or not running');
-  }
-  if (!isTmuxSessionAlive(sessionId)) {
-    throw new Error('Session tmux process is not alive');
-  }
-
-  const tmuxName = `patrol-${sessionId}`;
-  const scriptPath = resolve(tmpdir(), `patrol-ghostty-${sessionId}.sh`);
-
-  writeFileSync(scriptPath, `#!/bin/sh\nexec tmux attach-session -t ${tmuxName}\n`);
-  chmodSync(scriptPath, 0o755);
-
-  execFileSync('open', ['-na', 'Ghostty.app', '--args', '-e', scriptPath], { timeout: 10_000 });
-
-  // Detach the node-pty client from the tmux session so the web
-  // terminal's small dimensions no longer constrain the window size.
-  // Tell all WebSocket clients the session was popped out, then
-  // kill the node-pty process (the tmux session itself stays alive
-  // in Ghostty). Mark as 'detached' so it can be reattached later.
-  const popMsg = JSON.stringify({ type: 'popped-out' });
-  entry.output.flush();
-  for (const ws of entry.websockets) {
-    if (ws.readyState === 1) {
-      ws.send(popMsg);
-      ws.close(1000);
-    }
-  }
-  entry.proc.kill();
-  sessions.delete(sessionId);
-
-  const db = getDb();
-  db.prepare("UPDATE sessions SET status = 'detached' WHERE id = ?").run(sessionId);
-
-  // Clean up the temp script after a short delay
-  setTimeout(() => {
-    try {
-      unlinkSync(scriptPath);
-    } catch {
-      /* ignore */
-    }
-  }, 5000);
-}
-
-/**
- * Reattach a detached session (e.g. after pop-out) back to the web UI.
+ * Reattach a detached session back to the web UI.
  * @param {string} sessionId
  * @returns {object} session record
  */

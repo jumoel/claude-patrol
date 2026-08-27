@@ -4,11 +4,3 @@
   gap: 5px;
   color: #7751aa;
 }
-
-.dot {
-  width: 6px;
-  height: 6px;
-  flex: 0 0 auto;
-  background: currentColor;
-  border-radius: 50%;
-}

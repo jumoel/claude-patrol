@@ -106,6 +106,8 @@ test('calls the scratch session API adapter and renders an in-flow terminal', as
   const terminal = await screen.findByTestId('terminal');
   assert.equal(terminal.getAttribute('data-session'), 'session-1');
   assert.equal(terminal.getAttribute('data-presentation'), 'work-page');
+  assert.ok(screen.getByText('Idle'));
+  assert.equal(screen.queryByText('Live'), null);
 });
 
 test('destroy waits for the API and navigates back only after success', async () => {

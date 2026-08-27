@@ -89,7 +89,7 @@ export function StartWorkLauncher({ workItemsConfigured }) {
           </Button>
         </div>
       ) : (
-        <Box p={0} border rounded="none" bg="white" className={styles.card}>
+        <Box p={0} border bg="white" className={styles.card}>
           <div className={styles.header}>
             <h2 className={styles.title}>Start work</h2>
             <fieldset className={styles.modeGroup} disabled={pending}>

@@ -144,7 +144,7 @@ export function WorkspaceDetail({ workspaceId, onBack, workspaceStates }) {
     session && sessionState === 'idle'
       ? 'Waiting'
       : session
-        ? 'Live'
+        ? 'Idle'
         : workspace.status === 'destroyed'
           ? 'Destroyed'
           : 'Active';
@@ -153,7 +153,7 @@ export function WorkspaceDetail({ workspaceId, onBack, workspaceStates }) {
       ? /** @type {const} */ ('amber')
       : headerStatusLabel === 'Destroyed'
         ? /** @type {const} */ ('red')
-        : headerStatusLabel === 'Live'
+        : headerStatusLabel === 'Idle'
           ? /** @type {const} */ ('gray')
           : /** @type {const} */ ('green');
 
@@ -170,7 +170,7 @@ export function WorkspaceDetail({ workspaceId, onBack, workspaceStates }) {
         <div className={workPage.kicker}>
           <span>Scratch workspace</span>
           {headerIsWorking ? (
-            <WorkingBadge indicator="dot" className={workPage.detailStatus} />
+            <WorkingBadge className={workPage.detailStatus} />
           ) : (
             <Badge color={headerStatusColor} className={workPage.detailStatus}>
               <span

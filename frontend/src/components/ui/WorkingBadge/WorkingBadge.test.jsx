@@ -10,15 +10,7 @@ test('always renders a spinner with the working label', () => {
   render(<WorkingBadge />);
 
   const badge = screen.getByText('Working');
-  assert.ok(badge.querySelector('[aria-hidden="true"]'));
-});
-
-test('uses a static marker when the surrounding view already shows active work', () => {
-  render(<WorkingBadge indicator="dot" />);
-
-  const badge = screen.getByText('Working');
-  assert.ok(badge.querySelector('[data-state-marker="working"]'));
-  assert.equal(badge.querySelector('[data-spinner="true"]'), null);
+  assert.ok(badge.querySelector('[data-spinner="true"]'));
 });
 
 test('production components cannot hard-code a separate working indicator', () => {

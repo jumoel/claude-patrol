@@ -143,6 +143,8 @@ test('ready detail renders one root terminal and no child controls', async () =>
   assert.equal((await screen.findAllByTestId('root-terminal')).length, 1);
   assert.equal(screen.getByTestId('root-terminal').getAttribute('data-session'), 'session-1');
   assert.equal(screen.getByTestId('root-terminal').getAttribute('data-presentation'), 'work-page');
+  assert.ok(screen.getByText('Idle'));
+  assert.equal(screen.queryByText('Live'), null);
   assert.ok(screen.getByText(/Update both repositories\.\s+Keep their changes aligned\./));
   assert.equal(screen.getAllByRole('button', { name: 'Copy path' }).length, 1);
   assert.equal(screen.queryByRole('link', { name: /acme\/alpha/ }), null);

@@ -24,7 +24,7 @@ export function Terminal({ wsUrl, wsRef: externalWsRef, focus, onExit, onToggleM
   const containerRef = useRef(/** @type {HTMLDivElement | null} */ (null));
   const termRef = useRef(/** @type {XTerm | null} */ (null));
   const wsRef = useRef(/** @type {WebSocket | null} */ (null));
-  const fitRef = useRef(/** @type {FitAddon | null} */ (null));
+  const refitRef = useRef(/** @type {((forceRedraw?: boolean) => void) | null} */ (null));
   const externalWsRefRef = useRef(externalWsRef);
   const callbacksRef = useRef({ onExit, onToggleMaximize });
 
@@ -42,7 +42,10 @@ export function Terminal({ wsUrl, wsRef: externalWsRef, focus, onExit, onToggleM
     /** @type {ReturnType<typeof setTimeout> | null} */
     let reconnectTimer = null;
     /** @type {number | null} */
+    let fitFrame = null;
+    /** @type {number | null} */
     let redrawFrame = null;
+    let pendingForceRedraw = false;
 
     const term = new XTerm({
       allowProposedApi: true,
@@ -77,12 +80,15 @@ export function Terminal({ wsUrl, wsRef: externalWsRef, focus, onExit, onToggleM
       .then(({ WebglAddon }) => {
         if (cancelled) return;
         const webglAddon = new WebglAddon({ customGlyphs: true });
-        webglAddon.onContextLoss(() => webglAddon.dispose());
+        webglAddon.onContextLoss(() => {
+          webglAddon.dispose();
+          scheduleFit(true);
+        });
         term.loadAddon(webglAddon);
+        scheduleFit(true);
       })
       .catch(() => {});
 
-    fitAddon.fit();
     term.focus();
 
     /**
@@ -92,7 +98,16 @@ export function Terminal({ wsUrl, wsRef: externalWsRef, focus, onExit, onToggleM
      * the app inside tmux redraw at the correct size after stale replay.
      */
     function fitAndSync(forceRedraw = false) {
+      const wrapper = containerRef.current?.parentElement;
+      if (!wrapper?.isConnected) return;
+      const bounds = wrapper.getBoundingClientRect();
+      if (bounds.width < 2 || bounds.height < 2) return;
+
       fitAddon.fit();
+      // Font loading, renderer changes, and CSS resizing can leave WebGL's
+      // cached glyphs at the previous cell size. Rebuild the atlas before the
+      // redraw so characters do not overlap after a refresh or resize.
+      term.clearTextureAtlas();
       if (term.rows > 0) term.refresh(0, term.rows - 1);
       if (redrawFrame !== null) cancelAnimationFrame(redrawFrame);
       redrawFrame = requestAnimationFrame(() => {
@@ -108,8 +123,24 @@ export function Terminal({ wsUrl, wsRef: externalWsRef, focus, onExit, onToggleM
       }
     }
 
+    /**
+     * Batch layout changes into the next frame. ResizeObserver can fire before
+     * the browser has committed a new container size, especially during the
+     * work-page collapse animation.
+     */
+    function scheduleFit(forceRedraw = false) {
+      pendingForceRedraw ||= forceRedraw;
+      if (fitFrame !== null) return;
+      fitFrame = requestAnimationFrame(() => {
+        fitFrame = null;
+        const shouldForceRedraw = pendingForceRedraw;
+        pendingForceRedraw = false;
+        if (!cancelled) fitAndSync(shouldForceRedraw);
+      });
+    }
+
     termRef.current = term;
-    fitRef.current = fitAddon;
+    refitRef.current = scheduleFit;
 
     term.onData((data) => {
       const ws = wsRef.current;
@@ -145,9 +176,14 @@ export function Terminal({ wsUrl, wsRef: externalWsRef, focus, onExit, onToggleM
     // Resize handling - observe the wrapper (outer div) so we catch
     // layout changes even when the inner container dimensions haven't
     // propagated yet.
-    observer = new ResizeObserver(() => fitAndSync());
+    observer = new ResizeObserver(() => scheduleFit());
     const wrapper = containerRef.current.parentElement;
     if (wrapper) observer.observe(wrapper);
+
+    scheduleFit(true);
+    void document.fonts?.ready.then(() => {
+      if (!cancelled) scheduleFit(true);
+    });
 
     function connectWs() {
       if (cancelled || !term) return;
@@ -164,7 +200,7 @@ export function Terminal({ wsUrl, wsRef: externalWsRef, focus, onExit, onToggleM
         }
         reconnectAttempt = 0;
         // Re-fit now that the connection is live - layout is settled by this point
-        fitAndSync();
+        scheduleFit();
       };
 
       ws.onmessage = (event) => {
@@ -180,15 +216,12 @@ export function Terminal({ wsUrl, wsRef: externalWsRef, focus, onExit, onToggleM
               if (cancelled) return;
               // The replay data was formatted for the previous client's
               // dimensions. Redraw only after xterm has parsed it.
-              fitAndSync(true);
+              scheduleFit(true);
             });
           } else if (msg.type === 'exit') {
             term.write(`\r\n[Process exited with code ${msg.code}]\r\n`);
             cancelled = true;
             callbacksRef.current.onExit?.(msg.code);
-          } else if (msg.type === 'popped-out') {
-            cancelled = true;
-            callbacksRef.current.onExit?.(0);
           } else if (msg.type === 'error') {
             term.write(`\r\n[Error: ${msg.message}]\r\n`);
             cancelled = true;
@@ -219,12 +252,14 @@ export function Terminal({ wsUrl, wsRef: externalWsRef, focus, onExit, onToggleM
     return () => {
       cancelled = true;
       if (reconnectTimer) clearTimeout(reconnectTimer);
+      if (fitFrame !== null) cancelAnimationFrame(fitFrame);
       if (redrawFrame !== null) cancelAnimationFrame(redrawFrame);
       observer?.disconnect();
       const ws = wsRef.current;
       ws?.close();
       if (externalWsRefRef.current?.current === ws) externalWsRefRef.current.current = null;
       if (wsRef.current === ws) wsRef.current = null;
+      if (refitRef.current === scheduleFit) refitRef.current = null;
       term?.dispose();
     };
   }, [wsUrl]);
@@ -238,7 +273,10 @@ export function Terminal({ wsUrl, wsRef: externalWsRef, focus, onExit, onToggleM
   }, [externalWsRef]);
 
   useEffect(() => {
-    if (focus && termRef.current) termRef.current.focus();
+    if (focus && termRef.current) {
+      refitRef.current?.(true);
+      termRef.current.focus();
+    }
   }, [focus]);
 
   const handleClick = () => {

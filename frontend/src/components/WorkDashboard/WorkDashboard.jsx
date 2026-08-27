@@ -10,7 +10,7 @@ import {
   serializeDashboardRowsMarkdown,
   sortDashboardRows,
 } from '../../lib/work-dashboard.js';
-import { WorkingBadge } from '../ui/WorkingBadge/WorkingBadge.jsx';
+import { WORKING_LABEL, WorkingBadge } from '../ui/WorkingBadge/WorkingBadge.jsx';
 import styles from './WorkDashboard.module.css';
 
 /** @type {Record<string, string>} */
@@ -24,9 +24,9 @@ const COLUMN_STORAGE_KEY = 'claude-patrol-work-columns-v1';
 const COLUMNS = [
   { id: 'work', label: 'Work' },
   { id: 'work_ref', label: 'Work ref' },
+  { id: 'llm', label: 'LLM' },
   { id: 'repository', label: 'Repository' },
   { id: 'pull_requests', label: 'Pull requests' },
-  { id: 'llm', label: 'LLM' },
   { id: 'local', label: 'Local' },
   { id: 'updated', label: 'Updated' },
 ];
@@ -96,22 +96,37 @@ function PullRequestBadges({ pr }) {
   );
 }
 
-/** @param {{sessions: import('../../types').DashboardSessionSummary[]}} props */
-function SessionSummary({ sessions }) {
+/**
+ * @param {{
+ *   sessions: import('../../types').DashboardSessionSummary[],
+ *   acknowledgedIdle: Map<string, string>,
+ * }} props
+ */
+function SessionSummary({ sessions, acknowledgedIdle }) {
   if (sessions.length === 0) return <span className={styles.empty}>No session</span>;
-  const idle = sessions.filter((session) => session.activity_state === 'idle').length;
   const working = sessions.filter((session) => session.activity_state === 'working').length;
+  const waiting = sessions.filter(
+    (session) =>
+      session.activity_state === 'idle' &&
+      !!session.activity_changed_at &&
+      acknowledgedIdle.get(session.id) !== session.activity_changed_at,
+  ).length;
+  const idle = sessions.length - working - waiting;
   const providers = [...new Set(sessions.map((session) => labelize(session.provider)))].join(', ');
   const stateLabel =
     sessions.length === 1
-      ? idle > 0
-        ? 'Waiting'
-        : 'Live'
-      : working > 0
-        ? `${working} working${idle > 0 ? `, ${idle} waiting` : ''}`
-        : idle > 0
-          ? `${idle} waiting`
-          : `${sessions.length} live`;
+      ? working > 0
+        ? WORKING_LABEL
+        : waiting > 0
+          ? 'Waiting'
+          : 'Idle'
+      : [
+          working > 0 ? `${working} working` : null,
+          waiting > 0 ? `${waiting} waiting` : null,
+          idle > 0 ? `${idle} idle` : null,
+        ]
+          .filter(Boolean)
+          .join(', ');
   return (
     <span className={styles.sessionSummary}>
       {working > 0 ? (
@@ -122,8 +137,8 @@ function SessionSummary({ sessions }) {
           className={styles.runtimeState}
         />
       ) : (
-        <span className={`${styles.runtimeState} ${styles.runtimeWaiting}`}>
-          <span className={styles.sessionDot} data-state-marker={idle > 0 ? 'waiting' : 'live'} aria-hidden="true" />
+        <span className={`${styles.runtimeState} ${waiting > 0 ? styles.runtimeWaiting : styles.runtimeIdle}`}>
+          <span className={styles.sessionDot} data-state-marker={waiting > 0 ? 'waiting' : 'idle'} aria-hidden="true" />
           {stateLabel}
         </span>
       )}
@@ -559,11 +574,11 @@ export function WorkDashboard({
               <tr>
                 {visibleColumns.has('work') && <th className={styles.workColumn}>{sortHeader('Work', 'title')}</th>}
                 {visibleColumns.has('work_ref') && <th className={styles.refColumn}>Work ref</th>}
+                {visibleColumns.has('llm') && <th className={styles.llmColumn}>LLM</th>}
                 {visibleColumns.has('repository') && (
                   <th className={styles.repoColumn}>{sortHeader('Repository', 'repo')}</th>
                 )}
                 {visibleColumns.has('pull_requests') && <th className={styles.prColumn}>Pull requests</th>}
-                {visibleColumns.has('llm') && <th className={styles.llmColumn}>LLM</th>}
                 {visibleColumns.has('local') && <th className={styles.localColumn}>Local</th>}
                 {visibleColumns.has('updated') && (
                   <th className={styles.updatedColumn}>{sortHeader('Updated', 'updated_at')}</th>
@@ -604,6 +619,11 @@ export function WorkDashboard({
                         ))}
                     </td>
                   )}
+                  {visibleColumns.has('llm') && (
+                    <td data-label="LLM">
+                      <SessionSummary sessions={row.sessions} acknowledgedIdle={acknowledgedIdle} />
+                    </td>
+                  )}
                   {visibleColumns.has('repository') && (
                     <td data-label="Repository">
                       {row.repositories.length > 0 ? (
@@ -632,11 +652,6 @@ export function WorkDashboard({
                       ) : (
                         <span className={styles.empty}>No PR attached</span>
                       )}
-                    </td>
-                  )}
-                  {visibleColumns.has('llm') && (
-                    <td data-label="LLM">
-                      <SessionSummary sessions={row.sessions} />
                     </td>
                   )}
                   {visibleColumns.has('local') && (

@@ -7,7 +7,6 @@ import {
   createSession,
   killSessionAndWait,
   normalizeGlobalSessionName,
-  popOutSession,
   reattachSession,
 } from '../pty-manager.js';
 import { sanitizePublicText } from '../public-errors.js';
@@ -253,16 +252,6 @@ export function registerSessionRoutes(app) {
       return targetError(reply, error.code ?? 'session_stop_failed', error.message, 500);
     }
     return { ok: true };
-  });
-
-  app.post('/api/sessions/:id/popout', (request, reply) => {
-    try {
-      popOutSession(request.params.id);
-      emitLocalChange();
-      return { ok: true };
-    } catch (err) {
-      return reply.code(400).send({ error: err.message });
-    }
   });
 
   app.post('/api/sessions/:id/reattach', (request, reply) => {

@@ -2,56 +2,27 @@
 
 .drawer {
   @apply fixed bottom-0 left-0 right-0 flex flex-col;
+  --line: #d7dce3;
+  --ink: #1c2430;
+  --muted: #606b78;
+  --blue: #2764b0;
+  --blue-soft: #e7f0fb;
   z-index: 70;
-  color: #dce3eb;
-  background: #0e141c;
-  border-top: 1px solid #34404e;
+  color: var(--ink);
+  background: #fff;
+  border-top: 1px solid var(--line);
 }
 
 .collapsed {
   overflow: hidden;
 }
 
-.maximized {
-  @apply fixed left-0 right-0 bottom-0 flex flex-col overflow-hidden;
-  top: var(--app-header-height, 0px);
-  z-index: 70;
-  color: #dce3eb;
-  background: #0e141c;
-}
-
-/* Drawer-specific resize handle (dark theme, thinner) */
-.resizeHandle {
-  @apply flex items-center justify-center shrink-0;
-  height: 12px;
-  cursor: ns-resize;
-  touch-action: none;
-  user-select: none;
-}
-
-.resizeHandle:hover .resizeGrip,
-.resizeHandle:active .resizeGrip {
-  background: #4d5969;
-}
-
-.resizeHandle:focus-visible {
-  outline: 2px solid #8bb9ef;
-  outline-offset: -2px;
-}
-
-.resizeGrip {
-  width: 42px;
-  height: 3px;
-  background: #4d5969;
-  border-radius: 999px;
-}
-
 .handle {
   @apply flex shrink-0 items-center gap-3;
   min-height: 42px;
   padding: 0 12px;
-  background: #17202a;
-  border-bottom: 1px solid #34404e;
+  background: #fff;
+  border-bottom: 1px solid var(--line);
 }
 
 .collapsed .handle {
@@ -62,7 +33,7 @@
   @apply inline-flex shrink-0 cursor-pointer items-center gap-2;
   min-height: 29px;
   padding: 0 3px;
-  color: #dce3eb;
+  color: var(--ink);
   background: transparent;
   border: 0;
   font-size: 13px;
@@ -71,7 +42,8 @@
 }
 
 .barToggle:focus-visible {
-  @apply outline-none ring-2 ring-blue-400;
+  outline: 2px solid var(--blue);
+  outline-offset: 1px;
 }
 
 .barLabel {
@@ -80,7 +52,7 @@
 
 .sessionCount {
   min-width: 1rem;
-  color: #7f8b99;
+  color: var(--muted);
   font-variant-numeric: tabular-nums;
   text-align: left;
 }
@@ -99,27 +71,28 @@
   @apply max-w-48 shrink-0 cursor-pointer truncate;
   min-height: 29px;
   padding: 6px 9px;
-  color: #9ba8b7;
+  color: var(--muted);
   background: transparent;
   border: 0;
-  border-radius: 5px;
+  border-radius: 2px;
   font-size: 12px;
 }
 
 .tab:focus-visible,
 .createButton:focus-visible {
-  @apply outline-none ring-2 ring-blue-400;
+  outline: 2px solid var(--blue);
+  outline-offset: 1px;
 }
 
 .tabActive {
-  color: #fff;
-  background: #3a4256;
+  color: var(--blue);
+  background: var(--blue-soft);
 }
 
 .emptyState {
   @apply shrink-0;
   padding: 0 4px;
-  color: #7f8b99;
+  color: var(--muted);
   font-size: 12px;
   white-space: nowrap;
 }
@@ -131,7 +104,6 @@
 .createButton {
   min-height: 28px !important;
   padding: 0 9px !important;
-  border-color: #34404e !important;
   font-size: 12px !important;
   font-weight: 400 !important;
 }
@@ -144,21 +116,17 @@
 .controls button {
   min-height: 29px;
   padding: 6px 9px;
-  color: #9ba8b7;
+  color: var(--muted);
   background: transparent;
   border: 0;
-  border-radius: 5px;
+  border-radius: 2px;
   font-size: 12px;
   font-weight: 400;
 }
 
 .controls button:hover {
-  color: #9ba8b7;
+  color: var(--muted);
   background: transparent;
-}
-
-.controls button:nth-last-child(2) {
-  color: #ff7d86;
 }
 
 .closeButton {
@@ -167,31 +135,31 @@
 
 .promoteForm {
   @apply shrink-0 px-4 py-2;
-  background: #17202a;
-  border-bottom: 1px solid #34404e;
+  background: #fff;
+  border-bottom: 1px solid var(--line);
 }
 
 .renameForm {
   @apply flex shrink-0 items-center gap-2 px-4 py-2 text-sm;
-  color: #dce3eb;
-  background: #17202a;
-  border-bottom: 1px solid #34404e;
+  color: var(--ink);
+  background: #fff;
+  border-bottom: 1px solid var(--line);
 }
 
 .renameInput {
   @apply min-w-40 flex-1 px-2 py-1 text-sm outline-none;
   max-width: 28rem;
-  color: #f4f7fa;
-  background: #0e141c;
-  border: 1px solid #34404e;
+  color: var(--ink);
+  background: #fff;
+  border: 1px solid var(--line);
   border-radius: 2px;
 }
 
 .promoteSelect {
   @apply px-2 py-1 text-sm focus:outline-none;
-  color: #dce3eb;
-  background: #0e141c;
-  border: 1px solid #34404e;
+  color: var(--ink);
+  background: #fff;
+  border: 1px solid var(--line);
   border-radius: 2px;
 }
 
@@ -199,15 +167,15 @@
   @apply flex-1 px-2 py-1 text-sm focus:outline-none;
   min-width: 160px;
   max-width: 280px;
-  color: #dce3eb;
-  background: #0e141c;
-  border: 1px solid #34404e;
+  color: var(--ink);
+  background: #fff;
+  border: 1px solid var(--line);
   border-radius: 2px;
 }
 
 
 .content {
-  @apply flex-1 overflow-hidden min-h-0;
+  @apply min-h-0;
 }
 
 .contentHidden {
@@ -215,19 +183,25 @@
 }
 
 .errorBar {
-  @apply flex shrink-0 items-center justify-between gap-3 border-b border-red-900/60 bg-red-950/60 px-4 py-2 text-sm text-red-300;
+  @apply flex shrink-0 items-center justify-between gap-3 px-4 py-2 text-sm;
+  color: #c94b45;
+  background: #fbe5e2;
+  border-bottom: 1px solid #e7c4c0;
 }
 
 .loading {
-  @apply text-gray-400 text-base p-4;
+  @apply text-base p-4;
+  color: var(--muted);
 }
 
 .launchError {
-  @apply m-0 text-center text-sm text-red-400;
+  @apply m-0 text-center text-sm;
+  color: #c94b45;
 }
 
 .detached {
-  @apply m-0 text-center text-sm text-gray-400;
+  @apply m-0 text-center text-sm;
+  color: var(--muted);
 }
 
 .placeholder {
@@ -244,13 +218,11 @@
     padding: 0;
   }
 
-  .drawer:not(.collapsed) .barLabel,
-  .maximized .barLabel {
+  .drawer:not(.collapsed) .barLabel {
     display: none;
   }
 
-  .drawer:not(.collapsed) .handle,
-  .maximized .handle {
+  .drawer:not(.collapsed) .handle {
     min-height: 76px;
     flex-wrap: wrap;
     align-content: center;
@@ -259,8 +231,7 @@
     padding-bottom: 5px;
   }
 
-  .drawer:not(.collapsed) .controls,
-  .maximized .controls {
+  .drawer:not(.collapsed) .controls {
     width: 100%;
     justify-content: flex-end;
     overflow-x: auto;

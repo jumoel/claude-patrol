@@ -50,7 +50,7 @@
   font-size: 12px;
 }
 
-.empty { padding: 11px; }
+.empty { padding: 11px 0; }
 
 .attachDetails {
   position: relative;
@@ -88,6 +88,7 @@
   padding: 10px;
   background: #fff;
   border: 1px solid var(--line-strong);
+  border-radius: 2px;
 }
 
 .attachLabel {
@@ -192,6 +193,7 @@
   color: #a13d38;
   background: #fbe5e2;
   border: 1px solid var(--line);
+  border-radius: 2px;
   font-size: 13px;
 }
 

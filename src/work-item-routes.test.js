@@ -409,6 +409,18 @@ test('session deletion does not emit a change when no session changes', async ()
   }
 });
 
+test('session routes do not expose terminal pop-out functionality', async () => {
+  const service = { create() {}, list: () => [], detail: () => null, retry() {}, destroy() {} };
+  const server = await serverFixture(service);
+
+  try {
+    const response = await server.inject({ method: 'POST', url: '/api/sessions/session-1/popout' });
+    assert.equal(response.statusCode, 404);
+  } finally {
+    await server.close();
+  }
+});
+
 test('session filters distinguish global, work-item, and managed child targets', async () => {
   const service = { create() {}, list: () => [], detail: () => null, retry() {}, destroy() {} };
   const activityChangedAt = '2026-08-26T12:00:00.000Z';

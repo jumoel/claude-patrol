@@ -419,7 +419,7 @@ export function WorkItemDetail({ workItemId, targetStates, selectedPrId = null }
   const repositorySummary = workItem.repository_workspaces.map((repository) => repository.identifier).join(', ');
   const headerIsWorking = !!session && sessionState === 'working';
   const headerStatusLabel =
-    session && sessionState === 'idle' ? 'Waiting' : session ? 'Live' : WORK_ITEM_STATE_LABELS[workItem.state];
+    session && sessionState === 'idle' ? 'Waiting' : session ? 'Idle' : WORK_ITEM_STATE_LABELS[workItem.state];
   const headerStatusColor =
     headerStatusLabel === 'Waiting'
       ? /** @type {const} */ ('amber')
@@ -427,7 +427,7 @@ export function WorkItemDetail({ workItemId, targetStates, selectedPrId = null }
         ? /** @type {const} */ ('red')
         : headerStatusLabel === 'Ready'
           ? /** @type {const} */ ('green')
-          : headerStatusLabel === 'Destroyed' || headerStatusLabel === 'Live'
+          : headerStatusLabel === 'Destroyed' || headerStatusLabel === 'Idle'
             ? /** @type {const} */ ('gray')
             : /** @type {const} */ ('blue');
 
@@ -463,7 +463,7 @@ export function WorkItemDetail({ workItemId, targetStates, selectedPrId = null }
         <div className={styles.referenceLine}>
           <span>Work item</span>
           {headerIsWorking ? (
-            <WorkingBadge indicator="dot" className={styles.headerStatus} />
+            <WorkingBadge className={styles.headerStatus} />
           ) : (
             <Badge color={headerStatusColor} className={styles.headerStatus}>
               <span
@@ -572,10 +572,7 @@ export function WorkItemDetail({ workItemId, targetStates, selectedPrId = null }
       )}
 
       {workItem.summary && (
-        <section
-          className={`${styles.contentSection} ${styles.firstContent}`}
-          aria-labelledby="work-item-overview-heading"
-        >
+        <section className={styles.contentSection} aria-labelledby="work-item-overview-heading">
           <h2 id="work-item-overview-heading" className={styles.sectionTitle}>
             Overview
           </h2>

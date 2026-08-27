@@ -17,6 +17,14 @@ test('selects an attached pull request on its work-item route', () => {
   });
 });
 
+test('terminal state does not interfere with work item routing', () => {
+  assert.deepEqual(parseAppRoute('#/work-item/item-1?pr=org%2Frepo%231&terminal=session-1'), {
+    type: 'work_item',
+    id: 'item-1',
+    selectedPrId: 'org/repo#1',
+  });
+});
+
 test('routes an attached pull request through its work item', () => {
   assert.equal(
     pullRequestPath({ id: 'chainguard-dev/mono#50511', work_item_id: 'item-1' }),

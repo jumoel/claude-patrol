@@ -1,8 +1,9 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useEscapeKey } from '../../hooks/useEscapeKey.js';
 import { useResizeHandle } from '../../hooks/useResizeHandle.js';
 import { sendTerminalCommand, whenWsOpen } from '../../lib/terminal.js';
+import { clearMaximizedTerminal, maximizedTerminalId, replaceMaximizedTerminal } from '../../lib/terminal-url.js';
 import shared from '../../styles/shared.module.css';
 import { QuickActions } from '../QuickActions/QuickActions.jsx';
 import { LazyTerminal } from '../Terminal/LazyTerminal.jsx';
@@ -11,6 +12,10 @@ import { Button } from '../ui/Button/Button.jsx';
 import { Stack } from '../ui/Stack/Stack.jsx';
 import { WORKING_LABEL } from '../ui/WorkingBadge/WorkingBadge.jsx';
 import styles from './TerminalCard.module.css';
+
+const DEFAULT_TERMINAL_HEIGHT = 400;
+const MIN_TERMINAL_HEIGHT = 150;
+const MAX_TERMINAL_HEIGHT = 900;
 
 /**
  * Shared terminal UI with maximize, close, resize, and detach/reattach support.
@@ -21,14 +26,15 @@ import styles from './TerminalCard.module.css';
  *   title: string,
  *   onKill: () => void,
  *   onExit: () => void,
- *   onPopOut?: () => void,
  *   onReattach?: () => Promise<void>,
  *   wsRef?: { current: WebSocket | null },
  *   baseBranch?: string,
  *   workspaceId?: string,
  *   prId?: string,
  *   sessionState?: 'working' | 'idle',
- *   presentation?: 'card' | 'work-page',
+ *   presentation?: 'card' | 'work-page' | 'global',
+ *   controlsDisabled?: boolean,
+ *   killPending?: boolean,
  * }} props
  */
 export function TerminalCard({
@@ -36,7 +42,6 @@ export function TerminalCard({
   title,
   onKill,
   onExit,
-  onPopOut,
   onReattach,
   wsRef: externalWsRef,
   baseBranch,
@@ -44,8 +49,10 @@ export function TerminalCard({
   prId,
   sessionState,
   presentation = 'card',
+  controlsDisabled = false,
+  killPending = false,
 }) {
-  const [maximized, setMaximized] = useState(false);
+  const [maximized, setMaximized] = useState(() => maximizedTerminalId() === session.id);
   const [terminalOpen, setTerminalOpen] = useState(true);
   const [reattaching, setReattaching] = useState(false);
   const internalWsRef = useRef(/** @type {WebSocket | null} */ (null));
@@ -53,34 +60,77 @@ export function TerminalCard({
 
   const {
     height: termHeight,
+    setHeight: setTermHeight,
     dragging,
     handleProps,
   } = useResizeHandle({
-    initial: 400,
-    min: 150,
-    max: 900,
+    initial: DEFAULT_TERMINAL_HEIGHT,
+    min: MIN_TERMINAL_HEIGHT,
+    max: MAX_TERMINAL_HEIGHT,
   });
+
+  const handleWorkPageResizeKeyDown = useCallback(
+    /** @param {React.KeyboardEvent<HTMLDivElement>} event */ (event) => {
+      let nextHeight = null;
+      if (event.key === 'ArrowUp') nextHeight = Math.max(MIN_TERMINAL_HEIGHT, termHeight - 40);
+      else if (event.key === 'ArrowDown') nextHeight = Math.min(MAX_TERMINAL_HEIGHT, termHeight + 40);
+      else if (event.key === 'Home') nextHeight = MIN_TERMINAL_HEIGHT;
+      else if (event.key === 'End') nextHeight = MAX_TERMINAL_HEIGHT;
+      if (nextHeight === null) return;
+      event.preventDefault();
+      setTermHeight(nextHeight);
+    },
+    [setTermHeight, termHeight],
+  );
 
   // Only un-maximize on Escape if it didn't come from the terminal
   // (xterm sends Escape to the PTY, but the DOM event also bubbles up)
-  useEscapeKey(
-    maximized,
-    useCallback((e) => {
-      if (e.target instanceof Element && e.target.closest('.xterm')) return;
-      setMaximized(false);
-    }, []),
+  const updateMaximized = useCallback(
+    /** @param {boolean} next */ (next) => {
+      setMaximized(next);
+      if (next) replaceMaximizedTerminal(session.id);
+      else clearMaximizedTerminal(session.id);
+    },
+    [session.id],
   );
 
-  const toggleMaximize = useCallback(() => setMaximized((prev) => !prev), []);
+  useEffect(() => {
+    const syncFromUrl = () => setMaximized(maximizedTerminalId() === session.id);
+    syncFromUrl();
+    window.addEventListener('hashchange', syncFromUrl);
+    return () => window.removeEventListener('hashchange', syncFromUrl);
+  }, [session.id]);
+
+  useEffect(() => {
+    if (session.status === 'detached') updateMaximized(false);
+  }, [session.status, updateMaximized]);
+
+  useEscapeKey(
+    maximized,
+    useCallback(
+      (e) => {
+        if (e.target instanceof Element && e.target.closest('.xterm')) return;
+        updateMaximized(false);
+      },
+      [updateMaximized],
+    ),
+  );
+
+  const toggleMaximize = useCallback(() => updateMaximized(!maximized), [maximized, updateMaximized]);
   const toggleWorkPageMaximize = useCallback(() => {
     setTerminalOpen(true);
-    setMaximized((prev) => !prev);
-  }, []);
+    updateMaximized(!maximized);
+  }, [maximized, updateMaximized]);
 
   const handleExit = useCallback(() => {
-    setMaximized(false);
+    updateMaximized(false);
     onExit();
-  }, [onExit]);
+  }, [onExit, updateMaximized]);
+
+  const handleKill = useCallback(() => {
+    updateMaximized(false);
+    onKill();
+  }, [onKill, updateMaximized]);
 
   const handleSendCommand = useCallback(
     /** @param {string} text */
@@ -104,12 +154,18 @@ export function TerminalCard({
     }
   }, [onReattach]);
 
-  if (presentation === 'work-page') {
+  if (presentation === 'work-page' || presentation === 'global') {
+    const isGlobal = presentation === 'global';
     const workPageTitle = title.replace(/^Terminal\s*-\s*/, '');
-    const stateLabel = sessionState === 'working' ? WORKING_LABEL : 'Waiting';
+    const stateLabel = sessionState === 'working' ? WORKING_LABEL : sessionState === 'idle' ? 'Waiting' : 'Idle';
+    const stateClass =
+      sessionState === 'working' ? styles.working : sessionState === 'idle' ? styles.waiting : styles.inactive;
     if (session.status === 'detached') {
       return (
-        <section className={styles.workPageDetached} aria-labelledby={`terminal-${session.id}`}>
+        <section
+          className={`${styles.workPageDetached} ${isGlobal ? styles.globalDetached : ''}`}
+          aria-labelledby={`terminal-${session.id}`}
+        >
           <div className={styles.workPageHeader}>
             <h2 id={`terminal-${session.id}`} className={styles.workPageTitle}>
               <span
@@ -122,10 +178,16 @@ export function TerminalCard({
               <span className={styles.sessionState}>Detached</span>
             </h2>
             <Stack gap={2} wrap>
-              <Button variant="primary" size="sm" onClick={handleReattach} disabled={reattaching} busy={reattaching}>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={handleReattach}
+                disabled={reattaching || controlsDisabled}
+                busy={reattaching}
+              >
                 {reattaching ? 'Reattaching...' : 'Reattach'}
               </Button>
-              <Button variant="danger" size="sm" onClick={onKill}>
+              <Button variant="danger" size="sm" onClick={handleKill} disabled={controlsDisabled} busy={killPending}>
                 Kill session
               </Button>
             </Stack>
@@ -137,7 +199,7 @@ export function TerminalCard({
 
     return (
       <section
-        className={`${styles.workPageTerminal} ${
+        className={`${styles.workPageTerminal} ${isGlobal ? styles.globalTerminal : ''} ${
           maximized ? styles.workPageMaximized : terminalOpen ? '' : styles.workPageCollapsed
         }`}
         aria-labelledby={`terminal-${session.id}`}
@@ -145,8 +207,8 @@ export function TerminalCard({
         <div className={styles.workPageHeader}>
           <h2 id={`terminal-${session.id}`} className={styles.workPageTitle}>
             <span
-              className={`${styles.workPageStatus} ${sessionState === 'working' ? styles.working : styles.waiting}`}
-              data-state-marker={sessionState === 'working' ? 'working' : 'waiting'}
+              className={`${styles.workPageStatus} ${stateClass}`}
+              data-state-marker={sessionState === 'working' ? 'working' : sessionState === 'idle' ? 'waiting' : 'idle'}
               aria-hidden="true"
             />
             {workPageTitle}
@@ -172,10 +234,11 @@ export function TerminalCard({
               dark
               title={maximized ? 'Restore terminal' : 'Maximize terminal (Cmd+Enter)'}
               onClick={toggleWorkPageMaximize}
+              disabled={controlsDisabled}
             >
               {maximized ? 'Restore' : 'Maximize'}
             </Button>
-            <Button variant="danger" size="xs" dark onClick={onKill}>
+            <Button variant="danger" size="xs" dark onClick={handleKill} disabled={controlsDisabled} busy={killPending}>
               Kill session
             </Button>
           </Stack>
@@ -184,15 +247,35 @@ export function TerminalCard({
           id={`terminal-viewport-${session.id}`}
           className={styles.workPageViewport}
           hidden={!terminalOpen && !maximized}
+          style={maximized ? undefined : { height: termHeight }}
         >
           <LazyTerminal
             wsUrl={`/ws/sessions/${session.id}`}
             wsRef={wsRef}
             onExit={handleExit}
             onToggleMaximize={toggleWorkPageMaximize}
+            focus={terminalOpen || maximized}
             borderless
           />
         </div>
+        {!maximized && terminalOpen && (
+          <div
+            className={styles.workPageResizeHandle}
+            {...handleProps}
+            role="separator"
+            aria-label="Resize terminal"
+            aria-orientation="horizontal"
+            aria-valuemin={MIN_TERMINAL_HEIGHT}
+            aria-valuemax={MAX_TERMINAL_HEIGHT}
+            aria-valuenow={Math.round(termHeight)}
+            tabIndex={0}
+            title="Drag to resize terminal"
+            onKeyDown={handleWorkPageResizeKeyDown}
+          >
+            <div className={styles.workPageResizeGrip} />
+          </div>
+        )}
+        {dragging && <div className={shared.dragOverlay} />}
       </section>
     );
   }
@@ -224,12 +307,7 @@ export function TerminalCard({
         <Stack justify="between" className={shared.overlayHeader}>
           <span className={shared.overlayTitle}>{title}</span>
           <Stack gap={2}>
-            {onPopOut && (
-              <Button variant="default" size="sm" dark onClick={onPopOut}>
-                Pop out
-              </Button>
-            )}
-            <Button variant="default" size="sm" dark onClick={() => setMaximized(false)} title="Restore (Cmd+Enter)">
+            <Button variant="default" size="sm" dark onClick={() => updateMaximized(false)} title="Restore (Cmd+Enter)">
               Restore
             </Button>
             <Button
@@ -237,7 +315,7 @@ export function TerminalCard({
               size="sm"
               dark
               onClick={() => {
-                setMaximized(false);
+                updateMaximized(false);
                 setTerminalOpen(false);
               }}
             >
@@ -248,8 +326,7 @@ export function TerminalCard({
               size="sm"
               dark
               onClick={() => {
-                setMaximized(false);
-                onKill();
+                handleKill();
               }}
             >
               Kill session
@@ -262,6 +339,7 @@ export function TerminalCard({
             wsRef={wsRef}
             onExit={handleExit}
             onToggleMaximize={toggleMaximize}
+            focus
             borderless
           />
         </div>
@@ -290,7 +368,7 @@ export function TerminalCard({
               size="sm"
               onClick={() => {
                 setTerminalOpen(true);
-                setMaximized(true);
+                updateMaximized(true);
               }}
             >
               Maximize <kbd style={{ fontSize: '11px', opacity: 0.5, lineHeight: 1 }}>Cmd+Enter</kbd>
@@ -298,7 +376,7 @@ export function TerminalCard({
             <Button variant="primary" size="sm" onClick={() => setTerminalOpen(true)}>
               Open terminal
             </Button>
-            <Button variant="danger" size="sm" onClick={onKill}>
+            <Button variant="danger" size="sm" onClick={handleKill}>
               Kill session
             </Button>
           </Stack>
@@ -313,18 +391,13 @@ export function TerminalCard({
       <Stack justify="between">
         <h3 className={shared.sectionTitle}>Terminal</h3>
         <Stack gap={2}>
-          {onPopOut && (
-            <Button variant="default" size="sm" onClick={onPopOut}>
-              Pop out
-            </Button>
-          )}
-          <Button variant="default" size="sm" onClick={() => setMaximized(true)}>
+          <Button variant="default" size="sm" onClick={() => updateMaximized(true)}>
             Maximize <kbd style={{ fontSize: '11px', opacity: 0.5, lineHeight: 1 }}>Cmd+Enter</kbd>
           </Button>
           <Button variant="default" size="sm" onClick={() => setTerminalOpen(false)}>
             Close
           </Button>
-          <Button variant="danger" size="sm" onClick={onKill}>
+          <Button variant="danger" size="sm" onClick={handleKill}>
             Kill session
           </Button>
         </Stack>

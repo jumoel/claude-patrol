@@ -8,11 +8,12 @@
   --blue-soft: #e7f0fb;
   --amber: #a26900;
   --amber-soft: #fff0c2;
-  overflow: hidden;
+  overflow: visible;
   padding-bottom: 18px;
   color: var(--text);
   background: #fff;
-  border: 1px solid var(--line);
+  border: 0;
+  border-radius: 0;
   font-size: 14px;
 }
 
@@ -21,7 +22,7 @@
   min-height: 100px;
   padding: 14px 260px 12px 20px;
   background: #fff;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 0;
 }
 
 .headerActions {
@@ -176,11 +177,6 @@
   padding: 11px 0;
 }
 
-.firstContent {
-  padding-top: 12px;
-  border-top: 0;
-}
-
 .sectionTitle {
   margin: 0 0 7px;
   color: var(--ink);
@@ -232,8 +228,17 @@
 .paneBody { padding: 0 0 11px; }
 
 .failure {
-  padding-left: 10px;
-  border-left: 3px solid #c94b45;
+  position: relative;
+}
+
+.failure::before {
+  position: absolute;
+  top: 11px;
+  bottom: 11px;
+  left: -10px;
+  width: 3px;
+  background: #c94b45;
+  content: '';
 }
 
 .errorFacts,
@@ -248,9 +253,11 @@
 .errorFacts div,
 .repositoryFacts div {
   display: grid;
-  grid-template-columns: 8rem minmax(0, 1fr);
   gap: 12px;
 }
+
+.errorFacts div { grid-template-columns: 6rem minmax(0, 1fr); }
+.repositoryFacts div { grid-template-columns: 8rem minmax(0, 1fr); }
 
 .errorFacts dt,
 .repositoryFacts dt { color: var(--muted); }
@@ -288,6 +295,7 @@
   color: #a13d38;
   background: #fbe5e2;
   border: 1px solid var(--line);
+  border-radius: 2px;
   font-size: 13px;
 }
 
@@ -326,6 +334,7 @@
   .page {
     border-right: 0;
     border-left: 0;
+    border-radius: 0;
   }
 
   .pageHeader { padding: 14px 12px 12px; }

@@ -27,13 +27,12 @@ vi.mock('../RuleControls/RuleControls.jsx', () => ({ RuleControls: () => <div>Ru
 vi.mock('../SessionHistory/SessionHistory.jsx', () => ({ SessionHistory: () => <div>Past sessions</div> }));
 vi.mock('../CommentsList/CommentsList.jsx', () => ({ CommentsList: () => null }));
 vi.mock('../TerminalCard/TerminalCard.jsx', () => ({
-  /** @param {{session: import('../../types').Session, presentation?: string, onPopOut?: () => void, workspaceId?: string, prId?: string}} props */
-  TerminalCard: ({ session, presentation, onPopOut, workspaceId, prId }) => (
+  /** @param {{session: import('../../types').Session, presentation?: string, workspaceId?: string, prId?: string}} props */
+  TerminalCard: ({ session, presentation, workspaceId, prId }) => (
     <div
       data-testid="terminal"
       data-session={session.id}
       data-presentation={presentation}
-      data-popout={!!onPopOut}
       data-workspace={workspaceId}
       data-pr={prId}
     />
@@ -169,7 +168,6 @@ test('calls the workspace and session API adapters and renders an in-flow termin
   const terminal = await screen.findByTestId('terminal');
   assert.equal(terminal.getAttribute('data-session'), 'session-1');
   assert.equal(terminal.getAttribute('data-presentation'), 'work-page');
-  assert.equal(terminal.getAttribute('data-popout'), 'false');
 });
 
 test('refresh and draft actions call their real API adapters', async () => {

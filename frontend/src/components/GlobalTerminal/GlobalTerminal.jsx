@@ -1,7 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAgentProvider } from '../../context/AgentProviderContext.jsx';
-import { useEscapeKey } from '../../hooks/useEscapeKey.js';
-import { useResizeHandle } from '../../hooks/useResizeHandle.js';
 import {
   createSession as apiCreateSession,
   killSession as apiKillSession,
@@ -10,42 +8,16 @@ import {
   promoteSession,
 } from '../../lib/api.js';
 import { getErrorMessage } from '../../lib/errors.js';
-import shared from '../../styles/shared.module.css';
+import { clearMaximizedTerminal, maximizedTerminalId, replaceMaximizedTerminal } from '../../lib/terminal-url.js';
 import { AgentProviderButton } from '../AgentProviderButton/AgentProviderButton.jsx';
-import { LazyTerminal } from '../Terminal/LazyTerminal.jsx';
+import { TerminalCard } from '../TerminalCard/TerminalCard.jsx';
 import { Button } from '../ui/Button/Button.jsx';
 import { LoadingIndicator } from '../ui/LoadingIndicator/LoadingIndicator.jsx';
 import { RepoCombobox } from '../ui/RepoCombobox/RepoCombobox.jsx';
 import { Stack } from '../ui/Stack/Stack.jsx';
 import styles from './GlobalTerminal.module.css';
 
-const MIN_HEIGHT = 150;
-const MAX_HEIGHT_RATIO = 0.85;
-const DEFAULT_HEIGHT = 410;
 const BAR_HEIGHT = 43;
-const STORAGE_KEY = 'claude-patrol-terminal-height';
-
-function loadHeight() {
-  try {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
-      const h = Number(saved);
-      if (h >= MIN_HEIGHT && h <= window.innerHeight * MAX_HEIGHT_RATIO) return h;
-    }
-  } catch {
-    /* ignore */
-  }
-  return DEFAULT_HEIGHT;
-}
-
-/** @param {number} h */
-function persistHeight(h) {
-  try {
-    localStorage.setItem(STORAGE_KEY, String(Math.round(h)));
-  } catch {
-    /* ignore */
-  }
-}
 
 /**
  * @param {string | null} sessionId
@@ -89,33 +61,50 @@ export function GlobalTerminal({
   const [actionError, setActionError] = useState(
     /** @type {{sessionId: string | null, message: string} | null} */ (null),
   );
-  const [maximized, setMaximized] = useState(false);
   const [showPromote, setShowPromote] = useState(false);
   const [promoteRepo, setPromoteRepo] = useState('');
   const [promoteBranch, setPromoteBranch] = useState('');
   const [promoting, setPromoting] = useState(false);
   const [reattaching, setReattaching] = useState(false);
   const [killing, setKilling] = useState(false);
-  const [poppingOut, setPoppingOut] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState('');
   const [savingName, setSavingName] = useState(false);
-  const sessionMutationPending = killing || poppingOut || reattaching || promoting || savingName;
+  const [drawerHeight, setDrawerHeight] = useState(BAR_HEIGHT);
+  const sessionMutationPending = killing || reattaching || promoting || savingName;
   const previousActiveSessionId = useRef(activeSession?.id);
-  const poppingOutSessionId = useRef(/** @type {string | null} */ (null));
+  const drawerRef = useRef(/** @type {HTMLDivElement | null} */ (null));
 
-  const { height, setHeight, dragging, handleProps } = useResizeHandle({
-    initial: loadHeight(),
-    min: MIN_HEIGHT,
-    max: window.innerHeight * MAX_HEIGHT_RATIO,
-    direction: 'up',
-    onPersist: persistHeight,
-  });
+  useEffect(() => {
+    if (loading) return undefined;
 
-  useEscapeKey(
-    maximized,
-    useCallback(() => setMaximized(false), []),
-  );
+    const restoreFromUrl = () => {
+      const sessionId = maximizedTerminalId();
+      const requestedSession = sessions.find((session) => session.id === sessionId);
+      if (!requestedSession) {
+        return;
+      }
+      if (activeSession?.id !== requestedSession.id) onSelectSession(requestedSession.id);
+      if (!open) onToggle();
+    };
+
+    restoreFromUrl();
+    window.addEventListener('hashchange', restoreFromUrl);
+    return () => window.removeEventListener('hashchange', restoreFromUrl);
+  }, [activeSession?.id, loading, onSelectSession, onToggle, open, sessions]);
+
+  useEffect(() => {
+    const drawer = drawerRef.current;
+    if (!drawer || typeof ResizeObserver === 'undefined') {
+      setDrawerHeight(BAR_HEIGHT);
+      return undefined;
+    }
+    const updateHeight = () => setDrawerHeight(Math.max(BAR_HEIGHT, Math.round(drawer.getBoundingClientRect().height)));
+    updateHeight();
+    const observer = new ResizeObserver(updateHeight);
+    observer.observe(drawer);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     if (previousActiveSessionId.current === activeSession?.id) return;
@@ -149,6 +138,7 @@ export function GlobalTerminal({
     setActionError(null);
     try {
       await apiKillSession(activeSession.id);
+      if (maximizedTerminalId() === activeSession.id) clearMaximizedTerminal(activeSession.id);
       onRemoveSession(activeSession.id);
     } catch (error) {
       setActionError(actionFailure(activeSession.id, error, 'Failed to kill session'));
@@ -160,34 +150,13 @@ export function GlobalTerminal({
   const handleSessionExit = useCallback(
     /** @param {import('../../types').Session} session */
     (session) => {
-      if (poppingOutSessionId.current === session.id) {
-        poppingOutSessionId.current = null;
-        onUpsertSession({ ...session, status: 'detached' });
-      } else {
-        onRemoveSession(session.id);
+      if (maximizedTerminalId() === session.id) {
+        clearMaximizedTerminal(session.id);
       }
+      onRemoveSession(session.id);
     },
-    [onRemoveSession, onUpsertSession],
+    [onRemoveSession],
   );
-
-  const popOutSession = useCallback(async () => {
-    if (!activeSession || sessionMutationPending) return;
-    poppingOutSessionId.current = activeSession.id;
-    setPoppingOut(true);
-    setActionError(null);
-    try {
-      const response = await fetch(`/api/sessions/${activeSession.id}/popout`, { method: 'POST' });
-      if (!response.ok) throw new Error(`Pop out failed: ${response.status}`);
-      poppingOutSessionId.current = null;
-      onUpsertSession({ ...activeSession, status: 'detached' });
-      setMaximized(false);
-    } catch (error) {
-      poppingOutSessionId.current = null;
-      setActionError(actionFailure(activeSession.id, error, 'Failed to pop out session'));
-    } finally {
-      setPoppingOut(false);
-    }
-  }, [activeSession, onUpsertSession, sessionMutationPending]);
 
   const reattachSession = useCallback(async () => {
     if (!activeSession || sessionMutationPending) return;
@@ -211,7 +180,7 @@ export function GlobalTerminal({
       onRemoveSession(activeSession.id);
       setShowPromote(false);
       setPromoteBranch('');
-      setMaximized(false);
+      if (maximizedTerminalId() === activeSession.id) clearMaximizedTerminal(activeSession.id);
       onToggle();
       window.location.hash = `#/workspace/${result.workspace.id}`;
     } catch (error) {
@@ -250,6 +219,7 @@ export function GlobalTerminal({
   const selectTab = useCallback(
     /** @param {string} sessionId */ (sessionId) => {
       onSelectSession(sessionId);
+      if (maximizedTerminalId()) replaceMaximizedTerminal(sessionId);
       if (!open) onToggle();
       const tab = document.getElementById(`global-session-tab-${sessionId}`);
       tab?.focus();
@@ -259,11 +229,11 @@ export function GlobalTerminal({
   );
 
   const closePanel = useCallback(() => {
-    setMaximized(false);
+    if (activeSession && maximizedTerminalId() === activeSession.id) clearMaximizedTerminal(activeSession.id);
     setRenaming(false);
     setShowPromote(false);
     onToggle();
-  }, [onToggle]);
+  }, [activeSession, onToggle]);
 
   const handleTabKeyDown = useCallback(
     /** @param {React.KeyboardEvent<HTMLButtonElement>} event @param {number} index */
@@ -280,31 +250,7 @@ export function GlobalTerminal({
     [selectTab, sessions],
   );
 
-  const handleDoubleClick = useCallback(() => {
-    setHeight((previous) => {
-      const next = previous <= MIN_HEIGHT + 20 ? DEFAULT_HEIGHT : MIN_HEIGHT;
-      persistHeight(next);
-      return next;
-    });
-  }, [setHeight]);
-
-  const handleResizeKeyDown = useCallback(
-    /** @param {React.KeyboardEvent<HTMLDivElement>} event */ (event) => {
-      const maxHeight = window.innerHeight * MAX_HEIGHT_RATIO;
-      let nextHeight = null;
-      if (event.key === 'ArrowUp') nextHeight = Math.min(maxHeight, height + 40);
-      else if (event.key === 'ArrowDown') nextHeight = Math.max(MIN_HEIGHT, height - 40);
-      else if (event.key === 'Home') nextHeight = MIN_HEIGHT;
-      else if (event.key === 'End') nextHeight = maxHeight;
-      if (nextHeight === null) return;
-      event.preventDefault();
-      setHeight(nextHeight);
-      persistHeight(nextHeight);
-    },
-    [height, setHeight],
-  );
-
-  const spacerHeight = maximized ? 0 : open ? height : BAR_HEIGHT;
+  const spacerHeight = open ? drawerHeight : BAR_HEIGHT;
   const visibleActionError =
     actionError && (actionError.sessionId === null || actionError.sessionId === activeSession?.id)
       ? actionError.message
@@ -315,31 +261,12 @@ export function GlobalTerminal({
   return (
     <>
       <div style={{ height: spacerHeight, flexShrink: 0 }} />
-      {dragging && <div className={shared.dragOverlay} />}
       <div
-        className={maximized ? styles.maximized : `${styles.drawer} ${!open ? styles.collapsed : ''}`}
-        style={maximized ? undefined : { height: open ? height : BAR_HEIGHT }}
+        ref={drawerRef}
+        className={`${styles.drawer} ${!open ? styles.collapsed : ''}`}
         role="region"
         aria-label="Global sessions"
       >
-        {open && !maximized && (
-          <div
-            className={styles.resizeHandle}
-            {...handleProps}
-            role="separator"
-            aria-label="Resize global terminal"
-            aria-orientation="horizontal"
-            aria-valuemin={MIN_HEIGHT}
-            aria-valuemax={Math.round(window.innerHeight * MAX_HEIGHT_RATIO)}
-            aria-valuenow={Math.round(height)}
-            tabIndex={0}
-            title="Drag to resize. Double-click to minimize or restore."
-            onDoubleClick={handleDoubleClick}
-            onKeyDown={handleResizeKeyDown}
-          >
-            <div className={styles.resizeGrip} />
-          </div>
-        )}
         <div className={styles.handle}>
           <button
             type="button"
@@ -397,7 +324,6 @@ export function GlobalTerminal({
             <AgentProviderButton
               variant="primary"
               size="xs"
-              dark
               onClick={createSession}
               disabled={starting || loading}
               busy={starting}
@@ -411,58 +337,19 @@ export function GlobalTerminal({
             <Stack gap={2} className={styles.controls}>
               {activeSession && (
                 <>
-                  <Button size="xs" dark onClick={startRename} disabled={sessionMutationPending}>
+                  <Button size="xs" onClick={startRename} disabled={sessionMutationPending}>
                     Rename
                   </Button>
                   {activeSession.status === 'active' && activeSession.provider === 'claude' && (
                     <Button
                       variant="success"
                       size="xs"
-                      dark
                       onClick={() => setShowPromote((shown) => !shown)}
                       disabled={sessionMutationPending}
                     >
                       Promote
                     </Button>
                   )}
-                  {activeSession.status === 'active' ? (
-                    <>
-                      <Button size="xs" dark onClick={() => setMaximized((value) => !value)}>
-                        {maximized ? 'Restore' : 'Maximize'}
-                      </Button>
-                      <Button
-                        variant="primary"
-                        size="xs"
-                        dark
-                        onClick={popOutSession}
-                        disabled={sessionMutationPending}
-                        busy={poppingOut}
-                      >
-                        Pop out
-                      </Button>
-                    </>
-                  ) : (
-                    <Button
-                      variant="primary"
-                      size="xs"
-                      dark
-                      onClick={reattachSession}
-                      disabled={sessionMutationPending}
-                      busy={reattaching}
-                    >
-                      {reattaching ? 'Reattaching...' : 'Reattach'}
-                    </Button>
-                  )}
-                  <Button
-                    variant="danger"
-                    size="xs"
-                    dark
-                    onClick={killSession}
-                    disabled={sessionMutationPending}
-                    busy={killing}
-                  >
-                    Kill
-                  </Button>
                 </>
               )}
               <button
@@ -503,10 +390,10 @@ export function GlobalTerminal({
                 if (event.key === 'Escape') setRenaming(false);
               }}
             />
-            <Button type="submit" variant="primary" size="xs" dark disabled={sessionMutationPending} busy={savingName}>
+            <Button type="submit" variant="primary" size="xs" disabled={sessionMutationPending} busy={savingName}>
               Save
             </Button>
-            <Button type="button" variant="ghost" size="xs" dark onClick={() => setRenaming(false)}>
+            <Button type="button" variant="ghost" size="xs" onClick={() => setRenaming(false)}>
               Cancel
             </Button>
           </form>
@@ -517,7 +404,7 @@ export function GlobalTerminal({
               value={promoteRepo}
               onChange={setPromoteRepo}
               disabled={sessionMutationPending}
-              variant="dark"
+              variant="light"
             />
             <input
               className={styles.promoteInput}
@@ -531,7 +418,6 @@ export function GlobalTerminal({
             <Button
               variant="success"
               size="xs"
-              dark
               filled
               onClick={handlePromote}
               disabled={sessionMutationPending || !promoteRepo || !promoteBranch}
@@ -539,7 +425,7 @@ export function GlobalTerminal({
             >
               {promoting ? 'Promoting...' : 'Go'}
             </Button>
-            <Button variant="ghost" size="xs" dark onClick={() => setShowPromote(false)} disabled={promoting}>
+            <Button variant="ghost" size="xs" onClick={() => setShowPromote(false)} disabled={promoting}>
               Cancel
             </Button>
           </Stack>
@@ -548,7 +434,7 @@ export function GlobalTerminal({
           <div className={styles.errorBar} role="alert">
             <span>{visibleError}</span>
             {loadError != null && (
-              <Button size="xs" dark onClick={onReload}>
+              <Button size="xs" onClick={onReload}>
                 Retry
               </Button>
             )}
@@ -564,30 +450,19 @@ export function GlobalTerminal({
           {loading && sessions.length === 0 && (
             <LoadingIndicator className={styles.loading}>Loading global sessions...</LoadingIndicator>
           )}
-          {activeSession?.status === 'active' && (
-            <LazyTerminal
+          {open && activeSession && (
+            <TerminalCard
               key={activeSession.id}
-              wsUrl={`/ws/sessions/${activeSession.id}`}
-              focus={open}
+              session={activeSession}
+              title={activeSession.name || `${activeSession.provider === 'codex' ? 'Codex' : 'Claude'} session`}
+              onKill={killSession}
               onExit={() => handleSessionExit(activeSession)}
+              onReattach={reattachSession}
+              sessionState={activeSession.activity_state ?? undefined}
+              presentation="global"
+              controlsDisabled={sessionMutationPending}
+              killPending={killing}
             />
-          )}
-          {activeSession?.status === 'detached' && (
-            <div className={styles.placeholder}>
-              <Stack direction="col" gap={3}>
-                <p className={styles.detached}>Session is running in an external terminal.</p>
-                <Button
-                  variant="primary"
-                  size="lg"
-                  dark
-                  onClick={reattachSession}
-                  disabled={sessionMutationPending}
-                  busy={reattaching}
-                >
-                  {reattaching ? 'Reattaching...' : 'Reattach global session'}
-                </Button>
-              </Stack>
-            </div>
           )}
           {!activeSession && !loading && (
             <div className={styles.placeholder}>
