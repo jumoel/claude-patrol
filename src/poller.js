@@ -990,46 +990,69 @@ let findScratchesStmt = null;
 /** @type {import('node:sqlite').StatementSync | null} */
 let findPrByBranchStmt = null;
 /** @type {import('node:sqlite').StatementSync | null} */
-let findPrByBranchSuffixStmt = null;
-/** @type {import('node:sqlite').StatementSync | null} */
 let adoptWorkspaceStmt = null;
 
 /**
  * Adopt scratch workspaces that match newly-synced PRs.
- * A scratch workspace is adopted when its bookmark matches a PR's branch
- * and its repo column matches the PR's org/repo. Also handles prefix
- * mismatches (e.g. bookmark "my-branch" matches PR branch "user/my-branch").
+ * A scratch workspace is adopted only when its repository and bookmark match
+ * exactly one PR repository and branch. Every candidate gets an explicit
+ * result so ambiguous and missing matches cannot silently choose a PR.
+ * @returns {Array<{
+ *   workspace_id: string,
+ *   workspace_name: string,
+ *   status: 'adopted'|'not_found'|'ambiguous',
+ *   pr_id?: string,
+ *   candidate_pr_ids?: string[],
+ * }>}
  */
-function adoptScratchWorkspaces() {
+export function adoptScratchWorkspaces() {
   const db = getDb();
   if (!findScratchesStmt) {
     findScratchesStmt = db.prepare(
-      "SELECT * FROM workspaces WHERE pr_id IS NULL AND work_item_id IS NULL AND status = 'active' AND operation_state = 'ready'",
+      "SELECT * FROM workspaces WHERE pr_id IS NULL AND work_item_id IS NULL AND status = 'active' AND operation_state = 'ready' ORDER BY created_at, id",
     );
-    findPrByBranchStmt = db.prepare('SELECT id FROM prs WHERE org = ? AND repo = ? AND branch = ?');
-    findPrByBranchSuffixStmt = db.prepare("SELECT id FROM prs WHERE org = ? AND repo = ? AND branch LIKE '%/' || ?");
-    adoptWorkspaceStmt = db.prepare('UPDATE workspaces SET pr_id = ?, repo = NULL WHERE id = ?');
+    findPrByBranchStmt = db.prepare('SELECT id FROM prs WHERE org = ? AND repo = ? AND branch = ? ORDER BY id');
+    adoptWorkspaceStmt = db.prepare('UPDATE workspaces SET pr_id = ? WHERE id = ?');
   }
   const scratches = findScratchesStmt.all();
-  if (scratches.length === 0) return;
+  if (scratches.length === 0) return [];
 
   let adopted = 0;
+  const results = [];
   for (const ws of scratches) {
-    if (!ws.repo) continue;
-    const [org, repo] = ws.repo.split('/');
-    // Exact match first, then suffix match (handles user/ prefixes on branches)
-    const pr = findPrByBranchStmt.get(org, repo, ws.bookmark) || findPrByBranchSuffixStmt.get(org, repo, ws.bookmark);
-    if (pr) {
-      adoptWorkspaceStmt.run(pr.id, ws.id);
-      adopted++;
-      console.log(`[poller] Adopted workspace ${ws.name} for PR ${pr.id}`);
-    } else {
+    const repositoryParts = ws.repo?.split('/') ?? [];
+    const matches =
+      repositoryParts.length === 2 ? findPrByBranchStmt.all(repositoryParts[0], repositoryParts[1], ws.bookmark) : [];
+    if (matches.length === 0) {
+      results.push({ workspace_id: ws.id, workspace_name: ws.name, status: 'not_found' });
       console.log(`[poller] No PR match for scratch workspace ${ws.name} (repo=${ws.repo}, bookmark=${ws.bookmark})`);
+      continue;
     }
+    if (matches.length > 1) {
+      const candidatePrIds = matches.map((match) => match.id);
+      results.push({
+        workspace_id: ws.id,
+        workspace_name: ws.name,
+        status: 'ambiguous',
+        candidate_pr_ids: candidatePrIds,
+      });
+      console.warn(
+        `[poller] Ambiguous PR match for scratch workspace ${ws.name} ` +
+          `(repo=${ws.repo}, bookmark=${ws.bookmark}, candidates=${candidatePrIds.join(',')})`,
+      );
+      continue;
+    }
+
+    const [pr] = matches;
+    adoptWorkspaceStmt.run(pr.id, ws.id);
+    adopted++;
+    results.push({ workspace_id: ws.id, workspace_name: ws.name, status: 'adopted', pr_id: pr.id });
+    console.log(`[poller] Adopted workspace ${ws.name} for PR ${pr.id}`);
   }
   if (adopted > 0) {
     emitLocalChange();
   }
+  return results;
 }
 
 /**
@@ -1162,6 +1185,5 @@ export function resetStatements() {
   getPrByIdStmt = null;
   findScratchesStmt = null;
   findPrByBranchStmt = null;
-  findPrByBranchSuffixStmt = null;
   adoptWorkspaceStmt = null;
 }
