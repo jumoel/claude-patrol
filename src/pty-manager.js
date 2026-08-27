@@ -251,7 +251,7 @@ function attachPtyToTmux(sessionId, meta = {}, runtime = DEFAULT_SESSION_RUNTIME
   db.prepare('UPDATE sessions SET pid = ?, status = ? WHERE id = ?').run(proc.pid, 'active', sessionId);
 
   const sessionRow = db
-    .prepare('SELECT workspace_id, work_item_id, provider FROM sessions WHERE id = ?')
+    .prepare('SELECT workspace_id, work_item_id, provider, last_idle_at FROM sessions WHERE id = ?')
     .get(sessionId);
   const target = sessionTargetFromRow(sessionRow);
 
@@ -281,15 +281,21 @@ function attachPtyToTmux(sessionId, meta = {}, runtime = DEFAULT_SESSION_RUNTIME
     target,
     lastWorkingAt: null,
     lastIdleAt: null,
+    persistedIdleAt: sessionRow.last_idle_at ?? null,
   };
   const activity = new SessionActivityTracker({
     idleThresholdMs: runtime.activityIdleThresholdMs,
     onState: ({ state, changedAt, confirmed, outcome, source }) => {
       const snapshot = activity.snapshot();
+      const activityChangedAt = new Date(changedAt).toISOString();
       entry.activityState = snapshot.activityState;
       entry.lastWorkingAt = snapshot.lastWorkingAt;
       entry.lastIdleAt = snapshot.lastIdleAt;
-      emitSessionState(sessionId, target, state, new Date(changedAt).toISOString(), {
+      if (state === 'idle' && target.type === 'work_item') {
+        entry.persistedIdleAt = activityChangedAt;
+        db.prepare('UPDATE sessions SET last_idle_at = ? WHERE id = ?').run(activityChangedAt, sessionId);
+      }
+      emitSessionState(sessionId, target, state, activityChangedAt, {
         confirmed,
         outcome,
         source,
@@ -747,6 +753,7 @@ export function createSessionWithRuntime(target, cwd, options = {}) {
       provider,
       status: 'active',
       started_at: now,
+      last_idle_at: null,
       claude_project_dir: launch.claudeProjectDir,
     };
   } catch (error) {
@@ -1005,15 +1012,19 @@ export function getSessionStates() {
   for (const [sessionId, entry] of sessions) {
     const snapshot = entry.activity.snapshot();
     if (snapshot.activityState) {
+      const inMemoryChangedAt = new Date(
+        snapshot.activityState === 'idle' ? snapshot.lastIdleAt : snapshot.lastWorkingAt,
+      ).toISOString();
       results.push({
         sessionId,
         target: entry.target,
         workspaceId: entry.target.type === 'workspace' ? entry.target.id : null,
         workItemId: entry.target.type === 'work_item' ? entry.target.id : null,
         state: snapshot.activityState,
-        activity_changed_at: new Date(
-          snapshot.activityState === 'idle' ? snapshot.lastIdleAt : snapshot.lastWorkingAt,
-        ).toISOString(),
+        activity_changed_at:
+          snapshot.activityState === 'idle' && entry.target.type === 'work_item'
+            ? (entry.persistedIdleAt ?? inMemoryChangedAt)
+            : inMemoryChangedAt,
         confirmed: snapshot.completionConfirmed,
         completion_outcome: snapshot.completionOutcome,
         activity_source: snapshot.activitySource,

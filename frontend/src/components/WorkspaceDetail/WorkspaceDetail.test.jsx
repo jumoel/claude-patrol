@@ -63,6 +63,7 @@ function session() {
     status: 'active',
     started_at: '2026-08-26T00:00:00.000Z',
     ended_at: null,
+    last_idle_at: null,
     claude_project_dir: null,
     transcript_path: null,
   };

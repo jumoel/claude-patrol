@@ -455,7 +455,8 @@ test('session routes do not expose terminal pop-out functionality', async () => 
 
 test('session filters distinguish global, work-item, and managed child targets', async () => {
   const service = { create() {}, list: () => [], detail: () => null, retry() {}, destroy() {} };
-  const activityChangedAt = '2026-08-26T12:00:00.000Z';
+  const persistedIdleAt = '2026-08-26T12:00:00.000Z';
+  const activityChangedAt = '2026-08-26T12:05:00.000Z';
   const server = await serverFixture(service, {
     getSessionStates: () => [
       {
@@ -481,10 +482,10 @@ test('session filters distinguish global, work-item, and managed child targets',
     .run(now, now);
   getDb()
     .prepare(
-      `INSERT INTO sessions (id, work_item_id, pid, provider, status, started_at)
-       VALUES ('work-session', 'item-1', 1, 'codex', 'active', ?)`,
+      `INSERT INTO sessions (id, work_item_id, pid, provider, status, started_at, last_idle_at)
+       VALUES ('work-session', 'item-1', 1, 'codex', 'active', ?, ?)`,
     )
-    .run(now);
+    .run(now, persistedIdleAt);
   getDb()
     .prepare(
       `INSERT INTO sessions (id, workspace_id, pid, provider, status, started_at)
@@ -531,7 +532,8 @@ test('session filters distinguish global, work-item, and managed child targets',
     );
     assert.deepEqual(workItem.json()[0].target, { type: 'work_item', id: 'item-1' });
     assert.equal(workItem.json()[0].activity_state, 'idle');
-    assert.equal(workItem.json()[0].activity_changed_at, activityChangedAt);
+    assert.equal(workItem.json()[0].activity_changed_at, persistedIdleAt);
+    assert.equal(workItem.json()[0].last_idle_at, persistedIdleAt);
 
     const child = await server.inject({ method: 'GET', url: '/api/sessions?workspace_id=child-1' });
     assert.equal(child.statusCode, 409);

@@ -132,6 +132,7 @@ export interface Session {
   status: 'active' | 'detached' | 'killed';
   started_at: string;
   ended_at: string | null;
+  last_idle_at: string | null;
   claude_project_dir: string | null;
   transcript_path: string | null;
   ws_url?: string;

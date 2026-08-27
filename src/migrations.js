@@ -1,6 +1,6 @@
 /** Schema v7 intentionally resets every pre-v7 database. */
 
-export const CURRENT_SCHEMA_VERSION = 15;
+export const CURRENT_SCHEMA_VERSION = 16;
 
 function createWorkspaceOrphansTable(db) {
   db.exec(`
@@ -168,6 +168,7 @@ function createWorkspaceTablesV9(db) {
       status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'detached', 'killed')),
       started_at TEXT NOT NULL,
       ended_at TEXT,
+      last_idle_at TEXT,
       claude_project_dir TEXT,
       transcript_path TEXT,
       CHECK(NOT (workspace_id IS NOT NULL AND work_item_id IS NOT NULL))
@@ -204,6 +205,14 @@ function addSessionNames(db) {
        AND work_item_id IS NULL
        AND (name IS NULL OR trim(name) = '')
   `);
+}
+
+function addSessionLastIdleAt(db) {
+  const hasLastIdleAt = db
+    .prepare("PRAGMA table_info('sessions')")
+    .all()
+    .some((column) => column.name === 'last_idle_at');
+  if (!hasLastIdleAt) db.exec('ALTER TABLE sessions ADD COLUMN last_idle_at TEXT');
 }
 
 function createWorkItemRepositoryAdditionTable(db) {
@@ -679,6 +688,7 @@ export function migrateDb(db) {
       migrateWorkItemsToV15(db);
     }
     addSessionNames(db);
+    addSessionLastIdleAt(db);
     addPrHeadOid(db);
     createWorkItemPullRequestTable(db);
     createWorkspaceOrphansTable(db);

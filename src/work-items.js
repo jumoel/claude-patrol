@@ -261,6 +261,10 @@ export function workItemListItem(
   const activities = activityMap(getSessionStates);
   const pullRequests = suppliedPullRequests ?? listWorkItemPullRequests(row.id);
   const activity = session ? activities.get(session.id) : null;
+  const activityChangedAt =
+    activity?.state === 'idle'
+      ? (session?.last_idle_at ?? activity.activity_changed_at)
+      : (activity?.activity_changed_at ?? null);
   return {
     id: row.id,
     creation_source: row.creation_source,
@@ -285,7 +289,7 @@ export function workItemListItem(
           provider: session.provider,
           status: session.status,
           activity_state: activity?.state ?? null,
-          activity_changed_at: activity?.activity_changed_at ?? null,
+          activity_changed_at: activityChangedAt,
         }
       : null,
     error: row.error_code

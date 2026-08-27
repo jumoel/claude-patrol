@@ -43,11 +43,15 @@ export function registerSessionRoutes(app) {
       stateBySessionId === null
         ? (getSessionStates().find((entry) => entry.sessionId === row.id) ?? null)
         : (stateBySessionId.get(row.id) ?? null);
+    const activityChangedAt =
+      activity?.state === 'idle' && row.work_item_id
+        ? (row.last_idle_at ?? activity.activity_changed_at)
+        : (activity?.activity_changed_at ?? null);
     return {
       ...row,
       target: sessionTargetFromRow(row),
       activity_state: activity?.state ?? null,
-      activity_changed_at: activity?.activity_changed_at ?? null,
+      activity_changed_at: activityChangedAt,
       work_item_title: workItem?.title ?? null,
       work_item_reference: workItem?.reference ?? null,
       root_path: workItem?.path ?? null,

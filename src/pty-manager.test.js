@@ -15,6 +15,7 @@ import {
   dispatchWsMessage,
   getSessionPeerReviewReadiness,
   getSessionSnapshot,
+  getSessionStates,
   killSession,
   killSessionAndWait,
   MAX_LIVE_GLOBAL_SESSIONS,
@@ -32,6 +33,7 @@ import {
   buildSessionLaunch,
   readActivityCredential,
 } from './session-launch.js';
+import { insertTestWorkItem } from './test-support/work-items.js';
 
 afterEach(() => closeDb());
 
@@ -365,6 +367,60 @@ it('authenticates provider events and rejects stale or mismatched runs', () => {
 
   killSession('provider-event-session', { killTmux() {}, isTmuxAlive: () => false });
   assert.equal(activeSessionCount(), 0);
+});
+
+it('persists the last idle transition for work-item sessions', () => {
+  initDb(':memory:');
+  setMcpPort(4242);
+  const now = new Date().toISOString();
+  insertTestWorkItem(getDb(), { id: 'item-1', path: process.cwd(), createdAt: now });
+  let exitHandler = null;
+  const runtime = {
+    randomUUID: () => 'work-item-idle-session',
+    execFileSync() {},
+    spawnPty() {
+      return {
+        pid: 44,
+        onData() {},
+        onExit(handler) {
+          exitHandler = handler;
+        },
+        kill() {
+          exitHandler?.({ exitCode: 0 });
+        },
+        write() {},
+        resize() {},
+      };
+    },
+  };
+
+  createSessionWithRuntime({ type: 'work_item', id: 'item-1' }, process.cwd(), {
+    provider: 'claude',
+    enablePatrolMcp: false,
+    runtime,
+  });
+  const { token } = readActivityCredential('work-item-idle-session');
+  recordProviderActivity('work-item-idle-session', 'claude', token, {
+    hook_event_name: 'UserPromptSubmit',
+    prompt_id: 'prompt-1',
+  });
+  recordProviderActivity('work-item-idle-session', 'claude', token, {
+    hook_event_name: 'Stop',
+    prompt_id: 'prompt-1',
+  });
+
+  const snapshot = getSessionSnapshot('work-item-idle-session');
+  const expectedIdleAt = new Date(snapshot.lastIdleAt).toISOString();
+  assert.equal(
+    getDb().prepare('SELECT last_idle_at FROM sessions WHERE id = ?').get('work-item-idle-session').last_idle_at,
+    expectedIdleAt,
+  );
+  assert.equal(
+    getSessionStates().find((state) => state.sessionId === 'work-item-idle-session').activity_changed_at,
+    expectedIdleAt,
+  );
+
+  killSession('work-item-idle-session', { killTmux() {}, isTmuxAlive: () => false });
 });
 
 it('wait_for_idle ignores candidate stops and reports provider failures', async () => {

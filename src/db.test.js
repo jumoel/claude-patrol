@@ -44,6 +44,7 @@ test('a new database is migrated to the current schema', () => {
       .map((column) => column.name),
   );
   assert.ok(sessionColumns.has('provider'));
+  assert.ok(sessionColumns.has('last_idle_at'));
   assert.ok(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'sync_state'").get());
   assert.ok(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'automation_jobs'").get());
   assert.ok(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'work_item_references'").get());
@@ -75,6 +76,28 @@ test('a new database is migrated to the current schema', () => {
   assert.ok(workItemColumns.has('creation_source'));
   assert.ok(workItemColumns.has('bookmark'));
   assert.equal(workItemColumns.has('reference'), false);
+});
+
+test('the v15 migration adds durable idle timestamps without replacing sessions', () => {
+  const path = join(temporaryDirectory(), 'v15.db');
+  let db = initDb(path);
+  const now = '2026-08-27T12:00:00.000Z';
+  insertTestWorkItem(db, { id: 'item-1', path: '/tmp/item-1', createdAt: now });
+  db.prepare(
+    `INSERT INTO sessions (id, work_item_id, provider, status, started_at)
+     VALUES ('session-1', 'item-1', 'codex', 'active', ?)`,
+  ).run(now);
+  db.exec('ALTER TABLE sessions DROP COLUMN last_idle_at; PRAGMA user_version = 15');
+  closeDb();
+
+  db = initDb(path);
+
+  assert.equal(db.prepare('PRAGMA user_version').get().user_version, CURRENT_SCHEMA_VERSION);
+  assert.deepEqual(
+    { ...db.prepare('SELECT id, work_item_id, last_idle_at FROM sessions').get() },
+    { id: 'session-1', work_item_id: 'item-1', last_idle_at: null },
+  );
+  assert.equal(readFileSync(`${path}.backup-v15-to-v${CURRENT_SCHEMA_VERSION}`).length > 0, true);
 });
 
 test('the v13 migration creates workspace orphan storage for existing databases', () => {
