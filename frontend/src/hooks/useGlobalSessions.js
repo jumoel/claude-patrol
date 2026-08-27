@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { fetchSessions } from '../lib/api.js';
+import { subscribeAppEvent } from '../lib/event-stream.js';
 
 /** @param {unknown} error */
 function isAbort(error) {
@@ -69,6 +70,40 @@ export function useGlobalSessions(enabled, changeToken) {
     reload();
     return () => request.current?.abort();
   }, [enabled, changeToken, reload]);
+
+  useEffect(() => {
+    if (!enabled) return undefined;
+    return subscribeAppEvent('session-state', (event) => {
+      /** @type {{sessionId?: unknown, state?: unknown, activity_changed_at?: unknown}} */
+      let payload;
+      try {
+        payload = JSON.parse(event.data);
+      } catch {
+        return;
+      }
+      if (typeof payload.sessionId !== 'string' || (payload.state !== 'working' && payload.state !== 'idle')) {
+        return;
+      }
+
+      const activityState = payload.state;
+      const activityChangedAt = typeof payload.activity_changed_at === 'string' ? payload.activity_changed_at : null;
+      setSessionState((current) => {
+        const index = current.allSessions.findIndex((session) => session.id === payload.sessionId);
+        if (index === -1) return current;
+        const session = current.allSessions[index];
+        if (session.activity_state === activityState && session.activity_changed_at === activityChangedAt) {
+          return current;
+        }
+        const allSessions = [...current.allSessions];
+        allSessions[index] = {
+          ...session,
+          activity_state: activityState,
+          activity_changed_at: activityChangedAt,
+        };
+        return { ...current, allSessions };
+      });
+    });
+  }, [enabled]);
 
   const selectSession = useCallback(
     /** @param {string} sessionId */ (sessionId) =>
