@@ -54,24 +54,6 @@ const DEFAULT_SESSION_RUNTIME = {
   },
 };
 
-/**
- * Strip ANSI escape sequences and return the count of printable characters.
- * Used to distinguish real content output from TUI status-bar refreshes.
- */
-// eslint-disable-next-line no-control-regex
-const ANSI_RE =
-  /\x1b(?:\[[0-9;?]*[A-Za-z]|\][^\x07\x1b]*(?:\x07|\x1b\\)|\(.|>[0-9]*|=[0-9]*|[ #%()*+\-./][A-Za-z0-9]?)/g;
-function printableLength(data) {
-  // Strip escape sequences, then count non-control characters
-  const stripped = data.replace(ANSI_RE, '');
-  let count = 0;
-  for (let i = 0; i < stripped.length; i++) {
-    const code = stripped.charCodeAt(i);
-    if (code >= 0x20 && code !== 0x7f) count++;
-  }
-  return count;
-}
-
 const PATROL_SYSTEM_PROMPT = readFileSync(resolve(import.meta.dirname, 'patrol-system-prompt.md'), 'utf8');
 
 /**
@@ -255,28 +237,12 @@ function attachPtyToTmux(sessionId, meta = {}, runtime = DEFAULT_SESSION_RUNTIME
     .get(sessionId);
   const target = sessionTargetFromRow(sessionRow);
 
-  // Activity detection: count distinct "moments" of printable output.
-  // A moment = an onData with printable bytes, separated from the previous
-  // by at least MOMENT_GAP ms (debounces batched tmux status-bar chunks into
-  // one moment). Tmux status bar: events arrive within <50ms of each other
-  // = 1 moment. Spinner/TUI: frames every 100-250ms = separate moments.
-  let momentCount = 0;
-  let lastMomentAt = 0;
-  let momentTimer = null;
-  const MOMENT_GAP = 50; // ms between events to count as distinct
-  const MOMENT_THRESHOLD = 3; // moments needed to transition to working
-  const MOMENT_WINDOW = 10_000; // reset if no output for this long
-  const LARGE_OUTPUT = 500; // instant transition for big chunks
-  const MIN_PRINTABLE = 10; // ignore events with fewer printable chars (status bar refreshes)
-  const NATIVE_IDLE_OUTPUT_GRACE_MS = 500;
-
   const websockets = new Set();
   const entry = {
     proc,
     buffer: new RingBuffer(BUFFER_MAX),
     websockets,
     output: new TerminalOutputBatcher(websockets),
-    resizeSuppressUntil: Date.now() + 500,
     activityState: null,
     target,
     lastWorkingAt: null,
@@ -314,50 +280,10 @@ function attachPtyToTmux(sessionId, meta = {}, runtime = DEFAULT_SESSION_RUNTIME
   proc.onData((data) => {
     entry.buffer.append(data);
     entry.output.append(data);
-
-    // Ignore resize-triggered redraws (full screen repaint from terminal open).
-    if (Date.now() < entry.resizeSuppressUntil) return;
-
-    // Ignore events with negligible printable content (TUI status-bar refreshes,
-    // cursor repositioning, etc.). Only compute when not already working, since
-    // once working any output should keep the idle timer alive.
-    if (entry.activityState !== 'working' && printableLength(data) < MIN_PRINTABLE) return;
-
-    if (entry.activityState === 'working') {
-      activity.noteOutput();
-    } else {
-      const snapshot = activity.snapshot();
-      if (snapshot.activityState === 'idle' && snapshot.completionOutcome === 'blocked') return;
-      if (
-        snapshot.activityState === 'idle' &&
-        snapshot.nativeTracking &&
-        Date.now() - snapshot.lastIdleAt < NATIVE_IDLE_OUTPUT_GRACE_MS
-      ) {
-        return;
-      }
-      // State is null or 'idle'. Count distinct output moments.
-      // The moment debounce (MOMENT_GAP) handles tmux batching.
-      const now = Date.now();
-      if (now - lastMomentAt >= MOMENT_GAP) {
-        lastMomentAt = now;
-        momentCount++;
-        if (momentTimer) clearTimeout(momentTimer);
-        momentTimer = setTimeout(() => {
-          momentCount = 0;
-        }, MOMENT_WINDOW);
-      }
-
-      const candidateCompletion = snapshot.activityState === 'idle' && snapshot.completionConfirmed === false;
-      if (momentCount >= MOMENT_THRESHOLD || (!candidateCompletion && data.length >= LARGE_OUTPUT)) {
-        momentCount = 0;
-        activity.markWorking('pty_output');
-      }
-    }
   });
 
   proc.onExit(({ exitCode }) => {
     activity.dispose();
-    if (momentTimer) clearTimeout(momentTimer);
     entry.output.flush();
     const exitMsg = JSON.stringify({ type: 'exit', code: exitCode });
     for (const ws of entry.websockets) {
@@ -839,9 +765,6 @@ const WS_MESSAGE_HANDLERS = {
         // PTY fd already closed (EBADF) - session exited but WS still open
         return;
       }
-      // Suppress activity detection for 500ms - the resize triggers a full
-      // tmux redraw that produces multiple onData events with printable content.
-      entry.resizeSuppressUntil = Date.now() + 500;
     },
   },
 };

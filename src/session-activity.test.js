@@ -59,27 +59,13 @@ describe('normalizeProviderActivity', () => {
 });
 
 describe('SessionActivityTracker', () => {
-  it('uses PTY silence only before a native event handshake', () => {
-    const fallback = activityHarness();
-    fallback.tracker.markWorking();
-    fallback.advance(100);
-    assert.deepEqual(fallback.tracker.snapshot(), {
-      activityState: 'idle',
-      lastWorkingAt: 1_000,
-      lastIdleAt: 1_100,
-      nativeTracking: false,
-      currentRunId: null,
-      completionConfirmed: true,
-      completionOutcome: 'completed',
-      activitySource: 'pty_silence',
-    });
+  it('does not infer completion from silence', () => {
+    const harness = activityHarness();
+    harness.tracker.markWorking();
+    harness.advance(1_000);
 
-    const native = activityHarness();
-    native.tracker.markWorking();
-    native.tracker.handleProviderEvent({ kind: 'working', runId: 'prompt-1', source: 'claude_UserPromptSubmit' });
-    native.advance(1_000);
-    assert.equal(native.tracker.snapshot().activityState, 'working');
-    assert.equal(native.tracker.snapshot().nativeTracking, true);
+    assert.equal(harness.tracker.snapshot().activityState, 'working');
+    assert.equal(harness.tracker.snapshot().completionConfirmed, false);
   });
 
   it('keeps an explicitly notifier-tracked turn working until its native completion', () => {
@@ -108,11 +94,11 @@ describe('SessionActivityTracker', () => {
     assert.equal(harness.events.at(-1).changedAt, candidate.lastIdleAt);
   });
 
-  it('cancels candidate completion when provider output resumes', () => {
+  it('cancels candidate completion when the provider resumes the turn', () => {
     const harness = activityHarness();
     harness.tracker.handleProviderEvent({ kind: 'working', runId: 'prompt-1', source: 'prompt' });
     harness.tracker.handleProviderEvent({ kind: 'candidate_completed', runId: 'prompt-1', source: 'stop' });
-    harness.tracker.markWorking('pty_output');
+    harness.tracker.handleProviderEvent({ kind: 'working', runId: 'prompt-1', source: 'message' });
     harness.advance(1_000);
 
     const snapshot = harness.tracker.snapshot();

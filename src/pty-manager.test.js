@@ -369,6 +369,58 @@ it('authenticates provider events and rejects stale or mismatched runs', () => {
   assert.equal(activeSessionCount(), 0);
 });
 
+it('does not infer provider activity from terminal output', () => {
+  initDb(':memory:');
+  setMcpPort(4242);
+  let dataHandler = null;
+  let exitHandler = null;
+  const runtime = {
+    randomUUID: () => 'provider-output-session',
+    execFileSync() {},
+    spawnPty() {
+      return {
+        pid: 45,
+        onData(handler) {
+          dataHandler = handler;
+        },
+        onExit(handler) {
+          exitHandler = handler;
+        },
+        kill() {
+          exitHandler?.({ exitCode: 0 });
+        },
+        write() {},
+        resize() {},
+      };
+    },
+  };
+
+  createSessionWithRuntime({ type: 'global' }, process.cwd(), {
+    provider: 'claude',
+    enablePatrolMcp: false,
+    runtime,
+  });
+
+  dataHandler('terminal redraw before a provider event'.repeat(100));
+  assert.equal(getSessionSnapshot('provider-output-session').activityState, null);
+
+  const { token } = readActivityCredential('provider-output-session');
+  recordProviderActivity('provider-output-session', 'claude', token, {
+    hook_event_name: 'UserPromptSubmit',
+    prompt_id: 'prompt-1',
+  });
+  recordProviderActivity('provider-output-session', 'claude', token, {
+    hook_event_name: 'Stop',
+    prompt_id: 'prompt-1',
+  });
+  const idle = getSessionSnapshot('provider-output-session');
+
+  dataHandler('terminal redraw caused by scrolling'.repeat(100));
+  assert.deepEqual(getSessionSnapshot('provider-output-session'), idle);
+
+  killSession('provider-output-session', { killTmux() {}, isTmuxAlive: () => false });
+});
+
 it('persists the last idle transition for work-item sessions', () => {
   initDb(':memory:');
   setMcpPort(4242);
@@ -852,13 +904,11 @@ describe('dispatchWsMessage', () => {
     assert.deepEqual(entry.writes, ['hello']);
   });
 
-  it('routes resize to PTY resize and sets suppression window', () => {
+  it('routes resize to PTY resize', () => {
     const entry = makeEntry();
-    const before = Date.now();
     const result = dispatchWsMessage(JSON.stringify({ type: 'resize', cols: 120, rows: 40 }), entry, ctx);
     assert.deepEqual(result, { type: 'resize' });
     assert.deepEqual(entry.resizes, [[120, 40]]);
-    assert.ok(entry.resizeSuppressUntil >= before);
   });
 
   it('routes prompt-submit to the splitting submitter (text first, Enter later)', async () => {

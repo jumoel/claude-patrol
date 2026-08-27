@@ -50,9 +50,8 @@ export function normalizeProviderActivity(provider, payload) {
 }
 
 /**
- * Owns the activity state machine for one PTY session. Provider events become
- * authoritative after the first valid handshake. Until then, PTY silence is
- * the compatibility fallback for unsupported provider versions.
+ * Owns the activity state machine for one provider session. Provider lifecycle
+ * events are authoritative; terminal output never changes activity state.
  */
 export class SessionActivityTracker {
   constructor({
@@ -75,7 +74,6 @@ export class SessionActivityTracker {
     this.completionConfirmed = false;
     this.completionOutcome = null;
     this.activitySource = null;
-    this.idleTimer = null;
     this.candidateTimer = null;
   }
 
@@ -93,13 +91,7 @@ export class SessionActivityTracker {
   }
 
   dispose() {
-    this.clearIdleTimer();
     this.clearCandidateTimer();
-  }
-
-  clearIdleTimer() {
-    if (this.idleTimer !== null) this.cancel(this.idleTimer);
-    this.idleTimer = null;
   }
 
   clearCandidateTimer() {
@@ -161,37 +153,15 @@ export class SessionActivityTracker {
     return true;
   }
 
-  resetIdleTimer() {
-    if (this.nativeTracking || this.state !== 'working') return;
-    this.clearIdleTimer();
-    this.idleTimer = this.schedule(() => {
-      this.idleTimer = null;
-      this.transitionToIdle({
-        source: 'pty_silence',
-        confirmed: true,
-        outcome: 'completed',
-      });
-    }, this.idleThresholdMs);
-    this.idleTimer?.unref?.();
-  }
-
-  markWorking(source = 'pty_output', { expectNative = false } = {}) {
+  markWorking(source = 'dispatch', { expectNative = false } = {}) {
     this.transitionToWorking({ source });
     if (expectNative) {
       this.nativeTracking = true;
-      this.clearIdleTimer();
-      return;
     }
-    this.resetIdleTimer();
-  }
-
-  noteOutput() {
-    this.resetIdleTimer();
   }
 
   handleProviderEvent(event) {
     this.nativeTracking = true;
-    this.clearIdleTimer();
 
     if (event.kind === 'working') {
       if (event.runId && this.currentRunId && event.runId !== this.currentRunId && this.state === 'working') {
