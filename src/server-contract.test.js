@@ -38,10 +38,18 @@ test('PR API uses injected dependencies and reports authored freshness', async (
     `INSERT INTO sessions (id, workspace_id, pid, status, started_at)
      VALUES ('session-1', 'ready-workspace', 123, 'active', ?)`,
   ).run(current);
+  db.prepare(
+    `INSERT INTO workspace_orphans (
+      path, repo, workspace_name, ownership_source, first_seen, last_seen,
+      operation_state, operation_step, operation_updated_at
+    ) VALUES ('/tmp/orphan', 'acme/widgets', 'orphan', 'marker', ?, ?,
+      'detected', 'destroy:detected', ?)`,
+  ).run(current, current, current);
 
   const config = parseConfig({ poll: { interval_seconds: 30, orgs: [], repos: [] } });
   const appEvents = new EventEmitter();
   const pollerEvents = new EventEmitter();
+  const reconciliationCalls = [];
   const context = createAppContext({
     getConfig: () => config,
     getDb: () => db,
@@ -49,6 +57,16 @@ test('PR API uses injected dependencies and reports authored freshness', async (
     pollerEvents,
     getSessionStates: () => [],
     getGhRateLimitState: () => ({ limited: false }),
+    reconcilePatrolWorkspaces: async (_config, options) => {
+      reconciliationCalls.push(options);
+      return {
+        deleted: [],
+        cleanedWorkspaces: [],
+        candidates: [{ path: '/tmp/orphan', status: 'eligible', reason: 'Dry run' }],
+        blocked: [],
+        warnings: [],
+      };
+    },
   });
   const server = await createServer({ context, config });
   assert.equal(appEvents.listenerCount('local-change'), 1);
@@ -71,6 +89,32 @@ test('PR API uses injected dependencies and reports authored freshness', async (
       operations.json().map((workspace) => workspace.id),
       ['failed-workspace'],
     );
+    const orphans = await server.inject({ method: 'GET', url: '/api/workspaces/orphans' });
+    assert.equal(orphans.statusCode, 200);
+    assert.equal(orphans.json().policy.hourly_policy, 'report_only');
+    assert.deepEqual(
+      orphans.json().orphans.map((orphan) => orphan.path),
+      ['/tmp/orphan'],
+    );
+    const dryRun = await server.inject({ method: 'POST', url: '/api/workspaces/orphans/reconcile', payload: {} });
+    assert.equal(dryRun.statusCode, 200);
+    assert.equal(dryRun.json().dry_run, true);
+    assert.equal(reconciliationCalls[0].dryRun, true);
+    assert.equal(reconciliationCalls[0].minimumAgeMs, 0);
+    const cleanup = await server.inject({
+      method: 'POST',
+      url: '/api/workspaces/orphans/reconcile',
+      payload: { dry_run: false },
+    });
+    assert.equal(cleanup.statusCode, 200);
+    assert.equal(cleanup.json().dry_run, false);
+    assert.equal(reconciliationCalls[1].dryRun, false);
+    const invalidDryRun = await server.inject({
+      method: 'POST',
+      url: '/api/workspaces/orphans/reconcile',
+      payload: { dry_run: 'yes' },
+    });
+    assert.equal(invalidDryRun.statusCode, 400);
     const sessions = await server.inject({ method: 'GET', url: '/api/sessions' });
     assert.deepEqual(
       sessions.json().map((session) => session.id),

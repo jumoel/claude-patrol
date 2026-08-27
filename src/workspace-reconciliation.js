@@ -539,15 +539,76 @@ async function cleanupStaleDatabaseWorkspace(workspace, config, runtime) {
   });
 }
 
+async function inspectStaleDatabaseWorkspace(workspace, config, runtime) {
+  assertPatrolAvailable(runtime.isPatrolAvailable);
+  if (!existsSync(workspace.path)) {
+    const coordinates = workspaceCoordinates(workspace.path, config, { allowMissing: true });
+    if (workspace.repo && coordinates.repo !== workspace.repo) {
+      throw cleanupError(
+        'workspace_identity_changed',
+        'The missing workspace repository no longer matches its database row',
+      );
+    }
+    return;
+  }
+  const coordinates = workspaceCoordinates(workspace.path, config);
+  const marker = readPatrolWorkspaceMarker(coordinates.canonical);
+  await inspectAutomaticCleanup(
+    {
+      path: coordinates.canonical,
+      repo: workspace.repo ?? coordinates.repo,
+      workspaceName: workspace.name,
+      ownershipSource: marker ? 'marker' : 'database',
+    },
+    config,
+    runtime,
+    workspace.id,
+  );
+}
+
+function assertRetentionElapsed(orphan, observedAt, minimumAgeMs) {
+  if (minimumAgeMs <= 0) return;
+  const firstSeen = Date.parse(orphan.first_seen);
+  const observed = Date.parse(observedAt);
+  if (!Number.isFinite(firstSeen) || !Number.isFinite(observed) || observed - firstSeen < minimumAgeMs) {
+    const eligibleAt = Number.isFinite(firstSeen) ? new Date(firstSeen + minimumAgeMs).toISOString() : 'unknown';
+    throw cleanupError('retention_pending', `Continuous orphan retention has not elapsed; eligible at ${eligibleAt}`);
+  }
+}
+
+async function inspectOrphan(orphan, config, runtime) {
+  assertPatrolAvailable(runtime.isPatrolAvailable);
+  if (!existsSync(orphan.path)) {
+    const coordinates = workspaceCoordinates(orphan.path, config, { allowMissing: true });
+    if (coordinates.repo !== orphan.repo || !['marker', 'database'].includes(orphan.ownership_source)) {
+      throw cleanupError('workspace_identity_changed', 'The missing workspace no longer matches Patrol ownership');
+    }
+    return;
+  }
+  await inspectAutomaticCleanup(
+    {
+      path: orphan.path,
+      repo: orphan.repo,
+      workspaceName: orphan.workspace_name,
+      ownershipSource: orphan.ownership_source,
+    },
+    config,
+    runtime,
+  );
+}
+
+let reconciliationRunning = false;
+
 /**
- * Reconcile Patrol's database and filesystem, then automatically remove only
- * inactive trees that pass every deletion gate. This function requires an
- * explicit live-server predicate so callers cannot delete while Patrol is
- * unavailable.
+ * Reconcile Patrol's database and filesystem. A dry run performs discovery
+ * and every non-destructive safety check, but does not run teardown, forget,
+ * or removal stages. Cleanup requires an explicit live-server predicate.
  */
-export async function reconcilePatrolWorkspacesOnStartup(
+export async function reconcilePatrolWorkspaces(
   config,
   {
+    dryRun = false,
+    minimumAgeMs = 0,
     isPatrolAvailable = () => false,
     runExec = execFile,
     dockerDown = dockerComposeDown,
@@ -555,25 +616,54 @@ export async function reconcilePatrolWorkspacesOnStartup(
     now = () => new Date().toISOString(),
   } = {},
 ) {
+  if (reconciliationRunning) throw cleanupError('reconciliation_busy', 'Workspace reconciliation is already running');
+  reconciliationRunning = true;
+  try {
+    return await runWorkspaceReconciliation(config, {
+      dryRun,
+      minimumAgeMs,
+      isPatrolAvailable,
+      runExec,
+      dockerDown,
+      removeDirectory,
+      now,
+    });
+  } finally {
+    reconciliationRunning = false;
+  }
+}
+
+async function runWorkspaceReconciliation(
+  config,
+  { dryRun, minimumAgeMs, isPatrolAvailable, runExec, dockerDown, removeDirectory, now },
+) {
   if (!isPatrolAvailable()) {
-    return { deleted: [], cleanedWorkspaces: [], blocked: [], warnings: ['Patrol is unavailable; cleanup skipped'] };
+    return {
+      deleted: [],
+      cleanedWorkspaces: [],
+      candidates: [],
+      blocked: [],
+      warnings: ['Patrol is unavailable; cleanup skipped'],
+    };
   }
   const runtime = { isPatrolAvailable, runExec, dockerDown, removeDirectory };
   const db = getDb();
+  const observedAt = now();
   db.prepare(
     `UPDATE workspace_orphans
         SET operation_state = 'error',
             operation_error = 'Interrupted during ' || operation_step,
             operation_updated_at = ?
       WHERE operation_state = 'destroying'`,
-  ).run(now());
+  ).run(observedAt);
 
   const markerWarnings = markDatabaseWorkspaces(config);
   const discovery = await discoverPatrolWorkspaceDirectories(config, { runExec });
-  recordOrphans(discovery.candidates, now());
+  recordOrphans(discovery.candidates, observedAt);
 
   const deleted = [];
   const cleanedWorkspaces = [];
+  const candidates = [];
   const blocked = [];
   const staleRows = db
     .prepare(
@@ -585,33 +675,85 @@ export async function reconcilePatrolWorkspacesOnStartup(
     .all();
   for (const workspace of staleRows) {
     try {
-      await cleanupStaleDatabaseWorkspace(workspace, config, runtime);
-      cleanedWorkspaces.push(workspace.id);
+      if (dryRun) {
+        await inspectStaleDatabaseWorkspace(workspace, config, runtime);
+        candidates.push({
+          path: workspace.path,
+          type: 'database_workspace',
+          id: workspace.id,
+          status: 'eligible',
+          code: 'eligible',
+          reason: 'All non-destructive cleanup gates passed; teardown and removal were not run',
+        });
+      } else {
+        await cleanupStaleDatabaseWorkspace(workspace, config, runtime);
+        cleanedWorkspaces.push(workspace.id);
+      }
     } catch (error) {
-      blocked.push({ path: workspace.path, reason: sanitizePublicText(error.message), code: error.code ?? null });
+      blocked.push({
+        path: workspace.path,
+        type: 'database_workspace',
+        id: workspace.id,
+        status: 'blocked',
+        reason: sanitizePublicText(error.message),
+        code: error.code ?? null,
+      });
     }
   }
 
   const orphans = db.prepare('SELECT * FROM workspace_orphans ORDER BY first_seen, path').all();
   for (const orphan of orphans) {
     try {
-      if (existsSync(orphan.path)) {
-        await cleanupOrphan(orphan, config, runtime);
+      assertRetentionElapsed(orphan, observedAt, minimumAgeMs);
+      if (dryRun) {
+        await inspectOrphan(orphan, config, runtime);
+        candidates.push({
+          path: orphan.path,
+          type: 'orphan',
+          status: 'eligible',
+          code: 'eligible',
+          reason: 'All non-destructive cleanup gates passed; teardown and removal were not run',
+          first_seen: orphan.first_seen,
+          last_seen: orphan.last_seen,
+        });
       } else {
-        await cleanupMissingOrphan(orphan, config, runtime);
+        if (existsSync(orphan.path)) {
+          await cleanupOrphan(orphan, config, runtime);
+        } else {
+          await cleanupMissingOrphan(orphan, config, runtime);
+        }
+        deleted.push(orphan.path);
       }
-      deleted.push(orphan.path);
     } catch (error) {
       const message = sanitizePublicText(error.message);
       updateOrphan(
         orphan.path,
-        'error',
+        error.code === 'retention_pending' ? 'detected' : 'error',
         getDb().prepare('SELECT operation_step FROM workspace_orphans WHERE path = ?').get(orphan.path)
           ?.operation_step ?? 'destroy:failed',
         message,
       );
-      blocked.push({ path: orphan.path, reason: message, code: error.code ?? null });
+      blocked.push({
+        path: orphan.path,
+        type: 'orphan',
+        status: 'blocked',
+        reason: message,
+        code: error.code ?? null,
+        first_seen: orphan.first_seen,
+        last_seen: orphan.last_seen,
+      });
     }
   }
-  return { deleted, cleanedWorkspaces, blocked, warnings: [...markerWarnings, ...discovery.warnings] };
+  return {
+    deleted,
+    cleanedWorkspaces,
+    candidates,
+    blocked,
+    warnings: [...markerWarnings, ...discovery.warnings],
+  };
+}
+
+/** Startup is an explicit immediate cleanup pass. Hourly policy does not delay it. */
+export function reconcilePatrolWorkspacesOnStartup(config, options = {}) {
+  return reconcilePatrolWorkspaces(config, { ...options, dryRun: false, minimumAgeMs: 0 });
 }

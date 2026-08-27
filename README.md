@@ -101,6 +101,8 @@ Running without a subcommand defaults to `start`.
 | `security.allowed_origins` | Additional browser origins allowed to call the API. Same-origin requests are always allowed. |
 | `security.auth_token` | Token for non-loopback access. Prefer the `CLAUDE_PATROL_AUTH_TOKEN` environment variable. |
 | `automation.concurrency` | Maximum number of rule action chains running concurrently (default 2). |
+| `workspace_reconciliation.hourly_policy` | Hourly orphan behavior: `report_only` by default, or `delete_after_retention`. Startup and explicit cleanup remain immediate. |
+| `workspace_reconciliation.retention_hours` | Continuous orphan age required by hourly deletion mode (default 168 hours). |
 | `workspace_base_path` | Base directory for jj workspaces |
 | `work_dir` | Base directory where your repos are cloned. Expects a `<org>/<repo>` structure (e.g. `~/work/acme/api-server`, `~/work/acme/webapp`). When creating jj workspaces, Claude Patrol resolves the main repo at `<work_dir>/<org>/<repo>`. |
 | `global_terminal_cwd` | Working directory for the global terminal |
@@ -116,6 +118,8 @@ Running without a subcommand defaults to `start`.
 
 Polling, repository, workspace, and rule changes are picked up automatically.
 Binding and security changes require a restart.
+
+Patrol inventories proven Patrol-owned source trees at `GET /api/workspaces/orphans`. `POST /api/workspaces/orphans/reconcile` defaults to `{"dry_run":true}` and returns an eligibility or blocked reason for each candidate. Set `dry_run` to `false` for an explicit immediate cleanup pass. Startup also cleans eligible orphans immediately. The hourly pass follows `workspace_reconciliation.hourly_policy` and never claims unmarked jj workspaces.
 
 ### Reference-based work items
 

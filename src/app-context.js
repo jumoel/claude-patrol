@@ -24,6 +24,7 @@ import {
   waitForFirstIdle,
 } from './pty-manager.js';
 import { createWorkItemService } from './work-items.js';
+import { reconcilePatrolWorkspaces } from './workspace-reconciliation.js';
 
 /**
  * Construct the runtime dependencies used by the HTTP boundary. Defaults keep
@@ -75,6 +76,7 @@ export function createAppContext(overrides = {}) {
     dispatchToSession,
     waitForFirstIdle,
     getSessionPeerReviewReadiness,
+    reconcilePatrolWorkspaces,
     providerCapabilities,
     peerReviewCoordinator,
     reviewServices,

@@ -372,6 +372,10 @@ test('configuration defaults to loopback and authored polling cadence', () => {
   const config = parseConfig({ poll: { orgs: [], repos: [] } });
   assert.equal(config.host, '127.0.0.1');
   assert.equal(config.poll.interval_seconds, 30);
+  assert.deepEqual(config.workspace_reconciliation, {
+    hourly_policy: 'report_only',
+    retention_hours: 168,
+  });
 });
 
 test('configuration updates are validated before replacing the file', () => {
@@ -386,6 +390,17 @@ test('configuration updates are validated before replacing the file', () => {
   assert.equal(updated.poll.interval_seconds, 45);
   assert.equal(updated.workspace_base_path.endsWith('/portable-workspaces'), true);
   assert.equal(JSON.parse(readFileSync(path, 'utf8')).workspace_base_path, '~/portable-workspaces');
+
+  const reconciliation = updateConfig({ workspace_reconciliation: { retention_hours: 24 } }, path);
+  assert.deepEqual(reconciliation.workspace_reconciliation, {
+    hourly_policy: 'report_only',
+    retention_hours: 24,
+  });
+  const deletionPolicy = updateConfig({ workspace_reconciliation: { hourly_policy: 'delete_after_retention' } }, path);
+  assert.deepEqual(deletionPolicy.workspace_reconciliation, {
+    hourly_policy: 'delete_after_retention',
+    retention_hours: 24,
+  });
 
   const beforeInvalidUpdate = readFileSync(path, 'utf8');
   assert.throws(() => updateConfig({ poll: { interval_seconds: 1 } }, path), /Invalid config/);

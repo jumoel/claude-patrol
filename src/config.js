@@ -96,6 +96,13 @@ export const configSchema = z
         concurrency: z.number().int().min(1).max(16).default(2),
       })
       .default({ concurrency: 2 }),
+    workspace_reconciliation: z
+      .object({
+        hourly_policy: z.enum(['report_only', 'delete_after_retention']).default('report_only'),
+        retention_hours: z.number().int().min(0).max(8760).default(168),
+      })
+      .strict()
+      .default({ hourly_policy: 'report_only', retention_hours: 168 }),
     repos: z.record(z.string().regex(OWNER_REPO_RE, 'must be "owner/repo" format'), repoConfigSchema).optional(),
     work_items: workItemsSchema.optional(),
     // pass-through for unknown keys (rules array etc.)
@@ -224,6 +231,7 @@ export function updateConfig(patch, path = CONFIG_PATH) {
     ...patch,
     poll: mergeSection('poll'),
     security: mergeSection('security'),
+    workspace_reconciliation: mergeSection('workspace_reconciliation'),
   };
   const normalized = parseConfig(merged);
   writeConfigAtomic(path, merged);

@@ -71,6 +71,38 @@ export function registerWorkspaceRoutes(app) {
       .all();
   });
 
+  app.get('/api/workspaces/orphans', () => {
+    const config = getConfig();
+    const policy = config.workspace_reconciliation ?? {
+      hourly_policy: 'report_only',
+      retention_hours: 168,
+    };
+    return {
+      policy,
+      orphans: getDb().prepare('SELECT * FROM workspace_orphans ORDER BY first_seen, path').all(),
+    };
+  });
+
+  app.post('/api/workspaces/orphans/reconcile', async (request, reply) => {
+    const dryRun = request.body?.dry_run ?? true;
+    if (typeof dryRun !== 'boolean') {
+      return reply.code(400).send({ error: 'dry_run must be a boolean', code: 'invalid_dry_run' });
+    }
+    try {
+      const result = await app.appContext.reconcilePatrolWorkspaces(getConfig(), {
+        dryRun,
+        minimumAgeMs: 0,
+        isPatrolAvailable: () => true,
+      });
+      if (result.deleted.length > 0 || result.cleanedWorkspaces.length > 0) emitLocalChange();
+      return { dry_run: dryRun, ...result };
+    } catch (error) {
+      return reply
+        .code(error.code === 'reconciliation_busy' ? 409 : 500)
+        .send({ error: error.message, code: error.code ?? 'reconciliation_failed' });
+    }
+  });
+
   app.get('/api/workspaces/:id', (request, reply) => {
     const db = getDb();
     const workspace = db.prepare('SELECT * FROM workspaces WHERE id = ?').get(request.params.id);

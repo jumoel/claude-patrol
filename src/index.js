@@ -3,6 +3,7 @@ import { emitLocalChange } from './app-events.js';
 import {
   configEvents,
   ensureConfig,
+  getCurrentConfig,
   isPollConfigured,
   loadConfig,
   setCurrentConfig,
@@ -29,6 +30,7 @@ import { startUpdateChecks, stopUpdateChecks } from './update-check.js';
 import { recoverInterruptedWorkItems } from './work-items.js';
 import { inspectWorkspaceState, pruneStaleComposeStacks, recoverInterruptedWorkspaceOperations } from './workspace.js';
 import { reconcilePatrolWorkspacesOnStartup } from './workspace-reconciliation.js';
+import { startWorkspaceReconciliationScheduler } from './workspace-reconciliation-scheduler.js';
 
 /**
  * Start the claude-patrol server.
@@ -184,6 +186,10 @@ export async function startServer(options = {}) {
   } catch (error) {
     console.warn(`[claude-patrol] Workspace reconciliation failed: ${error.message}`);
   }
+  const workspaceReconciliationScheduler = startWorkspaceReconciliationScheduler({
+    getConfig: getCurrentConfig,
+    isPatrolAvailable: () => server.server.listening,
+  });
 
   // Start TUI if running in an interactive terminal
   const isTTY = process.stdin.isTTY && process.stdout.isTTY;
@@ -275,6 +281,7 @@ export async function startServer(options = {}) {
     await stopRulesEngine({ drain: true });
     stopHealthChecks();
     stopUpdateChecks();
+    workspaceReconciliationScheduler.stop();
     if (killSessions) {
       console.log('Killing all sessions...');
       killAllSessions();

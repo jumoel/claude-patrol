@@ -8,7 +8,11 @@ import { afterEach, test } from 'node:test';
 import { closeDb, getDb, initDb } from './db.js';
 import { createScratchWorkspace } from './workspace.js';
 import { PATROL_WORKSPACE_MARKER } from './workspace-ownership.js';
-import { discoverPatrolWorkspaceDirectories, reconcilePatrolWorkspacesOnStartup } from './workspace-reconciliation.js';
+import {
+  discoverPatrolWorkspaceDirectories,
+  reconcilePatrolWorkspaces,
+  reconcilePatrolWorkspacesOnStartup,
+} from './workspace-reconciliation.js';
 
 const temporaryDirectories = [];
 
@@ -64,6 +68,39 @@ test('startup reconciliation deletes an empty orphan with a Patrol ownership mar
   assert.deepEqual(result.deleted, [canonicalPath]);
   assert.equal(existsSync(workspace.path), false);
   assert.deepEqual(getDb().prepare('SELECT * FROM workspace_orphans').all(), []);
+});
+
+test('dry-run reports eligibility, hourly retention waits, and startup still cleans immediately', async () => {
+  const { root, config } = createFixture();
+  const workspace = await orphanScratchWorkspace(config, 'retained-empty');
+  const canonicalPath = realpathSync(workspace.path);
+  const observedAt = '2026-08-27T12:00:00.000Z';
+
+  const dryRun = await reconcilePatrolWorkspaces(config, cleanupRuntime(root, { dryRun: true, now: () => observedAt }));
+  assert.equal(dryRun.candidates[0].path, canonicalPath);
+  assert.equal(dryRun.candidates[0].status, 'eligible');
+  assert.equal(existsSync(workspace.path), true);
+
+  const retained = await reconcilePatrolWorkspaces(
+    config,
+    cleanupRuntime(root, {
+      minimumAgeMs: 24 * 60 * 60 * 1000,
+      now: () => observedAt,
+    }),
+  );
+  assert.equal(retained.blocked[0].code, 'retention_pending');
+  assert.equal(existsSync(workspace.path), true);
+
+  const startup = await reconcilePatrolWorkspacesOnStartup(
+    config,
+    cleanupRuntime(root, {
+      dryRun: true,
+      minimumAgeMs: 24 * 60 * 60 * 1000,
+      now: () => observedAt,
+    }),
+  );
+  assert.deepEqual(startup.deleted, [canonicalPath]);
+  assert.equal(existsSync(workspace.path), false);
 });
 
 test('an unmarked workspace is not deleted based on the legacy Patrol naming convention', async () => {
