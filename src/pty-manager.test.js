@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import { readFileSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { afterEach, describe, it } from 'node:test';
+import { actionRegistry } from './actions.js';
 import { appEvents } from './app-events.js';
 import { CLAUDE_REVIEW_TIMEOUT_MS } from './claude-review.js';
 import { CODEX_REVIEW_TIMEOUT_MS } from './codex-review.js';
@@ -13,6 +14,7 @@ import {
   createSessionWithRuntime,
   dispatchWsMessage,
   getSessionPeerReviewReadiness,
+  getSessionSnapshot,
   killSession,
   killSessionAndWait,
   MAX_LIVE_GLOBAL_SESSIONS,
@@ -20,10 +22,16 @@ import {
   PATROL_MCP_TIMEOUT_MS,
   RingBuffer,
   reattachOrphanedSessions,
+  recordProviderActivity,
   setMcpPort,
   TerminalOutputBatcher,
 } from './pty-manager.js';
-import { buildSessionLaunch } from './session-launch.js';
+import {
+  activityCredentialPathForSession,
+  activitySettingsPathForSession,
+  buildSessionLaunch,
+  readActivityCredential,
+} from './session-launch.js';
 
 afterEach(() => closeDb());
 
@@ -222,10 +230,214 @@ it('launches Codex with the session-scoped Patrol MCP server and instructions', 
   );
   const newSession = commands.find(([command, subcommand]) => command === 'tmux' && subcommand === 'new-session');
   const shellCommand = newSession.at(-1);
-  assert.match(shellCommand, /^'env' '-u' 'NO_COLOR' 'codex' '-C' '\/tmp\/patrol-workspace'/);
+  assert.match(shellCommand, /^'env' '-u' 'NO_COLOR' 'PATROL_ACTIVITY_URL=/);
+  assert.match(shellCommand, /'codex' '-C' '\/tmp\/patrol-workspace'/);
+  assert.match(shellCommand, /notify=\[.*provider-activity-notify\.js/);
   assert.match(shellCommand, /mcp_servers\.patrol\.url=/);
   assert.match(shellCommand, /mcp_servers\.patrol\.required=true/);
   assert.match(shellCommand, /developer_instructions=/);
+});
+
+it('writes protected Claude hooks and Codex notifier credentials', () => {
+  const launches = [
+    buildSessionLaunch({
+      provider: 'claude',
+      sessionId: 'claude-activity-launch',
+      cwd: '/tmp/patrol-work-item',
+      port: 4242,
+      patrolPrompt: 'unused',
+      mcpTimeoutMs: PATROL_MCP_TIMEOUT_MS,
+      enablePatrolMcp: false,
+      activityToken: 'claude-activity-token',
+    }),
+    buildSessionLaunch({
+      provider: 'codex',
+      sessionId: 'codex-activity-launch',
+      cwd: '/tmp/patrol-work-item',
+      port: 4242,
+      patrolPrompt: 'unused',
+      mcpTimeoutMs: PATROL_MCP_TIMEOUT_MS,
+      enablePatrolMcp: false,
+      activityToken: 'codex-activity-token',
+    }),
+  ];
+
+  try {
+    const claudeSettings = JSON.parse(readFileSync(activitySettingsPathForSession('claude-activity-launch')));
+    assert.deepEqual(Object.keys(claudeSettings.hooks), [
+      'UserPromptSubmit',
+      'MessageDisplay',
+      'PreToolUse',
+      'PostToolUse',
+      'PostToolUseFailure',
+      'PermissionRequest',
+      'Stop',
+      'StopFailure',
+    ]);
+    assert.equal(claudeSettings.hooks.Stop[0].hooks[0].type, 'command');
+    assert.match(claudeSettings.hooks.Stop[0].hooks[0].command, /provider-activity-notify\.js' 'claude'/);
+    assert.equal(statSync(activitySettingsPathForSession('claude-activity-launch')).mode & 0o777, 0o600);
+    assert.deepEqual(readActivityCredential('codex-activity-launch'), {
+      provider: 'codex',
+      token: 'codex-activity-token',
+    });
+    assert.equal(statSync(activityCredentialPathForSession('codex-activity-launch')).mode & 0o777, 0o600);
+    assert.match(launches[1].commandArgs.join(' '), /notify=\[.*provider-activity-notify\.js/);
+  } finally {
+    for (const launch of launches) {
+      for (const path of launch.tempPaths) {
+        try {
+          unlinkSync(path);
+        } catch {}
+      }
+    }
+  }
+});
+
+it('authenticates provider events and rejects stale or mismatched runs', () => {
+  initDb(':memory:');
+  setMcpPort(4242);
+  let exitHandler = null;
+  const runtime = {
+    randomUUID: () => 'provider-event-session',
+    execFileSync() {},
+    spawnPty() {
+      return {
+        pid: 42,
+        onData() {},
+        onExit(handler) {
+          exitHandler = handler;
+        },
+        kill() {
+          exitHandler?.({ exitCode: 0 });
+        },
+        write() {},
+        resize() {},
+      };
+    },
+  };
+
+  createSessionWithRuntime({ type: 'global' }, process.cwd(), {
+    provider: 'claude',
+    enablePatrolMcp: false,
+    runtime,
+  });
+  const { token } = readActivityCredential('provider-event-session');
+
+  assert.deepEqual(
+    recordProviderActivity('provider-event-session', 'claude', 'wrong-token-value', {
+      hook_event_name: 'UserPromptSubmit',
+      prompt_id: 'prompt-1',
+    }),
+    { accepted: false, reason: 'invalid_credential', status: 403 },
+  );
+  assert.deepEqual(
+    recordProviderActivity('provider-event-session', 'codex', token, {
+      event: 'turn_completed',
+      run_id: 'turn-1',
+    }),
+    { accepted: false, reason: 'provider_mismatch', status: 409 },
+  );
+  assert.deepEqual(
+    recordProviderActivity('provider-event-session', 'claude', token, {
+      hook_event_name: 'UserPromptSubmit',
+      prompt_id: 'prompt-1',
+    }),
+    { accepted: true, duplicate: false, status: 202 },
+  );
+  assert.equal(getSessionSnapshot('provider-event-session').nativeTracking, true);
+  assert.deepEqual(
+    recordProviderActivity('provider-event-session', 'claude', token, {
+      hook_event_name: 'Stop',
+      prompt_id: 'prompt-old',
+    }),
+    { accepted: false, reason: 'stale_event', status: 409 },
+  );
+  assert.deepEqual(
+    recordProviderActivity('provider-event-session', 'claude', token, {
+      hook_event_name: 'Stop',
+      prompt_id: 'prompt-1',
+    }),
+    { accepted: true, duplicate: false, status: 202 },
+  );
+  assert.equal(getSessionSnapshot('provider-event-session').activityState, 'idle');
+  assert.equal(getSessionSnapshot('provider-event-session').completionConfirmed, false);
+
+  killSession('provider-event-session', { killTmux() {}, isTmuxAlive: () => false });
+  assert.equal(activeSessionCount(), 0);
+});
+
+it('wait_for_idle ignores candidate stops and reports provider failures', async () => {
+  initDb(':memory:');
+  setMcpPort(4242);
+  let exitHandler = null;
+  const runtime = {
+    randomUUID: () => 'wait-provider-session',
+    activityIdleThresholdMs: 20,
+    execFileSync() {},
+    spawnPty() {
+      return {
+        pid: 43,
+        onData() {},
+        onExit(handler) {
+          exitHandler = handler;
+        },
+        kill() {
+          exitHandler?.({ exitCode: 0 });
+        },
+        write() {},
+        resize() {},
+      };
+    },
+  };
+  createSessionWithRuntime({ type: 'global' }, process.cwd(), {
+    provider: 'claude',
+    enablePatrolMcp: false,
+    runtime,
+  });
+  const { token } = readActivityCredential('wait-provider-session');
+  recordProviderActivity('wait-provider-session', 'claude', token, {
+    hook_event_name: 'UserPromptSubmit',
+    prompt_id: 'prompt-1',
+  });
+  const since = getSessionSnapshot('wait-provider-session').lastWorkingAt;
+  const waiting = actionRegistry.wait_for_idle.mcpHandler(null, {
+    session_id: 'wait-provider-session',
+    since,
+    timeout_minutes: 1,
+  });
+  recordProviderActivity('wait-provider-session', 'claude', token, {
+    hook_event_name: 'Stop',
+    prompt_id: 'prompt-1',
+  });
+  const resolvedEarly = await Promise.race([
+    waiting.then(() => true),
+    new Promise((resolvePromise) => setTimeout(() => resolvePromise(false), 5)),
+  ]);
+  assert.equal(resolvedEarly, false);
+  assert.equal((await waiting).ok, true);
+
+  recordProviderActivity('wait-provider-session', 'claude', token, {
+    hook_event_name: 'UserPromptSubmit',
+    prompt_id: 'prompt-2',
+  });
+  const failedSince = getSessionSnapshot('wait-provider-session').lastWorkingAt;
+  const failure = actionRegistry.wait_for_idle.mcpHandler(null, {
+    session_id: 'wait-provider-session',
+    since: failedSince,
+    timeout_minutes: 1,
+  });
+  recordProviderActivity('wait-provider-session', 'claude', token, {
+    hook_event_name: 'StopFailure',
+    prompt_id: 'prompt-2',
+  });
+  assert.deepEqual(await failure, {
+    ok: false,
+    error: 'provider_failure',
+    message: 'session wait-provider-session provider turn failed',
+  });
+
+  killSession('wait-provider-session', { killTmux() {}, isTmuxAlive: () => false });
 });
 
 it('writes per-session MCP config with the explicitly recorded port', () => {
@@ -404,6 +616,57 @@ it('reattaches every surviving global session after an update', () => {
     killSession(sessionId, { killTmux() {}, isTmuxAlive: () => false });
   }
   assert.equal(activeSessionCount(), 0);
+});
+
+it('restores provider activity credentials when reattaching a session', () => {
+  initDb(':memory:');
+  const now = new Date().toISOString();
+  getDb()
+    .prepare(
+      `INSERT INTO sessions (id, name, pid, provider, status, started_at)
+       VALUES ('reattach-native', 'Codex', 11, 'codex', 'active', ?)`,
+    )
+    .run(now);
+  buildSessionLaunch({
+    provider: 'codex',
+    sessionId: 'reattach-native',
+    cwd: process.cwd(),
+    port: 4242,
+    patrolPrompt: 'unused',
+    mcpTimeoutMs: PATROL_MCP_TIMEOUT_MS,
+    enablePatrolMcp: false,
+    activityToken: 'reattach-native-token',
+  });
+  let exitHandler = null;
+  const runtime = {
+    isTmuxAlive: () => true,
+    execFileSync() {},
+    spawnPty() {
+      return {
+        pid: 12,
+        onData() {},
+        onExit(handler) {
+          exitHandler = handler;
+        },
+        kill() {
+          exitHandler?.({ exitCode: 0 });
+        },
+        write() {},
+        resize() {},
+      };
+    },
+  };
+
+  assert.equal(reattachOrphanedSessions(runtime), 1);
+  assert.deepEqual(
+    recordProviderActivity('reattach-native', 'codex', 'reattach-native-token', {
+      event: 'turn_completed',
+      run_id: 'turn-1',
+    }),
+    { accepted: true, duplicate: false, status: 202 },
+  );
+  killSession('reattach-native', { killTmux() {}, isTmuxAlive: () => false });
+  assert.equal(readActivityCredential('reattach-native'), null);
 });
 
 it('keeps a live tmux session recoverable when update reattach fails', () => {

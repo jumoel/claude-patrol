@@ -40,6 +40,14 @@ test('peer review is reserved per workspace and completes after the presenter re
     });
     assert.equal(running.status, 'running');
     assert.equal(coordinator.markDelivering(running.id).status, 'delivering');
+    events.emit('session-state', {
+      sessionId: 'session-1',
+      workspaceId: 'workspace-1',
+      state: 'idle',
+      confirmed: false,
+      completion_outcome: 'completed',
+    });
+    assert.equal(coordinator.getByWorkspace('workspace-1').status, 'delivering');
     events.emit('session-state', { sessionId: 'session-1', workspaceId: 'workspace-1', state: 'idle' });
 
     const complete = coordinator.getByWorkspace('workspace-1');

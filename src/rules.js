@@ -202,6 +202,8 @@ function onPrChanged(event) {
 
 function onSessionState(event) {
   if (event.state !== 'idle') return;
+  if (event.confirmed === false) return;
+  if (event.completion_outcome && event.completion_outcome !== 'completed') return;
   handleSessionIdle(event).catch((err) => console.warn(`[rules] session-state handler error: ${err.message}`));
 }
 

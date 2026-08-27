@@ -664,11 +664,18 @@ export const actionRegistry = {
       // comparison; for any plausible `since` (Date.now()-ish), `0 >= since`
       // and `0 > number` are both false, so explicit null guards aren't
       // needed beyond the snap-null check.
+      const completedCycle = (snap) =>
+        snap !== null && snap.lastWorkingAt >= since && snap.lastIdleAt > snap.lastWorkingAt;
       const satisfied = (snap) =>
-        snap !== null &&
+        completedCycle(snap) &&
         snap.activityState === 'idle' &&
-        snap.lastWorkingAt >= since &&
-        snap.lastIdleAt > snap.lastWorkingAt;
+        snap.completionConfirmed !== false &&
+        (snap.completionOutcome ?? 'completed') === 'completed';
+      const failed = (snap) =>
+        completedCycle(snap) &&
+        snap.activityState === 'idle' &&
+        snap.completionConfirmed !== false &&
+        snap.completionOutcome === 'failed';
 
       const initial = getSessionSnapshot(sessionId);
       if (initial === null) {
@@ -679,6 +686,13 @@ export const actionRegistry = {
           ok: true,
           idle_at: new Date(initial.lastIdleAt).toISOString(),
           working_duration_ms: initial.lastIdleAt - initial.lastWorkingAt,
+        };
+      }
+      if (failed(initial)) {
+        return {
+          ok: false,
+          error: 'provider_failure',
+          message: `session ${sessionId} provider turn failed`,
         };
       }
 
@@ -692,7 +706,14 @@ export const actionRegistry = {
           }
           if (data.state !== 'idle') return;
           const snap = getSessionSnapshot(sessionId);
-          if (satisfied(snap)) {
+          if (failed(snap)) {
+            cleanup();
+            resolve({
+              ok: false,
+              error: 'provider_failure',
+              message: `session ${sessionId} provider turn failed`,
+            });
+          } else if (satisfied(snap)) {
             cleanup();
             resolve({
               ok: true,

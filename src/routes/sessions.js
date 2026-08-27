@@ -27,7 +27,7 @@ import { createScratchWorkspace } from '../workspace.js';
  * @param {import('fastify').FastifyInstance} app
  */
 export function registerSessionRoutes(app) {
-  const { getConfig, getDb, getSessionStates } = app.appContext;
+  const { getConfig, getDb, getSessionStates, recordProviderActivity } = app.appContext;
   const launchSession = app.appContext.createSession ?? createSession;
   const formatSession = (row, stateBySessionId = null) => {
     const workItem = row.work_item_id
@@ -62,6 +62,16 @@ export function registerSessionRoutes(app) {
         recovery_actions: [],
       },
     });
+
+  app.post('/api/sessions/:id/activity/:provider', (request, reply) => {
+    const authorization = request.headers.authorization;
+    const token = authorization?.startsWith('Bearer ') ? authorization.slice('Bearer '.length) : null;
+    const result = recordProviderActivity(request.params.id, request.params.provider, token, request.body);
+    if (!result.accepted) {
+      return reply.code(result.status).send({ error: result.reason });
+    }
+    return reply.code(result.status).send({ accepted: true, duplicate: result.duplicate });
+  });
 
   app.post('/api/sessions', (request, reply) => {
     const { workspace_id, work_item_id, global: isGlobal, name: rawName } = request.body || {};

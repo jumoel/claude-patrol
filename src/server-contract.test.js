@@ -50,6 +50,7 @@ test('PR API uses injected dependencies and reports authored freshness', async (
   const appEvents = new EventEmitter();
   const pollerEvents = new EventEmitter();
   const reconciliationCalls = [];
+  const activityCalls = [];
   const context = createAppContext({
     getConfig: () => config,
     getDb: () => db,
@@ -57,6 +58,10 @@ test('PR API uses injected dependencies and reports authored freshness', async (
     pollerEvents,
     getSessionStates: () => [],
     getGhRateLimitState: () => ({ limited: false }),
+    recordProviderActivity: (...args) => {
+      activityCalls.push(args);
+      return { accepted: true, duplicate: false, status: 202 };
+    },
     reconcilePatrolWorkspaces: async (_config, options) => {
       reconciliationCalls.push(options);
       return {
@@ -120,6 +125,17 @@ test('PR API uses injected dependencies and reports authored freshness', async (
       sessions.json().map((session) => session.id),
       ['session-1'],
     );
+    const activity = await server.inject({
+      method: 'POST',
+      url: '/api/sessions/session-1/activity/claude',
+      headers: { authorization: 'Bearer session-capability' },
+      payload: { hook_event_name: 'Stop', prompt_id: 'prompt-1' },
+    });
+    assert.equal(activity.statusCode, 202);
+    assert.deepEqual(activity.json(), { accepted: true, duplicate: false });
+    assert.deepEqual(activityCalls, [
+      ['session-1', 'claude', 'session-capability', { hook_event_name: 'Stop', prompt_id: 'prompt-1' }],
+    ]);
 
     const rejectedOrigin = await server.inject({
       method: 'GET',

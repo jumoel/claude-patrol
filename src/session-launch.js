@@ -1,6 +1,7 @@
-import { writeFileSync } from 'node:fs';
+import { readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { expandPath, toClaudeProjectKey } from './utils.js';
 
 export const SESSION_PROVIDERS = Object.freeze(['claude', 'codex']);
@@ -25,6 +26,31 @@ export function mcpConfigPathForSession(sessionId) {
   return resolve(tmpdir(), `patrol-mcp-${sessionId}.json`);
 }
 
+export function activityCredentialPathForSession(sessionId) {
+  return resolve(tmpdir(), `patrol-activity-${sessionId}.json`);
+}
+
+export function activitySettingsPathForSession(sessionId) {
+  return resolve(tmpdir(), `patrol-activity-settings-${sessionId}.json`);
+}
+
+export function readActivityCredential(sessionId) {
+  try {
+    const credential = JSON.parse(readFileSync(activityCredentialPathForSession(sessionId), 'utf8'));
+    if (
+      !credential ||
+      !SESSION_PROVIDERS.includes(credential.provider) ||
+      typeof credential.token !== 'string' ||
+      credential.token.length < 16
+    ) {
+      return null;
+    }
+    return { provider: credential.provider, token: credential.token };
+  } catch {
+    return null;
+  }
+}
+
 function writeClaudeMcpConfig(sessionId, url, timeoutMs) {
   const path = mcpConfigPathForSession(sessionId);
   writeFileSync(
@@ -46,6 +72,41 @@ function writeClaudeMcpConfig(sessionId, url, timeoutMs) {
   return path;
 }
 
+function writeActivityCredential(sessionId, provider, token) {
+  const path = activityCredentialPathForSession(sessionId);
+  writeFileSync(path, JSON.stringify({ provider, token }), { mode: 0o600, flag: 'wx' });
+  return path;
+}
+
+function writeClaudeActivitySettings(sessionId) {
+  const path = activitySettingsPathForSession(sessionId);
+  const command = [process.execPath, PROVIDER_ACTIVITY_NOTIFY_PATH, 'claude']
+    .map((part) => `'${part.replace(/'/g, `'\\''`)}'`)
+    .join(' ');
+  const activityHook = {
+    type: 'command',
+    command,
+    timeout: 2,
+  };
+  const hooks = {};
+  for (const eventName of [
+    'UserPromptSubmit',
+    'MessageDisplay',
+    'PreToolUse',
+    'PostToolUse',
+    'PostToolUseFailure',
+    'PermissionRequest',
+    'Stop',
+    'StopFailure',
+  ]) {
+    hooks[eventName] = [{ hooks: [activityHook] }];
+  }
+  writeFileSync(path, JSON.stringify({ hooks }, null, 2), { mode: 0o600, flag: 'wx' });
+  return path;
+}
+
+const PROVIDER_ACTIVITY_NOTIFY_PATH = fileURLToPath(new URL('./provider-activity-notify.js', import.meta.url));
+
 /**
  * Build the provider-specific CLI invocation and metadata for a Patrol session.
  */
@@ -59,6 +120,7 @@ export function buildSessionLaunch({
   claudeSessionId = null,
   enablePatrolMcp = true,
   initialPrompt = null,
+  activityToken = null,
 }) {
   const provider = normalizeSessionProvider(rawProvider);
   if (claudeSessionId && provider !== 'claude') {
@@ -69,46 +131,73 @@ export function buildSessionLaunch({
 
   const tempPaths = [];
   const mcpUrl = enablePatrolMcp && port !== null ? `http://127.0.0.1:${port}/mcp/${sessionId}` : null;
+  const activityBaseUrl =
+    activityToken && port !== null ? `http://127.0.0.1:${port}/api/sessions/${sessionId}/activity` : null;
   let commandArgs;
   let claudeProjectDir = null;
 
-  if (provider === 'claude') {
-    commandArgs = claudeSessionId ? ['claude', '--resume', claudeSessionId] : ['claude'];
-    claudeProjectDir = resolve(expandPath('~/.claude/projects'), toClaudeProjectKey(cwd));
+  try {
+    if (provider === 'claude') {
+      commandArgs = claudeSessionId ? ['claude', '--resume', claudeSessionId] : ['claude'];
+      claudeProjectDir = resolve(expandPath('~/.claude/projects'), toClaudeProjectKey(cwd));
 
-    if (mcpUrl) {
-      const mcpConfigPath = writeClaudeMcpConfig(sessionId, mcpUrl, mcpTimeoutMs);
-      tempPaths.push(mcpConfigPath);
-      commandArgs.push('--mcp-config', mcpConfigPath);
+      if (activityBaseUrl) {
+        const settingsPath = writeClaudeActivitySettings(sessionId);
+        tempPaths.push(settingsPath);
+        commandArgs.push('--settings', settingsPath);
+      }
 
-      const promptFile = resolve(tmpdir(), `patrol-prompt-${sessionId}.txt`);
-      writeFileSync(promptFile, patrolPrompt);
-      tempPaths.push(promptFile);
-      commandArgs.push('--append-system-prompt-file', promptFile);
-      commandArgs.push('--allowedTools', 'mcp__patrol__*', 'Bash', 'Read', 'Edit', 'Write', 'Glob', 'Grep', 'Agent');
+      if (mcpUrl) {
+        const mcpConfigPath = writeClaudeMcpConfig(sessionId, mcpUrl, mcpTimeoutMs);
+        tempPaths.push(mcpConfigPath);
+        commandArgs.push('--mcp-config', mcpConfigPath);
+
+        const promptFile = resolve(tmpdir(), `patrol-prompt-${sessionId}.txt`);
+        writeFileSync(promptFile, patrolPrompt);
+        tempPaths.push(promptFile);
+        commandArgs.push('--append-system-prompt-file', promptFile);
+        commandArgs.push('--allowedTools', 'mcp__patrol__*', 'Bash', 'Read', 'Edit', 'Write', 'Glob', 'Grep', 'Agent');
+      }
+      if (initialPrompt) commandArgs.push(initialPrompt);
+    } else {
+      commandArgs = ['codex', '-C', cwd];
+      if (activityBaseUrl) {
+        commandArgs.push('-c', `notify=${JSON.stringify([process.execPath, PROVIDER_ACTIVITY_NOTIFY_PATH, 'codex'])}`);
+      }
+      if (mcpUrl) {
+        commandArgs.push(
+          '-c',
+          `mcp_servers.patrol.url=${JSON.stringify(mcpUrl)}`,
+          '-c',
+          'mcp_servers.patrol.required=true',
+          '-c',
+          `mcp_servers.patrol.tool_timeout_sec=${Math.ceil(mcpTimeoutMs / 1000)}`,
+          '-c',
+          `developer_instructions=${JSON.stringify(patrolPrompt)}`,
+        );
+      }
+      if (initialPrompt) commandArgs.push(initialPrompt);
     }
-    if (initialPrompt) commandArgs.push(initialPrompt);
-  } else {
-    commandArgs = ['codex', '-C', cwd];
-    if (mcpUrl) {
-      commandArgs.push(
-        '-c',
-        `mcp_servers.patrol.url=${JSON.stringify(mcpUrl)}`,
-        '-c',
-        'mcp_servers.patrol.required=true',
-        '-c',
-        `mcp_servers.patrol.tool_timeout_sec=${Math.ceil(mcpTimeoutMs / 1000)}`,
-        '-c',
-        `developer_instructions=${JSON.stringify(patrolPrompt)}`,
-      );
+
+    const envArgs = ['env', '-u', 'NO_COLOR'];
+    if (activityBaseUrl) {
+      tempPaths.push(writeActivityCredential(sessionId, provider, activityToken));
+      envArgs.push(`PATROL_ACTIVITY_URL=${activityBaseUrl}/${provider}`);
+      envArgs.push(`PATROL_ACTIVITY_TOKEN=${activityToken}`);
     }
-    if (initialPrompt) commandArgs.push(initialPrompt);
+
+    return {
+      provider,
+      commandArgs: [...envArgs, ...commandArgs],
+      claudeProjectDir,
+      tempPaths,
+    };
+  } catch (error) {
+    for (const path of tempPaths) {
+      try {
+        unlinkSync(path);
+      } catch {}
+    }
+    throw error;
   }
-
-  return {
-    provider,
-    commandArgs: ['env', '-u', 'NO_COLOR', ...commandArgs],
-    claudeProjectDir,
-    tempPaths,
-  };
 }

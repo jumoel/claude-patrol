@@ -21,6 +21,7 @@ import {
   getSessionSnapshot,
   getSessionStates,
   reattachSession,
+  recordProviderActivity,
   waitForFirstIdle,
 } from './pty-manager.js';
 import { createWorkItemService } from './work-items.js';
@@ -71,6 +72,7 @@ export function createAppContext(overrides = {}) {
     getGhRateLimitState,
     getSessionStates: sessionStates,
     getSessionSnapshot,
+    recordProviderActivity,
     createSession,
     reattachSession,
     dispatchToSession,

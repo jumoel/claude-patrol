@@ -22,8 +22,9 @@ export function emitLocalChange() {
  * @param {{type: 'global'} | {type: 'workspace'|'work_item', id: string}} target
  * @param {'working' | 'idle' | 'exited'} state
  * @param {string | null} [activityChangedAt]
+ * @param {{confirmed?: boolean, outcome?: string|null, source?: string|null}} [details]
  */
-export function emitSessionState(sessionId, target, state, activityChangedAt = null) {
+export function emitSessionState(sessionId, target, state, activityChangedAt = null, details = {}) {
   appEvents.emit('session-state', {
     sessionId,
     target,
@@ -31,6 +32,9 @@ export function emitSessionState(sessionId, target, state, activityChangedAt = n
     workItemId: target.type === 'work_item' ? target.id : null,
     state,
     activity_changed_at: activityChangedAt,
+    ...(details.confirmed === undefined ? {} : { confirmed: details.confirmed }),
+    ...(details.outcome === undefined ? {} : { completion_outcome: details.outcome }),
+    ...(details.source === undefined ? {} : { activity_source: details.source }),
   });
 }
 

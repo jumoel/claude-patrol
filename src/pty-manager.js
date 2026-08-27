@@ -1,12 +1,20 @@
 import { execFile, execFileSync } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, timingSafeEqual } from 'node:crypto';
 import { accessSync, chmodSync, constants, readFileSync, unlinkSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import pty from 'node-pty';
 import { appEvents, emitLocalChange, emitSessionState } from './app-events.js';
 import { getDb } from './db.js';
-import { buildSessionLaunch, mcpConfigPathForSession, normalizeSessionProvider } from './session-launch.js';
+import { normalizeProviderActivity, SessionActivityTracker } from './session-activity.js';
+import {
+  activityCredentialPathForSession,
+  activitySettingsPathForSession,
+  buildSessionLaunch,
+  mcpConfigPathForSession,
+  normalizeSessionProvider,
+  readActivityCredential,
+} from './session-launch.js';
 import {
   normalizeSessionTarget,
   sessionTargetColumns,
@@ -17,10 +25,6 @@ import { archiveTranscript } from './transcripts.js';
 
 const BUFFER_MAX = 50_000;
 export const MAX_LIVE_GLOBAL_SESSIONS = 16;
-// Bumped from 5s to 10s on 2026-05-08. Empirical max mid-turn gap was 1.36s
-// during a 15s silent tool call; 10s gives 7x safety margin against
-// false-positive idle while a turn is still in flight (lt#17).
-const IDLE_THRESHOLD_MS = 10_000;
 export const BOOT_TIMEOUT_MS_DEFAULT = 30_000;
 // A nested peer-review tool may use its full 30 minute budget. The presenting
 // agent's outer Patrol MCP call also includes range setup and process startup.
@@ -223,12 +227,14 @@ export class TerminalOutputBatcher {
 
 /** @type {Map<string, SessionEntry>} */
 const sessions = new Map();
+/** @type {Map<string, {provider: 'claude'|'codex', token: string}>} */
+const activityCredentials = new Map();
 
 /**
  * Spawn a node-pty attached to an existing tmux session and wire up
  * output buffering, WebSocket broadcast, and exit handling.
  * @param {string} sessionId
- * @param {{ claudeProjectDir?: string, startedAt?: string }} meta
+ * @param {{ claudeProjectDir?: string, startedAt?: string, tempPaths?: string[] }} meta
  * @param {typeof DEFAULT_SESSION_RUNTIME} runtime
  * @returns {SessionEntry}
  */
@@ -244,48 +250,10 @@ function attachPtyToTmux(sessionId, meta = {}, runtime = DEFAULT_SESSION_RUNTIME
 
   db.prepare('UPDATE sessions SET pid = ?, status = ? WHERE id = ?').run(proc.pid, 'active', sessionId);
 
-  const sessionRow = db.prepare('SELECT workspace_id, work_item_id FROM sessions WHERE id = ?').get(sessionId);
+  const sessionRow = db
+    .prepare('SELECT workspace_id, work_item_id, provider FROM sessions WHERE id = ?')
+    .get(sessionId);
   const target = sessionTargetFromRow(sessionRow);
-
-  // Activity state: null (untracked) | 'working' | 'idle'
-  //   null -> working:  first substantial output (>= BURST_BYTE_THRESHOLD)
-  //   working -> idle:  IDLE_THRESHOLD_MS of no substantial output
-  //   idle -> working:  substantial output resumes
-  // "Idle" only applies to sessions that WERE working and went silent.
-  // Untracked sessions show "Session" badge in the UI.
-  let state = null;
-  let idleTimer = null;
-  // Transition order is locked: write the timestamp (lastWorkingAt or
-  // lastIdleAt), then update state, then emit the session-state event. Any
-  // listener observing the event is guaranteed to see consistent fields.
-  // wait_for_idle (lt#15) reads lastIdleAt > lastWorkingAt > since to anchor
-  // on a specific dispatch.
-  function transitionTo(s) {
-    const changedAt = Date.now();
-    if (s === 'working') entry.lastWorkingAt = changedAt;
-    else if (s === 'idle') entry.lastIdleAt = changedAt;
-    state = s;
-    entry.activityState = s;
-    emitSessionState(sessionId, target, s, new Date(changedAt).toISOString());
-  }
-  function resetIdleTimer() {
-    if (idleTimer) {
-      idleTimer.refresh();
-      return;
-    }
-    idleTimer = setTimeout(() => {
-      idleTimer = null;
-      transitionTo('idle');
-    }, IDLE_THRESHOLD_MS);
-  }
-  // Force-set state to working at dispatch time. Used by the dispatcher
-  // (lt#12) so wait_for_idle.since has a deterministic anchor regardless of
-  // when the natural detector trips on the TUI echo. Also resets the idle
-  // countdown so a session that's already idle gets a fresh window.
-  function markWorking() {
-    transitionTo('working');
-    resetIdleTimer();
-  }
 
   // Activity detection: count distinct "moments" of printable output.
   // A moment = an onData with printable bytes, separated from the previous
@@ -300,6 +268,7 @@ function attachPtyToTmux(sessionId, meta = {}, runtime = DEFAULT_SESSION_RUNTIME
   const MOMENT_WINDOW = 10_000; // reset if no output for this long
   const LARGE_OUTPUT = 500; // instant transition for big chunks
   const MIN_PRINTABLE = 10; // ignore events with fewer printable chars (status bar refreshes)
+  const NATIVE_IDLE_OUTPUT_GRACE_MS = 500;
 
   const websockets = new Set();
   const entry = {
@@ -308,12 +277,33 @@ function attachPtyToTmux(sessionId, meta = {}, runtime = DEFAULT_SESSION_RUNTIME
     websockets,
     output: new TerminalOutputBatcher(websockets),
     resizeSuppressUntil: Date.now() + 500,
-    activityState: state, // exposed for getSessionStates()
+    activityState: null,
     target,
-    lastWorkingAt: null, // ms timestamp of most recent null|idle -> working transition
-    lastIdleAt: null, // ms timestamp of most recent working -> idle transition
-    markWorking, // dispatcher's deterministic anchor for wait_for_idle (lt#12)
+    lastWorkingAt: null,
+    lastIdleAt: null,
   };
+  const activity = new SessionActivityTracker({
+    idleThresholdMs: runtime.activityIdleThresholdMs,
+    onState: ({ state, changedAt, confirmed, outcome, source }) => {
+      const snapshot = activity.snapshot();
+      entry.activityState = snapshot.activityState;
+      entry.lastWorkingAt = snapshot.lastWorkingAt;
+      entry.lastIdleAt = snapshot.lastIdleAt;
+      emitSessionState(sessionId, target, state, new Date(changedAt).toISOString(), {
+        confirmed,
+        outcome,
+        source,
+      });
+    },
+  });
+  entry.activity = activity;
+
+  const credential = readActivityCredential(sessionId);
+  if (credential?.provider === sessionRow.provider) activityCredentials.set(sessionId, credential);
+  entry.markWorking = (source = 'dispatch') =>
+    activity.markWorking(source, {
+      expectNative: credential?.provider === 'codex',
+    });
 
   proc.onData((data) => {
     entry.buffer.append(data);
@@ -325,12 +315,20 @@ function attachPtyToTmux(sessionId, meta = {}, runtime = DEFAULT_SESSION_RUNTIME
     // Ignore events with negligible printable content (TUI status-bar refreshes,
     // cursor repositioning, etc.). Only compute when not already working, since
     // once working any output should keep the idle timer alive.
-    if (state !== 'working' && printableLength(data) < MIN_PRINTABLE) return;
+    if (entry.activityState !== 'working' && printableLength(data) < MIN_PRINTABLE) return;
 
-    if (state === 'working') {
-      // Already working - any output resets the idle countdown.
-      resetIdleTimer();
+    if (entry.activityState === 'working') {
+      activity.noteOutput();
     } else {
+      const snapshot = activity.snapshot();
+      if (snapshot.activityState === 'idle' && snapshot.completionOutcome === 'blocked') return;
+      if (
+        snapshot.activityState === 'idle' &&
+        snapshot.nativeTracking &&
+        Date.now() - snapshot.lastIdleAt < NATIVE_IDLE_OUTPUT_GRACE_MS
+      ) {
+        return;
+      }
       // State is null or 'idle'. Count distinct output moments.
       // The moment debounce (MOMENT_GAP) handles tmux batching.
       const now = Date.now();
@@ -343,19 +341,16 @@ function attachPtyToTmux(sessionId, meta = {}, runtime = DEFAULT_SESSION_RUNTIME
         }, MOMENT_WINDOW);
       }
 
-      if (momentCount >= MOMENT_THRESHOLD || data.length >= LARGE_OUTPUT) {
+      const candidateCompletion = snapshot.activityState === 'idle' && snapshot.completionConfirmed === false;
+      if (momentCount >= MOMENT_THRESHOLD || (!candidateCompletion && data.length >= LARGE_OUTPUT)) {
         momentCount = 0;
-        transitionTo('working');
-        resetIdleTimer();
+        activity.markWorking('pty_output');
       }
     }
   });
 
   proc.onExit(({ exitCode }) => {
-    if (idleTimer) {
-      clearTimeout(idleTimer);
-      idleTimer = null;
-    }
+    activity.dispose();
     if (momentTimer) clearTimeout(momentTimer);
     entry.output.flush();
     const exitMsg = JSON.stringify({ type: 'exit', code: exitCode });
@@ -366,6 +361,19 @@ function attachPtyToTmux(sessionId, meta = {}, runtime = DEFAULT_SESSION_RUNTIME
       }
     }
     sessions.delete(sessionId);
+    activityCredentials.delete(sessionId);
+    const tempPaths = new Set([
+      ...(meta.tempPaths ?? []),
+      activityCredentialPathForSession(sessionId),
+      activitySettingsPathForSession(sessionId),
+    ]);
+    for (const path of tempPaths) {
+      try {
+        unlinkSync(path);
+      } catch {
+        // The optional provider file may not exist for this session.
+      }
+    }
     const endedAt = new Date().toISOString();
     db.prepare("UPDATE sessions SET status = 'killed', ended_at = ? WHERE id = ?").run(endedAt, sessionId);
     emitSessionState(sessionId, target, 'exited');
@@ -380,6 +388,50 @@ function attachPtyToTmux(sessionId, meta = {}, runtime = DEFAULT_SESSION_RUNTIME
 
   sessions.set(sessionId, entry);
   return entry;
+}
+
+function activityTokenEqual(actual, expected) {
+  if (typeof actual !== 'string' || typeof expected !== 'string') return false;
+  const actualBuffer = Buffer.from(actual);
+  const expectedBuffer = Buffer.from(expected);
+  return actualBuffer.length === expectedBuffer.length && timingSafeEqual(actualBuffer, expectedBuffer);
+}
+
+/**
+ * Validate and apply one provider lifecycle callback. Tokens are scoped to a
+ * single session and never leave the PTY manager after launch.
+ */
+export function recordProviderActivity(sessionId, rawProvider, token, payload) {
+  let provider;
+  try {
+    provider = normalizeSessionProvider(rawProvider, null);
+  } catch {
+    return { accepted: false, reason: 'invalid_provider', status: 400 };
+  }
+
+  const credential = activityCredentials.get(sessionId);
+  if (!credential) return { accepted: false, reason: 'unknown_session', status: 404 };
+  if (!activityTokenEqual(token, credential.token)) {
+    return { accepted: false, reason: 'invalid_credential', status: 403 };
+  }
+  if (credential.provider !== provider) {
+    return { accepted: false, reason: 'provider_mismatch', status: 409 };
+  }
+
+  const row = getDb()
+    .prepare("SELECT provider, status FROM sessions WHERE id = ? AND status IN ('active', 'detached')")
+    .get(sessionId);
+  if (!row) return { accepted: false, reason: 'unknown_session', status: 404 };
+  if (row.provider !== provider) return { accepted: false, reason: 'provider_mismatch', status: 409 };
+
+  const entry = sessions.get(sessionId);
+  if (!entry) return { accepted: false, reason: 'session_detached', status: 409 };
+  const event = normalizeProviderActivity(provider, payload);
+  if (!event) return { accepted: false, reason: 'invalid_event', status: 400 };
+
+  const result = entry.activity.handleProviderEvent(event);
+  if (!result.accepted) return { ...result, status: 409 };
+  return { ...result, status: 202 };
 }
 
 /**
@@ -491,6 +543,7 @@ function rollbackFailedSessionStart(sessionId, runtime, tempPaths) {
 
   const entry = sessions.get(sessionId);
   sessions.delete(sessionId);
+  activityCredentials.delete(sessionId);
   if (entry) {
     try {
       entry.proc.kill();
@@ -642,6 +695,7 @@ export function createSessionWithRuntime(target, cwd, options = {}) {
   }
 
   const id = runtime.randomUUID();
+  const activityToken = randomUUID();
   const sessionName =
     normalizedTarget.type === 'global' ? (normalizeGlobalSessionName(name) ?? nextGlobalSessionName(provider)) : null;
   const tmuxName = `patrol-${id}`;
@@ -658,6 +712,7 @@ export function createSessionWithRuntime(target, cwd, options = {}) {
       claudeSessionId,
       enablePatrolMcp,
       initialPrompt,
+      activityToken,
     });
     tempPaths.push(...launch.tempPaths);
 
@@ -677,7 +732,12 @@ export function createSessionWithRuntime(target, cwd, options = {}) {
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(id, workspaceId, workItemId, sessionName, 0, provider, 'active', now, launch.claudeProjectDir);
 
-    attachPtyToTmux(id, { claudeProjectDir: launch.claudeProjectDir, startedAt: now }, runtime);
+    const entry = attachPtyToTmux(
+      id,
+      { claudeProjectDir: launch.claudeProjectDir, startedAt: now, tempPaths: launch.tempPaths },
+      runtime,
+    );
+    if (initialPrompt) entry.markWorking('initial_prompt');
     return {
       id,
       workspace_id: workspaceId,
@@ -737,6 +797,7 @@ const WS_MESSAGE_HANDLERS = {
   input: {
     validate: (msg) => typeof msg.data === 'string',
     handle: (entry, msg, ctx) => {
+      if (msg.data.includes('\r') || msg.data.includes('\n')) entry.markWorking?.('terminal_input');
       // CSI u sequences (kitty keyboard protocol) can't go through tmux's
       // input parser - it doesn't understand them. Route them via
       // `tmux send-keys` which writes directly to the inner pane's PTY,
@@ -758,6 +819,7 @@ const WS_MESSAGE_HANDLERS = {
     // so the split timing lives in one place.
     validate: (msg) => typeof msg.text === 'string',
     handle: (entry, msg) => {
+      entry.markWorking?.('terminal_input');
       submitPromptToEntry(entry, msg.text).catch(() => {});
     },
   },
@@ -925,16 +987,12 @@ export function activeSessionCount() {
  * wait_for_idle (lt#15) to evaluate the since-anchored idle predicate.
  *
  * @param {string} sessionId
- * @returns {{ activityState: 'working' | 'idle' | null, lastWorkingAt: number | null, lastIdleAt: number | null } | null}
+ * @returns {object | null}
  */
 export function getSessionSnapshot(sessionId) {
   const entry = sessions.get(sessionId);
   if (!entry) return null;
-  return {
-    activityState: entry.activityState ?? null,
-    lastWorkingAt: entry.lastWorkingAt ?? null,
-    lastIdleAt: entry.lastIdleAt ?? null,
-  };
+  return entry.activity.snapshot();
 }
 
 /**
@@ -945,16 +1003,20 @@ export function getSessionSnapshot(sessionId) {
 export function getSessionStates() {
   const results = [];
   for (const [sessionId, entry] of sessions) {
-    if (entry.activityState) {
+    const snapshot = entry.activity.snapshot();
+    if (snapshot.activityState) {
       results.push({
         sessionId,
         target: entry.target,
         workspaceId: entry.target.type === 'workspace' ? entry.target.id : null,
         workItemId: entry.target.type === 'work_item' ? entry.target.id : null,
-        state: entry.activityState,
+        state: snapshot.activityState,
         activity_changed_at: new Date(
-          entry.activityState === 'idle' ? entry.lastIdleAt : entry.lastWorkingAt,
+          snapshot.activityState === 'idle' ? snapshot.lastIdleAt : snapshot.lastWorkingAt,
         ).toISOString(),
+        confirmed: snapshot.completionConfirmed,
+        completion_outcome: snapshot.completionOutcome,
+        activity_source: snapshot.activitySource,
       });
     }
   }
@@ -1092,7 +1154,7 @@ export async function dispatchToSession(sessionId, prompt) {
   if (entry.activityState === 'working') {
     throw taggedError('session_busy', `session ${sessionId} is currently working`);
   }
-  entry.markWorking();
+  entry.markWorking('dispatch');
   await submitPromptToEntry(entry, prompt);
   return entry.lastWorkingAt;
 }
@@ -1115,13 +1177,25 @@ export function waitForFirstIdle(sessionId, timeoutMs = BOOT_TIMEOUT_MS_DEFAULT)
   return new Promise((resolve, reject) => {
     const entry = sessions.get(sessionId);
     if (!entry) return reject(taggedError('no_session', `session ${sessionId} not found`));
-    if (entry.activityState === 'idle') return resolve();
+    const initial = entry.activity.snapshot();
+    if (initial.activityState === 'idle' && initial.completionConfirmed && initial.completionOutcome === 'completed') {
+      return resolve();
+    }
+    if (initial.completionOutcome === 'failed') {
+      return reject(taggedError('provider_failure', `session ${sessionId} provider turn failed`));
+    }
 
     const handler = (data) => {
       if (data.sessionId !== sessionId) return;
       if (data.state === 'idle') {
-        cleanup();
-        resolve();
+        const snapshot = entry.activity.snapshot();
+        if (snapshot.completionOutcome === 'failed') {
+          cleanup();
+          reject(taggedError('provider_failure', `session ${sessionId} provider turn failed`));
+        } else if (snapshot.completionConfirmed && snapshot.completionOutcome === 'completed') {
+          cleanup();
+          resolve();
+        }
       } else if (data.state === 'exited') {
         cleanup();
         reject(taggedError('session_exited', `session ${sessionId} exited before reaching idle`));

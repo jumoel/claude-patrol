@@ -140,12 +140,17 @@ export class PeerReviewCoordinator {
     return publicReview(this.reviews.get(workspaceId));
   }
 
-  handleSessionState({ sessionId, state }) {
+  handleSessionState({ sessionId, state, confirmed, completion_outcome: completionOutcome }) {
     for (const review of this.reviews.values()) {
       if (review.status !== 'delivering' || review.sessionId !== sessionId) continue;
       if (state === 'working') {
         review.observedDeliveryWork = true;
-      } else if (state === 'idle' && review.observedDeliveryWork) {
+      } else if (
+        state === 'idle' &&
+        confirmed !== false &&
+        (!completionOutcome || completionOutcome === 'completed') &&
+        review.observedDeliveryWork
+      ) {
         this.finish(review, 'complete', null);
       } else if (state === 'exited') {
         this.finish(review, 'delivery_unconfirmed', {
