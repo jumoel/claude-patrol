@@ -1,25 +1,6 @@
 @reference "tailwindcss";
 
 .shell {
-  --page-max-width: 1440px;
-  --canvas: #fff;
-  --surface: #fff;
-  --control: #f1f4f7;
-  --line: #d7dce3;
-  --line-strong: #9fa8b5;
-  --ink: #1c2430;
-  --text: #35404d;
-  --muted: #606b78;
-  --blue: #2764b0;
-  --blue-soft: #e7f0fb;
-  --green: #1b7f5a;
-  --green-soft: #e0f3e9;
-  --amber: #a26900;
-  --amber-soft: #fff0c2;
-  --red: #c94b45;
-  --red-soft: #fbe5e2;
-  --purple: #7751aa;
-  --purple-soft: #efe7f8;
   display: flex;
   height: 100vh;
   height: 100dvh;
@@ -28,7 +9,7 @@
   overflow: hidden;
   color: var(--ink);
   background: var(--canvas);
-  font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: var(--font-sans);
   font-size: 14px;
   line-height: 1.45;
 }
@@ -110,19 +91,18 @@
   min-width: 4.5rem;
 }
 
-.syncButton,
-.settingsButton,
-.backButton {
+.syncButton {
   display: inline-flex;
-  min-height: 32px;
+  min-width: 0;
+  min-height: var(--control-height);
   align-items: center;
   justify-content: center;
   gap: 7px;
   padding: 0 10px;
-  color: var(--ink);
-  background: var(--control);
-  border: 1px solid var(--line);
-  border-radius: 2px;
+  color: var(--blue);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
   cursor: pointer;
   font: inherit;
   font-size: 14px;
@@ -131,22 +111,13 @@
   text-decoration: none;
 }
 
-.syncButton {
-  min-width: 0;
-  color: var(--blue);
-  background: transparent;
-  border-color: transparent;
-}
-
-.syncButton:hover,
-.settingsButton:hover,
-.backButton:hover {
-  color: inherit;
-  background: inherit;
-}
-
 .syncButton:hover {
   color: var(--blue);
+  background: transparent;
+}
+
+.headerButton {
+  flex: 0 0 auto;
 }
 
 .content {
@@ -249,8 +220,7 @@
   }
 
   .syncButton,
-  .settingsButton,
-  .backButton {
+  .headerButton {
     flex: 0 0 auto;
     padding: 0 8px;
     font-size: 13px;

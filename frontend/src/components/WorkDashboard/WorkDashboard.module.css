@@ -1,19 +1,4 @@
 .dashboard {
-  --line: #d7dce3;
-  --line-strong: #9fa8b5;
-  --ink: #1c2430;
-  --text: #35404d;
-  --muted: #606b78;
-  --blue: #2764b0;
-  --blue-soft: #e7f0fb;
-  --green: #1b7f5a;
-  --green-soft: #e0f3e9;
-  --amber: #a26900;
-  --amber-soft: #fff0c2;
-  --red: #c94b45;
-  --red-soft: #fbe5e2;
-  --purple: #7751aa;
-  --purple-soft: #efe7f8;
   color: var(--text);
   font-size: 14px;
 }

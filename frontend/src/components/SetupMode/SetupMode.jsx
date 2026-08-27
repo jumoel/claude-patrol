@@ -7,7 +7,7 @@ import {
   saveConfig,
 } from '../../lib/api.js';
 import { getErrorMessage } from '../../lib/errors.js';
-import { Box } from '../ui/Box/Box.jsx';
+import { Badge } from '../ui/Badge/Badge.jsx';
 import { Button } from '../ui/Button/Button.jsx';
 import { LoadingIndicator } from '../ui/LoadingIndicator/LoadingIndicator.jsx';
 import { Stack } from '../ui/Stack/Stack.jsx';
@@ -35,6 +35,38 @@ const INTERVAL_PRESETS = [
 export function SetupMode({ onConfigured, isFirstRun, section = 'poll' }) {
   if (section === 'work_items') return <WorkItemsSettings />;
   return <PollSetupMode onConfigured={onConfigured} isFirstRun={isFirstRun} />;
+}
+
+/**
+ * Settings page header shared by every settings section.
+ * @param {{ title: string, subtitle: string, children?: React.ReactNode }} props
+ */
+function SettingsHeader({ title, subtitle, children }) {
+  return (
+    <header className={styles.setupHeader}>
+      <div className={styles.headerCopy}>
+        <h2 className={styles.title}>{title}</h2>
+        <p className={styles.subtitle}>{subtitle}</p>
+      </div>
+      {children && <div className={styles.headerActions}>{children}</div>}
+    </header>
+  );
+}
+
+/**
+ * Flat section shared by the Work Items settings panels.
+ * @param {{ title: string, meta?: React.ReactNode, children: React.ReactNode }} props
+ */
+function SettingsSection({ title, meta, children }) {
+  return (
+    <section className={styles.settingsSection}>
+      <div className={styles.sectionHeader}>
+        <h3 className={styles.panelTitle}>{title}</h3>
+        {meta}
+      </div>
+      <div className={styles.sectionBody}>{children}</div>
+    </section>
+  );
 }
 
 /** @param {{ onConfigured: () => void, isFirstRun: boolean }} props */
@@ -207,7 +239,7 @@ function PollSetupMode({ onConfigured, isFirstRun }) {
 
   if (loading) {
     return (
-      <Stack direction="col" gap={4}>
+      <Stack direction="col" gap={4} className={styles.setupShell}>
         <LoadingIndicator className={styles.loadingText}>Discovering GitHub accounts...</LoadingIndicator>
       </Stack>
     );
@@ -215,13 +247,13 @@ function PollSetupMode({ onConfigured, isFirstRun }) {
 
   if (error && accounts.length === 0) {
     return (
-      <Stack direction="col" gap={4}>
-        <Box p={6} border borderColor="red-200" rounded="lg" bg="white" className={styles.errorCard}>
+      <Stack direction="col" gap={4} className={styles.setupShell}>
+        <div className={styles.errorCard}>
           <p className={styles.errorText}>{error}</p>
           <Button variant="primary" size="sm" filled onClick={() => window.location.reload()}>
             Retry
           </Button>
-        </Box>
+        </div>
       </Stack>
     );
   }
@@ -231,234 +263,273 @@ function PollSetupMode({ onConfigured, isFirstRun }) {
   /** @type {ConfigStep[]} */
   const stepKeys = ['accounts', 'repos', 'settings'];
 
+  const currentStep = step === 'saving' ? 'settings' : step;
+  const currentStepIndex = stepKeys.indexOf(currentStep);
+
   return (
-    <Stack direction="col" gap={4} className={styles.setupShell}>
-      <Stack gap={4} align="baseline" justify="between" wrap className={styles.setupHeader}>
-        <div>
-          <h2 className={styles.title}>{isFirstRun ? 'Set up monitoring' : 'Configure monitoring'}</h2>
-          <p className={styles.subtitle}>
-            {step === 'accounts' && 'Select which GitHub accounts to monitor for open PRs.'}
-            {step === 'repos' && 'Choose all repos or pick specific ones per account.'}
-            {step === 'settings' && 'Configure how often to check for updates.'}
-          </p>
-        </div>
-        {!isFirstRun && step === 'accounts' && (
-          <Stack gap={2} wrap>
-            <Button as="a" href="#/setup?section=work-items" size="sm">
-              Work Items settings
-            </Button>
-            <Button
-              size="sm"
-              onClick={() => {
-                window.location.hash = '';
-              }}
-            >
-              Back to dashboard
-            </Button>
-          </Stack>
-        )}
-      </Stack>
-
-      <div className={styles.stepper}>
-        {stepKeys.map((key, i) => (
-          <Stack
-            gap={2}
-            key={key}
-            className={`${styles.step} ${step === key ? styles.stepActive : ''} ${stepKeys.indexOf(step === 'saving' ? 'settings' : step) > i ? styles.stepDone : ''}`}
-          >
-            <span className={styles.stepNumber}>{i + 1}</span>
-            <span className={styles.stepLabel}>{stepLabels[key]}</span>
-          </Stack>
-        ))}
-      </div>
-
-      {error && <p className={styles.inlineError}>{error}</p>}
-
-      {step === 'accounts' && (
-        <div className={styles.wizardPanel}>
-          <div className={styles.list}>
-            {accounts.map((acc) => (
-              <Stack
-                gap={3}
-                as="label"
-                key={acc.login}
-                className={`${styles.accountRow} ${accountModes[acc.login] ? styles.accountRowSelected : ''}`}
+    <div className={styles.setupShell}>
+      <section className={styles.settingsFrame}>
+        <SettingsHeader
+          title={isFirstRun ? 'Set up monitoring' : 'Configure monitoring'}
+          subtitle={
+            step === 'accounts'
+              ? 'Select which GitHub accounts to monitor for open PRs.'
+              : step === 'repos'
+                ? 'Choose all repos or pick specific ones per account.'
+                : 'Configure how often to check for updates.'
+          }
+        >
+          {!isFirstRun && step === 'accounts' && (
+            <Stack gap={2} wrap>
+              <Button as="a" href="#/setup?section=work-items" size="sm">
+                Work Items settings
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => {
+                  window.location.hash = '';
+                }}
               >
-                <input
-                  type="checkbox"
-                  className={styles.checkbox}
-                  checked={!!accountModes[acc.login]}
-                  onChange={() => toggleAccount(acc.login)}
-                />
-                <img src={acc.avatar_url} alt="" className={styles.avatar} />
-                <span className={styles.accountName}>{acc.login}</span>
-                <span className={styles.badge}>{acc.type === 'user' ? 'personal' : 'org'}</span>
-              </Stack>
-            ))}
-          </div>
-          <div className={styles.wizardFooter}>
-            <Button variant="primary" size="sm" filled disabled={selectedCount === 0} onClick={() => setStep('repos')}>
-              Next
-            </Button>
-          </div>
-        </div>
-      )}
+                Back to dashboard
+              </Button>
+            </Stack>
+          )}
+        </SettingsHeader>
 
-      {step === 'repos' && (
-        <div className={styles.wizardPanel}>
-          <div className={styles.list}>
-            {accounts
-              .filter((acc) => accountModes[acc.login])
-              .map((acc) => {
-                const { login } = acc;
-                const mode = accountModes[login];
-                const repos = repoLists[login] || [];
-                const isLoadingRepos = repoLoading[login];
-                const picked = selectedRepos[login] || new Set();
-                const query = repoQueries[login]?.trim().toLowerCase() || '';
-                const visibleRepos = query
-                  ? repos.filter(
-                      (repo) =>
-                        repo.name.toLowerCase().includes(query) ||
-                        repo.nameWithOwner.toLowerCase().includes(query) ||
-                        repo.description?.toLowerCase().includes(query),
-                    )
-                  : repos;
+        <ol className={styles.stepper} aria-label="Monitoring setup progress">
+          {stepKeys.map((key, i) => (
+            <li
+              key={key}
+              className={`${styles.step} ${currentStep === key ? styles.stepActive : ''} ${currentStepIndex > i ? styles.stepDone : ''}`}
+              aria-current={currentStep === key ? 'step' : undefined}
+            >
+              <span className={styles.stepNumber}>{currentStepIndex > i ? '\u2713' : i + 1}</span>
+              <span className={styles.stepLabel}>{stepLabels[key]}</span>
+            </li>
+          ))}
+        </ol>
 
-                return (
-                  <div key={login} className={styles.repoSection}>
-                    <div className={styles.repoSectionHeader}>
-                      <img src={acc?.avatar_url} alt="" className={styles.avatarSmall} />
-                      <span className={styles.accountName}>{login}</span>
-                      <div className={styles.modeToggle}>
-                        <button
-                          className={`${styles.modeBtn} ${mode === 'all' ? styles.modeBtnActive : ''}`}
-                          onClick={() => setMode(login, 'all')}
-                        >
-                          All repos
-                        </button>
-                        <button
-                          className={`${styles.modeBtn} ${mode === 'pick' ? styles.modeBtnActive : ''}`}
-                          onClick={() => setMode(login, 'pick')}
-                        >
-                          Pick repos
-                        </button>
-                      </div>
-                    </div>
-                    {mode === 'pick' && (
-                      <>
-                        <div className={styles.repoTools}>
-                          <label className={styles.searchField}>
-                            <svg
-                              width="14"
-                              height="14"
-                              viewBox="0 0 16 16"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth="1.5"
-                              aria-hidden="true"
-                            >
-                              <circle cx="7" cy="7" r="4.5" />
-                              <path d="m10.5 10.5 3 3" />
-                            </svg>
-                            <span className={styles.srOnly}>Search {login} repositories</span>
-                            <input
-                              className={styles.searchInput}
-                              type="search"
-                              value={repoQueries[login] || ''}
-                              placeholder="Search repositories"
-                              onChange={(event) => setRepoQueries((prev) => ({ ...prev, [login]: event.target.value }))}
-                            />
-                          </label>
-                          <span className={styles.selectionCount}>{picked.size} selected</span>
-                        </div>
-                        <div className={styles.repoList}>
-                          {isLoadingRepos && (
-                            <LoadingIndicator className={styles.loadingText}>Loading repos...</LoadingIndicator>
-                          )}
-                          {!isLoadingRepos && repos.length === 0 && <p className={styles.emptyText}>No repos found</p>}
-                          {!isLoadingRepos && repos.length > 0 && visibleRepos.length === 0 && (
-                            <p className={styles.emptyText}>No repositories match "{repoQueries[login]}"</p>
-                          )}
-                          {visibleRepos.map((repo) => (
-                            <Stack
-                              gap={3}
-                              as="label"
-                              key={repo.nameWithOwner}
-                              className={`${styles.repoRow} ${picked.has(repo.nameWithOwner) ? styles.repoRowSelected : ''}`}
-                            >
-                              <input
-                                type="checkbox"
-                                className={styles.checkbox}
-                                checked={picked.has(repo.nameWithOwner)}
-                                onChange={() => toggleRepo(login, repo.nameWithOwner)}
-                              />
-                              <span className={styles.repoName}>{repo.name}</span>
-                              {repo.description && <span className={styles.repoDesc}>{repo.description}</span>}
-                            </Stack>
-                          ))}
-                        </div>
-                      </>
-                    )}
-                  </div>
-                );
-              })}
-          </div>
-          <div className={styles.wizardFooter}>
-            <Button size="sm" onClick={() => setStep('accounts')}>
-              Back
-            </Button>
-            <Button variant="primary" size="sm" filled onClick={() => setStep('settings')}>
-              Next
-            </Button>
-          </div>
-        </div>
-      )}
+        {error && <p className={styles.inlineError}>{error}</p>}
 
-      {step === 'settings' && (
-        <div className={`${styles.wizardPanel} ${styles.settingsPanel}`}>
-          <div className={styles.settingsContent}>
-            <div className={styles.settingsHeader}>
-              <label className={styles.settingsLabel}>Poll interval</label>
-              <p className={styles.settingsHint}>How often claude-patrol checks GitHub for updates.</p>
-            </div>
-            <Stack gap={2} wrap className={styles.presets}>
-              {INTERVAL_PRESETS.map((p) => (
-                <button
-                  key={p.value}
-                  className={`${styles.presetBtn} ${interval === p.value ? styles.presetBtnActive : ''}`}
-                  onClick={() => setInterval_(p.value)}
+        {step === 'accounts' && (
+          <div className={styles.wizardBody}>
+            <div className={styles.list}>
+              {accounts.map((acc) => (
+                <Stack
+                  gap={3}
+                  as="label"
+                  key={acc.login}
+                  className={`${styles.accountRow} ${accountModes[acc.login] ? styles.accountRowSelected : ''}`}
                 >
-                  {p.label}
-                </button>
+                  <input
+                    type="checkbox"
+                    className={styles.checkbox}
+                    checked={!!accountModes[acc.login]}
+                    onChange={() => toggleAccount(acc.login)}
+                  />
+                  <img src={acc.avatar_url} alt="" className={styles.avatar} />
+                  <span className={styles.accountName}>{acc.login}</span>
+                  <Badge color="gray" border={false} className={styles.accountBadge}>
+                    {acc.type === 'user' ? 'personal' : 'org'}
+                  </Badge>
+                </Stack>
               ))}
-            </Stack>
-            <Stack gap={2}>
-              <span className={styles.customLabel}>or custom:</span>
-              <input
-                type="number"
-                min="5"
-                max="3600"
-                value={interval}
-                onChange={(e) => setInterval_(Math.max(5, Number(e.target.value) || 30))}
-                className={styles.numberInput}
-              />
-              <span className={styles.intervalUnit}>seconds</span>
-            </Stack>
+            </div>
           </div>
-          <div className={styles.wizardFooter}>
-            <Button size="sm" onClick={() => setStep('repos')}>
-              Back
-            </Button>
-            <Button variant="primary" size="sm" filled onClick={handleSave}>
-              Save and start monitoring
-            </Button>
-          </div>
-        </div>
-      )}
+        )}
 
-      {step === 'saving' && <LoadingIndicator className={styles.loadingText}>Saving configuration...</LoadingIndicator>}
-    </Stack>
+        {step === 'repos' && (
+          <div className={styles.wizardBody}>
+            <div className={styles.list}>
+              {accounts
+                .filter((acc) => accountModes[acc.login])
+                .map((acc) => {
+                  const { login } = acc;
+                  const mode = accountModes[login];
+                  const repos = repoLists[login] || [];
+                  const isLoadingRepos = repoLoading[login];
+                  const picked = selectedRepos[login] || new Set();
+                  const query = repoQueries[login]?.trim().toLowerCase() || '';
+                  const visibleRepos = query
+                    ? repos.filter(
+                        (repo) =>
+                          repo.name.toLowerCase().includes(query) ||
+                          repo.nameWithOwner.toLowerCase().includes(query) ||
+                          repo.description?.toLowerCase().includes(query),
+                      )
+                    : repos;
+
+                  return (
+                    <div key={login} className={styles.repoSection}>
+                      <div className={styles.repoSectionHeader}>
+                        <img src={acc?.avatar_url} alt="" className={styles.avatarSmall} />
+                        <span className={styles.accountName}>{login}</span>
+                        <div className={styles.modeToggle}>
+                          <Button
+                            size="xs"
+                            className={`${styles.modeBtn} ${mode === 'all' ? styles.modeBtnActive : ''}`}
+                            aria-pressed={mode === 'all'}
+                            onClick={() => setMode(login, 'all')}
+                          >
+                            All repos
+                          </Button>
+                          <Button
+                            size="xs"
+                            className={`${styles.modeBtn} ${mode === 'pick' ? styles.modeBtnActive : ''}`}
+                            aria-pressed={mode === 'pick'}
+                            onClick={() => setMode(login, 'pick')}
+                          >
+                            Pick repos
+                          </Button>
+                        </div>
+                      </div>
+                      {mode === 'pick' && (
+                        <>
+                          <div className={styles.repoTools}>
+                            <label className={styles.searchField}>
+                              <svg
+                                width="14"
+                                height="14"
+                                viewBox="0 0 16 16"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="1.5"
+                                aria-hidden="true"
+                              >
+                                <circle cx="7" cy="7" r="4.5" />
+                                <path d="m10.5 10.5 3 3" />
+                              </svg>
+                              <span className={styles.srOnly}>Search {login} repositories</span>
+                              <input
+                                className={styles.searchInput}
+                                type="search"
+                                value={repoQueries[login] || ''}
+                                placeholder="Search repositories"
+                                onChange={(event) =>
+                                  setRepoQueries((prev) => ({ ...prev, [login]: event.target.value }))
+                                }
+                              />
+                            </label>
+                            <Badge color="gray" border={false} className={styles.selectionCount}>
+                              {picked.size} selected
+                            </Badge>
+                          </div>
+                          <div className={styles.repoList}>
+                            {isLoadingRepos && (
+                              <LoadingIndicator className={styles.loadingText}>Loading repos...</LoadingIndicator>
+                            )}
+                            {!isLoadingRepos && repos.length === 0 && (
+                              <p className={styles.emptyText}>No repos found</p>
+                            )}
+                            {!isLoadingRepos && repos.length > 0 && visibleRepos.length === 0 && (
+                              <p className={styles.emptyText}>No repositories match "{repoQueries[login]}"</p>
+                            )}
+                            {visibleRepos.map((repo) => (
+                              <Stack
+                                gap={3}
+                                as="label"
+                                key={repo.nameWithOwner}
+                                className={`${styles.repoRow} ${picked.has(repo.nameWithOwner) ? styles.repoRowSelected : ''}`}
+                              >
+                                <input
+                                  type="checkbox"
+                                  className={styles.checkbox}
+                                  checked={picked.has(repo.nameWithOwner)}
+                                  onChange={() => toggleRepo(login, repo.nameWithOwner)}
+                                />
+                                <span className={styles.repoName}>{repo.name}</span>
+                                {repo.description && <span className={styles.repoDesc}>{repo.description}</span>}
+                              </Stack>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  );
+                })}
+            </div>
+          </div>
+        )}
+
+        {step === 'settings' && (
+          <div className={`${styles.wizardBody} ${styles.settingsPanel}`}>
+            <div className={styles.settingsContent}>
+              <div className={styles.settingsHeader}>
+                <label className={styles.settingsLabel}>Poll interval</label>
+                <p className={styles.settingsHint}>How often claude-patrol checks GitHub for updates.</p>
+              </div>
+              <Stack gap={2} wrap className={styles.presets}>
+                {INTERVAL_PRESETS.map((p) => (
+                  <Button
+                    key={p.value}
+                    size="xs"
+                    className={`${styles.presetBtn} ${interval === p.value ? styles.presetBtnActive : ''}`}
+                    aria-pressed={interval === p.value}
+                    onClick={() => setInterval_(p.value)}
+                  >
+                    {p.label}
+                  </Button>
+                ))}
+              </Stack>
+              <Stack gap={2}>
+                <span className={styles.customLabel}>or custom:</span>
+                <input
+                  type="number"
+                  min="5"
+                  max="3600"
+                  value={interval}
+                  onChange={(e) => setInterval_(Math.max(5, Number(e.target.value) || 30))}
+                  className={styles.numberInput}
+                />
+                <span className={styles.intervalUnit}>seconds</span>
+              </Stack>
+            </div>
+          </div>
+        )}
+
+        {step === 'saving' && (
+          <div className={styles.wizardBody}>
+            <LoadingIndicator className={styles.loadingText}>Saving configuration...</LoadingIndicator>
+          </div>
+        )}
+
+        {step !== 'saving' && (
+          <div className={styles.wizardFooter}>
+            {step === 'repos' && (
+              <Button size="sm" onClick={() => setStep('accounts')}>
+                Back
+              </Button>
+            )}
+            {step === 'settings' && (
+              <Button size="sm" onClick={() => setStep('repos')}>
+                Back
+              </Button>
+            )}
+            {step === 'accounts' && (
+              <Button
+                variant="primary"
+                size="sm"
+                filled
+                disabled={selectedCount === 0}
+                onClick={() => setStep('repos')}
+              >
+                Next
+              </Button>
+            )}
+            {step === 'repos' && (
+              <Button variant="primary" size="sm" filled onClick={() => setStep('settings')}>
+                Next
+              </Button>
+            )}
+            {step === 'settings' && (
+              <Button variant="primary" size="sm" filled onClick={handleSave}>
+                Save and start monitoring
+              </Button>
+            )}
+          </div>
+        )}
+      </section>
+    </div>
   );
 }
 
@@ -491,111 +562,117 @@ function WorkItemsSettings() {
   };
 
   return (
-    <Stack direction="col" gap={4} className={styles.setupShell}>
-      <Stack justify="between" gap={3} wrap className={styles.setupHeader}>
-        <div>
-          <h2 className={styles.title}>Work Items settings</h2>
-          <p className={styles.subtitle}>Reference resolution is managed by the instance configuration.</p>
-        </div>
-        <Stack gap={2} wrap>
-          <Button as="a" href="#/setup" size="sm">
-            GitHub monitoring
-          </Button>
-          <Button as="a" href="#/" size="sm">
-            Back to dashboard
-          </Button>
-        </Stack>
-      </Stack>
-      {error && (
-        <Box p={5} border borderColor="red-200" rounded="lg" bg="white">
-          <p className={styles.inlineError}>{error}</p>
-          <Button size="sm" onClick={load}>
-            Retry
-          </Button>
-        </Box>
-      )}
-      {!error && (!config || !capabilities) && (
-        <LoadingIndicator className={styles.loadingText}>Loading Work Items settings...</LoadingIndicator>
-      )}
-      {config && capabilities && (
-        <Stack direction="col" gap={4}>
-          <Box p={5} border rounded="lg" bg="white">
-            <dl className={styles.workItemFacts}>
-              <div>
-                <dt>Status</dt>
-                <dd>{config.work_items.configured ? 'Configured' : 'Not configured'}</dd>
-              </div>
-              <div>
-                <dt>Resolver mode</dt>
-                <dd>
-                  {!config.work_items.configured
-                    ? 'Not configured'
-                    : config.work_items.resolver?.provider_mode === 'fixed'
-                      ? 'Fixed provider'
-                      : 'Requested work provider'}
-                </dd>
-              </div>
-              <div>
-                <dt>Resolver provider</dt>
-                <dd>
-                  {!config.work_items.configured
-                    ? 'Not configured'
-                    : config.work_items.resolver?.provider || 'Selected per work item'}
-                </dd>
-              </div>
-              <div>
-                <dt>MCP server</dt>
-                <dd>{config.work_items.resolver?.server_name || 'Not configured'}</dd>
-              </div>
-            </dl>
-          </Box>
-          <Box p={5} border rounded="lg" bg="white">
-            <h3 className={styles.panelTitle}>Candidate repositories</h3>
-            {config.work_items.repositories.length > 0 ? (
-              <ul className={styles.candidateList}>
-                {config.work_items.repositories.map((repository) => (
-                  <li key={repository}>{repository}</li>
-                ))}
-              </ul>
-            ) : (
-              <p className={styles.emptyText}>No candidate repositories configured</p>
-            )}
-          </Box>
-          {['claude', 'codex'].map((provider) => {
-            const typedProvider = /** @type {import('../../types').AgentProvider} */ (provider);
-            const capability = capabilities[typedProvider];
-            const setup = config.work_items.provider_setup[typedProvider];
-            const commands = [setup.model_login_command, ...setup.resolver_mcp_commands];
-            return (
-              <Box key={provider} p={5} border rounded="lg" bg="white">
-                <Stack direction="col" gap={3}>
-                  <Stack justify="between" gap={3} wrap>
-                    <h3 className={styles.panelTitle}>{provider === 'codex' ? 'Codex' : 'Claude'}</h3>
-                    <span className={capability.available ? styles.capabilityAvailable : styles.capabilityUnavailable}>
+    <div className={styles.setupShell}>
+      <section className={styles.settingsFrame}>
+        <SettingsHeader
+          title="Work Items settings"
+          subtitle="Reference resolution is managed by the instance configuration."
+        >
+          <Stack gap={2} wrap>
+            <Button as="a" href="#/setup" size="sm">
+              GitHub monitoring
+            </Button>
+            <Button as="a" href="#/" size="sm">
+              Back to dashboard
+            </Button>
+          </Stack>
+        </SettingsHeader>
+        {error && (
+          <div className={styles.inlineError}>
+            <span>{error}</span>
+            <Button size="sm" onClick={load}>
+              Retry
+            </Button>
+          </div>
+        )}
+        {!error && (!config || !capabilities) && (
+          <LoadingIndicator className={styles.loadingText}>Loading Work Items settings...</LoadingIndicator>
+        )}
+        {config && capabilities && (
+          <div className={styles.settingsSections}>
+            <SettingsSection title="Configuration">
+              <dl className={styles.workItemFacts}>
+                <div>
+                  <dt>Status</dt>
+                  <dd>{config.work_items.configured ? 'Configured' : 'Not configured'}</dd>
+                </div>
+                <div>
+                  <dt>Resolver mode</dt>
+                  <dd>
+                    {!config.work_items.configured
+                      ? 'Not configured'
+                      : config.work_items.resolver?.provider_mode === 'fixed'
+                        ? 'Fixed provider'
+                        : 'Requested work provider'}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Resolver provider</dt>
+                  <dd>
+                    {!config.work_items.configured
+                      ? 'Not configured'
+                      : config.work_items.resolver?.provider || 'Selected per work item'}
+                  </dd>
+                </div>
+                <div>
+                  <dt>MCP server</dt>
+                  <dd>{config.work_items.resolver?.server_name || 'Not configured'}</dd>
+                </div>
+              </dl>
+            </SettingsSection>
+            <SettingsSection title="Candidate repositories">
+              {config.work_items.repositories.length > 0 ? (
+                <ul className={styles.candidateList}>
+                  {config.work_items.repositories.map((repository) => (
+                    <li key={repository}>{repository}</li>
+                  ))}
+                </ul>
+              ) : (
+                <p className={styles.emptyText}>No candidate repositories configured</p>
+              )}
+            </SettingsSection>
+            {['claude', 'codex'].map((provider) => {
+              const typedProvider = /** @type {import('../../types').AgentProvider} */ (provider);
+              const capability = capabilities[typedProvider];
+              const setup = config.work_items.provider_setup[typedProvider];
+              const commands = [setup.model_login_command, ...setup.resolver_mcp_commands];
+              return (
+                <SettingsSection
+                  key={provider}
+                  title={provider === 'codex' ? 'Codex' : 'Claude'}
+                  meta={
+                    <Badge
+                      color={capability.checking ? 'blue' : capability.available ? 'green' : 'red'}
+                      border={false}
+                      pulse={capability.checking}
+                    >
                       {capability.checking ? 'Checking' : capability.available ? 'Available' : 'Unavailable'}
-                    </span>
+                    </Badge>
+                  }
+                >
+                  <Stack direction="col" gap={3}>
+                    {capability.version && <p className={styles.capabilityDetail}>{capability.version}</p>}
+                    {capability.reason && <p className={styles.capabilityDetail}>{capability.reason}</p>}
+                    <p className={styles.capabilityDetail}>
+                      Capability checks do not prove MCP authentication. A resolver call does.
+                    </p>
+                    <div className={styles.commandList}>
+                      {commands.map((command) => (
+                        <div key={command} className={styles.commandRow}>
+                          <code>{command}</code>
+                          <Button size="xs" onClick={() => copy(command)}>
+                            {copied === command ? 'Copied' : 'Copy'}
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
                   </Stack>
-                  {capability.version && <p className={styles.capabilityDetail}>{capability.version}</p>}
-                  {capability.reason && <p className={styles.capabilityDetail}>{capability.reason}</p>}
-                  <p className={styles.capabilityDetail}>
-                    Capability checks do not prove MCP authentication. A resolver call does.
-                  </p>
-                  <div className={styles.commandList}>
-                    {commands.map((command) => (
-                      <div key={command} className={styles.commandRow}>
-                        <code>{command}</code>
-                        <Button size="xs" onClick={() => copy(command)}>
-                          {copied === command ? 'Copied' : 'Copy'}
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
-                </Stack>
-              </Box>
-            );
-          })}
-        </Stack>
-      )}
-    </Stack>
+                </SettingsSection>
+              );
+            })}
+          </div>
+        )}
+      </section>
+    </div>
   );
 }

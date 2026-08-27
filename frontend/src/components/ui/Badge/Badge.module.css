@@ -4,35 +4,35 @@
   align-items: center;
   gap: 4px;
   padding: 1px 5px;
-  border-radius: 2px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  border-radius: var(--radius);
+  font-family: var(--font-mono);
   font-size: 12px;
   font-weight: 400;
   line-height: 1;
   white-space: nowrap;
 }
 
-.green { color: #1b7f5a; background: #e0f3e9; border: 1px solid #d7dce3; }
-.red { color: #c94b45; background: #fbe5e2; border: 1px solid #d7dce3; }
-.blue { color: #2764b0; background: #e7f0fb; border: 1px solid #d7dce3; }
+.green { color: var(--green); background: var(--green-soft); border: 1px solid var(--line); }
+.red { color: var(--red); background: var(--red-soft); border: 1px solid var(--line); }
+.blue { color: var(--blue); background: var(--blue-soft); border: 1px solid var(--line); }
 .yellow,
-.amber { color: #a26900; background: #fff0c2; border: 1px solid #d7dce3; }
-.gray { color: #606b78; background: #f1f4f7; border: 1px solid #d7dce3; }
+.amber { color: var(--amber); background: var(--amber-soft); border: 1px solid var(--line); }
+.gray { color: var(--muted); background: var(--control); border: 1px solid var(--line); }
 .violet,
 .indigo,
-.purple { color: #7751aa; background: #efe7f8; border: 1px solid #d7dce3; }
-.orange { color: #9a5811; background: #fcebd8; border: 1px solid #d7dce3; }
+.purple { color: var(--purple); background: var(--purple-soft); border: 1px solid var(--line); }
+.orange { color: var(--orange); background: var(--orange-soft); border: 1px solid var(--line); }
 
-.greenNoBorder { color: #1b7f5a; background: #e0f3e9; }
-.redNoBorder { color: #c94b45; background: #fbe5e2; }
-.blueNoBorder { color: #2764b0; background: #e7f0fb; }
+.greenNoBorder { color: var(--green); background: var(--green-soft); }
+.redNoBorder { color: var(--red); background: var(--red-soft); }
+.blueNoBorder { color: var(--blue); background: var(--blue-soft); }
 .yellowNoBorder,
-.amberNoBorder { color: #a26900; background: #fff0c2; }
-.grayNoBorder { color: #606b78; background: #f1f4f7; }
+.amberNoBorder { color: var(--amber); background: var(--amber-soft); }
+.grayNoBorder { color: var(--muted); background: var(--control); }
 .violetNoBorder,
 .indigoNoBorder,
-.purpleNoBorder { color: #7751aa; background: #efe7f8; }
-.orangeNoBorder { color: #9a5811; background: #fcebd8; }
+.purpleNoBorder { color: var(--purple); background: var(--purple-soft); }
+.orangeNoBorder { color: var(--orange); background: var(--orange-soft); }
 
 .pulse { animation: badge-pulse 2s ease-in-out infinite; }
 

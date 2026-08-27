@@ -200,14 +200,14 @@ export function AppShell({
               </>
             )}
             {onBackToWork && (
-              <button className={styles.backButton} type="button" onClick={onBackToWork}>
+              <Button className={styles.headerButton} size="sm" onClick={onBackToWork}>
                 &larr; All work
-              </button>
+              </Button>
             )}
             {onSetup && (
-              <button className={styles.settingsButton} onClick={onSetup}>
+              <Button className={styles.headerButton} size="sm" onClick={onSetup}>
                 Settings
-              </button>
+              </Button>
             )}
           </Stack>
         </div>
