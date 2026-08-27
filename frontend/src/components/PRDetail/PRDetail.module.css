@@ -1,222 +1,280 @@
-@reference "tailwindcss";
+.mergeButton { text-decoration: none; }
+.actionBar { justify-content: flex-end; }
 
-/* Only styles unique to PRDetail - shared styles are in shared.module.css */
-
-.mergeButton {
-  @apply no-underline;
+.headlineStatus {
+  font-weight: 500;
 }
 
-.actionBar {
-  @apply justify-end;
+.headlineStatusDot {
+  width: 5px;
+  height: 5px;
+  flex: 0 0 auto;
+  background: currentColor;
+  border-radius: 50%;
 }
 
 .label {
-  @apply px-2.5 py-0.5 text-sm font-medium border rounded-full;
+  padding: 1px 5px;
+  border: 1px solid;
+  border-radius: 2px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  font-weight: 400;
 }
 
 .labels {
-  @apply mt-3;
+  margin-top: 8px;
+  gap: 5px;
 }
 
 .ruleControls {
-  @apply overflow-hidden border-y border-gray-200 bg-white;
+  margin: 0 20px;
+  overflow: hidden;
+  background: transparent;
+  border-top: 1px solid #d7dce3;
 }
 
-/* Checks */
-
-.summaryPass {
-  @apply text-green-700 font-medium;
+.overview {
+  margin: 0;
+  color: #35404d;
+  font-size: 14px;
+  line-height: 1.48;
 }
 
-.summaryFail {
-  @apply text-red-600 font-medium;
+.overview code {
+  color: #4e5968;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
 }
 
-.summaryRunning {
-  @apply text-blue-600;
+.parentWork {
+  display: flex;
+  min-height: 32px;
+  align-items: baseline;
+  gap: 10px;
+  color: #1c2430;
+  text-decoration: none;
 }
 
+.parentWork span {
+  color: #2764b0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+}
+
+.parentWork strong {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.relatedEmpty {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 16px;
+  background: #fff;
+  color: #606b78;
+  border: 1px dashed #9fa8b5;
+  border-radius: 2px;
+  font-size: 12px;
+}
+
+.relatedEmpty strong {
+  color: #35404d;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.summaryPass,
+.summaryFail,
+.summaryRunning,
 .summaryScheduled {
-  @apply text-gray-500;
+  font-size: 12px;
+  font-weight: 400;
 }
 
+.summaryPass { color: #1b7f5a; }
+.summaryFail { color: #c94b45; }
+.summaryRunning { color: #2764b0; }
+.summaryScheduled { color: #a26900; }
 
-.checkGroup {
-  @apply space-y-1;
-}
+.checkGroup { border-top: 0; }
 
 .checkRow {
-  @apply flex w-full items-center justify-between px-2 py-1.5 text-sm;
+  display: flex;
+  width: 100%;
+  min-height: 32px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 5px 7px;
   background: none;
-  border: none;
+  border: 0;
+  border-top: 1px solid #d7dce3;
+  font-size: 13px;
   text-align: left;
 }
 
-.checkInfo {
-  @apply min-w-0 flex-1;
-}
+.checkGroup:last-child .checkRow:last-child { border-bottom: 1px solid #d7dce3; }
+.checkInfo { min-width: 0; flex: 1; }
 
 .checkDot {
-  @apply w-2 h-2 rounded-full flex-shrink-0;
+  width: 7px;
+  height: 7px;
+  flex-shrink: 0;
+  border-radius: 50%;
 }
 
-.checkName {
-  @apply text-gray-700 hover:underline truncate;
-}
-
+.checkName,
 .checkNamePlain {
-  @apply text-gray-700 truncate;
+  overflow: hidden;
+  color: #35404d;
+  font-size: 13px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
+.checkName { text-decoration: none; }
 
 .jobLogLabel {
-  @apply text-xs font-medium text-gray-500 px-3 pt-2 pb-1;
+  padding: 8px 7px 4px;
+  color: #606b78;
+  font-size: 12px;
+  font-weight: 500;
 }
 
-.dotPass {
-  @apply bg-green-500;
-}
-
-.dotFail {
-  @apply bg-red-500;
-}
-
-.dotRunning {
-  @apply bg-blue-500;
-}
-
-.dotScheduled {
-  @apply bg-gray-400;
-}
-
+.dotPass { background: #1b7f5a; }
+.dotFail { background: #c94b45; }
+.dotRunning { background: #2764b0; }
+.dotScheduled { background: #a26900; }
 
 .toggleButton {
-  @apply text-sm text-gray-500 py-1.5 px-3 cursor-pointer;
+  min-height: 32px;
+  padding: 5px 7px;
+  color: #606b78;
+  background: transparent;
+  border: 0;
+  border-top: 1px solid #d7dce3;
+  cursor: pointer;
+  font-size: 13px;
 }
 
-/* Reviews */
-.reviewsList {
-  @apply space-y-1;
-}
+.reviewsList { display: block; }
 
 .reviewRow {
-  @apply flex items-center justify-between py-1.5 px-3 text-[15px];
+  display: flex;
+  min-height: 32px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 5px 7px;
+  border-top: 1px solid #d7dce3;
+  font-size: 13px;
 }
 
-.reviewerName {
-  @apply text-gray-700 font-medium;
-}
+.reviewerName { color: #35404d; font-weight: 500; }
+.reviewState { font-size: 12px; font-weight: 400; }
+.reviewApproved { color: #1b7f5a; }
+.reviewChanges { color: #c94b45; }
+.reviewComment { color: #606b78; }
 
-.reviewState {
-  @apply text-sm font-medium;
-}
-
-.reviewApproved {
-  @apply text-green-700;
-}
-
-.reviewChanges {
-  @apply text-red-700;
-}
-
-.reviewComment {
-  @apply text-gray-500;
-}
-
-/* Session row chevron */
 .chevron {
-  @apply text-gray-400 text-sm transition-transform duration-150;
   display: inline-block;
+  color: #76808c;
+  font-size: 12px;
 }
 
-.chevronOpen {
-  transform: rotate(90deg);
-}
+.chevronOpen { transform: rotate(90deg); }
 
-/* PR Description */
 .description {
-  @apply border-t border-gray-100 pt-3 mt-1;
+  margin-top: 1px;
+  padding-top: 8px;
+  border-top: 1px solid #d7dce3;
 }
 
 .descriptionToggle {
-  @apply flex items-center gap-2 text-sm text-gray-500 cursor-pointer;
-  background: none;
-  border: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
   padding: 0;
+  color: #606b78;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  font-size: 12px;
 }
 
-.descriptionLabel {
-  @apply font-medium;
-}
+.descriptionLabel { font-weight: 500; }
 
 .descriptionBody {
-  @apply mt-2 text-sm text-gray-700 leading-relaxed;
   max-height: 400px;
+  margin-top: 8px;
   overflow-y: auto;
+  color: #35404d;
+  font-size: 14px;
+  line-height: 1.48;
 }
 
-.descriptionBody :global(h1) {
-  @apply text-base;
-}
+.descriptionBody :global(h1) { font-size: 16px; }
+.descriptionBody :global(h2),
+.descriptionBody :global(h3) { font-size: 14px; }
 
-.descriptionBody :global(h2) {
-  @apply text-sm;
-}
-
-.descriptionBody :global(h3) {
-  @apply text-sm;
-}
-
-/* Stack info */
 .stackInfoBar {
-  @apply flex items-center gap-2 px-3 py-2 bg-purple-50 border border-purple-200 rounded-md text-sm text-purple-800 flex-wrap;
-  margin-top: 12px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 7px 0;
+  color: #7751aa;
+  border-top: 1px solid #d7dce3;
+  font-size: 12px;
 }
 
 .stackInfoNode {
-  @apply flex items-center justify-center text-xs font-semibold text-purple-700 bg-purple-100 border border-purple-300 rounded-full flex-shrink-0;
+  display: flex;
   width: 20px;
   height: 20px;
-  line-height: 1;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  color: #7751aa;
+  background: #efe7f8;
+  border-radius: 2px;
+  font-size: 12px;
+  font-weight: 500;
 }
 
-.stackInfoLabel {
-  @apply font-medium text-purple-700;
-}
-
-.stackInfoItem {
-  @apply text-purple-600;
-}
-
-.stackInfoItem::before {
-  content: '\00B7';
-  @apply mx-1 text-purple-400;
-}
+.stackInfoLabel { color: #7751aa; font-weight: 500; }
+.stackInfoItem { color: #7751aa; }
+.stackInfoItem::before { content: '\00B7'; margin: 0 4px; color: #9f8bb8; }
 
 .stackLink {
-  @apply text-purple-700 font-medium hover:text-purple-900 hover:underline cursor-pointer;
-  background: none;
-  border: none;
   padding: 0;
+  color: #7751aa;
+  background: none;
+  border: 0;
+  cursor: pointer;
   font-size: inherit;
+  font-weight: 500;
 }
 
-/* Copy-to-clipboard toast */
 .copiedToast {
-  @apply text-xs font-medium text-green-400 ml-1;
-  animation: fadeInOut 1.5s ease-in-out;
+  margin-left: 4px;
+  color: #1b7f5a;
+  font-size: 12px;
+  font-weight: 500;
 }
 
-@keyframes fadeInOut {
-  0% { opacity: 0; }
-  15% { opacity: 1; }
-  70% { opacity: 1; }
-  100% { opacity: 0; }
-}
-
-@media (max-width: 40rem) {
+@media (max-width: 56rem) {
   .actionBar {
     width: 100%;
     justify-content: flex-start;
+  }
+}
+
+@media (max-width: 40rem) {
+  .ruleControls {
+    margin-right: 12px;
+    margin-left: 12px;
   }
 }

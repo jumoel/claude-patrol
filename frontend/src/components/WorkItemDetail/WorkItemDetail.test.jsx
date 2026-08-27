@@ -96,7 +96,7 @@ function detail() {
 function renderDetail(workItemId = 'item-1', selectedPrId = null) {
   return render(
     <AgentProviderProvider>
-      <WorkItemDetail workItemId={workItemId} selectedPrId={selectedPrId} onBack={vi.fn()} targetStates={new Map()} />
+      <WorkItemDetail workItemId={workItemId} selectedPrId={selectedPrId} targetStates={new Map()} />
     </AgentProviderProvider>,
   );
 }

@@ -36,6 +36,7 @@ test('spinner remains decorative outside a live region', () => {
 
 test('spinner stylesheet owns the keyframes referenced by its animation', () => {
   const stylesheet = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'Spinner.module.css'), 'utf8');
-  assert.match(stylesheet, /animation:\s*spin\b/);
+  assert.match(stylesheet, /animation:\s*spin\s+1s\s+linear\s+infinite/);
   assert.match(stylesheet, /@keyframes\s+spin\b/);
+  assert.match(stylesheet, /@media\s*\(prefers-reduced-motion:\s*reduce\)/);
 });

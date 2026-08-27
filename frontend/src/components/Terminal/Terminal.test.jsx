@@ -5,7 +5,9 @@ import { Terminal } from './Terminal.jsx';
 const state = vi.hoisted(() => ({
   constructedTerminals: 0,
   disposedTerminals: 0,
+  refreshCalls: 0,
   keyHandler: /** @type {((event: KeyboardEvent) => boolean) | null} */ (null),
+  resizeCallback: /** @type {(() => void) | null} */ (null),
   sockets: /** @type {FakeWebSocket[]} */ ([]),
 }));
 
@@ -25,6 +27,9 @@ vi.mock('@xterm/xterm', () => ({
     focus() {}
     onData() {}
     write() {}
+    refresh() {
+      state.refreshCalls++;
+    }
 
     /** @param {(event: KeyboardEvent) => boolean} handler */
     attachCustomKeyEventHandler(handler) {
@@ -57,6 +62,11 @@ vi.mock('@xterm/addon-webgl', () => ({
 }));
 
 class FakeResizeObserver {
+  /** @param {() => void} callback */
+  constructor(callback) {
+    state.resizeCallback = callback;
+  }
+
   observe() {}
   disconnect() {}
 }
@@ -88,7 +98,9 @@ describe('Terminal connection lifecycle', () => {
   beforeEach(() => {
     state.constructedTerminals = 0;
     state.disposedTerminals = 0;
+    state.refreshCalls = 0;
     state.keyHandler = null;
+    state.resizeCallback = null;
     state.sockets = [];
     vi.stubGlobal('ResizeObserver', FakeResizeObserver);
     vi.stubGlobal('WebSocket', FakeWebSocket);
@@ -145,5 +157,15 @@ describe('Terminal connection lifecycle', () => {
     expect(firstSocket.close).toHaveBeenCalledOnce();
     expect(state.constructedTerminals).toBe(2);
     expect(state.disposedTerminals).toBe(1);
+  });
+
+  it('refits and redraws after its container changes size', async () => {
+    render(<Terminal wsUrl="/ws/sessions/one" />);
+    await waitFor(() => expect(state.sockets).toHaveLength(1));
+
+    state.resizeCallback?.();
+
+    expect(state.refreshCalls).toBeGreaterThan(0);
+    expect(state.sockets[0].sent).toContain(JSON.stringify({ type: 'resize', cols: 80, rows: 24 }));
   });
 });

@@ -10,7 +10,7 @@ vi.mock('../AgentProviderButton/AgentProviderButton.jsx', () => ({
 
 const baseProps = {
   title: 'Claude Patrol',
-  syncTime: 'Last synced: now',
+  syncTime: 'Last synced now',
   nextSync: '30s',
   syncing: false,
   onSync: vi.fn(),
@@ -53,5 +53,18 @@ test('shows the top-bar sync control only when PR polling is configured', () => 
     </AppShell>,
   );
   assert.ok(screen.getByRole('button', { name: 'Sync now' }));
-  assert.ok(screen.getByText(/Last synced: now/u));
+  assert.ok(screen.getByText(/Last synced now/u));
+});
+
+test('replaces global sessions with all-work navigation on detail pages', () => {
+  const onBackToWork = vi.fn();
+  render(
+    <AppShell {...baseProps} pollConfigured onBackToWork={onBackToWork}>
+      <p>Detail</p>
+    </AppShell>,
+  );
+
+  screen.getByRole('button', { name: '← All work' }).click();
+  assert.equal(onBackToWork.mock.calls.length, 1);
+  assert.equal(screen.queryByRole('button', { name: 'Global sessions' }), null);
 });

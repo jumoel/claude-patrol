@@ -95,7 +95,9 @@ test('calls the scratch session API adapter and renders an in-flow terminal', as
   renderDetail();
 
   assert.ok(await screen.findByRole('heading', { name: 'advisory-sync investigation' }));
-  assert.ok(screen.getByRole('heading', { name: 'Terminal' }));
+  assert.ok(document.querySelector('[data-state-marker="active"]'));
+  assert.ok(screen.getByRole('heading', { name: 'patrol/advisory-sync · no session Not started' }));
+  assert.ok(document.querySelector('[data-state-marker="inactive"]'));
   await user.click(screen.getByRole('button', { name: 'Start Codex session' }));
 
   await waitFor(() => {
@@ -131,15 +133,12 @@ test('destroy and load failures stay visible on the page', async () => {
   assert.ok(await screen.findByText('workspace source unavailable'));
 });
 
-test('an existing session is the first work surface and back remains delegated', async () => {
-  const user = userEvent.setup();
-  const onBack = vi.fn();
+test('an existing session is the first work surface without duplicate page navigation', async () => {
   api.fetchSessions.mockResolvedValue([session()]);
-  renderDetail(onBack);
+  renderDetail();
 
   const terminal = await screen.findByTestId('terminal');
   const history = screen.getByText('Past sessions');
   assert.ok(terminal.compareDocumentPosition(history) & Node.DOCUMENT_POSITION_FOLLOWING);
-  await user.click(screen.getByRole('button', { name: '← Work' }));
-  assert.equal(onBack.mock.calls.length, 1);
+  assert.equal(screen.queryByRole('button', { name: '← Work' }), null);
 });

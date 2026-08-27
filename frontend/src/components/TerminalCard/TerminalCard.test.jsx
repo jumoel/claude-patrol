@@ -1,12 +1,16 @@
 import assert from 'node:assert/strict';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { test, vi } from 'vitest';
 import { TerminalCard } from './TerminalCard.jsx';
 
 vi.mock('../Terminal/LazyTerminal.jsx', () => ({
-  /** @param {{wsUrl: string, borderless?: boolean}} props */
-  LazyTerminal: ({ wsUrl, borderless }) => (
-    <div data-testid="terminal" data-ws-url={wsUrl} data-borderless={String(borderless)} />
+  /** @param {{wsUrl: string, borderless?: boolean, onToggleMaximize?: () => void}} props */
+  LazyTerminal: ({ wsUrl, borderless, onToggleMaximize }) => (
+    <div data-testid="terminal" data-ws-url={wsUrl} data-borderless={String(borderless)}>
+      <button type="button" onClick={onToggleMaximize}>
+        Toggle terminal size
+      </button>
+    </div>
   ),
 }));
 
@@ -34,7 +38,7 @@ function session(status) {
   };
 }
 
-test('work-page presentation keeps the terminal in flow without window-management controls', () => {
+test('work-page presentation collapses in flow without window-management controls', () => {
   render(
     <TerminalCard
       session={session('active')}
@@ -45,12 +49,36 @@ test('work-page presentation keeps the terminal in flow without window-managemen
     />,
   );
 
-  assert.ok(screen.getByRole('heading', { name: 'Terminal - Repair JavaScript CVEs' }));
+  assert.ok(screen.getByRole('heading', { name: 'Repair JavaScript CVEs · codex Waiting' }));
+  const collapse = screen.getByRole('button', { name: 'Collapse' });
+  assert.equal(collapse.getAttribute('aria-expanded'), 'true');
+  assert.ok(screen.getByRole('button', { name: 'Maximize' }));
   assert.ok(screen.getByRole('button', { name: 'Kill session' }));
-  assert.equal(screen.queryByRole('button', { name: /Maximize|Close|Pop out/u }), null);
-  assert.equal(screen.getByTestId('terminal').getAttribute('data-ws-url'), '/ws/sessions/session-1');
-  assert.equal(screen.getByTestId('terminal').getAttribute('data-borderless'), 'true');
-  assert.ok(screen.getByTestId('quick-actions'));
+  assert.equal(screen.queryByRole('button', { name: /Close|Pop out/u }), null);
+  const terminal = screen.getByTestId('terminal');
+  assert.equal(terminal.getAttribute('data-ws-url'), '/ws/sessions/session-1');
+  assert.equal(terminal.getAttribute('data-borderless'), 'true');
+  assert.equal(screen.queryByTestId('quick-actions'), null);
+
+  fireEvent.click(screen.getByRole('button', { name: 'Maximize' }));
+  assert.ok(screen.getByRole('button', { name: 'Restore' }));
+  assert.equal(screen.queryByRole('button', { name: 'Collapse' }), null);
+  assert.equal(screen.getByTestId('terminal'), terminal);
+
+  fireEvent.click(screen.getByRole('button', { name: 'Restore' }));
+  assert.ok(screen.getByRole('button', { name: 'Maximize' }));
+
+  fireEvent.click(screen.getByRole('button', { name: 'Collapse' }));
+  assert.equal(screen.getByRole('button', { name: 'Expand' }).getAttribute('aria-expanded'), 'false');
+  assert.ok(screen.getByTestId('terminal').closest('[hidden]'));
+
+  fireEvent.click(screen.getByRole('button', { name: 'Expand' }));
+  assert.equal(screen.getByRole('button', { name: 'Collapse' }).getAttribute('aria-expanded'), 'true');
+  assert.equal(screen.getByTestId('terminal').closest('[hidden]'), null);
+
+  fireEvent.click(screen.getByRole('button', { name: 'Toggle terminal size' }));
+  assert.ok(screen.getByRole('button', { name: 'Restore' }));
+  assert.equal(screen.getByTestId('terminal'), terminal);
 });
 
 test('detached work-page terminal remains a normal document section', () => {
@@ -65,8 +93,9 @@ test('detached work-page terminal remains a normal document section', () => {
     />,
   );
 
-  assert.ok(screen.getByRole('heading', { name: 'Terminal' }));
+  assert.ok(screen.getByRole('heading', { name: 'Terminal · codex Detached' }));
   assert.ok(screen.getByRole('button', { name: 'Reattach' }));
+  assert.ok(screen.getByRole('button', { name: 'Kill session' }));
   assert.ok(screen.getByText('Session running in an external terminal.'));
   assert.equal(screen.queryByTestId('terminal'), null);
 });

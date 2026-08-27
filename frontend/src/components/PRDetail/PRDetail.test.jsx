@@ -156,7 +156,9 @@ test('calls the workspace and session API adapters and renders an in-flow termin
   renderDetail();
 
   assert.ok(await screen.findByRole('heading', { name: 'Ship the widget fix' }));
-  assert.ok(screen.getByRole('heading', { name: 'Terminal' }));
+  assert.ok(document.querySelector('[data-state-marker]'));
+  assert.ok(screen.getByRole('heading', { name: '#42 · no session Not started' }));
+  assert.ok(document.querySelector('[data-state-marker="inactive"]'));
   await user.click(screen.getByRole('button', { name: 'Open in Codex' }));
 
   await waitFor(() => {
@@ -183,19 +185,17 @@ test('refresh and draft actions call their real API adapters', async () => {
   assert.ok(await screen.findByRole('button', { name: 'Mark ready' }));
 });
 
-test('existing workspace session stays above PR detail content and back remains delegated', async () => {
-  const onBack = vi.fn();
+test('existing workspace session stays above PR detail content without duplicate page navigation', async () => {
   api.fetchWorkspaces.mockResolvedValue([workspace()]);
   api.fetchSessions.mockResolvedValue([session()]);
-  renderDetail(onBack);
+  renderDetail();
 
   const terminal = await screen.findByTestId('terminal');
   const rules = screen.getByText('Rules');
   assert.ok(terminal.compareDocumentPosition(rules) & Node.DOCUMENT_POSITION_FOLLOWING);
   assert.equal(terminal.getAttribute('data-workspace'), 'workspace-1');
   assert.equal(terminal.getAttribute('data-pr'), 'acme/widgets#42');
-  await userEvent.click(screen.getByRole('button', { name: '← Work' }));
-  assert.equal(onBack.mock.calls.length, 1);
+  assert.equal(screen.queryByRole('button', { name: '← Work' }), null);
 });
 
 test('failed-check log and workspace cleanup actions keep their API contracts', async () => {

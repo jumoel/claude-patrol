@@ -1,103 +1,166 @@
 @reference "tailwindcss";
 
-/* ---- Base ---- */
 .base {
-  @apply inline-flex w-fit cursor-pointer items-center justify-center gap-1.5 rounded-md border border-transparent transition-colors disabled:cursor-not-allowed disabled:opacity-50;
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  color: #1c2430;
+  background: #f1f4f7;
+  border: 1px solid #d7dce3;
+  border-radius: 2px;
+  cursor: pointer;
+  font-weight: 400;
+  line-height: 1;
+  text-decoration: none;
+  transition: none;
+}
+
+.base:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 
 .fullWidth {
-  @apply w-full;
+  width: 100%;
 }
 
-/* ---- Sizes ---- */
 .xs {
-  @apply px-2 py-0.5 text-xs;
+  min-height: 24px;
+  padding: 0 7px;
+  font-size: 12px;
 }
 
-.sm {
-  @apply px-3 py-1.5 text-sm font-medium;
-}
-
-.md {
-  @apply px-3 py-1.5 text-sm font-medium;
+.sm,
+.md,
+.lg {
+  min-height: 32px;
+  padding: 0 10px;
+  font-size: 14px;
 }
 
 .lg {
-  @apply px-4 py-2 text-sm font-medium;
+  font-weight: 500;
 }
 
-/* ---- Light variants ---- */
-.default {
-  @apply border-gray-200 bg-gray-100 text-gray-600 hover:bg-gray-200;
+.default,
+.default:hover {
+  color: #1c2430;
+  background: #f1f4f7;
+  border-color: #d7dce3;
 }
 
-.primary {
-  @apply text-white bg-indigo-600 hover:bg-indigo-700;
+.primary,
+.primary:hover,
+.filledPrimary,
+.filledPrimary:hover {
+  color: #fff;
+  background: #22344b;
+  border-color: #22344b;
 }
 
-.danger {
-  @apply border-red-200 bg-red-50 text-red-700 hover:bg-red-100;
+.danger,
+.danger:hover {
+  color: #c94b45;
+  background: #fbe5e2;
+  border-color: #e7c4c0;
 }
 
-.success {
-  @apply border-green-200 bg-green-50 text-green-700 hover:bg-green-100;
+.success,
+.success:hover {
+  color: #1b7f5a;
+  background: #e0f3e9;
+  border-color: #c8e2d5;
 }
 
-.warning {
-  @apply border-orange-200 bg-orange-50 text-orange-700 hover:bg-orange-100;
+.warning,
+.warning:hover {
+  color: #a26900;
+  background: #fff0c2;
+  border-color: #ead8ac;
 }
 
-.ghost {
-  @apply text-gray-500 bg-transparent hover:text-gray-700;
+.ghost,
+.ghost:hover {
+  color: #606b78;
+  background: transparent;
+  border-color: transparent;
 }
 
-/* ---- Filled overrides (solid bg) ---- */
-.filledDanger {
-  @apply text-white bg-red-600 border-red-600 hover:bg-red-700;
+.filledDanger,
+.filledDanger:hover {
+  color: #fff;
+  background: #a94742;
+  border-color: #a94742;
 }
 
-.filledSuccess {
-  @apply text-white bg-green-700 border-green-700 hover:bg-green-800;
+.filledSuccess,
+.filledSuccess:hover {
+  color: #fff;
+  background: #1b7f5a;
+  border-color: #1b7f5a;
 }
 
-.filledPrimary {
-  @apply text-white bg-blue-600 border-blue-600 hover:bg-blue-700;
+.darkDefault,
+.darkDefault:hover {
+  color: #dce3eb;
+  background: transparent;
+  border-color: #34404e;
 }
 
-/* ---- Dark variants (terminal chrome) ---- */
-.darkDefault {
-  @apply text-gray-300 bg-gray-700/50 hover:bg-gray-700;
+.darkPrimary,
+.darkPrimary:hover {
+  color: #8bb9ef;
+  background: #203247;
+  border-color: #34404e;
 }
 
-.darkPrimary {
-  @apply text-blue-400 bg-blue-900/30 hover:bg-blue-900/50;
+.darkDanger,
+.darkDanger:hover {
+  color: #ff7d86;
+  background: transparent;
+  border-color: transparent;
 }
 
-.darkDanger {
-  @apply text-red-400 bg-red-900/30 hover:bg-red-900/50;
+.darkSuccess,
+.darkSuccess:hover {
+  color: #74c69d;
+  background: transparent;
+  border-color: #34404e;
 }
 
-.darkSuccess {
-  @apply text-green-400 bg-green-900/30 hover:bg-green-900/50;
+.darkWarning,
+.darkWarning:hover {
+  color: #ffc857;
+  background: transparent;
+  border-color: #34404e;
 }
 
-.darkWarning {
-  @apply text-orange-400 bg-orange-900/30 hover:bg-orange-900/50;
+.darkGhost,
+.darkGhost:hover {
+  color: #9ba8b7;
+  background: transparent;
+  border-color: transparent;
 }
 
-.darkGhost {
-  @apply text-gray-400 bg-transparent hover:text-gray-200;
+.darkFilledSuccess,
+.darkFilledSuccess:hover {
+  color: #fff;
+  background: #1b7f5a;
+  border-color: #1b7f5a;
 }
 
-/* ---- Dark filled overrides (solid bg in dark context) ---- */
-.darkFilledSuccess {
-  @apply text-white bg-green-700 hover:bg-green-600;
+.darkFilledPrimary,
+.darkFilledPrimary:hover {
+  color: #fff;
+  background: #2764b0;
+  border-color: #2764b0;
 }
 
-.darkFilledPrimary {
-  @apply text-white bg-blue-700 hover:bg-blue-600;
-}
-
-.darkFilledDanger {
-  @apply text-white bg-red-700 hover:bg-red-600;
+.darkFilledDanger,
+.darkFilledDanger:hover {
+  color: #fff;
+  background: #a94742;
+  border-color: #a94742;
 }

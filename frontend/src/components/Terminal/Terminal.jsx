@@ -41,6 +41,8 @@ export function Terminal({ wsUrl, wsRef: externalWsRef, focus, onExit, onToggleM
     let reconnectAttempt = 0;
     /** @type {ReturnType<typeof setTimeout> | null} */
     let reconnectTimer = null;
+    /** @type {number | null} */
+    let redrawFrame = null;
 
     const term = new XTerm({
       allowProposedApi: true,
@@ -91,6 +93,12 @@ export function Terminal({ wsUrl, wsRef: externalWsRef, focus, onExit, onToggleM
      */
     function fitAndSync(forceRedraw = false) {
       fitAddon.fit();
+      if (term.rows > 0) term.refresh(0, term.rows - 1);
+      if (redrawFrame !== null) cancelAnimationFrame(redrawFrame);
+      redrawFrame = requestAnimationFrame(() => {
+        redrawFrame = null;
+        if (!cancelled && term.rows > 0) term.refresh(0, term.rows - 1);
+      });
       const ws = wsRef.current;
       if (ws && ws.readyState === WebSocket.OPEN) {
         if (forceRedraw && term.rows > 2) {
@@ -211,6 +219,7 @@ export function Terminal({ wsUrl, wsRef: externalWsRef, focus, onExit, onToggleM
     return () => {
       cancelled = true;
       if (reconnectTimer) clearTimeout(reconnectTimer);
+      if (redrawFrame !== null) cancelAnimationFrame(redrawFrame);
       observer?.disconnect();
       const ws = wsRef.current;
       ws?.close();

@@ -246,7 +246,7 @@ export function LinkedPullRequests({ workItem, selectedPrId, onWorkItemReload, e
                       <span className={styles.prRowTitle}>{title || link.repository}</span>
                       <span className={styles.prRepository}>{link.repository}</span>
                     </span>
-                    <PullRequestStatusBadges pullRequest={statusSource} />
+                    <PullRequestStatusBadges pullRequest={statusSource} includePrState={false} />
                     {selected && <span className={styles.viewing}>Viewing</span>}
                   </a>
                 </li>

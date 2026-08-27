@@ -68,7 +68,7 @@ beforeEach(() => {
 });
 
 test('renders a multi-PR work item once and keeps child PR links independent', () => {
-  render(<WorkDashboard {...defaultProps} />);
+  const { container } = render(<WorkDashboard {...defaultProps} />);
   assert.equal(screen.getAllByText('Grouped work').length, 1);
   assert.ok(screen.getByRole('link', { name: 'Open pull request #1: First PR' }));
   assert.ok(screen.getByRole('link', { name: 'Open pull request #2: Second PR' }));
@@ -80,6 +80,29 @@ test('renders a multi-PR work item once and keeps child PR links independent', (
 
   fireEvent.click(screen.getByRole('link', { name: 'Open pull request #1: First PR' }));
   assert.equal(primaryClick.mock.calls.length, 1);
+  assert.ok(screen.getByText('PR workspace'));
+  assert.ok(screen.getByText('Ready'));
+  assert.equal(container.querySelectorAll('[aria-label="PR Open"]').length, 0);
+});
+
+test('places a spinner beside working LLM state and a dot beside waiting state', () => {
+  const workingSession = /** @type {import('../../types').DashboardSessionSummary} */ ({
+    id: 'working-session',
+    name: null,
+    provider: 'codex',
+    target: { type: 'work_item', id: row.id },
+    status: 'active',
+    activity_state: 'working',
+    activity_changed_at: '2026-08-26T10:30:00.000Z',
+    started_at: '2026-08-26T09:00:00.000Z',
+  });
+  const { container } = render(
+    <WorkDashboard {...defaultProps} dashboard={{ ...dashboard, rows: [{ ...row, sessions: [workingSession] }] }} />,
+  );
+
+  assert.ok(screen.getByText('Working'));
+  assert.ok(container.querySelector('[data-spinner="true"]'));
+  assert.equal(container.querySelector('[data-state-marker="waiting"]'), null);
 });
 
 test('copies the currently visible rows in their rendered order', async () => {
@@ -142,7 +165,7 @@ test('shows waiting sessions as a list and acknowledges a global session when op
     claude_project_dir: null,
     transcript_path: null,
   });
-  render(
+  const { container } = render(
     <WorkDashboard
       {...defaultProps}
       dashboard={{ ...dashboard, sessionSource: { ...dashboard.sessionSource, allSessions: [idleSession] } }}
@@ -151,6 +174,7 @@ test('shows waiting sessions as a list and acknowledges a global session when op
 
   const waitingList = screen.getByRole('list');
   assert.ok(waitingList);
+  assert.ok(container.querySelector('[data-state-marker="waiting"]'));
   fireEvent.click(screen.getByRole('button', { name: /release follow-up/u }));
   assert.deepEqual(defaultProps.onOpenGlobalTerminal.mock.calls, [['session-1']]);
   assert.equal(screen.queryByText('release follow-up'), null);

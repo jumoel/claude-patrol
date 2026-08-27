@@ -18,6 +18,7 @@ import { TerminalCard } from '../TerminalCard/TerminalCard.jsx';
 import { Badge } from '../ui/Badge/Badge.jsx';
 import { Button } from '../ui/Button/Button.jsx';
 import { LoadingIndicator } from '../ui/LoadingIndicator/LoadingIndicator.jsx';
+import { WorkingBadge } from '../ui/WorkingBadge/WorkingBadge.jsx';
 import workPage from '../WorkPage/WorkPage.module.css';
 import styles from './WorkspaceDetail.module.css';
 
@@ -137,14 +138,29 @@ export function WorkspaceDetail({ workspaceId, onBack, workspaceStates }) {
   }
 
   const adopted = workspace.pr_id && !workspace.repo;
+  const sessionState = workspaceStates.get(`workspace:${workspace.id}`);
+  const headerIsWorking = !!session && sessionState === 'working';
+  const headerStatusLabel =
+    session && sessionState === 'idle'
+      ? 'Waiting'
+      : session
+        ? 'Live'
+        : workspace.status === 'destroyed'
+          ? 'Destroyed'
+          : 'Active';
+  const headerStatusColor =
+    headerStatusLabel === 'Waiting'
+      ? /** @type {const} */ ('amber')
+      : headerStatusLabel === 'Destroyed'
+        ? /** @type {const} */ ('red')
+        : headerStatusLabel === 'Live'
+          ? /** @type {const} */ ('gray')
+          : /** @type {const} */ ('green');
 
   return (
     <div className={workPage.page}>
       <header className={workPage.header}>
         <div className={workPage.headerActions}>
-          <Button size="sm" onClick={onBack}>
-            &larr; Work
-          </Button>
           {workspace.status === 'active' && (
             <Button variant="danger" size="sm" onClick={handleDestroy} disabled={destroying} busy={destroying}>
               {destroying ? 'Destroying...' : 'Destroy'}
@@ -153,12 +169,23 @@ export function WorkspaceDetail({ workspaceId, onBack, workspaceStates }) {
         </div>
         <div className={workPage.kicker}>
           <span>Scratch workspace</span>
-          <Badge color={workspace.status === 'destroyed' ? 'red' : 'green'}>{workspace.status}</Badge>
+          {headerIsWorking ? (
+            <WorkingBadge indicator="dot" className={workPage.detailStatus} />
+          ) : (
+            <Badge color={headerStatusColor} className={workPage.detailStatus}>
+              <span
+                className={workPage.detailStatusDot}
+                data-state-marker={headerStatusLabel.toLowerCase()}
+                aria-hidden="true"
+              />
+              {headerStatusLabel}
+            </Badge>
+          )}
         </div>
         <h1 className={workPage.title}>{workspace.name || workspace.bookmark}</h1>
         <div className={workPage.identity}>
           {workspace.repo && <span>{workspace.repo}</span>}
-          <code>{workspace.bookmark}</code>
+          {workspace.repo && <span aria-hidden="true">·</span>}
           <span>Created {getRelativeTime(workspace.created_at)}</span>
         </div>
         {adopted && (
@@ -175,28 +202,37 @@ export function WorkspaceDetail({ workspaceId, onBack, workspaceStates }) {
         (session ? (
           <TerminalCard
             session={session}
-            title={`Terminal - ${workspace.name || workspace.bookmark}`}
+            title={`Terminal - ${workspace.bookmark}`}
             onKill={handleKillSession}
             onExit={handleSessionExit}
             onReattach={handleReattach}
             workspaceId={workspace.id}
             prId={workspace.pr_id || undefined}
-            sessionState={workspaceStates.get(`workspace:${workspace.id}`)}
+            sessionState={sessionState}
             presentation="work-page"
           />
         ) : (
           <section className={workPage.terminalLauncher} aria-labelledby="scratch-terminal-heading">
-            <h2 id="scratch-terminal-heading">Terminal</h2>
-            <p className={workPage.launcherCopy}>Start a session in this scratch workspace.</p>
-            <AgentProviderButton
-              variant="primary"
-              size="lg"
-              onClick={handleStartSession}
-              disabled={openingSession}
-              busy={openingSession}
-            >
-              {openingSession ? 'Starting session...' : `Start ${provider === 'codex' ? 'Codex' : 'Claude'} session`}
-            </AgentProviderButton>
+            <h2 id="scratch-terminal-heading">
+              <span className={workPage.terminalInactive} data-state-marker="inactive" aria-hidden="true" />
+              <span>{workspace.bookmark} · no session</span>
+              <span className={workPage.terminalState}>Not started</span>
+            </h2>
+            <div className={workPage.terminalEmpty}>
+              <strong>No LLM session is attached to this workspace.</strong>
+              <p className={workPage.launcherCopy}>Start a session in this scratch workspace.</p>
+              <AgentProviderButton
+                variant="primary"
+                size="lg"
+                onClick={handleStartSession}
+                disabled={openingSession}
+                busy={openingSession}
+                className={workPage.terminalProvider}
+                actionClassName={workPage.terminalAction}
+              >
+                {openingSession ? 'Starting session...' : `Start ${provider === 'codex' ? 'Codex' : 'Claude'} session`}
+              </AgentProviderButton>
+            </div>
           </section>
         ))}
 
@@ -217,6 +253,38 @@ export function WorkspaceDetail({ workspaceId, onBack, workspaceStates }) {
           {actionError}
         </p>
       )}
+
+      <section className={`${workPage.section} ${workPage.firstSection}`} aria-labelledby="scratch-overview-heading">
+        <h2 id="scratch-overview-heading">Overview</h2>
+        <p className={styles.overview}>
+          Scratch workspace on <code>{workspace.bookmark}</code>
+          {workspace.repo ? (
+            <>
+              {' '}
+              in <code>{workspace.repo}</code>
+            </>
+          ) : null}
+          .
+        </p>
+      </section>
+
+      <section className={workPage.section} aria-labelledby="scratch-related-work-heading">
+        <h2 id="scratch-related-work-heading">Related work</h2>
+        {workspace.work_item_id ? (
+          <a className={styles.relatedLink} href={`#/work-item/${workspace.work_item_id}`}>
+            View parent work item
+          </a>
+        ) : workspace.pr_id ? (
+          <a className={styles.relatedLink} href={`#/pr/${encodeURIComponent(workspace.pr_id)}`}>
+            View pull request
+          </a>
+        ) : (
+          <div className={styles.relatedEmpty}>
+            <strong>This scratch workspace has no related work.</strong>
+            <span>No pull request or work item is attached.</span>
+          </div>
+        )}
+      </section>
 
       <SessionHistory key={workspaceId} target={{ type: 'workspace', id: workspaceId }} />
     </div>

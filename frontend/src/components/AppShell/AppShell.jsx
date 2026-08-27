@@ -40,6 +40,7 @@ function formatResetCountdown(resetAt) {
  *   terminalOpen: boolean,
  *   globalSessions: import('../../types').Session[],
  *   onToggleTerminal: () => void,
+ *   onBackToWork?: () => void,
  *   onSetup?: () => void,
  *   updateAvailable: boolean,
  *   commitsBehind: number,
@@ -60,6 +61,7 @@ export function AppShell({
   terminalOpen,
   globalSessions,
   onToggleTerminal,
+  onBackToWork,
   onSetup,
   updateAvailable,
   commitsBehind,
@@ -169,8 +171,9 @@ export function AppShell({
             {pollConfigured && (
               <>
                 <span className={styles.syncStatus}>
+                  <span className={`${styles.syncDot} ${syncing ? styles.syncDotActive : ''}`} aria-hidden="true" />
                   {syncTime}
-                  {nextSync && (
+                  {!onBackToWork && nextSync && (
                     <>
                       {' \u00b7 Next in '}
                       <span className={styles.countdown}>{nextSync}</span>
@@ -201,30 +204,36 @@ export function AppShell({
                 </button>
               </>
             )}
-            <AgentProviderButton
-              variant="default"
-              size="md"
-              onClick={onToggleTerminal}
-              active={terminalOpen}
-              className={styles.globalTerminalControl}
-              actionClassName={`${styles.terminalButton} ${terminalOpen ? styles.terminalButtonActive : ''}`}
-            >
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 16 16"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
+            {onBackToWork ? (
+              <button className={styles.backButton} type="button" onClick={onBackToWork}>
+                &larr; All work
+              </button>
+            ) : (
+              <AgentProviderButton
+                variant="default"
+                size="md"
+                onClick={onToggleTerminal}
+                active={terminalOpen}
+                className={styles.globalTerminalControl}
+                actionClassName={`${styles.terminalButton} ${terminalOpen ? styles.terminalButtonActive : ''}`}
               >
-                <rect x="1" y="2" width="14" height="12" rx="2" />
-                <polyline points="5,6 7.5,8.5 5,11" />
-                <line x1="9" y1="11" x2="12" y2="11" />
-              </svg>
-              Global sessions{globalSessions.length > 0 ? ` (${globalSessions.length})` : ''}
-            </AgentProviderButton>
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 16 16"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <rect x="1" y="2" width="14" height="12" rx="2" />
+                  <polyline points="5,6 7.5,8.5 5,11" />
+                  <line x1="9" y1="11" x2="12" y2="11" />
+                </svg>
+                Global sessions{globalSessions.length > 0 ? ` (${globalSessions.length})` : ''}
+              </AgentProviderButton>
+            )}
             {onSetup && (
               <button className={styles.settingsButton} onClick={onSetup}>
                 <svg
@@ -326,7 +335,7 @@ export function AppShell({
           </div>
         </div>
       )}
-      <main className={styles.content}>{children}</main>
+      <main className={`${styles.content} ${onBackToWork ? styles.detailContent : ''}`}>{children}</main>
     </div>
   );
 }

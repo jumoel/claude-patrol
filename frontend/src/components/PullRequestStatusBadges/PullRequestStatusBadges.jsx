@@ -23,18 +23,21 @@ function statusTone(status) {
 }
 
 /**
- * @param {{pullRequest: Pick<import('../../types').WorkItemPullRequest, 'tracked' | 'ci_status' | 'review_status' | 'mergeable' | 'draft'> | Pick<import('../../types').PullRequest, 'ci_status' | 'review_status' | 'mergeable' | 'draft'>}} props
+ * @param {{
+ *   pullRequest: Pick<import('../../types').WorkItemPullRequest, 'tracked' | 'ci_status' | 'review_status' | 'mergeable' | 'draft'> | Pick<import('../../types').PullRequest, 'ci_status' | 'review_status' | 'mergeable' | 'draft'>,
+ *   includePrState?: boolean,
+ * }} props
  */
-export function PullRequestStatusBadges({ pullRequest }) {
+export function PullRequestStatusBadges({ pullRequest, includePrState = true }) {
   if ('tracked' in pullRequest && !pullRequest.tracked) {
     return <span className={`${styles.badge} ${styles.neutral}`}>Waiting for sync</span>;
   }
-  const statuses = [
+  const statuses = /** @type {Array<[string, string]>} */ ([
     ['CI', pullRequest.ci_status],
     ['Review', pullRequest.review_status],
     ['Merge', pullRequest.mergeable],
-    ['PR', pullRequest.draft ? 'draft' : 'open'],
-  ];
+  ]);
+  if (includePrState) statuses.push(['PR', pullRequest.draft ? 'draft' : 'open']);
   return (
     <span className={styles.badges}>
       {statuses.map(([label, status]) => (

@@ -21,7 +21,7 @@ import styles from './GlobalTerminal.module.css';
 
 const MIN_HEIGHT = 150;
 const MAX_HEIGHT_RATIO = 0.85;
-const DEFAULT_HEIGHT = 600;
+const DEFAULT_HEIGHT = 410;
 const STORAGE_KEY = 'claude-patrol-terminal-height';
 
 function loadHeight() {
@@ -284,6 +284,22 @@ export function GlobalTerminal({
     });
   }, [setHeight]);
 
+  const handleResizeKeyDown = useCallback(
+    /** @param {React.KeyboardEvent<HTMLDivElement>} event */ (event) => {
+      const maxHeight = window.innerHeight * MAX_HEIGHT_RATIO;
+      let nextHeight = null;
+      if (event.key === 'ArrowUp') nextHeight = Math.min(maxHeight, height + 40);
+      else if (event.key === 'ArrowDown') nextHeight = Math.max(MIN_HEIGHT, height - 40);
+      else if (event.key === 'Home') nextHeight = MIN_HEIGHT;
+      else if (event.key === 'End') nextHeight = maxHeight;
+      if (nextHeight === null) return;
+      event.preventDefault();
+      setHeight(nextHeight);
+      persistHeight(nextHeight);
+    },
+    [height, setHeight],
+  );
+
   const spacerHeight = open && !maximized ? height : 0;
   const visibleActionError =
     actionError && (actionError.sessionId === null || actionError.sessionId === activeSession?.id)
@@ -301,7 +317,20 @@ export function GlobalTerminal({
         style={maximized ? { display: open ? 'flex' : 'none' } : { height, display: open ? 'flex' : 'none' }}
       >
         {!maximized && (
-          <div className={styles.resizeHandle} {...handleProps} onDoubleClick={handleDoubleClick}>
+          <div
+            className={styles.resizeHandle}
+            {...handleProps}
+            role="separator"
+            aria-label="Resize global terminal"
+            aria-orientation="horizontal"
+            aria-valuemin={MIN_HEIGHT}
+            aria-valuemax={Math.round(window.innerHeight * MAX_HEIGHT_RATIO)}
+            aria-valuenow={Math.round(height)}
+            tabIndex={0}
+            title="Drag to resize. Double-click to minimize or restore."
+            onDoubleClick={handleDoubleClick}
+            onKeyDown={handleResizeKeyDown}
+          >
             <div className={styles.resizeGrip} />
           </div>
         )}

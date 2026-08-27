@@ -84,7 +84,7 @@ export function StartWorkLauncher({ workItemsConfigured }) {
     <section className={styles.container}>
       {!open ? (
         <div ref={triggerRef}>
-          <Button variant="primary" size="md" filled onClick={show}>
+          <Button variant="primary" size="md" filled onClick={show} className={styles.trigger}>
             + Start work
           </Button>
         </div>

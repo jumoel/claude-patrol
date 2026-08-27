@@ -9,6 +9,7 @@ import { LazyTerminal } from '../Terminal/LazyTerminal.jsx';
 import { Box } from '../ui/Box/Box.jsx';
 import { Button } from '../ui/Button/Button.jsx';
 import { Stack } from '../ui/Stack/Stack.jsx';
+import { WORKING_LABEL } from '../ui/WorkingBadge/WorkingBadge.jsx';
 import styles from './TerminalCard.module.css';
 
 /**
@@ -71,6 +72,10 @@ export function TerminalCard({
   );
 
   const toggleMaximize = useCallback(() => setMaximized((prev) => !prev), []);
+  const toggleWorkPageMaximize = useCallback(() => {
+    setTerminalOpen(true);
+    setMaximized((prev) => !prev);
+  }, []);
 
   const handleExit = useCallback(() => {
     setMaximized(false);
@@ -100,12 +105,21 @@ export function TerminalCard({
   }, [onReattach]);
 
   if (presentation === 'work-page') {
+    const workPageTitle = title.replace(/^Terminal\s*-\s*/, '');
+    const stateLabel = sessionState === 'working' ? WORKING_LABEL : 'Waiting';
     if (session.status === 'detached') {
       return (
         <section className={styles.workPageDetached} aria-labelledby={`terminal-${session.id}`}>
           <div className={styles.workPageHeader}>
             <h2 id={`terminal-${session.id}`} className={styles.workPageTitle}>
-              Terminal
+              <span
+                className={`${styles.workPageStatus} ${styles.inactive}`}
+                data-state-marker="detached"
+                aria-hidden="true"
+              />
+              {workPageTitle}
+              <span className={styles.sessionProvider}>· {session.provider}</span>
+              <span className={styles.sessionState}>Detached</span>
             </h2>
             <Stack gap={2} wrap>
               <Button variant="primary" size="sm" onClick={handleReattach} disabled={reattaching} busy={reattaching}>
@@ -122,30 +136,62 @@ export function TerminalCard({
     }
 
     return (
-      <section className={styles.workPageTerminal} aria-labelledby={`terminal-${session.id}`}>
+      <section
+        className={`${styles.workPageTerminal} ${
+          maximized ? styles.workPageMaximized : terminalOpen ? '' : styles.workPageCollapsed
+        }`}
+        aria-labelledby={`terminal-${session.id}`}
+      >
         <div className={styles.workPageHeader}>
           <h2 id={`terminal-${session.id}`} className={styles.workPageTitle}>
-            {title}
+            <span
+              className={`${styles.workPageStatus} ${sessionState === 'working' ? styles.working : styles.waiting}`}
+              data-state-marker={sessionState === 'working' ? 'working' : 'waiting'}
+              aria-hidden="true"
+            />
+            {workPageTitle}
+            <span className={styles.sessionProvider}>· {session.provider}</span>
+            <span className={styles.sessionState}>{stateLabel}</span>
           </h2>
-          <Stack gap={2} wrap>
-            <span className={styles.sessionProvider}>{session.provider}</span>
-            <Button variant="danger" size="sm" dark onClick={onKill}>
+          <Stack gap={1} className={styles.workPageControls}>
+            {!maximized && (
+              <Button
+                variant="ghost"
+                size="xs"
+                dark
+                aria-expanded={terminalOpen}
+                aria-controls={`terminal-viewport-${session.id}`}
+                onClick={() => setTerminalOpen((open) => !open)}
+              >
+                {terminalOpen ? 'Collapse' : 'Expand'}
+              </Button>
+            )}
+            <Button
+              variant="ghost"
+              size="xs"
+              dark
+              title={maximized ? 'Restore terminal' : 'Maximize terminal (Cmd+Enter)'}
+              onClick={toggleWorkPageMaximize}
+            >
+              {maximized ? 'Restore' : 'Maximize'}
+            </Button>
+            <Button variant="danger" size="xs" dark onClick={onKill}>
               Kill session
             </Button>
           </Stack>
         </div>
-        <div className={styles.workPageActions}>
-          <QuickActions
-            onSend={handleSendCommand}
-            baseBranch={baseBranch}
-            workspaceId={workspaceId}
-            prId={prId}
-            sessionState={sessionState}
-            sessionProvider={session.provider}
+        <div
+          id={`terminal-viewport-${session.id}`}
+          className={styles.workPageViewport}
+          hidden={!terminalOpen && !maximized}
+        >
+          <LazyTerminal
+            wsUrl={`/ws/sessions/${session.id}`}
+            wsRef={wsRef}
+            onExit={handleExit}
+            onToggleMaximize={toggleWorkPageMaximize}
+            borderless
           />
-        </div>
-        <div className={styles.workPageViewport}>
-          <LazyTerminal wsUrl={`/ws/sessions/${session.id}`} wsRef={wsRef} onExit={handleExit} borderless />
         </div>
       </section>
     );

@@ -1,18 +1,25 @@
 @reference "tailwindcss";
 
 .drawer {
-  @apply fixed bottom-0 left-0 right-0 z-20 bg-gray-900 flex flex-col;
+  @apply fixed bottom-0 left-0 right-0 flex flex-col;
+  z-index: 70;
+  color: #dce3eb;
+  background: #0e141c;
+  border-top: 1px solid #34404e;
 }
 
 .maximized {
-  @apply fixed left-0 right-0 bottom-0 z-40 bg-gray-900 flex flex-col overflow-hidden;
+  @apply fixed left-0 right-0 bottom-0 flex flex-col overflow-hidden;
   top: var(--app-header-height, 0px);
+  z-index: 70;
+  color: #dce3eb;
+  background: #0e141c;
 }
 
 /* Drawer-specific resize handle (dark theme, thinner) */
 .resizeHandle {
   @apply flex items-center justify-center shrink-0;
-  height: 6px;
+  height: 12px;
   cursor: ns-resize;
   touch-action: none;
   user-select: none;
@@ -20,29 +27,48 @@
 
 .resizeHandle:hover .resizeGrip,
 .resizeHandle:active .resizeGrip {
-  @apply bg-blue-400;
+  background: #4d5969;
+}
+
+.resizeHandle:focus-visible {
+  outline: 2px solid #8bb9ef;
+  outline-offset: -2px;
 }
 
 .resizeGrip {
-  @apply rounded-full bg-gray-600 transition-colors;
-  width: 36px;
+  width: 42px;
   height: 3px;
+  background: #4d5969;
+  border-radius: 999px;
 }
 
 .handle {
-  @apply flex items-center gap-3 px-3 py-2 bg-gray-800 border-t border-gray-700 shrink-0;
+  @apply flex shrink-0 items-center gap-3;
+  min-height: 41px;
+  padding: 0 12px;
+  background: #17202a;
+  border-bottom: 1px solid #34404e;
 }
 
 .tabsWrap {
-  @apply flex min-w-0 flex-1 items-center gap-1;
+  @apply flex min-w-0 flex-1 items-center;
+  gap: 5px;
 }
 
 .tabList {
-  @apply flex min-w-0 items-center gap-1 overflow-x-auto;
+  @apply flex min-w-0 items-center overflow-x-auto;
+  gap: 5px;
 }
 
 .tab {
-  @apply max-w-48 shrink-0 cursor-pointer truncate rounded-md border border-transparent px-3 py-1.5 text-sm text-gray-400 transition-colors hover:bg-gray-700 hover:text-gray-100;
+  @apply max-w-48 shrink-0 cursor-pointer truncate;
+  min-height: 29px;
+  padding: 6px 9px;
+  color: #9ba8b7;
+  background: transparent;
+  border: 0;
+  border-radius: 5px;
+  font-size: 12px;
 }
 
 .tab:focus-visible,
@@ -51,42 +77,87 @@
 }
 
 .tabActive {
-  @apply border-gray-600 bg-gray-700 text-white;
+  color: #fff;
+  background: #3a4256;
 }
 
 .addTab {
-  @apply flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-lg leading-none text-gray-400 transition-colors hover:bg-gray-700 hover:text-white disabled:cursor-not-allowed disabled:opacity-50;
+  @apply flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center disabled:cursor-not-allowed disabled:opacity-50;
+  color: #9ba8b7;
+  background: transparent;
+  border: 0;
+  border-radius: 5px;
+  font-size: 17px;
+  line-height: 1;
 }
 
 .controls {
   @apply shrink-0;
+  gap: 5px !important;
+}
+
+.controls button {
+  min-height: 29px;
+  padding: 6px 9px;
+  color: #9ba8b7;
+  background: transparent;
+  border: 0;
+  border-radius: 5px;
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.controls button:hover {
+  color: #9ba8b7;
+  background: transparent;
+}
+
+.controls button:nth-last-child(2) {
+  color: #ff7d86;
 }
 
 .closeButton {
-  @apply p-1 text-gray-400 hover:text-gray-200 transition-colors cursor-pointer;
+  cursor: pointer;
 }
 
 .promoteForm {
-  @apply px-4 py-2 bg-gray-800/80 border-b border-gray-700 shrink-0;
+  @apply shrink-0 px-4 py-2;
+  background: #17202a;
+  border-bottom: 1px solid #34404e;
 }
 
 .renameForm {
-  @apply flex shrink-0 items-center gap-2 border-b border-gray-700 bg-gray-800/80 px-4 py-2 text-sm text-gray-300;
+  @apply flex shrink-0 items-center gap-2 px-4 py-2 text-sm;
+  color: #dce3eb;
+  background: #17202a;
+  border-bottom: 1px solid #34404e;
 }
 
 .renameInput {
-  @apply min-w-40 flex-1 rounded border border-gray-600 bg-gray-700 px-2 py-1 text-sm text-gray-100 outline-none focus:border-blue-400;
+  @apply min-w-40 flex-1 px-2 py-1 text-sm outline-none;
   max-width: 28rem;
+  color: #f4f7fa;
+  background: #0e141c;
+  border: 1px solid #34404e;
+  border-radius: 2px;
 }
 
 .promoteSelect {
-  @apply px-2 py-1 text-sm bg-gray-700 text-gray-200 rounded border border-gray-600 focus:border-green-500 focus:outline-none;
+  @apply px-2 py-1 text-sm focus:outline-none;
+  color: #dce3eb;
+  background: #0e141c;
+  border: 1px solid #34404e;
+  border-radius: 2px;
 }
 
 .promoteInput {
-  @apply px-2 py-1 text-sm bg-gray-700 text-gray-200 rounded border border-gray-600 focus:border-green-500 focus:outline-none flex-1;
+  @apply flex-1 px-2 py-1 text-sm focus:outline-none;
   min-width: 160px;
   max-width: 280px;
+  color: #dce3eb;
+  background: #0e141c;
+  border: 1px solid #34404e;
+  border-radius: 2px;
 }
 
 

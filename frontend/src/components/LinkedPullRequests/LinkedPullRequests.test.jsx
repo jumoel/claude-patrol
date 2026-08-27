@@ -162,7 +162,7 @@ test('renders multiple owned pull requests and attaches another by URL', async (
   assert.equal(reload.mock.calls.length, 1);
 });
 
-test('shows four status badges per tracked PR and detailed checks for the selected PR', async () => {
+test('shows PR health in the list and all four statuses in the selected inspector', async () => {
   const item = workItem();
   item.pull_requests = item.pull_requests.map((link, index) =>
     index === 0
@@ -195,15 +195,17 @@ test('shows four status badges per tracked PR and detailed checks for the select
     />,
   );
 
-  const selected = within(screen.getByRole('list', { name: 'Work item pull requests' })).getByRole('link', {
+  const pullRequestList = within(screen.getByRole('list', { name: 'Work item pull requests' }));
+  const selected = pullRequestList.getByRole('link', {
     name: /#12 Harden remediation parsing/u,
   });
   assert.equal(selected.getAttribute('aria-current'), 'page');
-  assert.ok(screen.getAllByLabelText(/CI (Pending|Pass)/u).length >= 2);
-  assert.ok(screen.getAllByLabelText('Review Approved').length >= 2);
-  assert.ok(screen.getAllByLabelText('Merge Clean').length >= 2);
-  assert.ok(screen.getAllByLabelText('PR Open').length >= 2);
+  assert.equal(pullRequestList.getAllByLabelText(/CI (Pending|Pass)/u).length, 2);
+  assert.equal(pullRequestList.getAllByLabelText('Review Approved').length, 2);
+  assert.equal(pullRequestList.getAllByLabelText('Merge Clean').length, 2);
+  assert.equal(pullRequestList.queryByLabelText('PR Open'), null);
   assert.ok(await screen.findByRole('heading', { name: '#12 Harden remediation parsing' }));
+  assert.equal(screen.getAllByLabelText('PR Open').length, 1);
   assert.ok(screen.getByRole('region', { name: 'CI checks' }));
   assert.ok(screen.getByText('unit-tests'));
   assert.deepEqual(api.fetchPR.mock.calls, [['acme/tools#12']]);

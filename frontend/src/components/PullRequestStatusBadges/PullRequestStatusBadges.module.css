@@ -7,12 +7,14 @@
 
 .badge {
   display: inline-flex;
-  min-height: 22px;
+  min-height: 21px;
   align-items: center;
   gap: 4px;
-  padding: 2px 7px;
-  border-radius: 4px;
+  padding: 1px 5px;
+  border-radius: 2px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 12px;
+  font-weight: 400;
   line-height: 1;
   white-space: nowrap;
 }
@@ -22,21 +24,21 @@
 }
 
 .pass {
-  color: #267a58;
-  background: #e4f2e9;
+  color: #1b7f5a;
+  background: #e0f3e9;
 }
 
 .fail {
-  color: #a13d38;
-  background: #f9e9e7;
+  color: #c94b45;
+  background: #fbe5e2;
 }
 
 .pending {
-  color: #8a5b10;
-  background: #fff1ca;
+  color: #a26900;
+  background: #fff0c2;
 }
 
 .neutral {
-  color: #596575;
-  background: #edf0f4;
+  color: #2764b0;
+  background: #e7f0fb;
 }

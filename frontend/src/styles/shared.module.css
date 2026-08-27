@@ -3,30 +3,47 @@
 /* ---- Typography ---- */
 
 .sectionTitle {
-  @apply text-sm font-semibold text-gray-600 uppercase tracking-wider;
+  color: #1c2430;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  font-weight: 500;
 }
 
 .sectionCard {
-  @apply overflow-hidden bg-white border-y border-gray-200;
+  margin: 0 20px;
+  overflow: hidden;
+  background: transparent;
+  border-top: 1px solid #d7dce3;
 }
 
 .sectionHeader {
-  @apply flex min-h-11 items-center justify-between gap-4 border-b border-gray-200 bg-white px-[18px] py-2.5;
+  display: flex;
+  min-height: 40px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0;
+  background: transparent;
+  border-bottom: 1px solid #d7dce3;
 }
 
 .sectionHeaderTitle {
-  @apply text-[15px] text-gray-700;
+  margin: 0;
+  color: #1c2430;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-weight: 550;
-  letter-spacing: 0.015em;
+  font-size: 12px;
+  font-weight: 500;
 }
 
 .sectionHeaderMeta {
-  @apply text-xs font-medium normal-case tracking-normal text-gray-500;
+  color: #606b78;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 12px;
+  font-weight: 400;
 }
 
 .sectionBody {
-  @apply px-[18px] py-3;
+  padding: 8px 0 11px;
 }
 
 .identityRow {
@@ -34,11 +51,16 @@
 }
 
 .repoTag {
-  @apply font-mono text-sm bg-gray-100 px-2 py-0.5 rounded text-gray-600;
+  padding: 0;
+  color: #606b78;
+  background: transparent;
+  border-radius: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
 }
 
 .branchTag {
-  @apply flex items-center gap-1 font-mono text-sm text-gray-500;
+  @apply flex items-center gap-1 font-mono text-xs text-gray-500;
   background: none;
   border: none;
   padding: 0;
@@ -46,11 +68,11 @@
 }
 
 .branchTag:hover {
-  @apply text-gray-300;
+  color: #606b78;
 }
 
 .updatedText {
-  @apply text-sm text-gray-500;
+  @apply text-xs text-gray-500;
 }
 
 .separator {
@@ -114,4 +136,11 @@
 
 .terminalLoading {
   @apply flex h-full items-center justify-center gap-2 bg-gray-900 text-sm text-gray-400;
+}
+
+@media (max-width: 40rem) {
+  .sectionCard {
+    margin-right: 12px;
+    margin-left: 12px;
+  }
 }

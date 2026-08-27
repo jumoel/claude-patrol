@@ -11,9 +11,10 @@
 }
 
 .picker {
-  @apply relative inline-flex shrink-0 cursor-pointer items-center justify-center transition-colors disabled:cursor-not-allowed;
-  border-top-right-radius: 0.375rem;
-  border-bottom-right-radius: 0.375rem;
+  @apply relative inline-flex shrink-0 cursor-pointer items-center justify-center disabled:cursor-not-allowed;
+  border-top-right-radius: 2px;
+  border-bottom-right-radius: 2px;
+  transition: none;
 }
 
 .picker:focus-visible {
@@ -46,26 +47,38 @@
 }
 
 .primary {
-  @apply bg-indigo-600 text-white hover:bg-indigo-700;
+  color: #fff;
+  background: #22344b;
   border-left: 1px solid rgb(255 255 255 / 0.25);
 }
 
+.primary:hover {
+  background: #22344b;
+}
+
 .primary.dark {
-  @apply bg-blue-900/30 text-blue-400 hover:bg-blue-900/50;
+  color: #8bb9ef;
+  background: #203247;
   border-left-color: rgb(96 165 250 / 0.25);
 }
 
 .default {
-  @apply border border-gray-200 bg-gray-100 text-gray-600 hover:bg-gray-200 hover:text-gray-800;
-  border-left-color: rgb(209 213 219);
+  color: #1c2430;
+  background: #f1f4f7;
+  border: 1px solid #d7dce3;
+  border-left-color: #d7dce3;
 }
 
 .default.dark {
-  @apply border-gray-700 bg-gray-700/50 text-gray-300 hover:bg-gray-700;
+  color: #dce3eb;
+  background: transparent;
+  border-color: #34404e;
 }
 
 .active {
-  @apply border-gray-800 bg-gray-800 text-white hover:bg-gray-700;
+  color: #fff;
+  background: #22344b;
+  border-color: #22344b;
 }
 
 .disabled {
@@ -73,7 +86,10 @@
 }
 
 .menu {
-  @apply w-52 rounded-lg border border-gray-200 bg-white p-1.5 text-gray-800 shadow-xl;
+  @apply w-52 border bg-white p-1.5 shadow-none;
+  color: #1c2430;
+  border-color: #9fa8b5;
+  border-radius: 2px;
 }
 
 .menuDark {
@@ -81,7 +97,14 @@
 }
 
 .option {
-  @apply flex w-full cursor-pointer items-center gap-3 rounded-md border-0 bg-transparent px-2.5 py-2 text-left transition-colors hover:bg-gray-100 focus:bg-gray-100 focus:outline-none;
+  @apply flex w-full cursor-pointer items-center gap-3 border-0 bg-transparent px-2.5 py-2 text-left focus:outline-none;
+  border-radius: 2px;
+  transition: none;
+}
+
+.option:hover,
+.option:focus {
+  background: transparent;
 }
 
 .menuDark .option {
@@ -89,7 +112,7 @@
 }
 
 .optionSelected {
-  @apply bg-indigo-50;
+  background: #e7f0fb;
 }
 
 .menuDark .optionSelected {
@@ -97,7 +120,8 @@
 }
 
 .providerMark {
-  @apply inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-sm font-bold text-white shadow-sm;
+  @apply inline-flex h-8 w-8 shrink-0 items-center justify-center text-sm font-medium text-white shadow-none;
+  border-radius: 2px;
 }
 
 .claudeMark {

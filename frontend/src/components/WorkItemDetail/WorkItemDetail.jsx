@@ -22,7 +22,8 @@ import { Box } from '../ui/Box/Box.jsx';
 import { Button } from '../ui/Button/Button.jsx';
 import { LoadingIndicator } from '../ui/LoadingIndicator/LoadingIndicator.jsx';
 import { Stack } from '../ui/Stack/Stack.jsx';
-import { WORK_ITEM_STATE_LABELS, WorkItemStatusBadge } from '../WorkItemStatusBadge/WorkItemStatusBadge.jsx';
+import { WorkingBadge } from '../ui/WorkingBadge/WorkingBadge.jsx';
+import { WORK_ITEM_STATE_LABELS } from '../WorkItemStatusBadge/WorkItemStatusBadge.jsx';
 import styles from './WorkItemDetail.module.css';
 
 const RETRY_LABELS = {
@@ -247,9 +248,9 @@ function RecoveryCommandButton({ recovery }) {
 }
 
 /**
- * @param {{workItemId: string, onBack: () => void, targetStates: Map<string, 'working' | 'idle'>, selectedPrId?: string | null}} props
+ * @param {{workItemId: string, targetStates: Map<string, 'working' | 'idle'>, selectedPrId?: string | null}} props
  */
-export function WorkItemDetail({ workItemId, onBack, targetStates, selectedPrId = null }) {
+export function WorkItemDetail({ workItemId, targetStates, selectedPrId = null }) {
   const { provider } = useAgentProvider();
   const { workItem, loading, error, reload } = useWorkItem(workItemId);
   const target = useMemo(() => ({ type: /** @type {'work_item'} */ ('work_item'), id: workItemId }), [workItemId]);
@@ -409,20 +410,31 @@ export function WorkItemDetail({ workItemId, onBack, targetStates, selectedPrId 
   const destroying = workItem.state === 'destroying';
   const destroyed = workItem.state === 'destroyed';
   const canDestroy = (workItem.state === 'ready' || workItem.state === 'error') && retryAction !== 'cleanup';
-  const providerName = workItem.work_provider === 'codex' ? 'Codex' : 'Claude';
   const selectedProviderName = provider === 'codex' ? 'Codex' : 'Claude';
   const resolverName = workItem.resolver_provider === 'codex' ? 'Codex' : 'Claude';
   const selectedPullRequest =
     workItem.pull_requests.find((pullRequest) => pullRequest.id === selectedPrId) ?? workItem.pull_requests[0] ?? null;
   const referenceDisplay = workItem.reference_display || workItem.reference;
+  const sessionState = targetStates.get(`work-item:${workItem.id}`);
+  const repositorySummary = workItem.repository_workspaces.map((repository) => repository.identifier).join(', ');
+  const headerIsWorking = !!session && sessionState === 'working';
+  const headerStatusLabel =
+    session && sessionState === 'idle' ? 'Waiting' : session ? 'Live' : WORK_ITEM_STATE_LABELS[workItem.state];
+  const headerStatusColor =
+    headerStatusLabel === 'Waiting'
+      ? /** @type {const} */ ('amber')
+      : headerStatusLabel === 'Failed'
+        ? /** @type {const} */ ('red')
+        : headerStatusLabel === 'Ready'
+          ? /** @type {const} */ ('green')
+          : headerStatusLabel === 'Destroyed' || headerStatusLabel === 'Live'
+            ? /** @type {const} */ ('gray')
+            : /** @type {const} */ ('blue');
 
   return (
     <div className={styles.page}>
       <header className={styles.pageHeader}>
         <div className={styles.headerActions}>
-          <Button size="sm" onClick={onBack}>
-            &larr; Work
-          </Button>
           <Stack gap={2} wrap>
             {retryAction && (
               <Button
@@ -449,6 +461,22 @@ export function WorkItemDetail({ workItemId, onBack, targetStates, selectedPrId 
           </Stack>
         </div>
         <div className={styles.referenceLine}>
+          <span>Work item</span>
+          {headerIsWorking ? (
+            <WorkingBadge indicator="dot" className={styles.headerStatus} />
+          ) : (
+            <Badge color={headerStatusColor} className={styles.headerStatus}>
+              <span
+                className={styles.headerStatusDot}
+                data-state-marker={headerStatusLabel.toLowerCase()}
+                aria-hidden="true"
+              />
+              {headerStatusLabel}
+            </Badge>
+          )}
+        </div>
+        <h1 className={styles.title}>{workItem.title || workItem.reference}</h1>
+        <div className={styles.identity}>
           {workItem.reference_url ? (
             <a href={workItem.reference_url} target="_blank" rel="noopener noreferrer" className={styles.reference}>
               {referenceDisplay}
@@ -456,17 +484,13 @@ export function WorkItemDetail({ workItemId, onBack, targetStates, selectedPrId 
           ) : (
             <span className={styles.reference}>{referenceDisplay}</span>
           )}
-          <WorkItemStatusBadge status={WORK_ITEM_STATE_LABELS[workItem.state]} />
-          <span className={styles.providerBadge}>{providerName}</span>
-          {workItem.pull_request_count > 0 && (
-            <span className={styles.countBadge}>
-              {workItem.pull_request_count} pull request{workItem.pull_request_count === 1 ? '' : 's'}
-            </span>
+          {repositorySummary && (
+            <>
+              <span aria-hidden="true">·</span>
+              <span>{repositorySummary}</span>
+            </>
           )}
-        </div>
-        <h1 className={styles.title}>{workItem.title || workItem.reference}</h1>
-        <div className={styles.identity}>
-          <span>Created {getRelativeTime(workItem.created_at)}</span>
+          <span aria-hidden="true">·</span>
           <span>Updated {getRelativeTime(workItem.updated_at)}</span>
           {workItem.error && workItem.resolver_provider !== workItem.work_provider && (
             <span>Reference resolver: {resolverName}</span>
@@ -477,7 +501,7 @@ export function WorkItemDetail({ workItemId, onBack, targetStates, selectedPrId 
             {destroying ? 'Destruction is in progress.' : 'Destroy is unavailable while creation is in progress.'}
           </p>
         )}
-        <WorkItemProgress item={workItem} />
+        {workItem.state !== 'ready' && <WorkItemProgress item={workItem} />}
       </header>
 
       {!destroyed &&
@@ -485,38 +509,45 @@ export function WorkItemDetail({ workItemId, onBack, targetStates, selectedPrId 
         (session ? (
           <TerminalCard
             session={session}
-            title={`Terminal - ${workItem.title || workItem.reference}`}
+            title={`Terminal - ${referenceDisplay}`}
             onKill={handleKillSession}
             onExit={handleSessionExit}
             onReattach={handleReattach}
             wsRef={wsRef}
             baseBranch={selectedPullRequest?.base_branch ?? undefined}
             prId={selectedPullRequest?.tracked ? selectedPullRequest.id : undefined}
-            sessionState={targetStates.get(`work-item:${workItem.id}`)}
+            sessionState={sessionState}
             presentation="work-page"
           />
         ) : (
           <section className={styles.terminalLauncher} aria-labelledby="work-item-terminal-heading">
             <h2 id="work-item-terminal-heading" className={styles.sectionTitle}>
-              Terminal
+              <span className={styles.terminalInactive} data-state-marker="inactive" aria-hidden="true" />
+              <span>{referenceDisplay} · no session</span>
+              <span className={styles.terminalState}>Not started</span>
             </h2>
-            <p className={styles.actionNote}>
-              Choose Claude or Codex before{' '}
-              {workItem.has_session_history ? 'reopening the terminal' : 'opening the terminal'}.
-            </p>
-            <AgentProviderButton
-              variant="primary"
-              size="lg"
-              onClick={ensureSession}
-              disabled={sessionLoading || !!actionPending}
-              busy={sessionLoading}
-            >
-              {sessionLoading
-                ? 'Opening terminal...'
-                : workItem.has_session_history
-                  ? `Reopen terminal with ${selectedProviderName}`
-                  : `Open terminal with ${selectedProviderName}`}
-            </AgentProviderButton>
+            <div className={styles.terminalEmpty}>
+              <strong>No LLM session is attached to this work item.</strong>
+              <p className={styles.actionNote}>
+                Choose Claude or Codex before{' '}
+                {workItem.has_session_history ? 'reopening the terminal' : 'opening the terminal'}.
+              </p>
+              <AgentProviderButton
+                variant="primary"
+                size="lg"
+                onClick={ensureSession}
+                disabled={sessionLoading || !!actionPending}
+                busy={sessionLoading}
+                className={styles.terminalProvider}
+                actionClassName={styles.terminalAction}
+              >
+                {sessionLoading
+                  ? 'Opening terminal...'
+                  : workItem.has_session_history
+                    ? `Reopen terminal with ${selectedProviderName}`
+                    : `Open terminal with ${selectedProviderName}`}
+              </AgentProviderButton>
+            </div>
           </section>
         ))}
 
@@ -555,7 +586,10 @@ export function WorkItemDetail({ workItemId, onBack, targetStates, selectedPrId 
       )}
 
       {workItem.summary && (
-        <section className={styles.contentSection} aria-labelledby="work-item-overview-heading">
+        <section
+          className={`${styles.contentSection} ${styles.firstContent}`}
+          aria-labelledby="work-item-overview-heading"
+        >
           <h2 id="work-item-overview-heading" className={styles.sectionTitle}>
             Overview
           </h2>

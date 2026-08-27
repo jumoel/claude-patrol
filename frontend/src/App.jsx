@@ -208,7 +208,7 @@ export default function App() {
     } else setActiveTarget(null);
   }, [route, allPRs, setActiveTarget]);
 
-  const syncTime = syncedAt ? `Last synced: ${new Date(syncedAt).toLocaleTimeString()}` : 'Not synced';
+  const syncTime = syncedAt ? `Last synced ${new Date(syncedAt).toLocaleTimeString()}` : 'Not synced';
   const nextSync = countdown > 0 ? formatCountdown(countdown) : '';
 
   const navigateToPR = useCallback(
@@ -275,6 +275,7 @@ export default function App() {
       terminalOpen={terminalOpen}
       globalSessions={globalSessionState.sessions}
       onToggleTerminal={toggleTerminal}
+      onBackToWork={['pr', 'workspace', 'work_item'].includes(route.type) ? navigateBack : undefined}
       onSetup={() => {
         window.location.hash = '/setup';
       }}
@@ -296,7 +297,6 @@ export default function App() {
           key={route.id}
           workItemId={route.id}
           selectedPrId={route.selectedPrId}
-          onBack={navigateBack}
           targetStates={targetStates}
         />
       ) : route.type === 'not_found' ? (

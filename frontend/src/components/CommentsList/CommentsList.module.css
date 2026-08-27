@@ -1,15 +1,16 @@
 @reference "tailwindcss";
 
 .sectionTitle {
-  @apply text-sm font-semibold text-gray-600 uppercase tracking-wider;
+  @apply text-xs font-medium text-gray-700;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
 .loading {
-  @apply text-base text-gray-500 py-4;
+  @apply py-2 text-sm text-gray-500;
 }
 
 .author {
-  @apply text-sm font-semibold text-gray-800;
+  @apply text-sm font-medium text-gray-800;
 }
 
 .timestamp {
@@ -17,7 +18,7 @@
 }
 
 .commentBody {
-  @apply text-base leading-relaxed text-gray-600;
+  @apply text-sm leading-relaxed text-gray-600;
 }
 
 .commentBody :global(summary) {
@@ -32,22 +33,22 @@
 }
 
 .inlineComment {
-  @apply bg-gray-50 rounded p-2 space-y-1;
+  @apply border-t border-gray-200 py-2 space-y-1;
 }
 
 .filePath {
-  @apply text-sm font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-600;
+  @apply text-xs font-mono text-gray-600;
 }
 
 .diffPos {
-  @apply text-sm font-mono text-gray-500;
+  @apply text-xs font-mono text-gray-500;
 }
 
 /* Conversation */
 .conversationItem {
-  @apply max-w-[92ch] space-y-1 border-l-2 border-gray-200 py-2 pl-4 transition-colors hover:border-blue-300;
+  @apply max-w-[92ch] space-y-1 border-t border-gray-200 py-2;
 }
 
 .reviewCard {
-  @apply max-w-[92ch] bg-gray-50/60;
+  @apply max-w-[92ch];
 }

@@ -1,7 +1,7 @@
 import styles from './Spinner.module.css';
 
 /**
- * @param {{size?: 'xs' | 'sm', className?: string}} props
+ * @param {{size?: 'xxs' | 'xs' | 'sm', className?: string}} props
  */
 export function Spinner({ size = 'sm', className = '' }) {
   return (

@@ -114,6 +114,41 @@ test('renders accessible tabs and mounts only the selected terminal', async () =
   assert.equal(screen.getByTestId('terminal').getAttribute('data-ws-url'), '/ws/sessions/reviewer');
 });
 
+test('exposes mouse and keyboard sizing controls', () => {
+  renderTerminal({ sessions: [planner], activeSession: planner });
+
+  const resizeHandle = screen.getByRole('separator', { name: 'Resize global terminal' });
+  assert.equal(resizeHandle.getAttribute('aria-orientation'), 'horizontal');
+  assert.equal(resizeHandle.getAttribute('aria-valuenow'), '410');
+
+  fireEvent.keyDown(resizeHandle, { key: 'ArrowUp' });
+  assert.equal(resizeHandle.getAttribute('aria-valuenow'), '450');
+  assert.equal(localStorage.getItem('claude-patrol-terminal-height'), '450');
+
+  fireEvent.keyDown(resizeHandle, { key: 'Home' });
+  assert.equal(resizeHandle.getAttribute('aria-valuenow'), '150');
+});
+
+test('keeps the relevant global session controls available in each size', async () => {
+  const user = userEvent.setup();
+  renderTerminal({ sessions: [planner], activeSession: planner });
+
+  assert.ok(screen.getByRole('button', { name: 'Rename' }));
+  assert.ok(screen.getByRole('button', { name: 'Promote' }));
+  assert.ok(screen.getByRole('button', { name: 'Pop out' }));
+  assert.ok(screen.getByRole('button', { name: 'Kill' }));
+  assert.ok(screen.getByRole('button', { name: 'Close global sessions' }));
+  assert.ok(screen.getByRole('button', { name: 'Start another Claude session' }));
+
+  await user.click(screen.getByRole('button', { name: 'Maximize' }));
+  assert.ok(screen.getByRole('button', { name: 'Restore' }));
+  assert.equal(screen.queryByRole('separator', { name: 'Resize global terminal' }), null);
+
+  await user.click(screen.getByRole('button', { name: 'Restore' }));
+  assert.ok(screen.getByRole('button', { name: 'Maximize' }));
+  assert.ok(screen.getByRole('separator', { name: 'Resize global terminal' }));
+});
+
 test('renames the selected tab and keeps it when kill fails', async () => {
   const user = userEvent.setup();
   const renamed = { ...planner, name: 'Architect' };

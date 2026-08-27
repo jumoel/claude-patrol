@@ -10,6 +10,7 @@ import {
   serializeDashboardRowsMarkdown,
   sortDashboardRows,
 } from '../../lib/work-dashboard.js';
+import { WorkingBadge } from '../ui/WorkingBadge/WorkingBadge.jsx';
 import styles from './WorkDashboard.module.css';
 
 /** @type {Record<string, string>} */
@@ -81,7 +82,7 @@ function PullRequestBadges({ pr }) {
               : styles.neutral
         }`}
       >
-        {labelize(pr.review_status || '')}
+        {pr.review_status === 'changes_requested' ? 'Changes' : labelize(pr.review_status || '')}
       </span>
       <span
         className={`${styles.badge} ${
@@ -90,7 +91,7 @@ function PullRequestBadges({ pr }) {
       >
         {pr.mergeable === 'MERGEABLE' ? 'Clean' : pr.mergeable === 'CONFLICTING' ? 'Conflict' : 'Unknown'}
       </span>
-      <span className={`${styles.badge} ${styles.neutral}`}>{pr.draft ? 'Draft' : 'Open'}</span>
+      {pr.draft && <span className={`${styles.badge} ${styles.neutral}`}>Draft</span>}
     </span>
   );
 }
@@ -101,13 +102,52 @@ function SessionSummary({ sessions }) {
   const idle = sessions.filter((session) => session.activity_state === 'idle').length;
   const working = sessions.filter((session) => session.activity_state === 'working').length;
   const providers = [...new Set(sessions.map((session) => labelize(session.provider)))].join(', ');
+  const stateLabel =
+    sessions.length === 1
+      ? idle > 0
+        ? 'Waiting'
+        : 'Live'
+      : working > 0
+        ? `${working} working${idle > 0 ? `, ${idle} waiting` : ''}`
+        : idle > 0
+          ? `${idle} waiting`
+          : `${sessions.length} live`;
   return (
     <span className={styles.sessionSummary}>
-      <span>
-        {working > 0 ? `${working} working` : `${idle} waiting`}
-        {working > 0 && idle > 0 ? `, ${idle} waiting` : ''}
-      </span>
+      {working > 0 ? (
+        <WorkingBadge
+          presentation="inline"
+          label={sessions.length === 1 ? undefined : stateLabel}
+          spinnerSize="xxs"
+          className={styles.runtimeState}
+        />
+      ) : (
+        <span className={`${styles.runtimeState} ${styles.runtimeWaiting}`}>
+          <span className={styles.sessionDot} data-state-marker={idle > 0 ? 'waiting' : 'live'} aria-hidden="true" />
+          {stateLabel}
+        </span>
+      )}
       <small>{providers}</small>
+    </span>
+  );
+}
+
+/** @param {{row: import('../../types').DashboardWorkRow}} props */
+function LocalSummary({ row }) {
+  if (row.workspace_count === 0) return <span className={styles.empty}>No workspace</span>;
+  const scratch = row.kind === 'scratch';
+  const label = scratch
+    ? 'Scratch'
+    : row.kind === 'pull_request' || row.pull_requests.length > 0
+      ? 'PR workspace'
+      : 'Workspace';
+  const note = scratch ? 'Active' : row.workspace_count === 1 ? 'Ready' : `${row.workspace_count} ready`;
+  return (
+    <span className={styles.localSummary}>
+      <span className={`${styles.kind} ${styles.localBadge} ${scratch ? styles.scratch : styles.pull_request}`}>
+        {label}
+      </span>
+      <small>{note}</small>
     </span>
   );
 }
@@ -235,14 +275,30 @@ export function WorkDashboard({
   const hasStacks = dashboard.rows.some((row) => row.kind === 'pull_request' && row.pull_requests[0]?.is_stacked);
   const hasFilters = Object.values(filters).some((value) => value === true || (Array.isArray(value) && value.length));
 
-  const labelForWaiting = (/** @type {import('../../types').DashboardSessionSummary} */ session) => {
-    if (session.target.type === 'global') return session.name || 'Global session';
-    const owner = dashboard.rows.find(
+  const ownerForWaiting = (/** @type {import('../../types').DashboardSessionSummary} */ session) =>
+    dashboard.rows.find(
       (row) =>
         (session.target.type === 'work_item' && row.kind === 'work_item' && row.id === session.target.id) ||
         (session.target.type === 'workspace' && row.workspace_id === session.target.id),
     );
+
+  const labelForWaiting = (/** @type {import('../../types').DashboardSessionSummary} */ session) => {
+    if (session.target.type === 'global') return session.name || 'Global session';
+    const owner = ownerForWaiting(session);
     return owner?.title || session.name || 'LLM session';
+  };
+
+  const contextForWaiting = (/** @type {import('../../types').DashboardSessionSummary} */ session) => {
+    const owner = ownerForWaiting(session);
+    const kind =
+      owner?.kind === 'work_item'
+        ? 'work item'
+        : owner?.kind === 'pull_request'
+          ? 'pull request'
+          : owner?.kind === 'scratch'
+            ? 'scratch workspace'
+            : 'global session';
+    return [owner?.work_reference?.display, labelize(session.provider), kind].filter(Boolean).join(' · ');
   };
 
   const toggleColumn = (/** @type {string} */ column) => {
@@ -349,12 +405,15 @@ export function WorkDashboard({
               const href = waitingHref(session);
               const content = (
                 <>
-                  <span className={`${styles.badge} ${styles.pending}`}>Waiting</span>
-                  <span className={styles.waitingTitle}>{labelForWaiting(session)}</span>
-                  <span className={styles.waitingMeta}>{labelize(session.provider)}</span>
+                  <span className={styles.waitingDot} data-state-marker="waiting" aria-hidden="true" />
+                  <span className={styles.waitingCopy}>
+                    <span className={styles.waitingTitle}>{labelForWaiting(session)}</span>
+                    <span className={styles.waitingMeta}>{contextForWaiting(session)}</span>
+                  </span>
                   <time dateTime={session.activity_changed_at || session.started_at}>
                     {getRelativeTime(session.activity_changed_at || session.started_at)}
                   </time>
+                  <span className={styles.waitingAction}>Resume</span>
                 </>
               );
               return (
@@ -582,13 +641,7 @@ export function WorkDashboard({
                   )}
                   {visibleColumns.has('local') && (
                     <td data-label="Local">
-                      {row.workspace_count > 0 ? (
-                        <span>
-                          {row.workspace_count} {row.workspace_count === 1 ? 'workspace' : 'workspaces'}
-                        </span>
-                      ) : (
-                        <span className={styles.empty}>No workspace</span>
-                      )}
+                      <LocalSummary row={row} />
                     </td>
                   )}
                   {visibleColumns.has('updated') && (

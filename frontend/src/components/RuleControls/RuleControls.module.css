@@ -5,18 +5,18 @@
 .disclosure {
   display: flex;
   width: 100%;
-  min-height: 2.75rem;
+  min-height: 40px;
   align-items: center;
   justify-content: space-between;
-  gap: 1rem;
-  padding: 0.625rem 1.25rem;
-  color: rgb(55 65 81);
-  background: #fff;
+  gap: 16px;
+  padding: 0;
+  color: #1c2430;
+  background: transparent;
   border: 0;
   cursor: pointer;
-  transition:
-    background-color 150ms ease,
-    color 150ms ease;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  font-weight: 500;
 }
 
 .disclosure:focus-visible {
@@ -31,7 +31,7 @@
 }
 
 .disclosureExpanded {
-  border-bottom: 1px solid rgb(229 231 235);
+  border-bottom: 1px solid #d7dce3;
 }
 
 .headingText {
@@ -45,9 +45,9 @@
 .summaryMuted,
 .summarySubscribed,
 .summaryError {
-  font-size: 0.75rem;
-  font-weight: 500;
-  line-height: 1rem;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1;
 }
 
 .summary {
@@ -68,8 +68,7 @@
 
 .chevron {
   flex: none;
-  color: rgb(107 114 128);
-  transition: transform 150ms ease;
+  color: #606b78;
 }
 
 .chevronExpanded {
@@ -77,16 +76,16 @@
 }
 
 .body {
-  padding: 0.5rem 1.25rem;
+  padding: 8px 0;
 }
 
 .row {
   display: grid;
   grid-template-columns: minmax(14rem, 1fr) minmax(10rem, auto) auto;
   align-items: center;
-  gap: 1rem;
-  padding: 0.5rem 0;
-  border-bottom: 1px solid rgb(0 0 0 / 0.05);
+  gap: 16px;
+  padding: 6px 0;
+  border-bottom: 1px solid #d7dce3;
 }
 .row:last-child {
   border-bottom: none;
@@ -99,14 +98,14 @@
 }
 .name {
   font-family: ui-monospace, SFMono-Regular, monospace;
-  font-size: 0.875rem;
-  color: rgb(0 0 0 / 0.85);
+  color: #1c2430;
+  font-size: 12px;
 }
 .trigger {
   overflow: hidden;
-  color: rgb(75 85 99);
+  color: #606b78;
   font-family: ui-monospace, SFMono-Regular, monospace;
-  font-size: 0.75rem;
+  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -117,22 +116,23 @@
   justify-self: end;
 }
 .empty {
-  font-size: 0.875rem;
-  color: rgb(0 0 0 / 0.55);
+  color: #606b78;
+  font-size: 12px;
   margin: 0;
-  padding: 0.75rem 0;
+  padding: 8px 0;
   line-height: 1.45;
 }
 .empty code {
   font-family: ui-monospace, SFMono-Regular, monospace;
-  font-size: 0.8125rem;
-  background: rgb(0 0 0 / 0.04);
-  padding: 0.05rem 0.3rem;
-  border-radius: 3px;
+  padding: 0;
+  color: #4e5968;
+  background: transparent;
+  border-radius: 0;
+  font-size: 12px;
 }
 .error {
-  font-size: 0.8125rem;
-  color: rgb(220 38 38);
+  color: #c94b45;
+  font-size: 12px;
   margin: 0;
   padding: 0.75rem 0;
 }

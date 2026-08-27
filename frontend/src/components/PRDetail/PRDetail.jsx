@@ -30,7 +30,6 @@ import shared from '../../styles/shared.module.css';
 import { AgentProviderButton } from '../AgentProviderButton/AgentProviderButton.jsx';
 import { CheckLogViewer } from '../CheckLogViewer/CheckLogViewer.jsx';
 import { CommentsList } from '../CommentsList/CommentsList.jsx';
-import { PullRequestStatusBadges } from '../PullRequestStatusBadges/PullRequestStatusBadges.jsx';
 import { RenderedHtml } from '../RenderedHtml/RenderedHtml.jsx';
 import { RuleControls } from '../RuleControls/RuleControls.jsx';
 import { SessionHistory } from '../SessionHistory/SessionHistory.jsx';
@@ -66,6 +65,27 @@ const CHECK_STATUS_LABELS = {
   REQUESTED: 'requested',
   EXPECTED: 'expected',
 };
+
+/** @param {import('../../types').PullRequest} pr */
+function getHeadlineStatus(pr) {
+  if (pr.review_status === 'changes_requested') {
+    return { color: /** @type {const} */ ('red'), label: 'Changes requested', marker: 'changes' };
+  }
+  if (pr.ci_status === 'fail') {
+    return { color: /** @type {const} */ ('red'), label: 'CI failed', marker: 'failed' };
+  }
+  if (pr.mergeable === 'CONFLICTING') {
+    return { color: /** @type {const} */ ('red'), label: 'Merge conflict', marker: 'failed' };
+  }
+  if (pr.ci_status === 'pending') {
+    return { color: /** @type {const} */ ('amber'), label: 'CI pending', marker: 'waiting' };
+  }
+  if (pr.review_status === 'approved') {
+    return { color: /** @type {const} */ ('green'), label: 'Approved', marker: 'approved' };
+  }
+  if (pr.draft) return { color: /** @type {const} */ ('blue'), label: 'Draft', marker: 'draft' };
+  return { color: /** @type {const} */ ('green'), label: 'Open', marker: 'open' };
+}
 
 /**
  * PR detail view with workspace and terminal management.
@@ -302,14 +322,12 @@ export function PRDetail({ prId, onBack, workspaceStates }) {
   }
 
   const isMergeReady = checkMergeReady(pr);
+  const headlineStatus = getHeadlineStatus(pr);
 
   return (
     <div className={workPage.page}>
       <header className={workPage.header}>
         <div className={workPage.headerActions}>
-          <Button size="sm" onClick={onBack}>
-            &larr; Work
-          </Button>
           <Stack gap={2} wrap className={styles.actionBar}>
             {isMergeReady && (
               <Button
@@ -365,12 +383,35 @@ export function PRDetail({ prId, onBack, workspaceStates }) {
           </Stack>
         </div>
         <div className={workPage.kicker}>
-          <a href={pr.url} target="_blank" rel="noopener noreferrer">
-            {pr.org}/{pr.repo} #{pr.number}
-          </a>
+          <span>Pull request</span>
+          <Badge color={headlineStatus.color} className={styles.headlineStatus}>
+            <span className={styles.headlineStatusDot} data-state-marker={headlineStatus.marker} aria-hidden="true" />
+            {headlineStatus.label}
+          </Badge>
+          {pr.labels.map((label) => (
+            <span
+              key={label.name}
+              className={styles.label}
+              style={{
+                backgroundColor: `#${label.color}20`,
+                borderColor: `#${label.color}`,
+                color: `#${label.color}`,
+              }}
+            >
+              {label.name}
+            </span>
+          ))}
         </div>
         <h1 className={workPage.title}>{pr.title}</h1>
         <div className={workPage.identity}>
+          <a href={pr.url} target="_blank" rel="noopener noreferrer">
+            #{pr.number}
+          </a>
+          <span aria-hidden="true">·</span>
+          <span>
+            {pr.org}/{pr.repo}
+          </span>
+          <span aria-hidden="true">·</span>
           <button
             title="Copy branch name"
             onClick={() => {
@@ -388,35 +429,16 @@ export function PRDetail({ prId, onBack, workspaceStates }) {
             {pr.branch}
             {copiedBranch && <span className={styles.copiedToast}>Copied!</span>}
           </button>
+          <span aria-hidden="true">·</span>
           <span>Updated {getRelativeTime(pr.updated_at)}</span>
         </div>
-        <div className={workPage.statusRow}>
-          <PullRequestStatusBadges pullRequest={pr} />
-        </div>
         {pr.is_stacked && <StackInfo pr={pr} />}
-        {pr.labels.length > 0 && (
-          <Stack gap={2} wrap className={styles.labels}>
-            {pr.labels.map((label) => (
-              <span
-                key={label.name}
-                className={styles.label}
-                style={{
-                  backgroundColor: `#${label.color}20`,
-                  borderColor: `#${label.color}`,
-                  color: `#${label.color}`,
-                }}
-              >
-                {label.name}
-              </span>
-            ))}
-          </Stack>
-        )}
       </header>
 
       {session ? (
         <TerminalCard
           session={session}
-          title={`Terminal - ${pr.org}/${pr.repo} #${pr.number}`}
+          title={`Terminal - #${pr.number}`}
           onKill={handleKillSession}
           onExit={handleSessionExit}
           onReattach={handleReattach}
@@ -429,26 +451,35 @@ export function PRDetail({ prId, onBack, workspaceStates }) {
         />
       ) : (
         <section className={workPage.terminalLauncher} aria-labelledby="pr-terminal-heading">
-          <h2 id="pr-terminal-heading">Terminal</h2>
-          <p className={workPage.launcherCopy}>Start an agent here, or prepare the workspace without a session.</p>
-          <Stack gap={2} wrap>
-            <AgentProviderButton
-              variant="primary"
-              size="lg"
-              onClick={handleOpenInAgent}
-              disabled={openingSession}
-              busy={openingSession}
-            >
-              {openingSession ? openingStep : `Open in ${provider === 'codex' ? 'Codex' : 'Claude'}`}
-            </AgentProviderButton>
-            <WorkspaceControls
-              prId={prId}
-              workspace={workspace}
-              onUpdate={loadData}
-              getOrCreateWorkspace={getOrCreateWorkspace}
-              sessionWaiting={openingSession && !workspace}
-            />
-          </Stack>
+          <h2 id="pr-terminal-heading">
+            <span className={workPage.terminalInactive} data-state-marker="inactive" aria-hidden="true" />
+            <span>#{pr.number} · no session</span>
+            <span className={workPage.terminalState}>Not started</span>
+          </h2>
+          <div className={workPage.terminalEmpty}>
+            <strong>No LLM session is attached to this pull request.</strong>
+            <p className={workPage.launcherCopy}>Start an agent with the pull request context loaded.</p>
+            <Stack gap={2} wrap justify="center" className={workPage.terminalEmptyActions}>
+              <AgentProviderButton
+                variant="primary"
+                size="lg"
+                onClick={handleOpenInAgent}
+                disabled={openingSession}
+                busy={openingSession}
+                className={workPage.terminalProvider}
+                actionClassName={workPage.terminalAction}
+              >
+                {openingSession ? openingStep : `Open in ${provider === 'codex' ? 'Codex' : 'Claude'}`}
+              </AgentProviderButton>
+              <WorkspaceControls
+                prId={prId}
+                workspace={workspace}
+                onUpdate={loadData}
+                getOrCreateWorkspace={getOrCreateWorkspace}
+                sessionWaiting={openingSession && !workspace}
+              />
+            </Stack>
+          </div>
         </section>
       )}
 
@@ -474,6 +505,29 @@ export function PRDetail({ prId, onBack, workspaceStates }) {
           {actionError}
         </p>
       )}
+
+      <section className={`${workPage.section} ${workPage.firstSection}`} aria-labelledby="pr-overview-heading">
+        <h2 id="pr-overview-heading">Overview</h2>
+        <p className={styles.overview}>
+          Pull request #{pr.number} proposes {pr.title} from <code>{pr.branch}</code> into <code>{pr.base_branch}</code>
+          .
+        </p>
+      </section>
+
+      <section className={workPage.section} aria-labelledby="pr-related-work-heading">
+        <h2 id="pr-related-work-heading">Related work</h2>
+        {pr.work_item ? (
+          <a className={styles.parentWork} href={`#/work-item/${pr.work_item.id}?pr=${encodeURIComponent(pr.id)}`}>
+            <span>{pr.work_item.reference}</span>
+            <strong>{pr.work_item.title || pr.work_item.reference}</strong>
+          </a>
+        ) : (
+          <div className={styles.relatedEmpty}>
+            <strong>This pull request has no parent work item.</strong>
+            <span>No work item is attached.</span>
+          </div>
+        )}
+      </section>
 
       <PullRequestChecks
         pr={pr}
