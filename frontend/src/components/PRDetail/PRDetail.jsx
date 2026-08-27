@@ -24,6 +24,7 @@ import {
   statusColorGroup,
 } from '../../lib/checks.js';
 import { getErrorMessage } from '../../lib/errors.js';
+import { sessionAttentionState } from '../../lib/session-attention.js';
 import { sendTerminalCommand, whenWsOpen } from '../../lib/terminal.js';
 import { getRelativeTime } from '../../lib/time.js';
 import shared from '../../styles/shared.module.css';
@@ -94,9 +95,11 @@ function getHeadlineStatus(pr) {
  *   prId: string,
  *   onBack: () => void,
  *   workspaceStates: Map<string, 'working' | 'idle'>,
+ *   acknowledgedSessionIds: Set<string>,
+ *   onAcknowledgeSession: (sessionId: string) => void,
  * }} props
  */
-export function PRDetail({ prId, onBack, workspaceStates }) {
+export function PRDetail({ prId, onBack, workspaceStates, acknowledgedSessionIds, onAcknowledgeSession }) {
   const { provider } = useAgentProvider();
   const [pr, setPR] = useState(/** @type {import('../../types').PullRequest | null} */ (null));
   const [workspace, setWorkspace] = useState(/** @type {import('../../types').Workspace | null} */ (null));
@@ -250,6 +253,10 @@ export function PRDetail({ prId, onBack, workspaceStates }) {
       setActionError(getErrorMessage(err, 'Failed to reattach terminal'));
     }
   }, [session]);
+
+  useEffect(() => {
+    if (session) onAcknowledgeSession(session.id);
+  }, [onAcknowledgeSession, session]);
 
   const handleRefresh = useCallback(async () => {
     if (refreshing) return;
@@ -447,7 +454,11 @@ export function PRDetail({ prId, onBack, workspaceStates }) {
           baseBranch={pr.base_branch}
           workspaceId={workspace?.id}
           prId={pr.id}
-          sessionState={workspace ? workspaceStates.get(`workspace:${workspace.id}`) : undefined}
+          attentionState={sessionAttentionState(
+            session,
+            workspace ? workspaceStates.get(`workspace:${workspace.id}`) : undefined,
+            acknowledgedSessionIds,
+          )}
           presentation="work-page"
         />
       ) : (

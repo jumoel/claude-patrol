@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, test, vi } from 'vitest';
+import { useWaitingAcknowledgements } from '../../hooks/useWaitingAcknowledgements.js';
 import { WorkDashboard } from './WorkDashboard.jsx';
 
 const pullRequest = /** @type {import('../../types').DashboardPullRequestSummary} */ ({
@@ -59,7 +60,15 @@ const defaultProps = {
   stackView: true,
   onStackViewChange: vi.fn(),
   onOpenGlobalTerminal: vi.fn(),
+  acknowledgedIdle: new Map(),
+  onAcknowledgeSession: vi.fn(),
 };
+
+/** @param {React.ComponentProps<typeof WorkDashboard>} props */
+function WorkDashboardWithAcknowledgements(props) {
+  const { acknowledgedIdle, acknowledge } = useWaitingAcknowledgements(props.dashboard.sessionSource.allSessions, true);
+  return <WorkDashboard {...props} acknowledgedIdle={acknowledgedIdle} onAcknowledgeSession={acknowledge} />;
+}
 
 beforeEach(() => {
   localStorage.clear();
@@ -161,7 +170,7 @@ test('returns an acknowledged waiting session to idle', () => {
     transcript_path: null,
   });
   render(
-    <WorkDashboard
+    <WorkDashboardWithAcknowledgements
       {...defaultProps}
       dashboard={{
         ...dashboard,
@@ -189,7 +198,7 @@ test('copies the currently visible rows in their rendered order', async () => {
 
 test('renders source failures and retained-data status without replacing available rows', () => {
   render(
-    <WorkDashboard
+    <WorkDashboardWithAcknowledgements
       {...defaultProps}
       dashboard={{
         ...dashboard,
@@ -238,7 +247,7 @@ test('shows waiting sessions as a list and acknowledges a global session when op
     transcript_path: null,
   });
   const { container } = render(
-    <WorkDashboard
+    <WorkDashboardWithAcknowledgements
       {...defaultProps}
       dashboard={{ ...dashboard, sessionSource: { ...dashboard.sessionSource, allSessions: [idleSession] } }}
     />,

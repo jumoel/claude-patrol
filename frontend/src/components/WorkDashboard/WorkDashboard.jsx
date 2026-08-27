@@ -1,5 +1,4 @@
 import { useMemo, useState } from 'react';
-import { useWaitingAcknowledgements } from '../../hooks/useWaitingAcknowledgements.js';
 import { getRelativeTime } from '../../lib/time.js';
 import {
   buildWaitingSessions,
@@ -324,6 +323,8 @@ function MultiSelect({ label, options, selected, onChange }) {
  *   stackView: boolean,
  *   onStackViewChange: (enabled: boolean) => void,
  *   onOpenGlobalTerminal: (sessionId?: string) => void,
+ *   acknowledgedIdle: Map<string, string>,
+ *   onAcknowledgeSession: (sessionId: string) => void,
  * }} props
  */
 export function WorkDashboard({
@@ -335,14 +336,11 @@ export function WorkDashboard({
   stackView,
   onStackViewChange,
   onOpenGlobalTerminal,
+  acknowledgedIdle,
+  onAcknowledgeSession,
 }) {
   const [visibleColumns, setVisibleColumns] = useState(readColumns);
   const [copyState, setCopyState] = useState(/** @type {'idle' | 'copied' | 'error'} */ ('idle'));
-  const sessionsReconciled = ['ready', 'stale'].includes(dashboard.sources.sessions.status);
-  const { acknowledgedIdle, acknowledge } = useWaitingAcknowledgements(
-    dashboard.sessionSource.allSessions,
-    sessionsReconciled,
-  );
   const waiting = useMemo(
     () => buildWaitingSessions(dashboard.sessionSource.allSessions, acknowledgedIdle),
     [acknowledgedIdle, dashboard.sessionSource.allSessions],
@@ -480,7 +478,7 @@ export function WorkDashboard({
         emptyMessage="No LLM sessions are waiting for you."
         labelForSession={labelForSession}
         contextForSession={contextForSession}
-        onAcknowledge={acknowledge}
+        onAcknowledge={onAcknowledgeSession}
         onOpenGlobalTerminal={onOpenGlobalTerminal}
       />
 
@@ -493,7 +491,7 @@ export function WorkDashboard({
         emptyMessage="No LLM sessions are currently working."
         labelForSession={labelForSession}
         contextForSession={contextForSession}
-        onAcknowledge={acknowledge}
+        onAcknowledge={onAcknowledgeSession}
         onOpenGlobalTerminal={onOpenGlobalTerminal}
       />
 

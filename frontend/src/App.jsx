@@ -11,10 +11,12 @@ import { WorkItemDetail } from './components/WorkItemDetail/WorkItemDetail.jsx';
 import { WorkspaceDetail } from './components/WorkspaceDetail/WorkspaceDetail.jsx';
 import { useAgentProvider } from './context/AgentProviderContext.jsx';
 import { useIdleNotification } from './hooks/useIdleNotification.js';
+import { useWaitingAcknowledgements } from './hooks/useWaitingAcknowledgements.js';
 import { useWorkDashboard } from './hooks/useWorkDashboard.js';
 import { fetchConfig } from './lib/api.js';
 import { getErrorMessage } from './lib/errors.js';
 import { parseAppRoute, pullRequestPath, workItemPath } from './lib/routes.js';
+import { sessionTargetKey } from './lib/session-target.js';
 
 /** @typedef {import('./types').FilterState} FilterState */
 /** @typedef {import('./types').FilterListKey} FilterListKey */
@@ -90,8 +92,7 @@ export default function App() {
   const [terminalOpen, setTerminalOpen] = useState(false);
   const pollConfigured = publicConfig?.poll_configured ?? false;
   const workItemsConfigured = publicConfig?.work_items.configured ?? false;
-  const { targetStates, dismissedIdle, setActiveTarget, localChangeCount } =
-    useIdleNotification(applicationDataEnabled);
+  const { targetStates, localChangeCount } = useIdleNotification(applicationDataEnabled);
   const dashboard = useWorkDashboard({
     enabled: applicationDataEnabled,
     pollConfigured,
@@ -99,6 +100,34 @@ export default function App() {
     changeToken: localChangeCount,
   });
   const { prSource, workItemSource, sessionSource: globalSessionState } = dashboard;
+  const sessionsReconciled = ['ready', 'stale'].includes(dashboard.sources.sessions.status);
+  const { acknowledgedIdle, acknowledge: acknowledgeSession } = useWaitingAcknowledgements(
+    globalSessionState.allSessions,
+    sessionsReconciled,
+  );
+  const acknowledgedSessionIds = useMemo(
+    () =>
+      new Set(
+        globalSessionState.allSessions
+          .filter(
+            (session) =>
+              !!session.activity_changed_at && acknowledgedIdle.get(session.id) === session.activity_changed_at,
+          )
+          .map((session) => session.id),
+      ),
+    [acknowledgedIdle, globalSessionState.allSessions],
+  );
+  const acknowledgedTargets = useMemo(
+    () =>
+      new Set(
+        globalSessionState.allSessions.flatMap((session) => {
+          if (!acknowledgedSessionIds.has(session.id)) return [];
+          const targetKey = sessionTargetKey(session.target);
+          return targetKey ? [targetKey] : [];
+        }),
+      ),
+    [acknowledgedSessionIds, globalSessionState.allSessions],
+  );
   const toggleTerminal = useCallback(() => setTerminalOpen((prev) => !prev), []);
   const openGlobalTerminal = useCallback(
     /** @param {string} [sessionId] */
@@ -192,21 +221,9 @@ export default function App() {
     return () => window.removeEventListener('hashchange', handleHash);
   }, []);
 
-  // Opening a detail acknowledges idle state only for that target.
   useEffect(() => {
-    if (route.type === 'workspace') setActiveTarget({ type: 'workspace', id: route.id });
-    else if (route.type === 'work_item') setActiveTarget({ type: 'work_item', id: route.id });
-    else if (route.type === 'pr') {
-      const pr = allPRs.find((item) => item.id === route.id);
-      setActiveTarget(
-        pr?.work_item_id
-          ? { type: 'work_item', id: pr.work_item_id }
-          : pr?.workspace_id
-            ? { type: 'workspace', id: pr.workspace_id }
-            : null,
-      );
-    } else setActiveTarget(null);
-  }, [route, allPRs, setActiveTarget]);
+    if (terminalOpen && globalSessionState.activeSession) acknowledgeSession(globalSessionState.activeSession.id);
+  }, [acknowledgeSession, globalSessionState.activeSession, terminalOpen]);
 
   const syncTime = syncedAt ? `Last synced ${new Date(syncedAt).toLocaleTimeString()}` : 'Not synced';
   const nextSync = countdown > 0 ? formatCountdown(countdown) : '';
@@ -298,6 +315,7 @@ export default function App() {
             onSelectSession={globalSessionState.selectSession}
             onUpsertSession={globalSessionState.upsertSession}
             onRemoveSession={globalSessionState.removeSession}
+            acknowledgedSessionIds={acknowledgedSessionIds}
           />
         ) : null
       }
@@ -305,15 +323,29 @@ export default function App() {
       {route.type === 'setup' ? (
         <SetupMode onConfigured={handleConfigured} isFirstRun={needsSetup === true} section={route.section} />
       ) : route.type === 'pr' ? (
-        <PRRouteDetail prId={route.id} onBack={navigateBack} targetStates={targetStates} />
+        <PRRouteDetail
+          prId={route.id}
+          onBack={navigateBack}
+          targetStates={targetStates}
+          acknowledgedSessionIds={acknowledgedSessionIds}
+          onAcknowledgeSession={acknowledgeSession}
+        />
       ) : route.type === 'workspace' ? (
-        <WorkspaceDetail workspaceId={route.id} onBack={navigateBack} workspaceStates={targetStates} />
+        <WorkspaceDetail
+          workspaceId={route.id}
+          onBack={navigateBack}
+          workspaceStates={targetStates}
+          acknowledgedSessionIds={acknowledgedSessionIds}
+          onAcknowledgeSession={acknowledgeSession}
+        />
       ) : route.type === 'work_item' ? (
         <WorkItemDetail
           key={route.id}
           workItemId={route.id}
           selectedPrId={route.selectedPrId}
           targetStates={targetStates}
+          acknowledgedSessionIds={acknowledgedSessionIds}
+          onAcknowledgeSession={acknowledgeSession}
         />
       ) : route.type === 'not_found' ? (
         <div role="alert">
@@ -332,6 +364,8 @@ export default function App() {
           stackView={stackView}
           onStackViewChange={handleStackViewChange}
           onOpenGlobalTerminal={openGlobalTerminal}
+          acknowledgedIdle={acknowledgedIdle}
+          onAcknowledgeSession={acknowledgeSession}
         />
       )}
       {applicationDataEnabled && (
@@ -340,7 +374,7 @@ export default function App() {
           workItems={workItemSource.workItems}
           scratchWorkspaces={scratchWorkspaces}
           workspaceStates={targetStates}
-          dismissedIdle={dismissedIdle}
+          dismissedIdle={acknowledgedTargets}
           globalSessions={globalSessionState.sessions}
           onNavigate={navigateToPR}
           onNavigateWorkspace={navigateToWorkspace}

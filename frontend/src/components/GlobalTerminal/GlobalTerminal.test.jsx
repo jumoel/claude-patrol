@@ -81,6 +81,7 @@ function renderTerminal(/** @type {Partial<React.ComponentProps<typeof GlobalTer
     onSelectSession: callbacks.onSelectSession,
     onUpsertSession: callbacks.onUpsertSession,
     onRemoveSession: callbacks.onRemoveSession,
+    acknowledgedSessionIds: new Set(),
     ...overrides,
   };
   return {

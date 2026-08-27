@@ -25,9 +25,14 @@ const api = vi.hoisted(() => ({
 vi.mock('../../hooks/useWorkItems.js', () => ({ useWorkItem: () => hook }));
 vi.mock('../../lib/api.js', () => api);
 vi.mock('../TerminalCard/TerminalCard.jsx', () => ({
-  /** @param {{session: import('../../types').Session, presentation?: string}} props */
-  TerminalCard: ({ session, presentation }) => (
-    <div data-testid="root-terminal" data-session={session.id} data-presentation={presentation}>
+  /** @param {{session: import('../../types').Session, presentation?: string, attentionState?: string}} props */
+  TerminalCard: ({ session, presentation, attentionState }) => (
+    <div
+      data-testid="root-terminal"
+      data-session={session.id}
+      data-presentation={presentation}
+      data-attention={attentionState}
+    >
       Terminal {session.id}
     </div>
   ),
@@ -93,10 +98,16 @@ function detail() {
 }
 
 /** @param {string} [workItemId] @param {string | null} [selectedPrId] */
-function renderDetail(workItemId = 'item-1', selectedPrId = null) {
+function renderDetail(workItemId = 'item-1', selectedPrId = null, targetStates = new Map()) {
   return render(
     <AgentProviderProvider>
-      <WorkItemDetail workItemId={workItemId} selectedPrId={selectedPrId} targetStates={new Map()} />
+      <WorkItemDetail
+        workItemId={workItemId}
+        selectedPrId={selectedPrId}
+        targetStates={targetStates}
+        acknowledgedSessionIds={new Set()}
+        onAcknowledgeSession={vi.fn()}
+      />
     </AgentProviderProvider>,
   );
 }
@@ -149,6 +160,50 @@ test('ready detail renders one root terminal and no child controls', async () =>
   assert.equal(screen.getAllByRole('button', { name: 'Copy path' }).length, 1);
   assert.equal(screen.queryByRole('link', { name: /acme\/alpha/ }), null);
   assert.ok(screen.getByTestId('session-history').textContent?.includes('work_item'));
+});
+
+test('acknowledges the visible idle session and renders it as idle once acknowledged', async () => {
+  const idleSession = {
+    id: 'session-1',
+    workspace_id: null,
+    work_item_id: 'item-1',
+    target: { type: /** @type {'work_item'} */ ('work_item'), id: 'item-1' },
+    pid: 123,
+    provider: /** @type {'codex'} */ ('codex'),
+    status: /** @type {'active'} */ ('active'),
+    started_at: '2026-08-22T00:00:00.000Z',
+    ended_at: null,
+    activity_state: /** @type {'idle'} */ ('idle'),
+    activity_changed_at: '2026-08-27T15:23:33.806Z',
+  };
+  const acknowledgeSession = vi.fn();
+  hook.workItem = {
+    ...detail(),
+    session: {
+      id: idleSession.id,
+      status: idleSession.status,
+      activity_state: idleSession.activity_state,
+      activity_changed_at: idleSession.activity_changed_at,
+    },
+  };
+  api.fetchSessions.mockResolvedValue([idleSession]);
+
+  render(
+    <AgentProviderProvider>
+      <WorkItemDetail
+        workItemId="item-1"
+        targetStates={new Map([['work-item:item-1', 'idle']])}
+        acknowledgedSessionIds={new Set([idleSession.id])}
+        onAcknowledgeSession={acknowledgeSession}
+      />
+    </AgentProviderProvider>,
+  );
+
+  const terminal = await screen.findByTestId('root-terminal');
+  assert.equal(terminal.getAttribute('data-attention'), 'idle');
+  assert.ok(screen.getByText('Idle'));
+  assert.equal(screen.queryByText('Waiting'), null);
+  await waitFor(() => assert.deepEqual(acknowledgeSession.mock.calls, [[idleSession.id]]));
 });
 
 test('overview stays visible while the repository pane remembers collapsed state per work item', async () => {

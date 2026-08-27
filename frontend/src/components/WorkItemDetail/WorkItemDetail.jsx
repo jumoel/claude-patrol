@@ -11,6 +11,7 @@ import {
 } from '../../lib/api.js';
 import { getErrorMessage } from '../../lib/errors.js';
 import { workItemPath } from '../../lib/routes.js';
+import { sessionAttentionState } from '../../lib/session-attention.js';
 import { getRelativeTime } from '../../lib/time.js';
 import shared from '../../styles/shared.module.css';
 import { AgentProviderButton } from '../AgentProviderButton/AgentProviderButton.jsx';
@@ -253,9 +254,21 @@ function RecoveryCommandButton({ recovery }) {
 }
 
 /**
- * @param {{workItemId: string, targetStates: Map<string, 'working' | 'idle'>, selectedPrId?: string | null}} props
+ * @param {{
+ *   workItemId: string,
+ *   targetStates: Map<string, 'working' | 'idle'>,
+ *   acknowledgedSessionIds: Set<string>,
+ *   onAcknowledgeSession: (sessionId: string) => void,
+ *   selectedPrId?: string | null,
+ * }} props
  */
-export function WorkItemDetail({ workItemId, targetStates, selectedPrId = null }) {
+export function WorkItemDetail({
+  workItemId,
+  targetStates,
+  acknowledgedSessionIds,
+  onAcknowledgeSession,
+  selectedPrId = null,
+}) {
   const { provider } = useAgentProvider();
   const { workItem, loading, error, reload } = useWorkItem(workItemId);
   const target = useMemo(() => ({ type: /** @type {'work_item'} */ ('work_item'), id: workItemId }), [workItemId]);
@@ -398,6 +411,10 @@ export function WorkItemDetail({ workItemId, targetStates, selectedPrId = null }
     setSession(await reattachSession(session.id));
   }, [session]);
 
+  useEffect(() => {
+    if (session) onAcknowledgeSession(session.id);
+  }, [onAcknowledgeSession, session]);
+
   if (loading) return <LoadingIndicator className={shared.loading}>Loading work item...</LoadingIndicator>;
   if (!workItem) {
     return (
@@ -421,10 +438,14 @@ export function WorkItemDetail({ workItemId, targetStates, selectedPrId = null }
     workItem.pull_requests.find((pullRequest) => pullRequest.id === selectedPrId) ?? workItem.pull_requests[0] ?? null;
   const referenceDisplay = workItem.reference_display || workItem.reference;
   const sessionState = targetStates.get(`work-item:${workItem.id}`);
+  const attentionState = session ? sessionAttentionState(session, sessionState, acknowledgedSessionIds) : null;
   const repositorySummary = workItem.repository_workspaces.map((repository) => repository.identifier).join(', ');
-  const headerIsWorking = !!session && sessionState === 'working';
-  const headerStatusLabel =
-    session && sessionState === 'idle' ? 'Waiting' : session ? 'Idle' : WORK_ITEM_STATE_LABELS[workItem.state];
+  const headerIsWorking = attentionState === 'working';
+  const headerStatusLabel = session
+    ? attentionState === 'waiting'
+      ? 'Waiting'
+      : 'Idle'
+    : WORK_ITEM_STATE_LABELS[workItem.state];
   const headerStatusColor =
     headerStatusLabel === 'Waiting'
       ? /** @type {const} */ ('amber')
@@ -521,7 +542,7 @@ export function WorkItemDetail({ workItemId, targetStates, selectedPrId = null }
             wsRef={wsRef}
             baseBranch={selectedPullRequest?.base_branch ?? undefined}
             prId={selectedPullRequest?.tracked ? selectedPullRequest.id : undefined}
-            sessionState={sessionState}
+            attentionState={attentionState ?? 'idle'}
             presentation="work-page"
           />
         ) : (

@@ -32,7 +32,7 @@ const MAX_TERMINAL_HEIGHT = 900;
  *   baseBranch?: string,
  *   workspaceId?: string,
  *   prId?: string,
- *   sessionState?: 'working' | 'idle',
+ *   attentionState?: 'working' | 'waiting' | 'idle',
  *   presentation?: 'card' | 'work-page' | 'global',
  *   focusRequest?: number,
  *   controlsDisabled?: boolean,
@@ -49,7 +49,7 @@ export function TerminalCard({
   baseBranch,
   workspaceId,
   prId,
-  sessionState,
+  attentionState = 'idle',
   presentation = 'card',
   focusRequest = 0,
   controlsDisabled = false,
@@ -61,6 +61,7 @@ export function TerminalCard({
   const [reattaching, setReattaching] = useState(false);
   const internalWsRef = useRef(/** @type {WebSocket | null} */ (null));
   const wsRef = externalWsRef || internalWsRef;
+  const sessionState = attentionState === 'working' ? 'working' : 'idle';
 
   const {
     height: termHeight,
@@ -165,8 +166,8 @@ export function TerminalCard({
   if (presentation === 'work-page' || presentation === 'global') {
     const isGlobal = presentation === 'global';
     const workPageTitle = title.replace(/^Terminal\s*-\s*/, '');
-    const stateLabel = sessionState === 'working' ? WORKING_LABEL : sessionState === 'idle' ? 'Waiting' : 'Idle';
-    const stateClass = sessionState === 'idle' ? styles.waiting : styles.inactive;
+    const stateLabel = attentionState === 'working' ? WORKING_LABEL : attentionState === 'waiting' ? 'Waiting' : 'Idle';
+    const stateClass = attentionState === 'waiting' ? styles.waiting : styles.inactive;
     if (session.status === 'detached') {
       return (
         <section
@@ -213,12 +214,12 @@ export function TerminalCard({
       >
         <div className={styles.workPageHeader}>
           <h2 id={`terminal-${session.id}`} className={styles.workPageTitle}>
-            {sessionState === 'working' ? (
+            {attentionState === 'working' ? (
               <Spinner size="xs" className={styles.workingIndicator} />
             ) : (
               <span
                 className={`${styles.workPageStatus} ${stateClass}`}
-                data-state-marker={sessionState === 'idle' ? 'waiting' : 'idle'}
+                data-state-marker={attentionState}
                 aria-hidden="true"
               />
             )}

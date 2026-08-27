@@ -131,7 +131,7 @@ test('shows a spinner when the terminal session is working', () => {
       title="Terminal - Repair JavaScript CVEs"
       onKill={vi.fn()}
       onExit={vi.fn()}
-      sessionState="working"
+      attentionState="working"
       presentation="work-page"
     />,
   );

@@ -9,9 +9,15 @@ import { Button } from '../ui/Button/Button.jsx';
 import { LoadingIndicator } from '../ui/LoadingIndicator/LoadingIndicator.jsx';
 
 /**
- * @param {{prId: string, onBack: () => void, targetStates: Map<string, 'working' | 'idle'>}} props
+ * @param {{
+ *   prId: string,
+ *   onBack: () => void,
+ *   targetStates: Map<string, 'working' | 'idle'>,
+ *   acknowledgedSessionIds: Set<string>,
+ *   onAcknowledgeSession: (sessionId: string) => void,
+ * }} props
  */
-export function PRRouteDetail({ prId, onBack, targetStates }) {
+export function PRRouteDetail({ prId, onBack, targetStates, acknowledgedSessionIds, onAcknowledgeSession }) {
   const [pr, setPR] = useState(/** @type {import('../../types').PullRequest | null} */ (null));
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -55,5 +61,13 @@ export function PRRouteDetail({ prId, onBack, targetStates }) {
   if (pr.work_item_id) {
     return <LoadingIndicator className={shared.loading}>Opening work item...</LoadingIndicator>;
   }
-  return <PRDetail prId={prId} onBack={onBack} workspaceStates={targetStates} />;
+  return (
+    <PRDetail
+      prId={prId}
+      onBack={onBack}
+      workspaceStates={targetStates}
+      acknowledgedSessionIds={acknowledgedSessionIds}
+      onAcknowledgeSession={onAcknowledgeSession}
+    />
+  );
 }

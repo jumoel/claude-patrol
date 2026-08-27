@@ -71,7 +71,13 @@ function session() {
 function renderDetail(onBack = vi.fn()) {
   render(
     <AgentProviderProvider>
-      <WorkspaceDetail workspaceId="scratch-1" onBack={onBack} workspaceStates={new Map()} />
+      <WorkspaceDetail
+        workspaceId="scratch-1"
+        onBack={onBack}
+        workspaceStates={new Map()}
+        acknowledgedSessionIds={new Set()}
+        onAcknowledgeSession={vi.fn()}
+      />
     </AgentProviderProvider>,
   );
   return onBack;

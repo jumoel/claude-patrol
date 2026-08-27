@@ -8,6 +8,7 @@ import {
   promoteSession,
 } from '../../lib/api.js';
 import { getErrorMessage } from '../../lib/errors.js';
+import { sessionAttentionState } from '../../lib/session-attention.js';
 import { clearMaximizedTerminal, maximizedTerminalId, replaceMaximizedTerminal } from '../../lib/terminal-url.js';
 import { AgentProviderButton } from '../AgentProviderButton/AgentProviderButton.jsx';
 import { TerminalCard } from '../TerminalCard/TerminalCard.jsx';
@@ -42,6 +43,7 @@ function actionFailure(sessionId, error, fallback) {
  *   onSelectSession: (sessionId: string) => void,
  *   onUpsertSession: (session: import('../../types').Session, select?: boolean) => void,
  *   onRemoveSession: (sessionId: string) => void,
+ *   acknowledgedSessionIds: Set<string>,
  * }} props
  */
 export function GlobalTerminal({
@@ -55,6 +57,7 @@ export function GlobalTerminal({
   onSelectSession,
   onUpsertSession,
   onRemoveSession,
+  acknowledgedSessionIds,
 }) {
   const { provider } = useAgentProvider();
   const [starting, setStarting] = useState(false);
@@ -463,7 +466,7 @@ export function GlobalTerminal({
             onKill={killSession}
             onExit={() => handleSessionExit(activeSession)}
             onReattach={reattachSession}
-            sessionState={activeSession.activity_state ?? undefined}
+            attentionState={sessionAttentionState(activeSession, undefined, acknowledgedSessionIds)}
             presentation="global"
             focusRequest={terminalFocusRequest}
             controlsDisabled={sessionMutationPending}

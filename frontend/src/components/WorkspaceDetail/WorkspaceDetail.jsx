@@ -10,6 +10,7 @@ import {
   fetchWorkspace,
 } from '../../lib/api.js';
 import { getErrorMessage } from '../../lib/errors.js';
+import { sessionAttentionState } from '../../lib/session-attention.js';
 import { getRelativeTime } from '../../lib/time.js';
 import shared from '../../styles/shared.module.css';
 import { AgentProviderButton } from '../AgentProviderButton/AgentProviderButton.jsx';
@@ -28,9 +29,17 @@ import styles from './WorkspaceDetail.module.css';
  *   workspaceId: string,
  *   onBack: () => void,
  *   workspaceStates: Map<string, 'working' | 'idle'>,
+ *   acknowledgedSessionIds: Set<string>,
+ *   onAcknowledgeSession: (sessionId: string) => void,
  * }} props
  */
-export function WorkspaceDetail({ workspaceId, onBack, workspaceStates }) {
+export function WorkspaceDetail({
+  workspaceId,
+  onBack,
+  workspaceStates,
+  acknowledgedSessionIds,
+  onAcknowledgeSession,
+}) {
   const { provider } = useAgentProvider();
   const [workspace, setWorkspace] = useState(/** @type {import('../../types').Workspace | null} */ (null));
   const [session, setSession] = useState(/** @type {import('../../types').Session | null} */ (null));
@@ -105,6 +114,10 @@ export function WorkspaceDetail({ workspaceId, onBack, workspaceStates }) {
     }
   }, [session]);
 
+  useEffect(() => {
+    if (session) onAcknowledgeSession(session.id);
+  }, [onAcknowledgeSession, session]);
+
   const handleDestroy = useCallback(async () => {
     if (!workspace) return;
     setDestroying(true);
@@ -139,9 +152,10 @@ export function WorkspaceDetail({ workspaceId, onBack, workspaceStates }) {
 
   const adopted = workspace.pr_id && !workspace.repo;
   const sessionState = workspaceStates.get(`workspace:${workspace.id}`);
-  const headerIsWorking = !!session && sessionState === 'working';
+  const attentionState = session ? sessionAttentionState(session, sessionState, acknowledgedSessionIds) : null;
+  const headerIsWorking = attentionState === 'working';
   const headerStatusLabel =
-    session && sessionState === 'idle'
+    session && attentionState === 'waiting'
       ? 'Waiting'
       : session
         ? 'Idle'
@@ -208,7 +222,7 @@ export function WorkspaceDetail({ workspaceId, onBack, workspaceStates }) {
             onReattach={handleReattach}
             workspaceId={workspace.id}
             prId={workspace.pr_id || undefined}
-            sessionState={sessionState}
+            attentionState={attentionState ?? 'idle'}
             presentation="work-page"
           />
         ) : (
