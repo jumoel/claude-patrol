@@ -198,6 +198,41 @@ test('startup retries a stale database workspace through the existing destroy st
   assert.equal(existsSync(workspace.path), false);
 });
 
+test('duplicate database owners block cleanup and dry-run eligibility for their shared path', async () => {
+  const { root, config } = createFixture();
+  const workspace = await createScratchWorkspace('example/project', 'duplicate-owner', config, {
+    startRevision: '@',
+  });
+  const now = '2026-08-27T12:00:00.000Z';
+  getDb()
+    .prepare(
+      `UPDATE workspaces
+          SET operation_state = 'error', operation_step = 'destroy:directory',
+              operation_error = 'interrupted', operation_updated_at = ?
+        WHERE id = ?`,
+    )
+    .run(now, workspace.id);
+  getDb()
+    .prepare(
+      `INSERT INTO workspaces (
+        id, name, path, bookmark, repo, status, created_at, operation_state,
+        operation_step, operation_error, operation_updated_at
+      ) VALUES ('duplicate-row', 'duplicate-row', ?, 'duplicate-owner', 'example/project',
+        'active', ?, 'error', 'destroy:directory', 'interrupted', ?)`,
+    )
+    .run(workspace.path, now, now);
+
+  const result = await reconcilePatrolWorkspaces(config, cleanupRuntime(root, { dryRun: true, now: () => now }));
+
+  assert.deepEqual(result.candidates, []);
+  assert.equal(result.blocked.length, 2);
+  assert.deepEqual(
+    result.blocked.map((candidate) => candidate.code),
+    ['workspace_reowned', 'workspace_reowned'],
+  );
+  assert.equal(existsSync(workspace.path), true);
+});
+
 test('unpublished changes block deletion and retain the original first-seen timestamp', async () => {
   const { root, config } = createFixture();
   const workspace = await orphanScratchWorkspace(config, 'stale-dirty');

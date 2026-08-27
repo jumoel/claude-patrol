@@ -414,10 +414,8 @@ async function inspectJjSafety(candidate, config, runExec) {
 
 async function inspectAutomaticCleanup(candidate, config, runtime, excludeWorkspaceId = null) {
   assertPatrolAvailable(runtime.isPatrolAvailable);
-  if (excludeWorkspaceId === null) {
-    const owner = databaseOwner(candidate.path);
-    if (owner) throw cleanupError('workspace_reowned', `Workspace path is owned by database row ${owner}`);
-  }
+  const owner = databaseOwner(candidate.path, excludeWorkspaceId);
+  if (owner) throw cleanupError('workspace_reowned', `Workspace path is owned by database row ${owner}`);
   await assertNoUsage(candidate.path, runtime.runExec, excludeWorkspaceId);
   return inspectJjSafety(candidate, config, runtime.runExec);
 }
