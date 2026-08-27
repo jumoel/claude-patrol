@@ -303,7 +303,7 @@ export function AppShell({
           </div>
         </div>
       )}
-      <main className={`${styles.content} ${onBackToWork ? styles.detailContent : ''}`}>{children}</main>
+      <main className={styles.content}>{children}</main>
     </div>
   );
 }

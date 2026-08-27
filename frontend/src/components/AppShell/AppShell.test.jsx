@@ -60,6 +60,23 @@ test('shows all-work navigation on detail pages', () => {
   assert.equal(onBackToWork.mock.calls.length, 1);
 });
 
+test('uses the same content container on dashboard and detail pages', () => {
+  const { container, rerender } = render(
+    <AppShell {...baseProps} pollConfigured>
+      <p>Work</p>
+    </AppShell>,
+  );
+  const dashboardContentClass = container.querySelector('main')?.className;
+
+  rerender(
+    <AppShell {...baseProps} pollConfigured onBackToWork={vi.fn()}>
+      <p>Detail</p>
+    </AppShell>,
+  );
+
+  assert.equal(container.querySelector('main')?.className, dashboardContentClass);
+});
+
 test('shows a spinner instead of a status dot while syncing', () => {
   render(
     <AppShell {...baseProps} pollConfigured syncing>
