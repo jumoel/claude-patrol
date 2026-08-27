@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAgentProvider } from '../../context/AgentProviderContext.jsx';
 import { createScratchWorkspace, createWorkItem } from '../../lib/api.js';
 import { getErrorMessage } from '../../lib/errors.js';
@@ -23,6 +23,12 @@ export function StartWorkLauncher({ workItemsConfigured }) {
   const [branch, setBranch] = useState('');
   const [scratchError, setScratchError] = useState('');
   const [pending, setPending] = useState(false);
+
+  useEffect(() => {
+    const closeOnNavigation = () => setOpen(false);
+    window.addEventListener('hashchange', closeOnNavigation);
+    return () => window.removeEventListener('hashchange', closeOnNavigation);
+  }, []);
 
   const show = useCallback(() => {
     setMode(workItemsConfigured ? 'project' : 'scratch');
@@ -57,6 +63,8 @@ export function StartWorkLauncher({ workItemsConfigured }) {
     setProjectError('');
     try {
       const { work_item: item } = await createWorkItem(reference, provider);
+      setOpen(false);
+      setPending(false);
       window.location.hash = `/work-item/${item.id}`;
     } catch (error) {
       setProjectError(getErrorMessage(error, 'Failed to start work item'));
@@ -73,6 +81,8 @@ export function StartWorkLauncher({ workItemsConfigured }) {
     setScratchError('');
     try {
       const workspace = await createScratchWorkspace(repo, branch.trim());
+      setOpen(false);
+      setPending(false);
       window.location.hash = `/workspace/${workspace.id}`;
     } catch (error) {
       setScratchError(getErrorMessage(error, 'Failed to create scratch workspace'));
@@ -82,16 +92,33 @@ export function StartWorkLauncher({ workItemsConfigured }) {
 
   return (
     <section className={styles.container}>
-      {!open ? (
-        <div ref={triggerRef}>
-          <Button variant="primary" size="md" filled onClick={show} className={styles.trigger}>
-            + Start work
-          </Button>
-        </div>
-      ) : (
-        <Box p={0} border bg="white" className={styles.card}>
+      <div ref={triggerRef}>
+        <Button
+          variant="primary"
+          size="sm"
+          filled
+          onClick={open ? cancel : show}
+          className={styles.trigger}
+          aria-expanded={open}
+          aria-controls="start-work-panel"
+        >
+          + Start work
+        </Button>
+      </div>
+      {open && (
+        <Box
+          id="start-work-panel"
+          role="dialog"
+          aria-labelledby="start-work-title"
+          p={0}
+          border
+          bg="white"
+          className={styles.card}
+        >
           <div className={styles.header}>
-            <h2 className={styles.title}>Start work</h2>
+            <h2 id="start-work-title" className={styles.title}>
+              Start work
+            </h2>
             <fieldset className={styles.modeGroup} disabled={pending}>
               <legend className={styles.legend}>Workspace type</legend>
               <Stack gap={2} wrap className={styles.modeOptions}>

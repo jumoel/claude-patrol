@@ -3,18 +3,6 @@
   font-size: 14px;
 }
 
-.launcherRow {
-  display: flex;
-  min-height: 28px;
-  align-items: center;
-  justify-content: flex-end;
-  margin-bottom: 8px;
-}
-
-.launcherRow > section:has(h2) {
-  width: 100%;
-}
-
 .sourceNotice {
   display: flex;
   align-items: center;

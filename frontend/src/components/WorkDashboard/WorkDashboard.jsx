@@ -324,7 +324,6 @@ function MultiSelect({ label, options, selected, onChange }) {
  *   stackView: boolean,
  *   onStackViewChange: (enabled: boolean) => void,
  *   onOpenGlobalTerminal: (sessionId?: string) => void,
- *   startWorkLauncher?: React.ReactNode,
  * }} props
  */
 export function WorkDashboard({
@@ -336,7 +335,6 @@ export function WorkDashboard({
   stackView,
   onStackViewChange,
   onOpenGlobalTerminal,
-  startWorkLauncher,
 }) {
   const [visibleColumns, setVisibleColumns] = useState(readColumns);
   const [copyState, setCopyState] = useState(/** @type {'idle' | 'copied' | 'error'} */ ('idle'));
@@ -453,8 +451,6 @@ export function WorkDashboard({
 
   return (
     <div className={styles.dashboard}>
-      {startWorkLauncher && <div className={styles.launcherRow}>{startWorkLauncher}</div>}
-
       {(unavailableSources.length > 0 || staleSources.length > 0) && (
         <div className={styles.sourceNotice}>
           <div role="status">

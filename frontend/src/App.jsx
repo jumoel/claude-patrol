@@ -282,6 +282,9 @@ export default function App() {
       startupSha={startupSha}
       currentSha={currentSha}
       ghRateLimit={ghRateLimit}
+      startWorkLauncher={
+        applicationDataEnabled ? <StartWorkLauncher workItemsConfigured={workItemsConfigured} /> : undefined
+      }
       bottomBar={
         applicationDataEnabled ? (
           <GlobalTerminal
@@ -329,7 +332,6 @@ export default function App() {
           stackView={stackView}
           onStackViewChange={handleStackViewChange}
           onOpenGlobalTerminal={openGlobalTerminal}
-          startWorkLauncher={<StartWorkLauncher workItemsConfigured={workItemsConfigured} />}
         />
       )}
       {applicationDataEnabled && (

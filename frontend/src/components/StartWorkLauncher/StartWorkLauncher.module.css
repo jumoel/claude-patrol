@@ -1,23 +1,25 @@
 @reference "tailwindcss";
 
 .container {
+  position: relative;
+  z-index: 1;
   margin: 0;
 }
 
 .trigger {
-  min-height: 28px;
-  height: 28px;
-  padding: 0 8px;
-  border-radius: 2px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 12px;
-  font-weight: 500;
+  white-space: nowrap;
 }
 
 .card {
-  width: 100%;
-  border-color: #d7dce3;
-  border-radius: 2px;
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  z-index: 50;
+  width: min(760px, calc(100vw - 48px));
+  max-height: calc(100vh - var(--app-header-height, 59px) - 24px);
+  overflow-y: auto;
+  border-color: var(--line-strong);
+  border-radius: var(--radius);
 }
 
 .header {
@@ -26,14 +28,14 @@
   align-items: center;
   gap: 12px;
   padding: 5px 10px;
-  border-bottom: 1px solid #d7dce3;
+  border-bottom: 1px solid var(--line);
 }
 
 .title {
   flex: 0 0 auto;
   margin: 0;
-  color: #1c2430;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  color: var(--ink);
+  font-family: var(--font-mono);
   font-size: 14px;
   font-weight: 500;
 }
@@ -67,10 +69,10 @@
   align-items: center;
   gap: 6px;
   padding: 0 8px;
-  color: #606b78;
-  background: #fff;
-  border: 1px solid #d7dce3;
-  border-radius: 2px;
+  color: var(--muted);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
   cursor: pointer;
   font-size: 12px;
   line-height: 1;
@@ -78,21 +80,21 @@
 }
 
 .modeOption:focus-within {
-  outline: 2px solid #2764b0;
+  outline: 2px solid var(--blue);
   outline-offset: 1px;
 }
 
 .modeOptionActive {
-  color: #1c2430;
-  background: #e7f0fb;
-  border-color: #9fb9d9;
+  color: var(--ink);
+  background: var(--blue-soft);
+  border-color: var(--line-strong);
 }
 
 .modeOption input {
   width: 13px;
   height: 13px;
   margin: 0;
-  accent-color: #2764b0;
+  accent-color: var(--blue);
 }
 
 .header > button {
@@ -113,7 +115,7 @@
   flex: 1;
   flex-direction: column;
   gap: 4px;
-  color: #606b78;
+  color: var(--muted);
   font-size: 12px;
   font-weight: 400;
 }
@@ -125,10 +127,10 @@
 .field input {
   min-height: 32px;
   padding: 0 9px;
-  color: #1c2430;
-  background: #fff;
-  border: 1px solid #9fa8b5;
-  border-radius: 2px;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
   font: inherit;
   font-size: 14px;
   font-weight: 400;
@@ -136,14 +138,14 @@
 }
 
 .field input:focus {
-  border-color: #2764b0;
-  outline: 2px solid #d5e4f5;
+  border-color: var(--blue);
+  outline: 2px solid var(--blue-soft);
   outline-offset: 0;
 }
 
 .error {
   margin: 7px 0 0;
-  color: #c94b45;
+  color: var(--red);
   font-size: 12px;
 }
 
@@ -152,7 +154,7 @@
   color: #80540c;
   background: #fff8e7;
   border: 1px solid #ead8ac;
-  border-radius: 2px;
+  border-radius: var(--radius);
   font-size: 12px;
 }
 
@@ -163,10 +165,18 @@
 .unconfigured a {
   display: inline-block;
   margin-top: 4px;
-  color: #2764b0;
+  color: var(--blue);
 }
 
 @media (max-width: 40rem) {
+  .card {
+    position: fixed;
+    top: calc(var(--app-header-height, 120px) + 8px);
+    right: 16px;
+    left: 16px;
+    width: auto;
+  }
+
   .header {
     align-items: flex-start;
     flex-wrap: wrap;

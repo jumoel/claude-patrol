@@ -44,6 +44,7 @@ function formatResetCountdown(resetAt) {
  *   startupSha: string,
  *   currentSha: string,
  *   ghRateLimit: import('../../types').GhRateLimit | null,
+ *   startWorkLauncher?: React.ReactNode,
  *   bottomBar?: React.ReactNode,
  *   children: React.ReactNode,
  * }} props
@@ -63,6 +64,7 @@ export function AppShell({
   startupSha,
   currentSha,
   ghRateLimit,
+  startWorkLauncher,
   bottomBar,
   children,
 }) {
@@ -199,6 +201,7 @@ export function AppShell({
                 </button>
               </>
             )}
+            {startWorkLauncher}
             {onBackToWork && (
               <Button className={styles.headerButton} size="sm" onClick={onBackToWork}>
                 &larr; All work

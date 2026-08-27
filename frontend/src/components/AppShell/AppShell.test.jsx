@@ -101,3 +101,15 @@ test('shows a spinner instead of a status dot while syncing', () => {
   const syncStatus = screen.getByText(/Last synced now/u);
   assert.ok(syncStatus.querySelector('[data-spinner="true"]'));
 });
+
+test('places Start work between Sync now and Settings', () => {
+  render(
+    <AppShell {...baseProps} pollConfigured startWorkLauncher={<button type="button">+ Start work</button>}>
+      <p>Work</p>
+    </AppShell>,
+  );
+
+  const labels = screen.getAllByRole('button').map((button) => button.textContent?.trim());
+  assert.ok(labels.indexOf('Sync now') < labels.indexOf('+ Start work'));
+  assert.ok(labels.indexOf('+ Start work') < labels.indexOf('Settings'));
+});
