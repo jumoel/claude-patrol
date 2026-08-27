@@ -157,8 +157,9 @@ test('calls the workspace and session API adapters and renders an in-flow termin
 
   assert.ok(await screen.findByRole('heading', { name: 'Ship the widget fix' }));
   assert.ok(document.querySelector('[data-state-marker]'));
-  assert.ok(screen.getByRole('heading', { name: '#42 · no session Not started' }));
-  assert.ok(document.querySelector('[data-state-marker="inactive"]'));
+  assert.equal(document.querySelector('[data-state-marker="inactive"]'), null);
+  assert.equal(screen.queryByText('No LLM session is attached to this pull request.'), null);
+  assert.equal(screen.queryByRole('button', { name: 'Create workspace only' }), null);
   await user.click(screen.getByRole('button', { name: 'Open in Codex' }));
 
   await waitFor(() => {

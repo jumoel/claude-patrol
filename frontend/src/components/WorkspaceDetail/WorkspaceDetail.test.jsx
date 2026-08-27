@@ -96,8 +96,8 @@ test('calls the scratch session API adapter and renders an in-flow terminal', as
 
   assert.ok(await screen.findByRole('heading', { name: 'advisory-sync investigation' }));
   assert.ok(document.querySelector('[data-state-marker="active"]'));
-  assert.ok(screen.getByRole('heading', { name: 'patrol/advisory-sync · no session Not started' }));
-  assert.ok(document.querySelector('[data-state-marker="inactive"]'));
+  assert.equal(document.querySelector('[data-state-marker="inactive"]'), null);
+  assert.equal(screen.queryByText('No LLM session is attached to this workspace.'), null);
   await user.click(screen.getByRole('button', { name: 'Start Codex session' }));
 
   await waitFor(() => {

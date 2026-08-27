@@ -7,27 +7,13 @@ import { Stack } from '../ui/Stack/Stack.jsx';
 import styles from './WorkspaceControls.module.css';
 
 /**
- * Workspace create/destroy controls for a PR.
- * @param {{ prId: string, workspace: import('../../types').Workspace | null, onUpdate: () => void, getOrCreateWorkspace?: () => Promise<import('../../types').Workspace>, sessionWaiting?: boolean }} props
+ * Workspace destroy controls for a PR.
+ * @param {{ workspace: import('../../types').Workspace, onUpdate: () => void }} props
  */
-export function WorkspaceControls({ workspace, onUpdate, getOrCreateWorkspace, sessionWaiting }) {
+export function WorkspaceControls({ workspace, onUpdate }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(/** @type {string | null} */ (null));
   const [confirmDestroy, setConfirmDestroy] = useState(false);
-
-  const handleCreate = useCallback(async () => {
-    if (!getOrCreateWorkspace) return;
-    setLoading(true);
-    setError(null);
-    try {
-      await getOrCreateWorkspace();
-      onUpdate();
-    } catch (err) {
-      setError(getErrorMessage(err));
-    } finally {
-      setLoading(false);
-    }
-  }, [getOrCreateWorkspace, onUpdate]);
 
   const handleDestroy = useCallback(async () => {
     if (!workspace) return;
@@ -43,19 +29,6 @@ export function WorkspaceControls({ workspace, onUpdate, getOrCreateWorkspace, s
       setLoading(false);
     }
   }, [workspace, onUpdate]);
-
-  const busy = loading || sessionWaiting;
-
-  if (!workspace) {
-    return (
-      <Stack gap={3} wrap>
-        <Button size="sm" onClick={handleCreate} disabled={busy} busy={busy}>
-          {busy ? 'Creating workspace...' : 'Create workspace only'}
-        </Button>
-        {error && <p className={styles.error}>{error}</p>}
-      </Stack>
-    );
-  }
 
   return (
     <Stack gap={3} wrap>

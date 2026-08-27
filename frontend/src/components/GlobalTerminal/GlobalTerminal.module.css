@@ -8,6 +8,10 @@
   border-top: 1px solid #34404e;
 }
 
+.collapsed {
+  overflow: hidden;
+}
+
 .maximized {
   @apply fixed left-0 right-0 bottom-0 flex flex-col overflow-hidden;
   top: var(--app-header-height, 0px);
@@ -44,10 +48,41 @@
 
 .handle {
   @apply flex shrink-0 items-center gap-3;
-  min-height: 41px;
+  min-height: 42px;
   padding: 0 12px;
   background: #17202a;
   border-bottom: 1px solid #34404e;
+}
+
+.collapsed .handle {
+  border-bottom: 0;
+}
+
+.barToggle {
+  @apply inline-flex shrink-0 cursor-pointer items-center gap-2;
+  min-height: 29px;
+  padding: 0 3px;
+  color: #dce3eb;
+  background: transparent;
+  border: 0;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1;
+}
+
+.barToggle:focus-visible {
+  @apply outline-none ring-2 ring-blue-400;
+}
+
+.barLabel {
+  white-space: nowrap;
+}
+
+.sessionCount {
+  min-width: 1rem;
+  color: #7f8b99;
+  font-variant-numeric: tabular-nums;
+  text-align: left;
 }
 
 .tabsWrap {
@@ -72,7 +107,7 @@
 }
 
 .tab:focus-visible,
-.addTab:focus-visible {
+.createButton:focus-visible {
   @apply outline-none ring-2 ring-blue-400;
 }
 
@@ -81,14 +116,24 @@
   background: #3a4256;
 }
 
-.addTab {
-  @apply flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center disabled:cursor-not-allowed disabled:opacity-50;
-  color: #9ba8b7;
-  background: transparent;
-  border: 0;
-  border-radius: 5px;
-  font-size: 17px;
-  line-height: 1;
+.emptyState {
+  @apply shrink-0;
+  padding: 0 4px;
+  color: #7f8b99;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.createGroup {
+  @apply shrink-0;
+}
+
+.createButton {
+  min-height: 28px !important;
+  padding: 0 9px !important;
+  border-color: #34404e !important;
+  font-size: 12px !important;
+  font-weight: 400 !important;
 }
 
 .controls {
@@ -165,6 +210,10 @@
   @apply flex-1 overflow-hidden min-h-0;
 }
 
+.contentHidden {
+  display: none;
+}
+
 .errorBar {
   @apply flex shrink-0 items-center justify-between gap-3 border-b border-red-900/60 bg-red-950/60 px-4 py-2 text-sm text-red-300;
 }
@@ -183,4 +232,37 @@
 
 .placeholder {
   @apply flex items-center justify-center h-full;
+}
+
+@media (max-width: 40rem) {
+  .handle {
+    gap: 7px;
+    padding: 0 8px;
+  }
+
+  .barToggle {
+    padding: 0;
+  }
+
+  .drawer:not(.collapsed) .barLabel,
+  .maximized .barLabel {
+    display: none;
+  }
+
+  .drawer:not(.collapsed) .handle,
+  .maximized .handle {
+    min-height: 76px;
+    flex-wrap: wrap;
+    align-content: center;
+    row-gap: 4px;
+    padding-top: 5px;
+    padding-bottom: 5px;
+  }
+
+  .drawer:not(.collapsed) .controls,
+  .maximized .controls {
+    width: 100%;
+    justify-content: flex-end;
+    overflow-x: auto;
+  }
 }

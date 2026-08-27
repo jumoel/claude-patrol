@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import logoB from '../../assets/logo-b.png';
 import { fetchRestartStatus, triggerRestart, triggerUpdate } from '../../lib/api.js';
 import { getErrorMessage } from '../../lib/errors.js';
-import { AgentProviderButton } from '../AgentProviderButton/AgentProviderButton.jsx';
 import { Button } from '../ui/Button/Button.jsx';
 import { Spinner } from '../ui/Spinner/Spinner.jsx';
 import { Stack } from '../ui/Stack/Stack.jsx';
@@ -37,9 +36,6 @@ function formatResetCountdown(resetAt) {
  *   syncing: boolean,
  *   onSync: () => void | Promise<void>,
  *   pollConfigured: boolean,
- *   terminalOpen: boolean,
- *   globalSessions: import('../../types').Session[],
- *   onToggleTerminal: () => void,
  *   onBackToWork?: () => void,
  *   onSetup?: () => void,
  *   updateAvailable: boolean,
@@ -58,9 +54,6 @@ export function AppShell({
   syncing,
   onSync,
   pollConfigured,
-  terminalOpen,
-  globalSessions,
-  onToggleTerminal,
   onBackToWork,
   onSetup,
   updateAvailable,
@@ -204,35 +197,10 @@ export function AppShell({
                 </button>
               </>
             )}
-            {onBackToWork ? (
+            {onBackToWork && (
               <button className={styles.backButton} type="button" onClick={onBackToWork}>
                 &larr; All work
               </button>
-            ) : (
-              <AgentProviderButton
-                variant="default"
-                size="md"
-                onClick={onToggleTerminal}
-                active={terminalOpen}
-                className={styles.globalTerminalControl}
-                actionClassName={`${styles.terminalButton} ${terminalOpen ? styles.terminalButtonActive : ''}`}
-              >
-                <svg
-                  width="16"
-                  height="16"
-                  viewBox="0 0 16 16"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <rect x="1" y="2" width="14" height="12" rx="2" />
-                  <polyline points="5,6 7.5,8.5 5,11" />
-                  <line x1="9" y1="11" x2="12" y2="11" />
-                </svg>
-                Global sessions{globalSessions.length > 0 ? ` (${globalSessions.length})` : ''}
-              </AgentProviderButton>
             )}
             {onSetup && (
               <button className={styles.settingsButton} onClick={onSetup}>

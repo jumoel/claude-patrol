@@ -520,35 +520,21 @@ export function WorkItemDetail({ workItemId, targetStates, selectedPrId = null }
             presentation="work-page"
           />
         ) : (
-          <section className={styles.terminalLauncher} aria-labelledby="work-item-terminal-heading">
-            <h2 id="work-item-terminal-heading" className={styles.sectionTitle}>
-              <span className={styles.terminalInactive} data-state-marker="inactive" aria-hidden="true" />
-              <span>{referenceDisplay} · no session</span>
-              <span className={styles.terminalState}>Not started</span>
-            </h2>
-            <div className={styles.terminalEmpty}>
-              <strong>No LLM session is attached to this work item.</strong>
-              <p className={styles.actionNote}>
-                Choose Claude or Codex before{' '}
-                {workItem.has_session_history ? 'reopening the terminal' : 'opening the terminal'}.
-              </p>
-              <AgentProviderButton
-                variant="primary"
-                size="lg"
-                onClick={ensureSession}
-                disabled={sessionLoading || !!actionPending}
-                busy={sessionLoading}
-                className={styles.terminalProvider}
-                actionClassName={styles.terminalAction}
-              >
-                {sessionLoading
-                  ? 'Opening terminal...'
-                  : workItem.has_session_history
-                    ? `Reopen terminal with ${selectedProviderName}`
-                    : `Open terminal with ${selectedProviderName}`}
-              </AgentProviderButton>
-            </div>
-          </section>
+          <div className={styles.sessionLauncher}>
+            <AgentProviderButton
+              variant="primary"
+              size="md"
+              onClick={ensureSession}
+              disabled={sessionLoading || !!actionPending}
+              busy={sessionLoading}
+            >
+              {sessionLoading
+                ? 'Opening terminal...'
+                : workItem.has_session_history
+                  ? `Reopen terminal with ${selectedProviderName}`
+                  : `Open terminal with ${selectedProviderName}`}
+            </AgentProviderButton>
+          </div>
         ))}
 
       {workItem.error && (

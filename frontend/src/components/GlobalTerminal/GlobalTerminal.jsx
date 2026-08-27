@@ -22,6 +22,7 @@ import styles from './GlobalTerminal.module.css';
 const MIN_HEIGHT = 150;
 const MAX_HEIGHT_RATIO = 0.85;
 const DEFAULT_HEIGHT = 410;
+const BAR_HEIGHT = 43;
 const STORAGE_KEY = 'claude-patrol-terminal-height';
 
 function loadHeight() {
@@ -100,7 +101,6 @@ export function GlobalTerminal({
   const [renameValue, setRenameValue] = useState('');
   const [savingName, setSavingName] = useState(false);
   const sessionMutationPending = killing || poppingOut || reattaching || promoting || savingName;
-  const autoStartAttempted = useRef(false);
   const previousActiveSessionId = useRef(activeSession?.id);
   const poppingOutSessionId = useRef(/** @type {string | null} */ (null));
 
@@ -138,14 +138,10 @@ export function GlobalTerminal({
     }
   }, [onUpsertSession, provider, starting]);
 
-  useEffect(() => {
-    if (!open) {
-      autoStartAttempted.current = false;
-    } else if (!loading && !loadError && !starting && !autoStartAttempted.current) {
-      autoStartAttempted.current = true;
-      if (sessions.length === 0) startSession();
-    }
-  }, [open, sessions.length, loading, loadError, starting, startSession]);
+  const createSession = useCallback(() => {
+    if (!open) onToggle();
+    void startSession();
+  }, [onToggle, open, startSession]);
 
   const killSession = useCallback(async () => {
     if (!activeSession || sessionMutationPending) return;
@@ -254,12 +250,20 @@ export function GlobalTerminal({
   const selectTab = useCallback(
     /** @param {string} sessionId */ (sessionId) => {
       onSelectSession(sessionId);
+      if (!open) onToggle();
       const tab = document.getElementById(`global-session-tab-${sessionId}`);
       tab?.focus();
       requestAnimationFrame(() => tab?.focus());
     },
-    [onSelectSession],
+    [onSelectSession, onToggle, open],
   );
+
+  const closePanel = useCallback(() => {
+    setMaximized(false);
+    setRenaming(false);
+    setShowPromote(false);
+    onToggle();
+  }, [onToggle]);
 
   const handleTabKeyDown = useCallback(
     /** @param {React.KeyboardEvent<HTMLButtonElement>} event @param {number} index */
@@ -300,7 +304,7 @@ export function GlobalTerminal({
     [height, setHeight],
   );
 
-  const spacerHeight = open && !maximized ? height : 0;
+  const spacerHeight = maximized ? 0 : open ? height : BAR_HEIGHT;
   const visibleActionError =
     actionError && (actionError.sessionId === null || actionError.sessionId === activeSession?.id)
       ? actionError.message
@@ -313,10 +317,12 @@ export function GlobalTerminal({
       <div style={{ height: spacerHeight, flexShrink: 0 }} />
       {dragging && <div className={shared.dragOverlay} />}
       <div
-        className={maximized ? styles.maximized : styles.drawer}
-        style={maximized ? { display: open ? 'flex' : 'none' } : { height, display: open ? 'flex' : 'none' }}
+        className={maximized ? styles.maximized : `${styles.drawer} ${!open ? styles.collapsed : ''}`}
+        style={maximized ? undefined : { height: open ? height : BAR_HEIGHT }}
+        role="region"
+        aria-label="Global sessions"
       >
-        {!maximized && (
+        {open && !maximized && (
           <div
             className={styles.resizeHandle}
             {...handleProps}
@@ -335,10 +341,40 @@ export function GlobalTerminal({
           </div>
         )}
         <div className={styles.handle}>
+          <button
+            type="button"
+            className={styles.barToggle}
+            aria-label={`Global sessions, ${sessions.length} running`}
+            aria-expanded={open}
+            aria-controls="global-session-panel"
+            onClick={open ? closePanel : onToggle}
+          >
+            <svg
+              width="15"
+              height="15"
+              viewBox="0 0 16 16"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <rect x="1" y="2" width="14" height="12" rx="2" />
+              <polyline points="5,6 7.5,8.5 5,11" />
+              <line x1="9" y1="11" x2="12" y2="11" />
+            </svg>
+            <span className={styles.barLabel}>Global sessions</span>
+            <span className={styles.sessionCount}>{sessions.length}</span>
+          </button>
           <div className={styles.tabsWrap}>
             <div className={styles.tabList} role="tablist" aria-label="Global sessions">
+              {sessions.length === 0 && (
+                <span className={styles.emptyState}>{loading ? 'Loading...' : 'No running sessions'}</span>
+              )}
               {sessions.map((session, index) => {
                 const selected = activeSession?.id === session.id;
+                const sessionName = session.name || (session.provider === 'codex' ? 'Codex' : 'Claude');
                 return (
                   <button
                     key={session.id}
@@ -347,111 +383,112 @@ export function GlobalTerminal({
                     role="tab"
                     aria-selected={selected}
                     aria-controls="global-session-panel"
-                    tabIndex={selected ? 0 : -1}
+                    tabIndex={selected || (!activeSession && index === 0) ? 0 : -1}
                     className={`${styles.tab} ${selected ? styles.tabActive : ''}`}
-                    title={session.name || 'Global session'}
+                    title={session.status === 'detached' ? `${sessionName} - external terminal` : sessionName}
                     onClick={() => selectTab(session.id)}
                     onKeyDown={(event) => handleTabKeyDown(event, index)}
                   >
-                    {session.name || (session.provider === 'codex' ? 'Codex' : 'Claude')}
+                    {sessionName}
                   </button>
                 );
               })}
             </div>
-            <button
-              type="button"
-              className={styles.addTab}
-              onClick={startSession}
-              disabled={starting}
-              aria-label={`Start another ${provider === 'codex' ? 'Codex' : 'Claude'} session`}
-              title={`Start another ${provider === 'codex' ? 'Codex' : 'Claude'} session`}
+            <AgentProviderButton
+              variant="primary"
+              size="xs"
+              dark
+              onClick={createSession}
+              disabled={starting || loading}
+              busy={starting}
+              className={styles.createGroup}
+              actionClassName={styles.createButton}
             >
-              +
-            </button>
+              <span aria-hidden="true">+</span> Create
+            </AgentProviderButton>
           </div>
-          <Stack gap={2} className={styles.controls}>
-            {activeSession && (
-              <>
-                <Button size="xs" dark onClick={startRename} disabled={sessionMutationPending}>
-                  Rename
-                </Button>
-                {activeSession.status === 'active' && activeSession.provider === 'claude' && (
-                  <Button
-                    variant="success"
-                    size="xs"
-                    dark
-                    onClick={() => setShowPromote((shown) => !shown)}
-                    disabled={sessionMutationPending}
-                  >
-                    Promote
+          {open && (
+            <Stack gap={2} className={styles.controls}>
+              {activeSession && (
+                <>
+                  <Button size="xs" dark onClick={startRename} disabled={sessionMutationPending}>
+                    Rename
                   </Button>
-                )}
-                {activeSession.status === 'active' ? (
-                  <>
-                    <Button size="xs" dark onClick={() => setMaximized((value) => !value)}>
-                      {maximized ? 'Restore' : 'Maximize'}
+                  {activeSession.status === 'active' && activeSession.provider === 'claude' && (
+                    <Button
+                      variant="success"
+                      size="xs"
+                      dark
+                      onClick={() => setShowPromote((shown) => !shown)}
+                      disabled={sessionMutationPending}
+                    >
+                      Promote
                     </Button>
+                  )}
+                  {activeSession.status === 'active' ? (
+                    <>
+                      <Button size="xs" dark onClick={() => setMaximized((value) => !value)}>
+                        {maximized ? 'Restore' : 'Maximize'}
+                      </Button>
+                      <Button
+                        variant="primary"
+                        size="xs"
+                        dark
+                        onClick={popOutSession}
+                        disabled={sessionMutationPending}
+                        busy={poppingOut}
+                      >
+                        Pop out
+                      </Button>
+                    </>
+                  ) : (
                     <Button
                       variant="primary"
                       size="xs"
                       dark
-                      onClick={popOutSession}
+                      onClick={reattachSession}
                       disabled={sessionMutationPending}
-                      busy={poppingOut}
+                      busy={reattaching}
                     >
-                      Pop out
+                      {reattaching ? 'Reattaching...' : 'Reattach'}
                     </Button>
-                  </>
-                ) : (
+                  )}
                   <Button
-                    variant="primary"
+                    variant="danger"
                     size="xs"
                     dark
-                    onClick={reattachSession}
+                    onClick={killSession}
                     disabled={sessionMutationPending}
-                    busy={reattaching}
+                    busy={killing}
                   >
-                    {reattaching ? 'Reattaching...' : 'Reattach'}
+                    Kill
                   </Button>
-                )}
-                <Button
-                  variant="danger"
-                  size="xs"
-                  dark
-                  onClick={killSession}
-                  disabled={sessionMutationPending}
-                  busy={killing}
-                >
-                  Kill
-                </Button>
-              </>
-            )}
-            <button
-              type="button"
-              className={styles.closeButton}
-              aria-label="Close global sessions"
-              onClick={() => {
-                setMaximized(false);
-                onToggle();
-              }}
-            >
-              <svg
-                width="14"
-                height="14"
-                viewBox="0 0 14 14"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                aria-hidden="true"
+                </>
+              )}
+              <button
+                type="button"
+                className={styles.closeButton}
+                aria-label="Close global sessions"
+                onClick={closePanel}
               >
-                <line x1="3" y1="3" x2="11" y2="11" />
-                <line x1="11" y1="3" x2="3" y2="11" />
-              </svg>
-            </button>
-          </Stack>
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 14 14"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  aria-hidden="true"
+                >
+                  <line x1="3" y1="3" x2="11" y2="11" />
+                  <line x1="11" y1="3" x2="3" y2="11" />
+                </svg>
+              </button>
+            </Stack>
+          )}
         </div>
-        {renaming && activeSession && (
+        {open && renaming && activeSession && (
           <form className={styles.renameForm} onSubmit={saveRename}>
             <label htmlFor="global-session-name">Session name</label>
             <input
@@ -474,7 +511,7 @@ export function GlobalTerminal({
             </Button>
           </form>
         )}
-        {showPromote && activeSession?.provider === 'claude' && (
+        {open && showPromote && activeSession?.provider === 'claude' && (
           <Stack gap={2} className={styles.promoteForm}>
             <RepoCombobox
               value={promoteRepo}
@@ -507,7 +544,7 @@ export function GlobalTerminal({
             </Button>
           </Stack>
         )}
-        {visibleError && (
+        {open && visibleError && (
           <div className={styles.errorBar} role="alert">
             <span>{visibleError}</span>
             {loadError != null && (
@@ -519,8 +556,9 @@ export function GlobalTerminal({
         )}
         <div
           id="global-session-panel"
-          className={styles.content}
+          className={`${styles.content} ${!open ? styles.contentHidden : ''}`}
           role="tabpanel"
+          aria-hidden={!open}
           aria-labelledby={activeSession ? `global-session-tab-${activeSession.id}` : undefined}
         >
           {loading && sessions.length === 0 && (
@@ -553,11 +591,7 @@ export function GlobalTerminal({
           )}
           {!activeSession && !loading && (
             <div className={styles.placeholder}>
-              <Stack direction="col" gap={3}>
-                <AgentProviderButton variant="primary" size="lg" dark onClick={startSession} busy={starting}>
-                  {starting ? 'Starting...' : `Start global ${provider === 'codex' ? 'Codex' : 'Claude'} session`}
-                </AgentProviderButton>
-              </Stack>
+              <p className={styles.detached}>No global sessions are running.</p>
             </div>
           )}
         </div>

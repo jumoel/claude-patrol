@@ -102,7 +102,6 @@
 }
 
 .syncButton,
-.terminalButton,
 .settingsButton,
 .backButton {
   display: inline-flex;
@@ -131,7 +130,6 @@
 }
 
 .syncButton:hover,
-.terminalButton:hover,
 .settingsButton:hover,
 .backButton:hover {
   color: inherit;
@@ -140,16 +138,6 @@
 
 .syncButton:hover {
   color: var(--blue);
-}
-
-.terminalButtonActive {
-  color: #fff;
-  background: #22344b;
-  border-color: #22344b;
-}
-
-.globalTerminalControl {
-  align-items: stretch;
 }
 
 .content {
@@ -256,7 +244,6 @@
   }
 
   .syncButton,
-  .terminalButton,
   .settingsButton,
   .backButton {
     flex: 0 0 auto;

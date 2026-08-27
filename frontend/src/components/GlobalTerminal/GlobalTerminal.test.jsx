@@ -114,6 +114,41 @@ test('renders accessible tabs and mounts only the selected terminal', async () =
   assert.equal(screen.getByTestId('terminal').getAttribute('data-ws-url'), '/ws/sessions/reviewer');
 });
 
+test('keeps the session bar visible while the terminal panel is closed', () => {
+  const { callbacks } = renderTerminal({ open: false });
+  assert.ok(screen.getByRole('button', { name: /Global sessions.*2/u }));
+  assert.equal(screen.getAllByRole('tab').length, 2);
+  assert.ok(screen.getByRole('button', { name: /Create/u }));
+  assert.equal(screen.queryByRole('separator', { name: 'Resize global terminal' }), null);
+  assert.equal(screen.queryByRole('button', { name: 'Close global sessions' }), null);
+  assert.equal(document.getElementById('global-session-panel')?.getAttribute('aria-hidden'), 'true');
+
+  fireEvent.click(screen.getByRole('tab', { name: 'Reviewer' }));
+  assert.deepEqual(callbacks.onSelectSession.mock.calls, [['reviewer']]);
+  assert.equal(callbacks.onToggle.mock.calls.length, 1);
+});
+
+test('creates a global session only from the explicit create control', async () => {
+  const user = userEvent.setup();
+  const created = session({ id: 'created', name: 'New session' });
+  api.createSession.mockResolvedValue(created);
+  const { callbacks } = renderTerminal({ open: false, sessions: [], activeSession: null });
+
+  assert.equal(api.createSession.mock.calls.length, 0);
+  await user.click(screen.getByRole('button', { name: /Create/u }));
+
+  await waitFor(() => assert.deepEqual(callbacks.onUpsertSession.mock.calls, [[created, true]]));
+  assert.equal(callbacks.onToggle.mock.calls.length, 1);
+  assert.deepEqual(api.createSession.mock.calls, [[{ type: 'global' }, 'claude']]);
+});
+
+test('does not create a session when an empty panel is opened', async () => {
+  renderTerminal({ sessions: [], activeSession: null });
+  assert.ok(screen.getByText('No global sessions are running.'));
+  await act(async () => Promise.resolve());
+  assert.equal(api.createSession.mock.calls.length, 0);
+});
+
 test('exposes mouse and keyboard sizing controls', () => {
   renderTerminal({ sessions: [planner], activeSession: planner });
 
@@ -138,7 +173,7 @@ test('keeps the relevant global session controls available in each size', async 
   assert.ok(screen.getByRole('button', { name: 'Pop out' }));
   assert.ok(screen.getByRole('button', { name: 'Kill' }));
   assert.ok(screen.getByRole('button', { name: 'Close global sessions' }));
-  assert.ok(screen.getByRole('button', { name: 'Start another Claude session' }));
+  assert.ok(screen.getByRole('button', { name: /Create/u }));
 
   await user.click(screen.getByRole('button', { name: 'Maximize' }));
   assert.ok(screen.getByRole('button', { name: 'Restore' }));

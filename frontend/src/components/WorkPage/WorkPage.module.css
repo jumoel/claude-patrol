@@ -113,95 +113,10 @@
   overflow-wrap: anywhere;
 }
 
-.terminalLauncher {
-  display: block;
-  width: calc(100% - 40px);
-  height: 280px;
+.sessionLauncher {
+  display: flex;
+  align-items: center;
   margin: 12px 20px 0;
-  overflow: hidden;
-  color: #dce3eb;
-  background: #0e141c;
-  border: 1px solid #34404e;
-}
-
-.terminalLauncher h2 {
-  display: flex;
-  width: 100%;
-  height: 36px;
-  align-items: center;
-  margin: 0;
-  padding: 0 12px;
-  color: #f4f7fa;
-  background: #17202a;
-  border-bottom: 1px solid #34404e;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 12px;
-  font-weight: 400;
-  gap: 7px;
-}
-
-.terminalInactive {
-  width: 7px;
-  height: 7px;
-  flex: 0 0 auto;
-  background: #748194;
-  border-radius: 50%;
-}
-
-.terminalState {
-  color: #9ba8b7;
-  font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  font-size: 12px;
-  font-weight: 400;
-}
-
-.terminalEmpty {
-  display: flex;
-  height: 242px;
-  align-items: center;
-  justify-content: center;
-  flex-direction: column;
-  gap: 5px;
-  color: #9ba8b7;
-  text-align: center;
-}
-
-.terminalEmpty strong {
-  color: #dce3eb;
-  font-size: 12px;
-  font-weight: 550;
-}
-
-.launcherCopy {
-  margin: 0;
-  color: #9ba8b7;
-  font-size: 12px;
-}
-
-.terminalEmptyActions {
-  margin-top: 6px;
-}
-
-.terminalAction,
-.terminalAction:hover {
-  min-height: 27px;
-  height: 27px;
-  padding: 0 9px;
-  color: #fff;
-  background: #315efb;
-  border-color: #315efb;
-  border-radius: 5px;
-  font-size: 12px;
-  font-weight: 550;
-}
-
-.terminalProvider > button:last-child {
-  min-height: 27px;
-  height: 27px;
-  color: #fff;
-  background: #315efb;
-  border-color: #315efb;
-  border-radius: 0 5px 5px 0;
 }
 
 .section,
@@ -300,14 +215,10 @@
     flex-wrap: wrap;
   }
 
-  .terminalLauncher {
-    width: calc(100% - 24px);
-    height: 280px;
+  .sessionLauncher {
     margin-right: 12px;
     margin-left: 12px;
   }
-
-  .terminalEmpty { padding: 18px; }
 
   .section,
   .sectionHeader {

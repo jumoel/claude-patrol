@@ -212,28 +212,17 @@ export function WorkspaceDetail({ workspaceId, onBack, workspaceStates }) {
             presentation="work-page"
           />
         ) : (
-          <section className={workPage.terminalLauncher} aria-labelledby="scratch-terminal-heading">
-            <h2 id="scratch-terminal-heading">
-              <span className={workPage.terminalInactive} data-state-marker="inactive" aria-hidden="true" />
-              <span>{workspace.bookmark} · no session</span>
-              <span className={workPage.terminalState}>Not started</span>
-            </h2>
-            <div className={workPage.terminalEmpty}>
-              <strong>No LLM session is attached to this workspace.</strong>
-              <p className={workPage.launcherCopy}>Start a session in this scratch workspace.</p>
-              <AgentProviderButton
-                variant="primary"
-                size="lg"
-                onClick={handleStartSession}
-                disabled={openingSession}
-                busy={openingSession}
-                className={workPage.terminalProvider}
-                actionClassName={workPage.terminalAction}
-              >
-                {openingSession ? 'Starting session...' : `Start ${provider === 'codex' ? 'Codex' : 'Claude'} session`}
-              </AgentProviderButton>
-            </div>
-          </section>
+          <div className={workPage.sessionLauncher}>
+            <AgentProviderButton
+              variant="primary"
+              size="md"
+              onClick={handleStartSession}
+              disabled={openingSession}
+              busy={openingSession}
+            >
+              {openingSession ? 'Starting session...' : `Start ${provider === 'codex' ? 'Codex' : 'Claude'} session`}
+            </AgentProviderButton>
+          </div>
         ))}
 
       {workspace.status === 'destroyed' && (

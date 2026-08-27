@@ -336,6 +336,8 @@ test('a ready work item can switch providers before opening an idle terminal', a
   renderDetail();
 
   assert.ok(await screen.findByRole('button', { name: 'Open terminal with Codex' }));
+  assert.equal(screen.queryByText('No LLM session is attached to this work item.'), null);
+  assert.equal(document.querySelector('[data-state-marker="inactive"]'), null);
   await user.click(screen.getByRole('button', { name: /Choose agent provider, currently Codex/ }));
   await user.click(screen.getByRole('menuitemradio', { name: /Claude/ }));
   await user.click(screen.getByRole('button', { name: 'Open terminal with Claude' }));

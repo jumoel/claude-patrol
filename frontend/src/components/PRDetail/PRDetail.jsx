@@ -450,48 +450,23 @@ export function PRDetail({ prId, onBack, workspaceStates }) {
           presentation="work-page"
         />
       ) : (
-        <section className={workPage.terminalLauncher} aria-labelledby="pr-terminal-heading">
-          <h2 id="pr-terminal-heading">
-            <span className={workPage.terminalInactive} data-state-marker="inactive" aria-hidden="true" />
-            <span>#{pr.number} · no session</span>
-            <span className={workPage.terminalState}>Not started</span>
-          </h2>
-          <div className={workPage.terminalEmpty}>
-            <strong>No LLM session is attached to this pull request.</strong>
-            <p className={workPage.launcherCopy}>Start an agent with the pull request context loaded.</p>
-            <Stack gap={2} wrap justify="center" className={workPage.terminalEmptyActions}>
-              <AgentProviderButton
-                variant="primary"
-                size="lg"
-                onClick={handleOpenInAgent}
-                disabled={openingSession}
-                busy={openingSession}
-                className={workPage.terminalProvider}
-                actionClassName={workPage.terminalAction}
-              >
-                {openingSession ? openingStep : `Open in ${provider === 'codex' ? 'Codex' : 'Claude'}`}
-              </AgentProviderButton>
-              <WorkspaceControls
-                prId={prId}
-                workspace={workspace}
-                onUpdate={loadData}
-                getOrCreateWorkspace={getOrCreateWorkspace}
-                sessionWaiting={openingSession && !workspace}
-              />
-            </Stack>
-          </div>
-        </section>
+        <div className={workPage.sessionLauncher}>
+          <AgentProviderButton
+            variant="primary"
+            size="md"
+            onClick={handleOpenInAgent}
+            disabled={openingSession}
+            busy={openingSession}
+          >
+            {openingSession ? openingStep : `Open in ${provider === 'codex' ? 'Codex' : 'Claude'}`}
+          </AgentProviderButton>
+        </div>
       )}
 
       {workspace && session && (
         <section className={workPage.sectionHeader} aria-labelledby="pr-workspace-heading">
           <h2 id="pr-workspace-heading">Workspace</h2>
-          <WorkspaceControls
-            prId={prId}
-            workspace={workspace}
-            onUpdate={loadData}
-            getOrCreateWorkspace={getOrCreateWorkspace}
-          />
+          <WorkspaceControls workspace={workspace} onUpdate={loadData} />
         </section>
       )}
 

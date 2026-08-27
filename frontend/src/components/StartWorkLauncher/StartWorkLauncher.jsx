@@ -89,17 +89,9 @@ export function StartWorkLauncher({ workItemsConfigured }) {
           </Button>
         </div>
       ) : (
-        <Box p={4} border rounded="none" bg="white" className={styles.card}>
-          <Stack direction="col" gap={4}>
-            <Stack justify="between" wrap className={styles.header}>
-              <div>
-                <h2 className={styles.title}>Start work</h2>
-                <p className={styles.subtitle}>Choose the kind of isolated workspace to create.</p>
-              </div>
-              <Button size="sm" onClick={cancel} disabled={pending}>
-                Cancel
-              </Button>
-            </Stack>
+        <Box p={0} border rounded="none" bg="white" className={styles.card}>
+          <div className={styles.header}>
+            <h2 className={styles.title}>Start work</h2>
             <fieldset className={styles.modeGroup} disabled={pending}>
               <legend className={styles.legend}>Workspace type</legend>
               <Stack gap={2} wrap className={styles.modeOptions}>
@@ -111,10 +103,7 @@ export function StartWorkLauncher({ workItemsConfigured }) {
                     checked={mode === 'project'}
                     onChange={() => changeMode('project')}
                   />
-                  <span>
-                    <strong>Project reference</strong>
-                    <small>Resolve one reference into one or more repositories.</small>
-                  </span>
+                  <span>Project reference</span>
                 </label>
                 <label className={`${styles.modeOption} ${mode === 'scratch' ? styles.modeOptionActive : ''}`}>
                   <input
@@ -124,13 +113,15 @@ export function StartWorkLauncher({ workItemsConfigured }) {
                     checked={mode === 'scratch'}
                     onChange={() => changeMode('scratch')}
                   />
-                  <span>
-                    <strong>Scratch repository</strong>
-                    <small>Create one checkout and start an agent later.</small>
-                  </span>
+                  <span>Scratch repository</span>
                 </label>
               </Stack>
             </fieldset>
+            <Button size="xs" onClick={cancel} disabled={pending}>
+              Cancel
+            </Button>
+          </div>
+          <div className={styles.body}>
             {mode === 'project' &&
               (workItemsConfigured ? (
                 <form
@@ -139,7 +130,7 @@ export function StartWorkLauncher({ workItemsConfigured }) {
                     if (!pending) submitProject();
                   }}
                 >
-                  <Stack direction="col" gap={3}>
+                  <Stack gap={3} wrap align="end" className={styles.fields}>
                     <label className={styles.field}>
                       <span>Reference</span>
                       <input
@@ -153,14 +144,6 @@ export function StartWorkLauncher({ workItemsConfigured }) {
                         autoFocus
                       />
                     </label>
-                    <p className={styles.helper}>
-                      Your configured resolver finds the work item and chooses its repositories.
-                    </p>
-                    {projectError && (
-                      <p className={styles.error} role="alert">
-                        {projectError}
-                      </p>
-                    )}
                     <AgentProviderButton
                       variant="primary"
                       size="md"
@@ -173,6 +156,11 @@ export function StartWorkLauncher({ workItemsConfigured }) {
                       {pending ? 'Creating work item...' : 'Create work item'}
                     </AgentProviderButton>
                   </Stack>
+                  {projectError && (
+                    <p className={styles.error} role="alert">
+                      {projectError}
+                    </p>
+                  )}
                 </form>
               ) : (
                 <div className={styles.unconfigured}>
@@ -227,7 +215,7 @@ export function StartWorkLauncher({ workItemsConfigured }) {
                 )}
               </form>
             )}
-          </Stack>
+          </div>
         </Box>
       )}
     </section>

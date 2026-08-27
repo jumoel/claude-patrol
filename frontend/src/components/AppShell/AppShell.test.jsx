@@ -3,20 +3,12 @@ import { render, screen } from '@testing-library/react';
 import { beforeEach, test, vi } from 'vitest';
 import { AppShell } from './AppShell.jsx';
 
-vi.mock('../AgentProviderButton/AgentProviderButton.jsx', () => ({
-  /** @param {{children: React.ReactNode}} props */
-  AgentProviderButton: ({ children }) => <button type="button">{children}</button>,
-}));
-
 const baseProps = {
   title: 'Claude Patrol',
   syncTime: 'Last synced now',
   nextSync: '30s',
   syncing: false,
   onSync: vi.fn(),
-  terminalOpen: false,
-  globalSessions: [],
-  onToggleTerminal: vi.fn(),
   onSetup: vi.fn(),
   updateAvailable: false,
   commitsBehind: 0,
@@ -44,7 +36,7 @@ test('shows the top-bar sync control only when PR polling is configured', () => 
   );
 
   assert.equal(screen.queryByRole('button', { name: 'Sync now' }), null);
-  assert.ok(screen.getByRole('button', { name: 'Global sessions' }));
+  assert.equal(screen.queryByRole('button', { name: /Global sessions/u }), null);
   assert.ok(screen.getByRole('button', { name: 'Settings' }));
 
   rerender(
@@ -56,7 +48,7 @@ test('shows the top-bar sync control only when PR polling is configured', () => 
   assert.ok(screen.getByText(/Last synced now/u));
 });
 
-test('replaces global sessions with all-work navigation on detail pages', () => {
+test('shows all-work navigation on detail pages', () => {
   const onBackToWork = vi.fn();
   render(
     <AppShell {...baseProps} pollConfigured onBackToWork={onBackToWork}>
@@ -66,5 +58,4 @@ test('replaces global sessions with all-work navigation on detail pages', () => 
 
   screen.getByRole('button', { name: '← All work' }).click();
   assert.equal(onBackToWork.mock.calls.length, 1);
-  assert.equal(screen.queryByRole('button', { name: 'Global sessions' }), null);
 });

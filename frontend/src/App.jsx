@@ -272,9 +272,6 @@ export default function App() {
       syncing={syncing}
       onSync={triggerSync}
       pollConfigured={publicConfig?.poll_configured ?? false}
-      terminalOpen={terminalOpen}
-      globalSessions={globalSessionState.sessions}
-      onToggleTerminal={toggleTerminal}
       onBackToWork={['pr', 'workspace', 'work_item'].includes(route.type) ? navigateBack : undefined}
       onSetup={() => {
         window.location.hash = '/setup';
