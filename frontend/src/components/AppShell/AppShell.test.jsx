@@ -37,7 +37,8 @@ test('shows the top-bar sync control only when PR polling is configured', () => 
 
   assert.equal(screen.queryByRole('button', { name: 'Sync now' }), null);
   assert.equal(screen.queryByRole('button', { name: /Global sessions/u }), null);
-  assert.ok(screen.getByRole('button', { name: 'Settings' }));
+  const settings = screen.getByRole('button', { name: 'Settings' });
+  assert.equal(settings.querySelector('svg'), null);
 
   rerender(
     <AppShell {...baseProps} pollConfigured>
