@@ -8,6 +8,7 @@ const state = vi.hoisted(() => ({
   fitCalls: 0,
   refreshCalls: 0,
   clearTextureAtlasCalls: 0,
+  focusCalls: 0,
   bounds: { width: 800, height: 400 },
   keyHandler: /** @type {((event: KeyboardEvent) => boolean) | null} */ (null),
   resizeCallback: /** @type {(() => void) | null} */ (null),
@@ -27,7 +28,9 @@ vi.mock('@xterm/xterm', () => ({
 
     loadAddon() {}
     open() {}
-    focus() {}
+    focus() {
+      state.focusCalls++;
+    }
     onData() {}
     write() {}
     clearTextureAtlas() {
@@ -109,6 +112,7 @@ describe('Terminal connection lifecycle', () => {
     state.fitCalls = 0;
     state.refreshCalls = 0;
     state.clearTextureAtlasCalls = 0;
+    state.focusCalls = 0;
     state.bounds = { width: 800, height: 400 };
     state.keyHandler = null;
     state.resizeCallback = null;
@@ -182,6 +186,18 @@ describe('Terminal connection lifecycle', () => {
     expect(firstSocket.close).toHaveBeenCalledOnce();
     expect(state.constructedTerminals).toBe(2);
     expect(state.disposedTerminals).toBe(1);
+  });
+
+  it('focuses the existing terminal when a focus request changes', async () => {
+    const view = render(<Terminal wsUrl="/ws/sessions/one" focusRequest={0} />);
+    await waitFor(() => expect(state.sockets).toHaveLength(1));
+    const focusCallsBeforeRequest = state.focusCalls;
+
+    view.rerender(<Terminal wsUrl="/ws/sessions/one" focusRequest={1} />);
+
+    await waitFor(() => expect(state.focusCalls).toBeGreaterThan(focusCallsBeforeRequest));
+    expect(state.constructedTerminals).toBe(1);
+    expect(state.sockets).toHaveLength(1);
   });
 
   it('refits and redraws after its container changes size', async () => {

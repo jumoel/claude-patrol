@@ -4,9 +4,14 @@ import { beforeEach, test, vi } from 'vitest';
 import { TerminalCard } from './TerminalCard.jsx';
 
 vi.mock('../Terminal/LazyTerminal.jsx', () => ({
-  /** @param {{wsUrl: string, borderless?: boolean, onToggleMaximize?: () => void}} props */
-  LazyTerminal: ({ wsUrl, borderless, onToggleMaximize }) => (
-    <div data-testid="terminal" data-ws-url={wsUrl} data-borderless={String(borderless)}>
+  /** @param {{wsUrl: string, borderless?: boolean, focusRequest?: number, onToggleMaximize?: () => void}} props */
+  LazyTerminal: ({ wsUrl, borderless, focusRequest, onToggleMaximize }) => (
+    <div
+      data-testid="terminal"
+      data-ws-url={wsUrl}
+      data-borderless={String(borderless)}
+      data-focus-request={focusRequest}
+    >
       <button type="button" onClick={onToggleMaximize}>
         Toggle terminal size
       </button>
@@ -64,6 +69,7 @@ test('work-page presentation collapses in flow without window-management control
   const terminal = screen.getByTestId('terminal');
   assert.equal(terminal.getAttribute('data-ws-url'), '/ws/sessions/session-1');
   assert.equal(terminal.getAttribute('data-borderless'), 'true');
+  assert.equal(terminal.getAttribute('data-focus-request'), '0');
   assert.equal(terminal.parentElement?.style.height, '400px');
   assert.equal(screen.queryByTestId('quick-actions'), null);
 
@@ -77,6 +83,7 @@ test('work-page presentation collapses in flow without window-management control
   assert.equal(screen.queryByRole('button', { name: 'Collapse' }), null);
   assert.equal(screen.queryByRole('separator', { name: 'Resize terminal' }), null);
   assert.equal(screen.getByTestId('terminal'), terminal);
+  assert.equal(terminal.getAttribute('data-focus-request'), '1');
 
   fireEvent.click(screen.getByRole('button', { name: 'Restore' }));
   assert.ok(screen.getByRole('button', { name: 'Maximize' }));
@@ -96,6 +103,7 @@ test('work-page presentation collapses in flow without window-management control
   fireEvent.click(screen.getByRole('button', { name: 'Toggle terminal size' }));
   assert.ok(screen.getByRole('button', { name: 'Restore' }));
   assert.equal(screen.getByTestId('terminal'), terminal);
+  assert.equal(terminal.getAttribute('data-focus-request'), '2');
 });
 
 test('restores a maximized work-page terminal from the route', () => {

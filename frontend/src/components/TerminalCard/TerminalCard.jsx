@@ -54,6 +54,7 @@ export function TerminalCard({
 }) {
   const [maximized, setMaximized] = useState(() => maximizedTerminalId() === session.id);
   const [terminalOpen, setTerminalOpen] = useState(true);
+  const [terminalFocusRequest, setTerminalFocusRequest] = useState(0);
   const [reattaching, setReattaching] = useState(false);
   const internalWsRef = useRef(/** @type {WebSocket | null} */ (null));
   const wsRef = externalWsRef || internalWsRef;
@@ -88,8 +89,12 @@ export function TerminalCard({
   const updateMaximized = useCallback(
     /** @param {boolean} next */ (next) => {
       setMaximized(next);
-      if (next) replaceMaximizedTerminal(session.id);
-      else clearMaximizedTerminal(session.id);
+      if (next) {
+        replaceMaximizedTerminal(session.id);
+        setTerminalFocusRequest((request) => request + 1);
+      } else {
+        clearMaximizedTerminal(session.id);
+      }
     },
     [session.id],
   );
@@ -255,6 +260,7 @@ export function TerminalCard({
             onExit={handleExit}
             onToggleMaximize={toggleWorkPageMaximize}
             focus={terminalOpen || maximized}
+            focusRequest={terminalFocusRequest}
             borderless
           />
         </div>
@@ -340,6 +346,7 @@ export function TerminalCard({
             onExit={handleExit}
             onToggleMaximize={toggleMaximize}
             focus
+            focusRequest={terminalFocusRequest}
             borderless
           />
         </div>
@@ -416,6 +423,7 @@ export function TerminalCard({
           wsRef={wsRef}
           onExit={handleExit}
           onToggleMaximize={toggleMaximize}
+          focusRequest={terminalFocusRequest}
         />
       </div>
       <div className={shared.resizeHandle} {...handleProps}>

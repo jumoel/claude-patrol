@@ -15,12 +15,21 @@ const RECONNECT_DELAYS = [500, 1000, 2000, 4000];
  *   wsUrl: string,
  *   wsRef?: import('react').MutableRefObject<WebSocket | null>,
  *   focus?: boolean,
+ *   focusRequest?: number,
  *   onExit?: (code: number) => void,
  *   onToggleMaximize?: () => void,
  *   borderless?: boolean,
  * }} props
  */
-export function Terminal({ wsUrl, wsRef: externalWsRef, focus, onExit, onToggleMaximize, borderless }) {
+export function Terminal({
+  wsUrl,
+  wsRef: externalWsRef,
+  focus,
+  focusRequest = 0,
+  onExit,
+  onToggleMaximize,
+  borderless,
+}) {
   const containerRef = useRef(/** @type {HTMLDivElement | null} */ (null));
   const termRef = useRef(/** @type {XTerm | null} */ (null));
   const wsRef = useRef(/** @type {WebSocket | null} */ (null));
@@ -273,11 +282,11 @@ export function Terminal({ wsUrl, wsRef: externalWsRef, focus, onExit, onToggleM
   }, [externalWsRef]);
 
   useEffect(() => {
-    if (focus && termRef.current) {
+    if ((focus || focusRequest > 0) && termRef.current) {
       refitRef.current?.(true);
       termRef.current.focus();
     }
-  }, [focus]);
+  }, [focus, focusRequest]);
 
   const handleClick = () => {
     if (termRef.current) termRef.current.focus();
