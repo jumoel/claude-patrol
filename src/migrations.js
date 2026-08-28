@@ -1,6 +1,6 @@
 /** Schema v7 intentionally resets every pre-v7 database. */
 
-export const CURRENT_SCHEMA_VERSION = 16;
+export const CURRENT_SCHEMA_VERSION = 17;
 
 function createWorkspaceOrphansTable(db) {
   db.exec(`
@@ -213,6 +213,39 @@ function addSessionLastIdleAt(db) {
     .all()
     .some((column) => column.name === 'last_idle_at');
   if (!hasLastIdleAt) db.exec('ALTER TABLE sessions ADD COLUMN last_idle_at TEXT');
+}
+
+function addWorkItemCreationSource(db) {
+  if (!tableExists(db, 'work_items')) return;
+  const hasCreationSource = db
+    .prepare("PRAGMA table_info('work_items')")
+    .all()
+    .some((column) => column.name === 'creation_source');
+  if (hasCreationSource) return;
+
+  db.exec(`
+    ALTER TABLE work_items ADD COLUMN creation_source TEXT NOT NULL DEFAULT 'manual'
+      CHECK(creation_source IN ('manual', 'reference', 'pull_request'));
+
+    UPDATE work_items
+       SET creation_source = 'reference'
+     WHERE EXISTS (
+       SELECT 1
+         FROM work_item_references
+        WHERE work_item_references.work_item_id = work_items.id
+     );
+
+    UPDATE work_items
+       SET creation_source = 'pull_request'
+     WHERE creation_source = 'manual'
+       AND EXISTS (
+         SELECT 1
+           FROM work_item_pull_requests
+          WHERE work_item_pull_requests.work_item_id = work_items.id
+            AND work_item_pull_requests.source = 'explicit'
+            AND work_item_pull_requests.linked_at = work_items.created_at
+       );
+  `);
 }
 
 function createWorkItemRepositoryAdditionTable(db) {
@@ -691,6 +724,7 @@ export function migrateDb(db) {
     addSessionLastIdleAt(db);
     addPrHeadOid(db);
     createWorkItemPullRequestTable(db);
+    addWorkItemCreationSource(db);
     createWorkspaceOrphansTable(db);
     restoreResetWorkspaceOwnership(db, resetWorkspaceOwnership);
     db.exec(`PRAGMA user_version = ${CURRENT_SCHEMA_VERSION}`);

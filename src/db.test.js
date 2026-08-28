@@ -78,6 +78,46 @@ test('a new database is migrated to the current schema', () => {
   assert.equal(workItemColumns.has('reference'), false);
 });
 
+test('the v16 migration restores creation sources without misclassifying later pull request links', () => {
+  const path = join(temporaryDirectory(), 'v16.db');
+  let db = initDb(path);
+  const createdAt = '2026-08-27T12:00:00.000Z';
+  const linkedLaterAt = '2026-08-27T13:00:00.000Z';
+  insertTestWorkItem(db, { id: 'reference-item', reference: 'ECO-3764', createdAt });
+  insertTestWorkItem(db, { id: 'manual-item', reference: null, creationSource: 'manual', createdAt });
+  insertTestWorkItem(db, { id: 'pull-request-item', reference: null, creationSource: 'pull_request', createdAt });
+  db.prepare(
+    `INSERT INTO work_item_pull_requests (pr_id, work_item_id, source, linked_at)
+     VALUES (?, ?, 'explicit', ?)`,
+  ).run('acme/widgets#1', 'pull-request-item', createdAt);
+  db.prepare(
+    `INSERT INTO work_item_pull_requests (pr_id, work_item_id, source, linked_at)
+     VALUES (?, ?, 'explicit', ?)`,
+  ).run('acme/widgets#2', 'manual-item', linkedLaterAt);
+  db.exec('ALTER TABLE work_items DROP COLUMN creation_source; PRAGMA user_version = 16');
+  closeDb();
+
+  db = initDb(path);
+
+  assert.equal(db.prepare('PRAGMA user_version').get().user_version, CURRENT_SCHEMA_VERSION);
+  assert.deepEqual(
+    db
+      .prepare('SELECT id, creation_source FROM work_items ORDER BY id')
+      .all()
+      .map((row) => ({ ...row })),
+    [
+      { id: 'manual-item', creation_source: 'manual' },
+      { id: 'pull-request-item', creation_source: 'pull_request' },
+      { id: 'reference-item', creation_source: 'reference' },
+    ],
+  );
+  assert.throws(
+    () => db.prepare("UPDATE work_items SET creation_source = 'unknown' WHERE id = 'manual-item'").run(),
+    /CHECK constraint failed/u,
+  );
+  assert.equal(readFileSync(`${path}.backup-v16-to-v${CURRENT_SCHEMA_VERSION}`).length > 0, true);
+});
+
 test('the v15 migration adds durable idle timestamps without replacing sessions', () => {
   const path = join(temporaryDirectory(), 'v15.db');
   let db = initDb(path);
