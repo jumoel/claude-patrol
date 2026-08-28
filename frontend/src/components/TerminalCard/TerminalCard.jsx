@@ -17,6 +17,33 @@ import styles from './TerminalCard.module.css';
 const DEFAULT_TERMINAL_HEIGHT = 400;
 const MIN_TERMINAL_HEIGHT = 150;
 const MAX_TERMINAL_HEIGHT = 900;
+const TERMINAL_HEIGHT_STORAGE_KEY = 'claude-patrol-terminal-height';
+
+/** @param {number} height */
+function clampTerminalHeight(height) {
+  return Math.min(MAX_TERMINAL_HEIGHT, Math.max(MIN_TERMINAL_HEIGHT, Math.round(height)));
+}
+
+function loadTerminalHeight() {
+  try {
+    const stored = localStorage.getItem(TERMINAL_HEIGHT_STORAGE_KEY);
+    if (stored === null) return DEFAULT_TERMINAL_HEIGHT;
+    const height = Number(stored);
+    if (Number.isFinite(height)) return clampTerminalHeight(height);
+  } catch {
+    // Storage can be disabled without preventing terminal use.
+  }
+  return DEFAULT_TERMINAL_HEIGHT;
+}
+
+/** @param {number} height */
+function persistTerminalHeight(height) {
+  try {
+    localStorage.setItem(TERMINAL_HEIGHT_STORAGE_KEY, String(clampTerminalHeight(height)));
+  } catch {
+    // The resized terminal still keeps its in-memory height for this mount.
+  }
+}
 
 /**
  * Shared terminal UI with maximize, close, resize, and detach/reattach support.
@@ -71,9 +98,10 @@ export function TerminalCard({
     dragging,
     handleProps,
   } = useResizeHandle({
-    initial: DEFAULT_TERMINAL_HEIGHT,
+    initial: loadTerminalHeight(),
     min: MIN_TERMINAL_HEIGHT,
     max: MAX_TERMINAL_HEIGHT,
+    onPersist: persistTerminalHeight,
   });
 
   const handleWorkPageResizeKeyDown = useCallback(
@@ -86,6 +114,7 @@ export function TerminalCard({
       if (nextHeight === null) return;
       event.preventDefault();
       setTermHeight(nextHeight);
+      persistTerminalHeight(nextHeight);
     },
     [setTermHeight, termHeight],
   );

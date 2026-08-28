@@ -48,6 +48,7 @@ function session(status) {
 }
 
 beforeEach(() => {
+  localStorage.clear();
   history.replaceState(null, '', '/#/work-item/item-1?pr=org%2Frepo%231');
 });
 
@@ -80,6 +81,7 @@ test('work-page presentation collapses in flow without window-management control
   fireEvent.keyDown(resizeHandle, { key: 'ArrowDown' });
   assert.equal(screen.getByRole('separator', { name: 'Resize terminal' }).getAttribute('aria-valuenow'), '440');
   assert.equal(terminal.parentElement?.style.height, '440px');
+  assert.equal(localStorage.getItem('claude-patrol-terminal-height'), '440');
 
   fireEvent.click(screen.getByRole('button', { name: 'Maximize' }));
   assert.ok(screen.getByRole('button', { name: 'Restore' }));
@@ -183,6 +185,24 @@ test('resizes an inline work-page terminal by dragging its lower edge', () => {
 
   assert.equal(resizeHandle.getAttribute('aria-valuenow'), '480');
   assert.equal(screen.getByTestId('terminal').parentElement?.style.height, '480px');
+  assert.equal(localStorage.getItem('claude-patrol-terminal-height'), '480');
+});
+
+test('uses the persisted height as the default for another terminal', () => {
+  localStorage.setItem('claude-patrol-terminal-height', '520');
+
+  render(
+    <TerminalCard
+      session={session('active')}
+      title="Terminal - Repair JavaScript CVEs"
+      onKill={vi.fn()}
+      onExit={vi.fn()}
+      presentation="work-page"
+    />,
+  );
+
+  assert.equal(screen.getByRole('separator', { name: 'Resize terminal' }).getAttribute('aria-valuenow'), '520');
+  assert.equal(screen.getByTestId('terminal').parentElement?.style.height, '520px');
 });
 
 test('detached work-page terminal remains a normal document section', () => {
