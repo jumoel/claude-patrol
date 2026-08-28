@@ -19,7 +19,7 @@ import {
   cleanupOrphanedSessions,
   cleanupOrphanedTmuxSessions,
   killAllSessions,
-  pollReattachedSessionStatuses,
+  pollSessionStatuses,
   reattachOrphanedSessions,
   setMcpPort,
   startSessionStatusPolling,
@@ -100,7 +100,7 @@ export async function startServer(options = {}) {
     // Default: reattach surviving tmux sessions, kill dead ones.
     const count = reattachOrphanedSessions();
     if (count > 0) console.log(`[claude-patrol] Reattached ${count} surviving session(s)`);
-    await pollReattachedSessionStatuses();
+    await pollSessionStatuses();
     startSessionStatusPolling();
   }
   const interruptedWorkItems = recoverInterruptedWorkItems();

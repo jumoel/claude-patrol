@@ -21,7 +21,7 @@ import {
   MAX_LIVE_GLOBAL_SESSIONS,
   normalizeGlobalSessionName,
   PATROL_MCP_TIMEOUT_MS,
-  pollReattachedSessionStatuses,
+  pollSessionStatuses,
   RingBuffer,
   reattachOrphanedSessions,
   recordProviderActivity,
@@ -758,7 +758,7 @@ it('polls reattached sessions until their provider reports a terminal state', as
   assert.equal(reattachOrphanedSessions(runtime), 1);
   const observedCandidates = [];
   assert.equal(
-    await pollReattachedSessionStatuses({
+    await pollSessionStatuses({
       probe: async (candidates) => {
         observedCandidates.push(candidates);
         return new Map([['reattach-status', { state: 'working', source: 'codex_status_poll' }]]);
@@ -769,7 +769,7 @@ it('polls reattached sessions until their provider reports a terminal state', as
   assert.equal(getSessionSnapshot('reattach-status').activityState, 'working');
 
   assert.equal(
-    await pollReattachedSessionStatuses({
+    await pollSessionStatuses({
       probe: async () => new Map([['reattach-status', { state: 'idle', source: 'codex_status_poll' }]]),
     }),
     1,
@@ -779,7 +779,7 @@ it('polls reattached sessions until their provider reports a terminal state', as
   assert.deepEqual(observedCandidates, [[{ sessionId: 'reattach-status', provider: 'codex' }]]);
 
   assert.equal(
-    await pollReattachedSessionStatuses({
+    await pollSessionStatuses({
       probe: async () => {
         assert.fail('idle reattached sessions should leave the polling set');
       },
@@ -788,6 +788,91 @@ it('polls reattached sessions until their provider reports a terminal state', as
   );
 
   killSession('reattach-status', { killTmux() {}, isTmuxAlive: () => false });
+});
+
+it('keeps a live Codex turn working until the pane title reports idle', async () => {
+  initDb(':memory:');
+  setMcpPort(4242);
+  let exitHandler = null;
+  const runtime = {
+    randomUUID: () => 'live-codex-status',
+    execFileSync() {},
+    spawnPty() {
+      return {
+        pid: 12,
+        onData() {},
+        onExit(handler) {
+          exitHandler = handler;
+        },
+        kill() {
+          exitHandler?.({ exitCode: 0 });
+        },
+        write() {},
+        resize() {},
+      };
+    },
+  };
+
+  createSessionWithRuntime({ type: 'global' }, process.cwd(), {
+    provider: 'codex',
+    enablePatrolMcp: false,
+    initialPrompt: 'inspect the active pull request',
+    runtime,
+  });
+  const { token } = readActivityCredential('live-codex-status');
+  assert.equal(getSessionSnapshot('live-codex-status').activityState, 'working');
+
+  assert.deepEqual(
+    recordProviderActivity('live-codex-status', 'codex', token, {
+      event: 'turn_completed',
+      run_id: 'turn-1',
+    }),
+    { accepted: true, duplicate: false, status: 202 },
+  );
+  assert.equal(getSessionSnapshot('live-codex-status').activityState, 'working');
+
+  let resolveStaleProbe;
+  const stalePoll = pollSessionStatuses({
+    probe: async () =>
+      new Promise((resolvePromise) => {
+        resolveStaleProbe = resolvePromise;
+      }),
+  });
+  await Promise.resolve();
+  recordProviderActivity('live-codex-status', 'codex', token, {
+    event: 'turn_completed',
+    run_id: 'turn-2',
+  });
+  resolveStaleProbe(new Map([['live-codex-status', { state: 'idle', source: 'codex_status_poll' }]]));
+  assert.equal(await stalePoll, 0);
+  assert.equal(getSessionSnapshot('live-codex-status').activityState, 'working');
+
+  assert.equal(
+    await pollSessionStatuses({
+      probe: async () => new Map([['live-codex-status', { state: 'working', source: 'codex_status_poll' }]]),
+    }),
+    1,
+  );
+  assert.equal(getSessionSnapshot('live-codex-status').activityState, 'working');
+
+  assert.equal(
+    await pollSessionStatuses({
+      probe: async () => new Map([['live-codex-status', { state: 'idle', source: 'codex_status_poll' }]]),
+    }),
+    1,
+  );
+  assert.equal(getSessionSnapshot('live-codex-status').activityState, 'idle');
+
+  assert.equal(
+    await pollSessionStatuses({
+      probe: async () => {
+        assert.fail('an idle Codex session should leave the polling set');
+      },
+    }),
+    0,
+  );
+
+  killSession('live-codex-status', { killTmux() {}, isTmuxAlive: () => false });
 });
 
 it('restores the stored idle timestamp instead of creating a new waiting transition', async () => {
@@ -824,7 +909,7 @@ it('restores the stored idle timestamp instead of creating a new waiting transit
 
   assert.equal(reattachOrphanedSessions(runtime), 2);
   assert.equal(
-    await pollReattachedSessionStatuses({
+    await pollSessionStatuses({
       probe: async () =>
         new Map([
           ['reattach-with-stored-idle', { state: 'idle', source: 'codex_status_poll' }],

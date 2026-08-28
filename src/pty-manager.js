@@ -212,7 +212,8 @@ export class TerminalOutputBatcher {
 const sessions = new Map();
 /** @type {Map<string, {provider: 'claude'|'codex', token: string}>} */
 const activityCredentials = new Map();
-const reattachedSessionsAwaitingStatus = new Set();
+const sessionsAwaitingProviderStatus = new Set();
+const providerStatusGenerations = new Map();
 export const SESSION_STATUS_POLL_INTERVAL_MS = 1_000;
 let sessionStatusPollingEnabled = false;
 let sessionStatusPollTimer = null;
@@ -255,6 +256,7 @@ function attachPtyToTmux(sessionId, meta = {}, runtime = DEFAULT_SESSION_RUNTIME
     lastIdleAt: null,
     persistedIdleAt: sessionRow.last_idle_at ?? null,
     activityChangedAt: null,
+    lastCodexCompletionRunId: null,
     // The first post-reattach idle observation restores persisted UI state. It
     // does not prove that a new idle transition happened during the restart.
     restoringPersistedIdle: false,
@@ -288,7 +290,11 @@ function attachPtyToTmux(sessionId, meta = {}, runtime = DEFAULT_SESSION_RUNTIME
   const credential = readActivityCredential(sessionId);
   if (credential?.provider === sessionRow.provider) activityCredentials.set(sessionId, credential);
   entry.markWorking = (source = 'dispatch') => {
-    reattachedSessionsAwaitingStatus.delete(sessionId);
+    if (sessionRow.provider === 'codex') {
+      requestProviderStatus(sessionId);
+    } else {
+      stopProviderStatusTracking(sessionId);
+    }
     activity.markWorking(source, {
       expectNative: credential?.provider === 'codex',
     });
@@ -311,7 +317,7 @@ function attachPtyToTmux(sessionId, meta = {}, runtime = DEFAULT_SESSION_RUNTIME
     }
     sessions.delete(sessionId);
     activityCredentials.delete(sessionId);
-    reattachedSessionsAwaitingStatus.delete(sessionId);
+    stopProviderStatusTracking(sessionId);
     const tempPaths = new Set([
       ...(meta.tempPaths ?? []),
       activityCredentialPathForSession(sessionId),
@@ -338,19 +344,29 @@ function attachPtyToTmux(sessionId, meta = {}, runtime = DEFAULT_SESSION_RUNTIME
 
   sessions.set(sessionId, entry);
   if (meta.pollActivity) {
-    reattachedSessionsAwaitingStatus.add(sessionId);
-    scheduleSessionStatusPoll();
+    requestProviderStatus(sessionId, SESSION_STATUS_POLL_INTERVAL_MS);
   }
   return entry;
 }
 
+function requestProviderStatus(sessionId, delay = 0) {
+  sessionsAwaitingProviderStatus.add(sessionId);
+  providerStatusGenerations.set(sessionId, (providerStatusGenerations.get(sessionId) ?? 0) + 1);
+  scheduleSessionStatusPoll(delay);
+}
+
+function stopProviderStatusTracking(sessionId) {
+  sessionsAwaitingProviderStatus.delete(sessionId);
+  providerStatusGenerations.delete(sessionId);
+}
+
 function scheduleSessionStatusPoll(delay = SESSION_STATUS_POLL_INTERVAL_MS) {
   if (!sessionStatusPollingEnabled || sessionStatusPollTimer !== null || sessionStatusPollInFlight !== null) return;
-  if (reattachedSessionsAwaitingStatus.size === 0) return;
+  if (sessionsAwaitingProviderStatus.size === 0) return;
   sessionStatusPollTimer = setTimeout(async () => {
     sessionStatusPollTimer = null;
     try {
-      await pollReattachedSessionStatuses();
+      await pollSessionStatuses();
     } catch (error) {
       console.warn(`[pty-manager] Session status poll failed: ${error.message}`);
     } finally {
@@ -360,12 +376,14 @@ function scheduleSessionStatusPoll(delay = SESSION_STATUS_POLL_INTERVAL_MS) {
   sessionStatusPollTimer.unref?.();
 }
 
-/** Poll every reattached session whose post-restart state is still unresolved or working. */
-export async function pollReattachedSessionStatuses({ probe = pollProviderSessionStatuses } = {}) {
+/** Poll every session whose provider-owned status is still unresolved or working. */
+export async function pollSessionStatuses({ probe = pollProviderSessionStatuses } = {}) {
   if (sessionStatusPollInFlight) return sessionStatusPollInFlight;
-  const candidates = [...reattachedSessionsAwaitingStatus]
+  const candidateGenerations = new Map();
+  const candidates = [...sessionsAwaitingProviderStatus]
     .map((sessionId) => {
       const row = getDb().prepare('SELECT provider FROM sessions WHERE id = ?').get(sessionId);
+      if (row) candidateGenerations.set(sessionId, providerStatusGenerations.get(sessionId));
       return row ? { sessionId, provider: row.provider } : null;
     })
     .filter(Boolean);
@@ -375,10 +393,11 @@ export async function pollReattachedSessionStatuses({ probe = pollProviderSessio
     const statuses = await probe(candidates);
     let applied = 0;
     for (const [sessionId, status] of statuses) {
-      if (!reattachedSessionsAwaitingStatus.has(sessionId)) continue;
+      if (!sessionsAwaitingProviderStatus.has(sessionId)) continue;
+      if (providerStatusGenerations.get(sessionId) !== candidateGenerations.get(sessionId)) continue;
       const entry = sessions.get(sessionId);
       if (!entry) {
-        reattachedSessionsAwaitingStatus.delete(sessionId);
+        stopProviderStatusTracking(sessionId);
         continue;
       }
       entry.restoringPersistedIdle = entry.activity.snapshot().activityState === null && status.state !== 'working';
@@ -388,7 +407,7 @@ export async function pollReattachedSessionStatuses({ probe = pollProviderSessio
         entry.restoringPersistedIdle = false;
       }
       applied++;
-      if (status.state !== 'working') reattachedSessionsAwaitingStatus.delete(sessionId);
+      if (status.state !== 'working') stopProviderStatusTracking(sessionId);
     }
     return applied;
   })().finally(() => {
@@ -452,9 +471,19 @@ export function recordProviderActivity(sessionId, rawProvider, token, payload) {
   const event = normalizeProviderActivity(provider, payload);
   if (!event) return { accepted: false, reason: 'invalid_event', status: 400 };
 
+  // Codex's completion callback can arrive before its TUI leaves the active
+  // turn. Defer the public idle transition until the provider-owned pane title
+  // agrees that the spinner has stopped.
+  if (provider === 'codex') {
+    const duplicate = entry.lastCodexCompletionRunId === event.runId;
+    entry.lastCodexCompletionRunId = event.runId;
+    requestProviderStatus(sessionId);
+    return { accepted: true, duplicate, status: 202 };
+  }
+
   const result = entry.activity.handleProviderEvent(event);
   if (!result.accepted) return { ...result, status: 409 };
-  reattachedSessionsAwaitingStatus.delete(sessionId);
+  stopProviderStatusTracking(sessionId);
   return { ...result, status: 202 };
 }
 
