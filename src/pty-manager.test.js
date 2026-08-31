@@ -12,6 +12,7 @@ import { closeDb, getDb, initDb } from './db.js';
 import {
   activeSessionCount,
   createSessionWithRuntime,
+  dispatchToSession,
   dispatchWsMessage,
   getSessionPeerReviewReadiness,
   getSessionSnapshot,
@@ -727,7 +728,7 @@ it('reattaches every surviving global session after an update', () => {
   assert.equal(activeSessionCount(), 0);
 });
 
-it('polls reattached sessions until their provider reports a terminal state', async () => {
+it('tracks a reattached Codex session across idle and a later turn', async () => {
   initDb(':memory:');
   getDb()
     .prepare(
@@ -780,17 +781,16 @@ it('polls reattached sessions until their provider reports a terminal state', as
 
   assert.equal(
     await pollSessionStatuses({
-      probe: async () => {
-        assert.fail('idle reattached sessions should leave the polling set');
-      },
+      probe: async () => new Map([['reattach-status', { state: 'working', source: 'codex_status_poll' }]]),
     }),
-    0,
+    1,
   );
+  assert.equal(getSessionSnapshot('reattach-status').activityState, 'working');
 
   killSession('reattach-status', { killTmux() {}, isTmuxAlive: () => false });
 });
 
-it('keeps a live Codex turn working until the pane title reports idle', async () => {
+it('tracks a live Codex session through completion and a queued follow-up turn', async () => {
   initDb(':memory:');
   setMcpPort(4242);
   let exitHandler = null;
@@ -865,14 +865,74 @@ it('keeps a live Codex turn working until the pane title reports idle', async ()
 
   assert.equal(
     await pollSessionStatuses({
-      probe: async () => {
-        assert.fail('an idle Codex session should leave the polling set');
-      },
+      probe: async () => new Map([['live-codex-status', { state: 'working', source: 'codex_status_poll' }]]),
+    }),
+    1,
+  );
+  assert.equal(getSessionSnapshot('live-codex-status').activityState, 'working');
+
+  killSession('live-codex-status', { killTmux() {}, isTmuxAlive: () => false });
+});
+
+it('ignores the stale idle pane title observed before a dispatched Codex turn starts', async () => {
+  initDb(':memory:');
+  setMcpPort(4242);
+  let exitHandler = null;
+  const writes = [];
+  const runtime = {
+    randomUUID: () => 'codex-dispatch-race',
+    execFileSync() {},
+    spawnPty() {
+      return {
+        pid: 12,
+        onData() {},
+        onExit(handler) {
+          exitHandler = handler;
+        },
+        kill() {
+          exitHandler?.({ exitCode: 0 });
+        },
+        write(data) {
+          writes.push(data);
+        },
+        resize() {},
+      };
+    },
+  };
+
+  createSessionWithRuntime({ type: 'global' }, process.cwd(), {
+    provider: 'codex',
+    enablePatrolMcp: false,
+    runtime,
+  });
+
+  const dispatch = dispatchToSession('codex-dispatch-race', 'inspect the issue');
+  assert.equal(getSessionSnapshot('codex-dispatch-race').activityState, 'working');
+  assert.equal(
+    await pollSessionStatuses({
+      probe: async () => new Map([['codex-dispatch-race', { state: 'idle', source: 'codex_status_poll' }]]),
     }),
     0,
   );
+  assert.equal(getSessionSnapshot('codex-dispatch-race').activityState, 'working');
 
-  killSession('live-codex-status', { killTmux() {}, isTmuxAlive: () => false });
+  await dispatch;
+  assert.deepEqual(writes, ['inspect the issue', '\r']);
+  assert.equal(
+    await pollSessionStatuses({
+      probe: async () => new Map([['codex-dispatch-race', { state: 'working', source: 'codex_status_poll' }]]),
+    }),
+    1,
+  );
+  assert.equal(
+    await pollSessionStatuses({
+      probe: async () => new Map([['codex-dispatch-race', { state: 'idle', source: 'codex_status_poll' }]]),
+    }),
+    1,
+  );
+  assert.equal(getSessionSnapshot('codex-dispatch-race').activityState, 'idle');
+
+  killSession('codex-dispatch-race', { killTmux() {}, isTmuxAlive: () => false });
 });
 
 it('restores the stored idle timestamp instead of creating a new waiting transition', async () => {

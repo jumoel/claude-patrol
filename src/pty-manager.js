@@ -260,6 +260,8 @@ function attachPtyToTmux(sessionId, meta = {}, runtime = DEFAULT_SESSION_RUNTIME
     // The first post-reattach idle observation restores persisted UI state. It
     // does not prove that a new idle transition happened during the restart.
     restoringPersistedIdle: false,
+    providerWorkingObserved: false,
+    providerCompletionObserved: false,
   };
   const activity = new SessionActivityTracker({
     idleThresholdMs: runtime.activityIdleThresholdMs,
@@ -291,13 +293,15 @@ function attachPtyToTmux(sessionId, meta = {}, runtime = DEFAULT_SESSION_RUNTIME
   if (credential?.provider === sessionRow.provider) activityCredentials.set(sessionId, credential);
   entry.markWorking = (source = 'dispatch') => {
     if (sessionRow.provider === 'codex') {
-      requestProviderStatus(sessionId);
+      entry.providerWorkingObserved = false;
+      entry.providerCompletionObserved = false;
     } else {
       stopProviderStatusTracking(sessionId);
     }
     activity.markWorking(source, {
       expectNative: credential?.provider === 'codex',
     });
+    if (sessionRow.provider === 'codex') requestProviderStatus(sessionId);
   };
 
   proc.onData((data) => {
@@ -376,14 +380,22 @@ function scheduleSessionStatusPoll(delay = SESSION_STATUS_POLL_INTERVAL_MS) {
   sessionStatusPollTimer.unref?.();
 }
 
-/** Poll every session whose provider-owned status is still unresolved or working. */
+/**
+ * Poll provider-owned status surfaces. Codex sessions stay subscribed while
+ * idle because Codex exposes completion notifications but no turn-start event;
+ * a queued follow-up turn is otherwise invisible after the first idle poll.
+ */
 export async function pollSessionStatuses({ probe = pollProviderSessionStatuses } = {}) {
   if (sessionStatusPollInFlight) return sessionStatusPollInFlight;
   const candidateGenerations = new Map();
+  const candidateProviders = new Map();
   const candidates = [...sessionsAwaitingProviderStatus]
     .map((sessionId) => {
       const row = getDb().prepare('SELECT provider FROM sessions WHERE id = ?').get(sessionId);
-      if (row) candidateGenerations.set(sessionId, providerStatusGenerations.get(sessionId));
+      if (row) {
+        candidateGenerations.set(sessionId, providerStatusGenerations.get(sessionId));
+        candidateProviders.set(sessionId, row.provider);
+      }
       return row ? { sessionId, provider: row.provider } : null;
     })
     .filter(Boolean);
@@ -400,6 +412,20 @@ export async function pollSessionStatuses({ probe = pollProviderSessionStatuses 
         stopProviderStatusTracking(sessionId);
         continue;
       }
+      if (candidateProviders.get(sessionId) === 'codex') {
+        if (status.state === 'working') {
+          entry.providerWorkingObserved = true;
+        } else if (
+          entry.activity.snapshot().activityState === 'working' &&
+          !entry.providerWorkingObserved &&
+          !entry.providerCompletionObserved
+        ) {
+          // An idle pane immediately after dispatch can still be showing the
+          // state from before the prompt reached Codex. Keep polling until the
+          // active turn or its completion notification has been observed.
+          continue;
+        }
+      }
       entry.restoringPersistedIdle = entry.activity.snapshot().activityState === null && status.state !== 'working';
       try {
         entry.activity.handleStatusPoll(status);
@@ -407,7 +433,9 @@ export async function pollSessionStatuses({ probe = pollProviderSessionStatuses 
         entry.restoringPersistedIdle = false;
       }
       applied++;
-      if (status.state !== 'working') stopProviderStatusTracking(sessionId);
+      if (status.state !== 'working' && candidateProviders.get(sessionId) !== 'codex') {
+        stopProviderStatusTracking(sessionId);
+      }
     }
     return applied;
   })().finally(() => {
@@ -477,6 +505,7 @@ export function recordProviderActivity(sessionId, rawProvider, token, payload) {
   if (provider === 'codex') {
     const duplicate = entry.lastCodexCompletionRunId === event.runId;
     entry.lastCodexCompletionRunId = event.runId;
+    entry.providerCompletionObserved = true;
     requestProviderStatus(sessionId);
     return { accepted: true, duplicate, status: 202 };
   }
