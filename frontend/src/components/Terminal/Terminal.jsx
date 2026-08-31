@@ -115,10 +115,9 @@ export function Terminal({
       if (bounds.width < 2 || bounds.height < 2) return;
 
       fitAddon.fit();
-      // Font loading, renderer changes, and CSS resizing can leave WebGL's
-      // cached glyphs at the previous cell size. Rebuild the atlas before the
-      // redraw so characters do not overlap after a refresh or resize.
-      term.clearTextureAtlas();
+      // Do not call clearTextureAtlas here. WebGL renderers with matching
+      // options share an atlas, so clearing it for this terminal corrupts any
+      // other mounted terminal whose render model still references it.
       if (term.rows > 0) term.refresh(0, term.rows - 1);
       if (redrawFrame !== null) cancelAnimationFrame(redrawFrame);
       redrawFrame = requestAnimationFrame(() => {

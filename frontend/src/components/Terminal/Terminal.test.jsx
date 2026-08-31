@@ -221,9 +221,23 @@ describe('Terminal connection lifecycle', () => {
     state.resizeCallback?.();
 
     await waitFor(() => expect(state.fitCalls).toBeGreaterThan(fitsBeforeResize));
-    expect(state.clearTextureAtlasCalls).toBeGreaterThan(0);
     expect(state.refreshCalls).toBeGreaterThan(0);
     expect(state.sockets[0].sent).toContain(JSON.stringify({ type: 'resize', cols: 80, rows: 24 }));
+  });
+
+  it('does not clear the shared WebGL texture atlas when another terminal refits', async () => {
+    render(
+      <>
+        <Terminal wsUrl="/ws/sessions/workspace" />
+        <Terminal wsUrl="/ws/sessions/global" />
+      </>,
+    );
+    await waitFor(() => expect(state.sockets).toHaveLength(2));
+
+    state.resizeCallback?.();
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+
+    expect(state.clearTextureAtlasCalls).toBe(0);
   });
 
   it('sends one PTY resize when the fitted dimensions change', async () => {
@@ -269,12 +283,10 @@ describe('Terminal connection lifecycle', () => {
     await new Promise((resolve) => requestAnimationFrame(resolve));
 
     expect(state.fitCalls).toBe(0);
-    expect(state.clearTextureAtlasCalls).toBe(0);
 
     state.bounds = { width: 800, height: 400 };
     state.resizeCallback?.();
 
     await waitFor(() => expect(state.fitCalls).toBeGreaterThan(0));
-    expect(state.clearTextureAtlasCalls).toBeGreaterThan(0);
   });
 });
