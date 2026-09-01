@@ -25,6 +25,7 @@ function fixture({
   sessionAlive = true,
   stopSession,
   addedRepositoryError = null,
+  prepareSourceRepository,
   logger = { log() {}, warn() {} },
 } = {}) {
   initDb(':memory:');
@@ -33,6 +34,7 @@ function fixture({
   const config = {
     workspace_base_path: join(root, 'workspaces'),
     work_dir: join(root, 'sources'),
+    poll: { orgs: ['acme'], repos: [] },
     repos: {
       'acme/alpha': { defaultRevision: 'main@origin' },
       'acme/beta': { defaultRevision: 'main@origin' },
@@ -120,6 +122,7 @@ function fixture({
         )
         .run(new Date().toISOString(), id);
     },
+    prepareSourceRepository,
     launchSession: (target, cwd, provider, options) => {
       sessionNumber += 1;
       const id = `session-${sessionNumber}`;
@@ -215,6 +218,45 @@ test('manual work creates one aggregate for multiple configured repositories wit
   const task = JSON.parse(readFileSync(join(detail.root_path, 'TASK.json'), 'utf8'));
   assert.equal(Object.hasOwn(task, 'reference'), false);
   assert.equal(task.title, 'Coordinate the release');
+});
+
+test('manual work prepares a discovered repository before creating its workspace', async () => {
+  const preparations = [];
+  const { service, config } = fixture({
+    prepareSourceRepository: async (repository, sourceConfig) => {
+      const [scope, name] = repository.split('/');
+      const sourcePath = join(sourceConfig.work_dir, scope, name);
+      mkdirSync(join(sourcePath, '.jj'), { recursive: true });
+      preparations.push({ repository, sourcePath });
+      return { sourcePath, startRevision: 'trunk@origin' };
+    },
+  });
+  const created = service.create({
+    source: 'manual',
+    title: 'Work in a discovered repository',
+    repositories: ['acme/discovered'],
+  });
+  await service.waitForIdle(created.id);
+
+  const detail = service.detail(created.id);
+  assert.equal(detail.state, 'ready');
+  assert.deepEqual(preparations, [
+    { repository: 'acme/discovered', sourcePath: join(config.work_dir, 'acme', 'discovered') },
+  ]);
+  assert.equal(detail.repository_workspaces[0].start_revision, 'trunk@origin');
+});
+
+test('manual work rejects repositories outside configured GitHub discovery', () => {
+  const { service } = fixture();
+  assert.throws(
+    () =>
+      service.create({
+        source: 'manual',
+        title: 'Unavailable repository',
+        repositories: ['outside/not-discovered'],
+      }),
+    (error) => error.code === 'repository_not_discovered',
+  );
 });
 
 test('pull-request local work creates a one-repository aggregate and owns the PR', async () => {

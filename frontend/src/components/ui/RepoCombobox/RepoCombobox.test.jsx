@@ -39,3 +39,14 @@ test('shows repository load failures and retries in place', async () => {
   assert.ok(await screen.findByRole('option', { name: 'acme/widgets' }));
   assert.equal(api.fetchAllRepos.mock.calls.length, 2);
 });
+
+test('omits values already selected by a multi-repository picker', async () => {
+  const user = userEvent.setup();
+  api.fetchAllRepos.mockResolvedValue({ repos: ['acme/alpha', 'acme/widgets'] });
+  render(<RepoCombobox value="" onChange={vi.fn()} excludedValues={['acme/alpha']} />);
+
+  await user.click(screen.getByRole('button', { name: 'Repository' }));
+
+  assert.equal(screen.queryByRole('option', { name: 'acme/alpha' }), null);
+  assert.ok(await screen.findByRole('option', { name: 'acme/widgets' }));
+});

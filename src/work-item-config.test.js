@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { afterEach, test } from 'node:test';
 import { isConfigured, isPollConfigured, isWorkItemsConfigured, parseConfig } from './config.js';
 import { providerSetup } from './provider-setup.js';
-import { resolveWorkspaceRevision, sourceRepositoryPath } from './workspace.js';
+import { ensureManualSourceRepository, resolveWorkspaceRevision, sourceRepositoryPath } from './workspace.js';
 
 const temporaryDirectories = [];
 
@@ -198,4 +198,32 @@ test('source repositories must be jj repositories contained by work_dir', async 
     () => sourceRepositoryPath('acme/escape', config),
     (error) => error.code === 'unsafe_repository_path',
   );
+});
+
+test('manual source preparation clones missing repositories into work_dir scope and repository directories', async () => {
+  const root = temporaryDirectory();
+  const workDir = join(root, 'work');
+  const calls = [];
+  const runExec = async (command, args, options) => {
+    calls.push([command, args]);
+    if (command === 'gh' && args[1] === 'view') return { stdout: 'trunk\n', stderr: '' };
+    if (command === 'gh' && args[1] === 'clone') {
+      mkdirSync(join(args[3], '.git'), { recursive: true });
+      return { stdout: '', stderr: '' };
+    }
+    if (command === 'jj' && args[1] === 'init') {
+      mkdirSync(join(options.cwd, '.jj'), { recursive: true });
+      return { stdout: '', stderr: '' };
+    }
+    throw new Error(`Unexpected command: ${command} ${args.join(' ')}`);
+  };
+
+  const prepared = await ensureManualSourceRepository('acme/widgets', { work_dir: workDir }, { runExec });
+  const expectedPath = realpathSync(join(workDir, 'acme', 'widgets'));
+  assert.deepEqual(prepared, { sourcePath: expectedPath, startRevision: 'trunk@origin' });
+  assert.deepEqual(calls, [
+    ['gh', ['repo', 'view', 'acme/widgets', '--json', 'defaultBranchRef', '--jq', '.defaultBranchRef.name']],
+    ['gh', ['repo', 'clone', 'acme/widgets', expectedPath]],
+    ['jj', ['git', 'init', '--colocate']],
+  ]);
 });

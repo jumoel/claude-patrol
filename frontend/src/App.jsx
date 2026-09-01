@@ -304,7 +304,6 @@ export default function App() {
           <StartWorkLauncher
             workItemsConfigured={workItemsConfigured}
             manualWorkConfigured={publicConfig?.manual_work?.configured ?? false}
-            manualRepositories={publicConfig?.manual_work?.repositories ?? []}
           />
         ) : undefined
       }

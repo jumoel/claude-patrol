@@ -17,20 +17,20 @@ import { writePatrolWorkspaceMarker } from './workspace-ownership.js';
  * `jj git init --colocate` to set it up. No-op if already initialized.
  * @param {string} repoPath
  */
-async function ensureJjInit(repoPath) {
+async function ensureJjInit(repoPath, { runExec = execFile } = {}) {
   if (!existsSync(repoPath)) {
     throw new Error(`Repo directory does not exist: ${repoPath}`);
   }
   const jjDir = resolve(repoPath, '.jj');
   if (!existsSync(jjDir)) {
     console.log(`[workspace] Initializing jj in ${repoPath}`);
-    await execFile('jj', ['git', 'init', '--colocate'], { cwd: repoPath });
+    await runExec('jj', ['git', 'init', '--colocate'], { cwd: repoPath });
     return;
   }
 
   // Update stale working copy - jj refuses operations on stale repos
   try {
-    await execFile('jj', ['workspace', 'update-stale', '-R', repoPath]);
+    await runExec('jj', ['workspace', 'update-stale', '-R', repoPath]);
   } catch {
     // Non-fatal: update-stale fails if workspace isn't stale (exit code 1)
   }
@@ -38,6 +38,9 @@ async function ensureJjInit(repoPath) {
 
 /** @type {Map<string, Promise<unknown>>} */
 const workspaceLocks = new Map();
+
+/** @type {Map<string, Promise<unknown>>} */
+const sourceRepositoryLocks = new Map();
 
 function workspaceError(code, message) {
   const error = new Error(message);
@@ -482,6 +485,105 @@ export function sourceRepositoryPath(repo, config) {
     throw workspaceError('jj_required', `Configured source repository is not a jj repository: ${repo}`);
   }
   return source;
+}
+
+/**
+ * Ensure a GitHub repository can act as a work-item source. Missing repositories
+ * are cloned beneath work_dir using their owner/repository path.
+ * @param {string} repo
+ * @param {object} config
+ * @param {{runExec?: typeof execFile}} [options]
+ * @returns {Promise<{sourcePath: string, startRevision: string}>}
+ */
+export async function ensureManualSourceRepository(repo, config, { runExec = execFile } = {}) {
+  const operation = async () => {
+    const [scope, name, extra] = String(repo).split('/');
+    const validSegment = (value) =>
+      Boolean(value) && value !== '.' && value !== '..' && !/[\s/\\\u0000-\u001f\u007f-\u009f]/u.test(value);
+    if (!validSegment(scope) || !validSegment(name) || extra) {
+      throw workspaceError('invalid_repository', `Invalid repository identifier: ${repo}`);
+    }
+
+    let defaultBranch;
+    try {
+      const { stdout } = await runExec(
+        'gh',
+        ['repo', 'view', repo, '--json', 'defaultBranchRef', '--jq', '.defaultBranchRef.name'],
+        { encoding: 'utf8' },
+      );
+      defaultBranch = String(stdout).trim();
+    } catch (error) {
+      throw workspaceError(
+        'repository_discovery_failed',
+        `Could not inspect GitHub repository ${repo}: ${sanitizePublicText(error.message)}`,
+      );
+    }
+    if (
+      !defaultBranch ||
+      Buffer.byteLength(defaultBranch, 'utf8') > 255 ||
+      /[\u0000-\u001f\u007f-\u009f]/u.test(defaultBranch)
+    ) {
+      throw workspaceError('repository_default_branch_missing', `GitHub repository ${repo} has no default branch`);
+    }
+
+    const workDir = expandPath(config.work_dir);
+    mkdirSync(workDir, { recursive: true });
+    const realWorkDir = realpathSync(workDir);
+    const destination = resolve(realWorkDir, scope, name);
+    const relation = relative(realWorkDir, destination);
+    if (
+      relation === '..' ||
+      relation.startsWith(`..${process.platform === 'win32' ? '\\' : '/'}`) ||
+      isAbsolute(relation)
+    ) {
+      throw workspaceError('unsafe_repository_path', `Repository path escapes work_dir: ${repo}`);
+    }
+
+    let cloned = false;
+    try {
+      if (!existsSync(destination)) {
+        mkdirSync(dirname(destination), { recursive: true });
+        cloned = true;
+        await runExec('gh', ['repo', 'clone', repo, destination], { encoding: 'utf8' });
+      } else if (!existsSync(resolve(destination, '.git')) && !existsSync(resolve(destination, '.jj'))) {
+        throw workspaceError(
+          'repository_path_conflict',
+          `Repository destination exists but is not a Git or jj repository: ${destination}`,
+        );
+      }
+
+      await ensureJjInit(destination, { runExec });
+      return {
+        sourcePath: sourceRepositoryPath(repo, config),
+        startRevision: `${defaultBranch}@origin`,
+      };
+    } catch (error) {
+      if (cloned) await rm(destination, { recursive: true, force: true });
+      if (error.code) throw error;
+      throw workspaceError(
+        'repository_clone_failed',
+        `Could not prepare GitHub repository ${repo}: ${sanitizePublicText(error.message)}`,
+      );
+    }
+  };
+
+  const previous = sourceRepositoryLocks.get(repo);
+  const serialized = (async () => {
+    if (previous) {
+      try {
+        await previous;
+      } catch {
+        // The earlier caller reports its own failure. This caller retries.
+      }
+    }
+    return operation();
+  })();
+  sourceRepositoryLocks.set(repo, serialized);
+  try {
+    return await serialized;
+  } finally {
+    if (sourceRepositoryLocks.get(repo) === serialized) sourceRepositoryLocks.delete(repo);
+  }
 }
 
 export async function resolveWorkspaceRevision(repo, revision, config) {

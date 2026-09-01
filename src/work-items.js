@@ -13,7 +13,12 @@ import { execFile, expandPath, toClaudeProjectKey } from './utils.js';
 import { generatedRootFileNames, publishRootFiles, writeTemporaryRootFiles } from './work-item-files.js';
 import { listWorkItemPullRequests, listWorkItemPullRequestsBatch } from './work-item-prs.js';
 import { createWorkItemResolver } from './work-item-resolver.js';
-import { createWorkItemChild, destroyWorkItemChild, sourceRepositoryPath } from './workspace.js';
+import {
+  createWorkItemChild,
+  destroyWorkItemChild,
+  ensureManualSourceRepository,
+  sourceRepositoryPath,
+} from './workspace.js';
 
 const workItemLocks = new Map();
 const WORK_ITEM_STATES = new Set(['resolving', 'preparing', 'ready', 'error', 'destroying', 'destroyed']);
@@ -169,14 +174,26 @@ function repositoriesFor(row) {
   return row?.id ? repositoryMemberships(row.id).map((membership) => membership.repo) : [];
 }
 
-function validateRepository(value, config) {
+function isDiscoveredRepository(repository, config) {
+  if (config.repos?.[repository]) return true;
+  if (config.poll?.repos?.includes(repository)) return true;
+  const [scope] = repository.split('/');
+  return config.poll?.orgs?.includes(scope) ?? false;
+}
+
+function validateRepository(value, config, { allowDiscovered = false } = {}) {
   if (typeof value !== 'string') throw workItemError('invalid_repository', 'Repository must be a string');
   const repository = value.trim();
   if (!/^[^\s/\\\u0000-\u001f\u007f-\u009f]+\/[^\s/\\\u0000-\u001f\u007f-\u009f]+$/u.test(repository)) {
     throw workItemError('invalid_repository', 'Repository must use owner/repo format');
   }
-  if (!config.repos?.[repository]) {
-    throw workItemError('repository_not_configured', `Repository is not configured in repos: ${repository}`);
+  if (!config.repos?.[repository] && !(allowDiscovered && isDiscoveredRepository(repository, config))) {
+    throw workItemError(
+      allowDiscovered ? 'repository_not_discovered' : 'repository_not_configured',
+      allowDiscovered
+        ? `Repository is not available through configured GitHub discovery: ${repository}`
+        : `Repository is not configured in repos: ${repository}`,
+    );
   }
   return repository;
 }
@@ -501,11 +518,11 @@ function validateBookmark(value, id) {
   return bookmark;
 }
 
-function validateRepositoryList(value, config) {
+function validateRepositoryList(value, config, options) {
   if (!Array.isArray(value) || value.length < 1 || value.length > 32) {
-    throw workItemError('invalid_repositories', 'repositories must contain 1 to 32 configured repositories');
+    throw workItemError('invalid_repositories', 'repositories must contain 1 to 32 available repositories');
   }
-  const repositories = value.map((repository) => validateRepository(repository, config));
+  const repositories = value.map((repository) => validateRepository(repository, config, options));
   if (new Set(repositories).size !== repositories.length) {
     throw workItemError('invalid_repositories', 'repositories must not contain duplicates');
   }
@@ -546,6 +563,7 @@ export function createWorkItemService({
   schedule = (fn) => setImmediate(fn),
   createChild = createWorkItemChild,
   destroyChild = destroyWorkItemChild,
+  prepareSourceRepository = ensureManualSourceRepository,
   launchSession = createSession,
   sessionAlive = isSessionAlive,
   stopSession = killSessionAndWait,
@@ -785,10 +803,6 @@ export function createWorkItemService({
     const item = getWorkItem(id);
     const memberships = repositoryMemberships(id);
     const repositories = memberships.map((membership) => membership.repo);
-    const children = memberships.map((membership) => ({
-      ...childDescriptor(item, membership.repo),
-      startRevision: membership.start_revision ?? getConfig().repos?.[membership.repo]?.defaultRevision,
-    }));
     const rootPath = item.path;
     let childCreationStarted = false;
     try {
@@ -800,6 +814,24 @@ export function createWorkItemService({
         ...clearErrorPatch(),
       });
       logStage(id, 'root_generation', `generating files for ${repositories.length} repos`);
+      const config = getConfig();
+      for (const membership of memberships) {
+        if (config.repos?.[membership.repo]) continue;
+        logStage(id, 'root_generation', `preparing source repository ${membership.repo}`);
+        const prepared = await prepareSourceRepository(membership.repo, config);
+        const startRevision = membership.start_revision ?? prepared.startRevision;
+        validateRevision(startRevision, membership.repo, config);
+        membership.start_revision = startRevision;
+        getDb()
+          .prepare(
+            'UPDATE work_item_repositories SET start_revision = ?, updated_at = ? WHERE work_item_id = ? AND repo = ?',
+          )
+          .run(startRevision, new Date().toISOString(), id, membership.repo);
+      }
+      const children = memberships.map((membership) => ({
+        ...childDescriptor(item, membership.repo),
+        startRevision: membership.start_revision ?? config.repos?.[membership.repo]?.defaultRevision,
+      }));
       await mkdir(resolve(rootPath, 'repos'), { recursive: true });
       writeTemporaryRootFiles(rootPath, children, rootTask(item));
       mutateWorkItem(id, {
@@ -1136,11 +1168,14 @@ export function createWorkItemService({
         stage = 'provider_check';
       } else if (request.source === 'manual') {
         title = validateTitle(request.title);
-        repositories = validateRepositoryList(request.repositories, config).map((repo) => {
-          sourceRepositoryPath(repo, config);
+        repositories = validateRepositoryList(request.repositories, config, { allowDiscovered: true }).map((repo) => {
+          const configured = Boolean(config.repos?.[repo]);
+          if (configured) sourceRepositoryPath(repo, config);
+          const requestedRevision = request.startRevisions?.[repo];
           return {
             repo,
-            startRevision: validateRevision(request.startRevisions?.[repo], repo, config),
+            startRevision:
+              configured || requestedRevision !== undefined ? validateRevision(requestedRevision, repo, config) : null,
           };
         });
       } else {

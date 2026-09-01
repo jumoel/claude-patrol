@@ -8,6 +8,7 @@ import { StartWorkLauncher } from './StartWorkLauncher.jsx';
 const api = vi.hoisted(() => ({
   createWorkItem: vi.fn(),
   createManualWorkItem: vi.fn(),
+  fetchAllRepos: vi.fn(),
   fetchProviderCapabilities: vi.fn(async () => ({
     claude: { available: true, checking: false, reason: null, version: 'test', checkedAt: null },
     codex: { available: true, checking: false, reason: null, version: 'test', checkedAt: null },
@@ -20,14 +21,7 @@ vi.mock('../../lib/api.js', () => api);
 function renderLauncher(configured, manualConfigured = true) {
   return render(
     <AgentProviderProvider>
-      <StartWorkLauncher
-        workItemsConfigured={configured}
-        manualWorkConfigured={manualConfigured}
-        manualRepositories={[
-          { repository: 'acme/widgets', default_revision: 'main@origin' },
-          { repository: 'acme/api', default_revision: 'main@origin' },
-        ]}
-      />
+      <StartWorkLauncher workItemsConfigured={configured} manualWorkConfigured={manualConfigured} />
     </AgentProviderProvider>,
   );
 }
@@ -35,6 +29,8 @@ function renderLauncher(configured, manualConfigured = true) {
 beforeEach(() => {
   api.createWorkItem.mockReset();
   api.createManualWorkItem.mockReset();
+  api.fetchAllRepos.mockReset();
+  api.fetchAllRepos.mockResolvedValue({ repos: ['acme/api', 'acme/widgets', 'acme/new-repository'] });
   window.location.hash = '';
   localStorage.clear();
 });
@@ -80,7 +76,7 @@ test('defaults to Manual work when project references are unconfigured', async (
   );
 });
 
-test('manual mode creates a multi-repository work item without selecting a session provider', async () => {
+test('manual mode selects discovered repositories through the combobox and creates a multi-repository work item', async () => {
   const user = userEvent.setup();
   api.createManualWorkItem.mockResolvedValue({ work_item: { id: 'work-item-1' } });
   renderLauncher(true);
@@ -89,13 +85,16 @@ test('manual mode creates a multi-repository work item without selecting a sessi
   await user.click(screen.getByRole('radio', { name: /Manual work/ }));
   await user.type(screen.getByLabelText('Title'), 'Cross-repository cleanup');
   await user.type(screen.getByLabelText('Bookmark (optional)'), 'feat/cleanup');
-  await user.click(screen.getByRole('checkbox', { name: /acme\/widgets/ }));
-  await user.click(screen.getByRole('checkbox', { name: /acme\/api/ }));
+  await user.click(screen.getByRole('button', { name: 'Add repository' }));
+  await user.click(await screen.findByRole('option', { name: 'acme/widgets' }));
+  await user.click(screen.getByRole('button', { name: 'Add repository' }));
+  await user.click(await screen.findByRole('option', { name: 'acme/new-repository' }));
+  assert.ok(screen.getByRole('list', { name: 'Selected repositories' }));
   assert.equal(screen.queryByLabelText(/Choose agent provider/), null);
   await user.click(screen.getByRole('button', { name: 'Create work item' }));
 
   assert.deepEqual(api.createManualWorkItem.mock.calls, [
-    ['Cross-repository cleanup', ['acme/widgets', 'acme/api'], 'feat/cleanup'],
+    ['Cross-repository cleanup', ['acme/widgets', 'acme/new-repository'], 'feat/cleanup'],
   ]);
   assert.equal(api.createWorkItem.mock.calls.length, 0);
   assert.equal(window.location.hash, '#/work-item/work-item-1');

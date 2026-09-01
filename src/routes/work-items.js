@@ -38,6 +38,7 @@ function errorStatus(code) {
       'invalid_source',
       'invalid_repository',
       'repository_not_configured',
+      'repository_not_discovered',
       'invalid_revision',
       'revision_required',
       'invalid_provider',

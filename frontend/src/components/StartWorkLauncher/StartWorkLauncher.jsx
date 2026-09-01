@@ -5,6 +5,7 @@ import { getErrorMessage } from '../../lib/errors.js';
 import { AgentProviderButton } from '../AgentProviderButton/AgentProviderButton.jsx';
 import { Box } from '../ui/Box/Box.jsx';
 import { Button } from '../ui/Button/Button.jsx';
+import { RepoCombobox } from '../ui/RepoCombobox/RepoCombobox.jsx';
 import { Stack } from '../ui/Stack/Stack.jsx';
 import styles from './StartWorkLauncher.module.css';
 
@@ -14,10 +15,9 @@ import styles from './StartWorkLauncher.module.css';
  * @param {{
  *   workItemsConfigured: boolean,
  *   manualWorkConfigured: boolean,
- *   manualRepositories: Array<{repository: string, default_revision: string | null}>,
  * }} props
  */
-export function StartWorkLauncher({ workItemsConfigured, manualWorkConfigured, manualRepositories }) {
+export function StartWorkLauncher({ workItemsConfigured, manualWorkConfigured }) {
   const { provider } = useAgentProvider();
   const triggerRef = useRef(/** @type {HTMLDivElement | null} */ (null));
   const [open, setOpen] = useState(false);
@@ -105,10 +105,12 @@ export function StartWorkLauncher({ workItemsConfigured, manualWorkConfigured, m
     }
   }, [bookmark, repositories, title]);
 
-  const toggleRepository = useCallback((/** @type {string} */ repository) => {
-    setRepositories((current) =>
-      current.includes(repository) ? current.filter((candidate) => candidate !== repository) : [...current, repository],
-    );
+  const addRepository = useCallback((/** @type {string} */ repository) => {
+    setRepositories((current) => (current.includes(repository) ? current : [...current, repository]));
+  }, []);
+
+  const removeRepository = useCallback((/** @type {string} */ repository) => {
+    setRepositories((current) => current.filter((candidate) => candidate !== repository));
   }, []);
 
   return (
@@ -252,19 +254,33 @@ export function StartWorkLauncher({ workItemsConfigured, manualWorkConfigured, m
                     </Stack>
                     <fieldset className={styles.repositories} disabled={pending}>
                       <legend>Repositories</legend>
-                      <div className={styles.repositoryOptions}>
-                        {manualRepositories.map(({ repository, default_revision: defaultRevision }) => (
-                          <label key={repository} className={styles.repositoryOption}>
-                            <input
-                              type="checkbox"
-                              checked={repositories.includes(repository)}
-                              onChange={() => toggleRepository(repository)}
-                            />
-                            <span>{repository}</span>
-                            {defaultRevision && <code>{defaultRevision}</code>}
-                          </label>
-                        ))}
+                      <div className={styles.repositoryPicker}>
+                        <RepoCombobox
+                          value=""
+                          onChange={addRepository}
+                          disabled={pending}
+                          ariaLabel="Add repository"
+                          excludedValues={repositories}
+                        />
                       </div>
+                      {repositories.length > 0 && (
+                        <ul className={styles.selectedRepositories} aria-label="Selected repositories">
+                          {repositories.map((repository) => (
+                            <li key={repository} className={styles.selectedRepository}>
+                              <span>{repository}</span>
+                              <Button
+                                type="button"
+                                size="xs"
+                                onClick={() => removeRepository(repository)}
+                                disabled={pending}
+                                aria-label={`Remove ${repository}`}
+                              >
+                                Remove
+                              </Button>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
                     </fieldset>
                     <Button
                       type="submit"

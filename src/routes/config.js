@@ -31,7 +31,10 @@ export function registerConfigRoutes(app) {
         provider_setup: setup,
       },
       manual_work: {
-        configured: Object.keys(cfg.repos ?? {}).length > 0,
+        configured:
+          Object.keys(cfg.repos ?? {}).length > 0 ||
+          (cfg.poll?.orgs?.length ?? 0) > 0 ||
+          (cfg.poll?.repos?.length ?? 0) > 0,
         repositories: Object.entries(cfg.repos ?? {})
           .map(([repository, repositoryConfig]) => ({
             repository,

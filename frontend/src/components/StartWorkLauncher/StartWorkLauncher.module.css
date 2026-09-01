@@ -149,46 +149,53 @@
   font-size: 12px;
 }
 
-.repositoryOptions {
-  display: grid;
-  max-height: 220px;
-  overflow-y: auto;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--radius);
+.repositoryPicker > div,
+.repositoryPicker > div > button {
+  width: 100%;
 }
 
-.repositoryOption {
+.repositoryPicker > div > button {
+  min-height: 34px;
+}
+
+.selectedRepositories {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  max-height: 180px;
+  padding: 0;
+  margin: 6px 0 0;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  list-style: none;
+}
+
+.selectedRepository {
+  display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
   min-height: 34px;
   padding: 0 9px;
   color: var(--ink);
   border-bottom: 1px solid var(--line);
-  cursor: pointer;
   font-size: 13px;
 }
 
-.repositoryOption:last-child {
+.selectedRepository:last-child {
   border-bottom: 0;
 }
 
-.repositoryOption:has(input:checked) {
-  background: var(--blue-soft);
-}
-
-.repositoryOption input {
-  accent-color: var(--blue);
-}
-
-.repositoryOption code {
-  color: var(--muted);
-  font-size: 11px;
+.selectedRepository span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .manualSubmit {
+  min-width: 120px;
   align-self: flex-end;
+  white-space: nowrap;
 }
 
 .field input:focus {

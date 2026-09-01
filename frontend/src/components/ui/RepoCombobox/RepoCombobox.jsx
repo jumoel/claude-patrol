@@ -7,7 +7,7 @@ import styles from './RepoCombobox.module.css';
 
 /**
  * Filterable repo selector. Fetches all repos from configured orgs on first open.
- * @param {{ value: string, onChange: (repo: string) => void, disabled?: boolean, variant?: 'light' | 'dark', ariaLabel?: string, ariaLabelledBy?: string }} props
+ * @param {{ value: string, onChange: (repo: string) => void, disabled?: boolean, variant?: 'light' | 'dark', ariaLabel?: string, ariaLabelledBy?: string, excludedValues?: string[] }} props
  */
 export function RepoCombobox({
   value,
@@ -16,6 +16,7 @@ export function RepoCombobox({
   variant = 'light',
   ariaLabel = 'Repository',
   ariaLabelledBy,
+  excludedValues = [],
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -57,13 +58,15 @@ export function RepoCombobox({
   }, []);
   useClickOutside([containerRef, dropdownLayerRef], closePicker);
 
-  const filtered = repos.filter((r) => r.toLowerCase().includes(query.toLowerCase()));
+  const filtered = repos.filter(
+    (repo) => !excludedValues.includes(repo) && repo.toLowerCase().includes(query.toLowerCase()),
+  );
 
   // Scroll highlighted item into view
   useEffect(() => {
     if (!listRef.current) return;
     const item = listRef.current.children[highlighted];
-    if (item) item.scrollIntoView({ block: 'nearest' });
+    if (item instanceof HTMLElement) item.scrollIntoView?.({ block: 'nearest' });
   }, [highlighted]);
 
   const select = useCallback(
