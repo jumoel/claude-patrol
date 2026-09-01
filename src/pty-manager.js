@@ -874,7 +874,7 @@ export function createResumedSession(target, cwd, claudeSessionId) {
  *
  * @type {Record<string, {
  *   validate: (msg: any) => boolean,
- *   handle: (entry: any, msg: any, ctx: { tmuxName: string }) => void,
+ *   handle: (entry: any, msg: any, ctx: { tmuxName: string, execFile?: typeof execFile }) => void,
  * }>}
  */
 const WS_MESSAGE_HANDLERS = {
@@ -918,6 +918,22 @@ const WS_MESSAGE_HANDLERS = {
       }
     },
   },
+  scroll: {
+    validate: (msg) => Number.isInteger(msg.lines) && msg.lines !== 0 && Math.abs(msg.lines) <= 100,
+    handle: (_entry, msg, ctx) => {
+      const count = Math.abs(msg.lines);
+      const command = msg.lines < 0 ? 'scroll-up' : 'scroll-down';
+      const scrollCommand = `send-keys -X -t ${ctx.tmuxName} -N ${count} ${command}`;
+      const enterAndScrollCommand = `copy-mode -e -t ${ctx.tmuxName} ; ${scrollCommand}`;
+      const execFileImpl = ctx.execFile ?? execFile;
+      execFileImpl(
+        'tmux',
+        ['if-shell', '-F', '-t', ctx.tmuxName, '#{pane_in_mode}', scrollCommand, enterAndScrollCommand],
+        { timeout: 2_000 },
+        () => {},
+      );
+    },
+  },
 };
 
 /**
@@ -928,7 +944,7 @@ const WS_MESSAGE_HANDLERS = {
  *
  * @param {string} raw - raw WS frame text
  * @param {any}    entry - session entry from the `sessions` map
- * @param {{tmuxName: string}} ctx
+ * @param {{tmuxName: string, execFile?: typeof execFile}} ctx
  * @returns {{ type: string } | null}
  */
 export function dispatchWsMessage(raw, entry, ctx) {

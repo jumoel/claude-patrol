@@ -7,6 +7,18 @@ import styles from './Terminal.module.css';
 import { writeTerminalReplay } from './terminal-replay.js';
 
 const RECONNECT_DELAYS = [500, 1000, 2000, 4000];
+const TERMINAL_SCROLL_BATCH_MS = 50;
+const MAX_TERMINAL_SCROLL_LINES = 100;
+
+/** @param {WheelEvent} event @param {number} rows */
+function wheelLineDelta(event, rows) {
+  if (event.deltaY === 0) return 0;
+  let lines;
+  if (event.deltaMode === WheelEvent.DOM_DELTA_LINE) lines = event.deltaY;
+  else if (event.deltaMode === WheelEvent.DOM_DELTA_PAGE) lines = event.deltaY * rows;
+  else lines = event.deltaY / 20;
+  return lines;
+}
 
 /**
  * Terminal component backed by xterm.js and a WebSocket connection.
@@ -19,6 +31,7 @@ const RECONNECT_DELAYS = [500, 1000, 2000, 4000];
  *   onExit?: (code: number) => void,
  *   onToggleMaximize?: () => void,
  *   borderless?: boolean,
+ *   tmuxScrollback?: boolean,
  * }} props
  */
 export function Terminal({
@@ -29,6 +42,7 @@ export function Terminal({
   onExit,
   onToggleMaximize,
   borderless,
+  tmuxScrollback = false,
 }) {
   const containerRef = useRef(/** @type {HTMLDivElement | null} */ (null));
   const termRef = useRef(/** @type {XTerm | null} */ (null));
@@ -36,9 +50,11 @@ export function Terminal({
   const refitRef = useRef(/** @type {((forceRedraw?: boolean) => void) | null} */ (null));
   const externalWsRefRef = useRef(externalWsRef);
   const callbacksRef = useRef({ onExit, onToggleMaximize });
+  const tmuxScrollbackRef = useRef(tmuxScrollback);
 
   externalWsRefRef.current = externalWsRef;
   callbacksRef.current = { onExit, onToggleMaximize };
+  tmuxScrollbackRef.current = tmuxScrollback;
 
   // wsUrl is the connection identity. Other prop changes must not rebuild xterm or reconnect its WebSocket.
   useEffect(() => {
@@ -55,6 +71,9 @@ export function Terminal({
     /** @type {number | null} */
     let redrawFrame = null;
     let pendingForceRedraw = false;
+    let pendingScrollLines = 0;
+    /** @type {ReturnType<typeof setTimeout> | null} */
+    let scrollTimer = null;
     let syncedCols = 0;
     let syncedRows = 0;
 
@@ -188,6 +207,31 @@ export function Terminal({
       return true;
     });
 
+    const flushScroll = () => {
+      scrollTimer = null;
+      if (!tmuxScrollbackRef.current || pendingScrollLines === 0) {
+        pendingScrollLines = 0;
+        return;
+      }
+      const direction = Math.sign(pendingScrollLines);
+      const lines =
+        direction * Math.min(MAX_TERMINAL_SCROLL_LINES, Math.max(1, Math.round(Math.abs(pendingScrollLines))));
+      pendingScrollLines = 0;
+      const ws = wsRef.current;
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'scroll', lines }));
+      }
+    };
+
+    term.attachCustomWheelEventHandler((event) => {
+      if (!tmuxScrollbackRef.current) return true;
+      event.preventDefault();
+      event.stopPropagation();
+      pendingScrollLines += wheelLineDelta(event, term.rows);
+      if (scrollTimer === null) scrollTimer = setTimeout(flushScroll, TERMINAL_SCROLL_BATCH_MS);
+      return false;
+    });
+
     // Resize handling - observe the wrapper (outer div) so we catch
     // layout changes even when the inner container dimensions haven't
     // propagated yet.
@@ -271,6 +315,7 @@ export function Terminal({
       if (reconnectTimer) clearTimeout(reconnectTimer);
       if (fitFrame !== null) cancelAnimationFrame(fitFrame);
       if (redrawFrame !== null) cancelAnimationFrame(redrawFrame);
+      if (scrollTimer !== null) clearTimeout(scrollTimer);
       observer?.disconnect();
       const ws = wsRef.current;
       ws?.close();

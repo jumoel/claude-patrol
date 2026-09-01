@@ -1183,6 +1183,37 @@ describe('dispatchWsMessage', () => {
     assert.deepEqual(entry.resizes, [[120, 40]]);
   });
 
+  it('routes terminal scroll through tmux copy mode', () => {
+    const entry = makeEntry();
+    const calls = [];
+    const scrollCtx = {
+      ...ctx,
+      execFile(command, args, options, callback) {
+        calls.push([command, args, options]);
+        callback(null, '', '');
+      },
+    };
+
+    assert.deepEqual(dispatchWsMessage(JSON.stringify({ type: 'scroll', lines: -6 }), entry, scrollCtx), {
+      type: 'scroll',
+    });
+    assert.deepEqual(calls, [
+      [
+        'tmux',
+        [
+          'if-shell',
+          '-F',
+          '-t',
+          'patrol-test',
+          '#{pane_in_mode}',
+          'send-keys -X -t patrol-test -N 6 scroll-up',
+          'copy-mode -e -t patrol-test ; send-keys -X -t patrol-test -N 6 scroll-up',
+        ],
+        { timeout: 2_000 },
+      ],
+    ]);
+  });
+
   it('routes prompt-submit to the splitting submitter (text first, Enter later)', async () => {
     const entry = makeEntry();
     const result = dispatchWsMessage(
@@ -1231,6 +1262,9 @@ describe('dispatchWsMessage', () => {
     // resize with non-integer dims
     assert.equal(dispatchWsMessage(JSON.stringify({ type: 'resize', cols: 'wide', rows: 40 }), entry, ctx), null);
     assert.equal(dispatchWsMessage(JSON.stringify({ type: 'resize', cols: 80.5, rows: 40 }), entry, ctx), null);
+    assert.equal(dispatchWsMessage(JSON.stringify({ type: 'scroll', lines: 0 }), entry, ctx), null);
+    assert.equal(dispatchWsMessage(JSON.stringify({ type: 'scroll', lines: 101 }), entry, ctx), null);
+    assert.equal(dispatchWsMessage(JSON.stringify({ type: 'scroll', lines: 1.5 }), entry, ctx), null);
     assert.deepEqual(entry.writes, []);
     assert.deepEqual(entry.resizes, []);
   });

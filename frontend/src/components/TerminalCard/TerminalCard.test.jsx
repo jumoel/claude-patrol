@@ -4,13 +4,14 @@ import { beforeEach, test, vi } from 'vitest';
 import { TerminalCard } from './TerminalCard.jsx';
 
 vi.mock('../Terminal/LazyTerminal.jsx', () => ({
-  /** @param {{wsUrl: string, borderless?: boolean, focusRequest?: number, onToggleMaximize?: () => void}} props */
-  LazyTerminal: ({ wsUrl, borderless, focusRequest, onToggleMaximize }) => (
+  /** @param {{wsUrl: string, borderless?: boolean, focusRequest?: number, onToggleMaximize?: () => void, tmuxScrollback?: boolean}} props */
+  LazyTerminal: ({ wsUrl, borderless, focusRequest, onToggleMaximize, tmuxScrollback }) => (
     <div
       data-testid="terminal"
       data-ws-url={wsUrl}
       data-borderless={String(borderless)}
       data-focus-request={focusRequest}
+      data-tmux-scrollback={String(tmuxScrollback)}
     >
       <button type="button" onClick={onToggleMaximize}>
         Toggle terminal size
@@ -75,6 +76,7 @@ test('work-page presentation collapses in flow without window-management control
   assert.equal(terminal.getAttribute('data-ws-url'), '/ws/sessions/session-1');
   assert.equal(terminal.getAttribute('data-borderless'), 'true');
   assert.equal(terminal.getAttribute('data-focus-request'), '0');
+  assert.equal(terminal.getAttribute('data-tmux-scrollback'), 'true');
   assert.equal(terminal.parentElement?.style.height, '400px');
   assert.equal(screen.queryByTestId('quick-actions'), null);
 
@@ -90,11 +92,13 @@ test('work-page presentation collapses in flow without window-management control
   assert.equal(screen.queryByRole('separator', { name: 'Resize terminal' }), null);
   assert.equal(screen.getByTestId('terminal'), terminal);
   assert.equal(terminal.getAttribute('data-focus-request'), '1');
+  assert.equal(terminal.getAttribute('data-tmux-scrollback'), 'false');
 
   fireEvent.click(screen.getByRole('button', { name: 'Restore' }));
   assert.ok(screen.getByRole('button', { name: 'Maximize' }));
   assert.equal(screen.getByRole('separator', { name: 'Resize terminal' }).getAttribute('aria-valuenow'), '440');
   assert.equal(window.location.hash, '#/work-item/item-1?pr=org%2Frepo%231');
+  assert.equal(terminal.getAttribute('data-tmux-scrollback'), 'true');
 
   fireEvent.click(screen.getByRole('button', { name: 'Collapse' }));
   assert.equal(screen.getByRole('button', { name: 'Expand' }).getAttribute('aria-expanded'), 'false');

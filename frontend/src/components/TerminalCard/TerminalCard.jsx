@@ -300,6 +300,7 @@ export function TerminalCard({
             focus={terminalOpen || maximized}
             focusRequest={terminalFocusRequest + focusRequest}
             borderless
+            tmuxScrollback={session.provider === 'codex' && !maximized}
           />
         </div>
         {!isGlobal && prId && (
@@ -475,6 +476,7 @@ export function TerminalCard({
           onExit={handleExit}
           onToggleMaximize={toggleMaximize}
           focusRequest={terminalFocusRequest + focusRequest}
+          tmuxScrollback={session.provider === 'codex'}
         />
       </div>
       <div className={shared.resizeHandle} {...handleProps}>

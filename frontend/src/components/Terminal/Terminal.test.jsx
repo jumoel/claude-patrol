@@ -12,6 +12,7 @@ const state = vi.hoisted(() => ({
   bounds: { width: 800, height: 400 },
   fitDimensions: { cols: 80, rows: 24 },
   keyHandler: /** @type {((event: KeyboardEvent) => boolean) | null} */ (null),
+  wheelHandler: /** @type {((event: WheelEvent) => boolean) | null} */ (null),
   resizeCallback: /** @type {(() => void) | null} */ (null),
   sockets: /** @type {FakeWebSocket[]} */ ([]),
 }));
@@ -47,6 +48,11 @@ vi.mock('@xterm/xterm', () => ({
     /** @param {(event: KeyboardEvent) => boolean} handler */
     attachCustomKeyEventHandler(handler) {
       state.keyHandler = handler;
+    }
+
+    /** @param {(event: WheelEvent) => boolean} handler */
+    attachCustomWheelEventHandler(handler) {
+      state.wheelHandler = handler;
     }
 
     dispose() {
@@ -128,6 +134,7 @@ describe('Terminal connection lifecycle', () => {
     state.bounds = { width: 800, height: 400 };
     state.fitDimensions = { cols: 80, rows: 24 };
     state.keyHandler = null;
+    state.wheelHandler = null;
     state.resizeCallback = null;
     state.sockets = [];
     vi.stubGlobal('ResizeObserver', FakeResizeObserver);
@@ -211,6 +218,22 @@ describe('Terminal connection lifecycle', () => {
     await waitFor(() => expect(state.focusCalls).toBeGreaterThan(focusCallsBeforeRequest));
     expect(state.constructedTerminals).toBe(1);
     expect(state.sockets).toHaveLength(1);
+  });
+
+  it('routes non-maximized Codex wheel gestures through tmux scrollback', async () => {
+    const view = render(<Terminal wsUrl="/ws/sessions/one" tmuxScrollback />);
+    await waitFor(() => expect(state.sockets).toHaveLength(1));
+    const socket = state.sockets[0];
+    await waitFor(() => expect(socket.sent).toContain(JSON.stringify({ type: 'resize', cols: 80, rows: 24 })));
+    socket.sent = [];
+    const event = new WheelEvent('wheel', { deltaY: -120, cancelable: true });
+
+    expect(state.wheelHandler?.(event)).toBe(false);
+    expect(event.defaultPrevented).toBe(true);
+    await waitFor(() => expect(socket.sent).toEqual([JSON.stringify({ type: 'scroll', lines: -6 })]));
+
+    view.rerender(<Terminal wsUrl="/ws/sessions/one" tmuxScrollback={false} />);
+    expect(state.wheelHandler?.(new WheelEvent('wheel', { deltaY: -120 }))).toBe(true);
   });
 
   it('refits and redraws after its container changes size', async () => {
