@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildCommentsPayload, resolvedThreadRootIds } from './routes/comments.js';
+import { buildCommentsPayload, resolvedThreadRootIds } from './comments.js';
 
 test('resolved review thread pages expose their root comment node IDs', () => {
   const resolved = resolvedThreadRootIds([
