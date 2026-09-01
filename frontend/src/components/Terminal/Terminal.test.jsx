@@ -5,7 +5,8 @@ import { Terminal } from './Terminal.jsx';
 const state = vi.hoisted(() => ({
   constructedTerminals: 0,
   disposedTerminals: 0,
-  fitCalls: 0,
+  proposedDimensionCalls: 0,
+  resizeCalls: 0,
   refreshCalls: 0,
   clearTextureAtlasCalls: 0,
   focusCalls: 0,
@@ -33,6 +34,12 @@ vi.mock('@xterm/xterm', () => ({
       addon.activate?.(this);
     }
     open() {}
+    /** @param {number} cols @param {number} rows */
+    resize(cols, rows) {
+      state.resizeCalls++;
+      this.cols = cols;
+      this.rows = rows;
+    }
     focus() {
       state.focusCalls++;
     }
@@ -65,16 +72,11 @@ vi.mock('@xterm/xterm/css/xterm.css', () => ({}));
 
 vi.mock('@xterm/addon-fit', () => ({
   FitAddon: class {
-    /** @param {{cols: number, rows: number}} terminal */
-    activate(terminal) {
-      this.terminal = terminal;
-    }
+    activate() {}
 
-    fit() {
-      state.fitCalls++;
-      if (!this.terminal) throw new Error('FitAddon must be activated before fitting');
-      this.terminal.cols = state.fitDimensions.cols;
-      this.terminal.rows = state.fitDimensions.rows;
+    proposeDimensions() {
+      state.proposedDimensionCalls++;
+      return state.fitDimensions;
     }
   },
 }));
@@ -127,7 +129,8 @@ describe('Terminal connection lifecycle', () => {
   beforeEach(() => {
     state.constructedTerminals = 0;
     state.disposedTerminals = 0;
-    state.fitCalls = 0;
+    state.proposedDimensionCalls = 0;
+    state.resizeCalls = 0;
     state.refreshCalls = 0;
     state.clearTextureAtlasCalls = 0;
     state.focusCalls = 0;
@@ -240,12 +243,31 @@ describe('Terminal connection lifecycle', () => {
     render(<Terminal wsUrl="/ws/sessions/one" />);
     await waitFor(() => expect(state.sockets).toHaveLength(1));
 
-    const fitsBeforeResize = state.fitCalls;
+    const proposalsBeforeResize = state.proposedDimensionCalls;
     state.resizeCallback?.();
 
-    await waitFor(() => expect(state.fitCalls).toBeGreaterThan(fitsBeforeResize));
+    await waitFor(() => expect(state.proposedDimensionCalls).toBeGreaterThan(proposalsBeforeResize));
     expect(state.refreshCalls).toBeGreaterThan(0);
     expect(state.sockets[0].sent).toContain(JSON.stringify({ type: 'resize', cols: 80, rows: 24 }));
+  });
+
+  it('does not reflow xterm while a drag stays within the same grid dimensions', async () => {
+    render(<Terminal wsUrl="/ws/sessions/one" />);
+    await waitFor(() =>
+      expect(state.sockets[0]?.sent).toContain(JSON.stringify({ type: 'resize', cols: 80, rows: 24 })),
+    );
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    const resizeCallsBeforeDrag = state.resizeCalls;
+    const refreshCallsBeforeDrag = state.refreshCalls;
+
+    for (let pixel = 1; pixel <= 5; pixel++) {
+      state.bounds = { width: 800, height: 400 + pixel };
+      state.resizeCallback?.();
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    }
+
+    expect(state.resizeCalls).toBe(resizeCallsBeforeDrag);
+    expect(state.refreshCalls).toBe(refreshCallsBeforeDrag);
   });
 
   it('does not clear the shared WebGL texture atlas when another terminal refits', async () => {
@@ -305,11 +327,11 @@ describe('Terminal connection lifecycle', () => {
     await waitFor(() => expect(state.sockets).toHaveLength(1));
     await new Promise((resolve) => requestAnimationFrame(resolve));
 
-    expect(state.fitCalls).toBe(0);
+    expect(state.proposedDimensionCalls).toBe(0);
 
     state.bounds = { width: 800, height: 400 };
     state.resizeCallback?.();
 
-    await waitFor(() => expect(state.fitCalls).toBeGreaterThan(0));
+    await waitFor(() => expect(state.proposedDimensionCalls).toBeGreaterThan(0));
   });
 });

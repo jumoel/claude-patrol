@@ -133,16 +133,24 @@ export function Terminal({
       const bounds = wrapper.getBoundingClientRect();
       if (bounds.width < 2 || bounds.height < 2) return;
 
-      fitAddon.fit();
+      const dimensions = fitAddon.proposeDimensions();
+      if (!dimensions || !Number.isFinite(dimensions.cols) || !Number.isFinite(dimensions.rows)) return;
+      const terminalSizeChanged = dimensions.cols !== term.cols || dimensions.rows !== term.rows;
+      if (terminalSizeChanged) term.resize(dimensions.cols, dimensions.rows);
       // Do not call clearTextureAtlas here. WebGL renderers with matching
       // options share an atlas, so clearing it for this terminal corrupts any
       // other mounted terminal whose render model still references it.
-      if (term.rows > 0) term.refresh(0, term.rows - 1);
-      if (redrawFrame !== null) cancelAnimationFrame(redrawFrame);
-      redrawFrame = requestAnimationFrame(() => {
-        redrawFrame = null;
-        if (!cancelled && term.rows > 0) term.refresh(0, term.rows - 1);
-      });
+      // terminal.resize already redraws when the grid changes. An explicit
+      // redraw is only needed for stale replay and renderer recovery. Calling
+      // resize for every pixel of a drag synchronously reflows all scrollback.
+      if (forceRedraw) {
+        if (term.rows > 0) term.refresh(0, term.rows - 1);
+        if (redrawFrame !== null) cancelAnimationFrame(redrawFrame);
+        redrawFrame = requestAnimationFrame(() => {
+          redrawFrame = null;
+          if (!cancelled && term.rows > 0) term.refresh(0, term.rows - 1);
+        });
+      }
       const ws = wsRef.current;
       if (ws && ws.readyState === WebSocket.OPEN) {
         const dimensionsChanged = term.cols !== syncedCols || term.rows !== syncedRows;
