@@ -78,7 +78,7 @@ test('work-page presentation collapses in flow without window-management control
   assert.equal(terminal.getAttribute('data-focus-request'), '0');
   assert.equal(terminal.getAttribute('data-tmux-scrollback'), 'true');
   assert.equal(terminal.parentElement?.style.height, '400px');
-  assert.equal(screen.queryByTestId('quick-actions'), null);
+  assert.ok(screen.getByTestId('quick-actions'));
 
   fireEvent.keyDown(resizeHandle, { key: 'ArrowDown' });
   assert.equal(screen.getByRole('separator', { name: 'Resize terminal' }).getAttribute('aria-valuenow'), '440');
@@ -151,6 +151,37 @@ test('work-item terminals expose peer review against their selected PR', () => {
   assert.equal(actions.getAttribute('data-work-item'), 'item-1');
   assert.equal(actions.getAttribute('data-pr'), 'org/repo#1');
   assert.equal(actions.getAttribute('data-workspace'), null);
+});
+
+test('work-item terminals retain quick actions before a PR is attached', () => {
+  render(
+    <TerminalCard
+      session={session('active')}
+      title="Terminal - Repair JavaScript CVEs"
+      onKill={vi.fn()}
+      onExit={vi.fn()}
+      workItemId="item-1"
+      presentation="work-page"
+    />,
+  );
+
+  const actions = screen.getByTestId('quick-actions');
+  assert.equal(actions.getAttribute('data-work-item'), 'item-1');
+  assert.equal(actions.getAttribute('data-pr'), null);
+});
+
+test('global terminals do not expose work-target actions', () => {
+  render(
+    <TerminalCard
+      session={session('active')}
+      title="Codex session"
+      onKill={vi.fn()}
+      onExit={vi.fn()}
+      presentation="global"
+    />,
+  );
+
+  assert.equal(screen.queryByTestId('quick-actions'), null);
 });
 
 test('shows a spinner when the terminal session is working', () => {

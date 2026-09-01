@@ -303,7 +303,7 @@ export function TerminalCard({
             tmuxScrollback={session.provider === 'codex' && !maximized}
           />
         </div>
-        {!isGlobal && prId && (
+        {!isGlobal && (
           <QuickActions
             onSend={handleSendCommand}
             baseBranch={baseBranch}
