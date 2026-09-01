@@ -27,6 +27,30 @@
   line-height: 1.5rem;
 }
 
+.reviewMetadata,
+.inlineMetadata {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.reviewSummary,
+.inlineSummary {
+  cursor: pointer;
+}
+
+.reviewSummary .reviewMetadata {
+  margin-left: 4px;
+}
+
+.reviewContent {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
 /* Inline code comments */
 .inlineList {
   @apply space-y-2 pt-1;
@@ -34,6 +58,18 @@
 
 .inlineComment {
   @apply border-t border-gray-200 py-2 space-y-1;
+}
+
+.minimizedComment:not([open]) {
+  color: #6b7280;
+}
+
+.inlineSummary .inlineMetadata {
+  margin: 0 8px 0 4px;
+}
+
+.minimizedState {
+  @apply text-xs text-gray-500;
 }
 
 .filePath {

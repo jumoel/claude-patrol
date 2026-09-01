@@ -24,36 +24,81 @@ function ReviewStateBadge({ state }) {
 
 /** @param {{comment: import('../../types').InlineReviewComment}} props */
 function InlineComment({ comment }) {
+  const metadata = (
+    <span className={styles.inlineMetadata}>
+      <code className={styles.filePath}>{comment.path}</code>
+      {comment.diff_position != null && <span className={styles.diffPos}>diff:{comment.diff_position}</span>}
+    </span>
+  );
+
+  if (comment.resolved) {
+    return (
+      <details className={`${styles.inlineComment} ${styles.minimizedComment}`}>
+        <summary className={styles.inlineSummary}>
+          {metadata}
+          <span className={styles.minimizedState}>resolved</span>
+        </summary>
+        <RenderedHtml html={comment.body_html} className={styles.commentBody} />
+      </details>
+    );
+  }
+
   return (
     <div className={styles.inlineComment}>
-      <Stack gap={2} wrap>
-        <code className={styles.filePath}>{comment.path}</code>
-        {comment.diff_position != null && <span className={styles.diffPos}>diff:{comment.diff_position}</span>}
-      </Stack>
+      {metadata}
       <RenderedHtml html={comment.body_html} className={styles.commentBody} />
     </div>
   );
 }
 
 /** @param {{review: import('../../types').StructuredReview}} props */
+function ReviewMetadata({ review }) {
+  return (
+    <>
+      <span className={styles.author}>{review.author}</span>
+      <ReviewStateBadge state={review.state} />
+      {review.submitted_at && <span className={styles.timestamp}>{getRelativeTime(review.submitted_at)}</span>}
+    </>
+  );
+}
+
+/** @param {{review: import('../../types').StructuredReview}} props */
+function ReviewContent({ review }) {
+  return (
+    <div className={styles.reviewContent}>
+      {review.body_html && <RenderedHtml html={review.body_html} className={styles.commentBody} collapsible />}
+      {review.comments.length > 0 && (
+        <div className={styles.inlineList}>
+          {review.comments.map((comment, index) => (
+            <InlineComment key={index} comment={comment} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** @param {{review: import('../../types').StructuredReview}} props */
 function ReviewCard({ review }) {
+  if (review.state === 'DISMISSED') {
+    return (
+      <Box as="details" p={3} border borderColor="gray-100" rounded="lg" className={styles.reviewCard}>
+        <summary className={styles.reviewSummary}>
+          <span className={styles.reviewMetadata}>
+            <ReviewMetadata review={review} />
+          </span>
+        </summary>
+        <ReviewContent review={review} />
+      </Box>
+    );
+  }
+
   return (
     <Box p={3} border borderColor="gray-100" rounded="lg" className={styles.reviewCard}>
-      <Stack direction="col" gap={2}>
-        <Stack gap={2} wrap>
-          <span className={styles.author}>{review.author}</span>
-          <ReviewStateBadge state={review.state} />
-          {review.submitted_at && <span className={styles.timestamp}>{getRelativeTime(review.submitted_at)}</span>}
-        </Stack>
-        {review.body_html && <RenderedHtml html={review.body_html} className={styles.commentBody} collapsible />}
-        {review.comments.length > 0 && (
-          <div className={styles.inlineList}>
-            {review.comments.map((c, i) => (
-              <InlineComment key={i} comment={c} />
-            ))}
-          </div>
-        )}
-      </Stack>
+      <div className={styles.reviewMetadata}>
+        <ReviewMetadata review={review} />
+      </div>
+      <ReviewContent review={review} />
     </Box>
   );
 }

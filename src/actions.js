@@ -621,7 +621,7 @@ export const actionRegistry = {
 
   get_pr_comments: {
     description:
-      'Get review comments and conversation for a PR. Includes inline code review comments with file paths and diff positions, review summaries with state, and general PR conversation.',
+      'Get review comments and conversation for a PR. Includes inline code review comments with file paths, diff positions, and resolved state, review summaries with state, and general PR conversation.',
     schema: z.object({
       id: z.string().describe('PR database ID (e.g. "org/repo#42")'),
     }),

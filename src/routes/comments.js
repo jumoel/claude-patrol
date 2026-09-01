@@ -19,11 +19,137 @@ async function ghApi(endpoint) {
   return pages.flat();
 }
 
+const REVIEW_THREAD_RESOLUTION_QUERY = `
+  query($owner: String!, $repo: String!, $number: Int!, $endCursor: String) {
+    repository(owner: $owner, name: $repo) {
+      pullRequest(number: $number) {
+        reviewThreads(first: 100, after: $endCursor) {
+          nodes {
+            isResolved
+            comments(first: 1) {
+              nodes { id }
+            }
+          }
+          pageInfo {
+            hasNextPage
+            endCursor
+          }
+        }
+      }
+    }
+  }
+`;
+
+/**
+ * Fetch the root comment node IDs for resolved review threads. The CLI
+ * paginates reviewThreads through the query's endCursor variable.
+ * @param {string} owner
+ * @param {string} repo
+ * @param {number} number
+ * @returns {Promise<Set<string>>}
+ */
+async function resolvedReviewThreadRoots(owner, repo, number) {
+  const { stdout } = await execFile(
+    'gh',
+    [
+      'api',
+      'graphql',
+      '--paginate',
+      '--slurp',
+      '-f',
+      `query=${REVIEW_THREAD_RESOLUTION_QUERY}`,
+      '-F',
+      `owner=${owner}`,
+      '-F',
+      `repo=${repo}`,
+      '-F',
+      `number=${number}`,
+    ],
+    {
+      maxBuffer: 10 * 1024 * 1024,
+      timeout: 30_000,
+    },
+  );
+  return resolvedThreadRootIds(JSON.parse(stdout));
+}
+
+/**
+ * @param {object[]} pages
+ * @returns {Set<string>}
+ */
+export function resolvedThreadRootIds(pages) {
+  const resolved = new Set();
+  for (const page of pages) {
+    const pullRequest = page?.data?.repository?.pullRequest;
+    if (!pullRequest) throw new Error('Pull request was not found on GitHub');
+    for (const thread of pullRequest.reviewThreads?.nodes ?? []) {
+      const rootId = thread.comments?.nodes?.[0]?.id;
+      if (thread.isResolved && typeof rootId === 'string') resolved.add(rootId);
+    }
+  }
+  return resolved;
+}
+
+/**
+ * @param {object[]} reviews
+ * @param {object[]} inlineComments
+ * @param {object[]} conversationComments
+ * @param {Set<string>} resolvedRoots
+ */
+export function buildCommentsPayload(reviews, inlineComments, conversationComments, resolvedRoots) {
+  const inlineCommentsById = new Map(inlineComments.map((comment) => [String(comment.id), comment]));
+
+  const rootNodeId = (comment) => {
+    let current = comment;
+    const seen = new Set();
+    while (current?.in_reply_to_id != null && !seen.has(String(current.id))) {
+      seen.add(String(current.id));
+      const parent = inlineCommentsById.get(String(current.in_reply_to_id));
+      if (!parent) break;
+      current = parent;
+    }
+    return current?.node_id;
+  };
+
+  // Group inline comments by review ID.
+  const commentsByReview = new Map();
+  for (const comment of inlineComments) {
+    const reviewId = comment.pull_request_review_id;
+    if (!commentsByReview.has(reviewId)) commentsByReview.set(reviewId, []);
+    commentsByReview.get(reviewId).push({
+      path: comment.path,
+      diff_position: comment.position,
+      body_html: comment.body_html || comment.body,
+      created_at: comment.created_at,
+      resolved: resolvedRoots.has(rootNodeId(comment)),
+    });
+  }
+
+  // Build structured reviews.
+  const structuredReviews = reviews.map((review) => ({
+    id: review.id,
+    author: review.user?.login ?? 'unknown',
+    state: review.state,
+    body_html: review.body_html || review.body || '',
+    submitted_at: review.submitted_at,
+    comments: commentsByReview.get(review.id) || [],
+  }));
+
+  // Build conversation.
+  const conversation = conversationComments.map((comment) => ({
+    author: comment.user?.login ?? 'unknown',
+    body_html: comment.body_html || comment.body,
+    created_at: comment.created_at,
+  }));
+
+  return { reviews: structuredReviews, conversation };
+}
+
 /**
  * In-memory response cache for the comments endpoint. Clicking between PRs
- * normally re-fires three paginated REST calls per open; cache hits avoid all
- * three. Entries are invalidated when the PR's updated_at advances or after
- * the TTL, whichever comes first.
+ * normally re-fires three paginated REST calls and one GraphQL call per open;
+ * cache hits avoid all four. Entries are invalidated when the PR's updated_at
+ * advances or after the TTL, whichever comes first.
  * @type {Map<string, {key: string, ts: number, data: object}>}
  */
 const commentsCache = new Map();
@@ -53,46 +179,14 @@ export function registerCommentRoutes(app) {
 
     const { org, repo, number } = pr;
 
-    // Fetch all three endpoints in parallel
-    const [reviews, inlineComments, conversationComments] = await Promise.all([
+    const [reviews, inlineComments, conversationComments, resolvedRoots] = await Promise.all([
       ghApi(`repos/${org}/${repo}/pulls/${number}/reviews`),
       ghApi(`repos/${org}/${repo}/pulls/${number}/comments`),
       ghApi(`repos/${org}/${repo}/issues/${number}/comments`),
+      resolvedReviewThreadRoots(org, repo, number),
     ]);
 
-    // Group inline comments by review ID
-    const commentsByReview = new Map();
-    for (const c of inlineComments) {
-      const reviewId = c.pull_request_review_id;
-      if (!commentsByReview.has(reviewId)) {
-        commentsByReview.set(reviewId, []);
-      }
-      commentsByReview.get(reviewId).push({
-        path: c.path,
-        diff_position: c.position,
-        body_html: c.body_html || c.body,
-        created_at: c.created_at,
-      });
-    }
-
-    // Build structured reviews
-    const structuredReviews = reviews.map((r) => ({
-      id: r.id,
-      author: r.user?.login ?? 'unknown',
-      state: r.state,
-      body_html: r.body_html || r.body || '',
-      submitted_at: r.submitted_at,
-      comments: commentsByReview.get(r.id) || [],
-    }));
-
-    // Build conversation
-    const conversation = conversationComments.map((c) => ({
-      author: c.user?.login ?? 'unknown',
-      body_html: c.body_html || c.body,
-      created_at: c.created_at,
-    }));
-
-    const payload = { reviews: structuredReviews, conversation };
+    const payload = buildCommentsPayload(reviews, inlineComments, conversationComments, resolvedRoots);
 
     // Bound the cache so it can't grow unboundedly across long-lived sessions.
     if (commentsCache.size >= COMMENTS_CACHE_MAX_ENTRIES) {

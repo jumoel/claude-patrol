@@ -352,6 +352,7 @@ export interface InlineReviewComment {
   diff_position: number | null;
   body_html: string;
   created_at: string;
+  resolved: boolean;
 }
 
 export interface StructuredReview {
