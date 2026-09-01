@@ -302,6 +302,46 @@ test('a repository can be added to a ready work item and duplicate additions are
   );
 });
 
+test('repository workspaces can be removed individually only after the root session stops', async () => {
+  const { service, childPolicies } = fixture();
+  const created = service.create({ reference: 'PROJECT-REMOVE', workProvider: 'codex' });
+  await service.waitForIdle(created.id);
+  const ready = service.detail(created.id);
+  const [alpha, beta] = ready.repository_workspaces;
+  const now = new Date().toISOString();
+  getDb()
+    .prepare(
+      `INSERT INTO sessions (id, work_item_id, pid, provider, status, started_at)
+       VALUES ('active-root', ?, 123, 'codex', 'active', ?)`,
+    )
+    .run(created.id, now);
+
+  await assert.rejects(
+    service.removeRepositoryWorkspace(created.id, alpha.workspace_id),
+    (error) => error.code === 'session_exists',
+  );
+  assert.equal(existsSync(alpha.path), true);
+
+  getDb().prepare("UPDATE sessions SET status = 'killed', ended_at = ? WHERE id = 'active-root'").run(now);
+  let removed = await service.removeRepositoryWorkspace(created.id, alpha.workspace_id);
+  assert.deepEqual(removed.work_item.repositories, ['acme/beta']);
+  assert.equal(existsSync(alpha.path), false);
+  assert.doesNotMatch(readFileSync(join(ready.root_path, 'AGENTS.md'), 'utf8'), /acme\/alpha/);
+  assert.match(readFileSync(join(ready.root_path, 'AGENTS.md'), 'utf8'), /acme\/beta/);
+
+  removed = await service.removeRepositoryWorkspace(created.id, beta.workspace_id);
+  assert.deepEqual(removed.work_item.repositories, []);
+  assert.equal(existsSync(beta.path), false);
+  assert.doesNotMatch(readFileSync(join(ready.root_path, 'AGENTS.md'), 'utf8'), /acme\/(?:alpha|beta)/);
+  assert.deepEqual(
+    childPolicies.map(({ repo, deleteBookmark }) => ({ repo, deleteBookmark })),
+    [
+      { repo: 'acme/alpha', deleteBookmark: false },
+      { repo: 'acme/beta', deleteBookmark: false },
+    ],
+  );
+});
+
 test('repository discovery reflects additions immediately in the running work item', async () => {
   const { service } = fixture({
     resolver: {

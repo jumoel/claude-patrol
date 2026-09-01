@@ -485,10 +485,10 @@ export function PRDetail({ prId, onBack, workspaceStates, acknowledgedSessionIds
         </div>
       )}
 
-      {workspace && session && (
+      {workspace && (
         <section className={workPage.sectionHeader} aria-labelledby="pr-workspace-heading">
           <h2 id="pr-workspace-heading">Workspace</h2>
-          <WorkspaceControls workspace={workspace} onUpdate={loadData} />
+          <WorkspaceControls workspace={workspace} onUpdate={loadData} deletionBlocked={Boolean(session)} />
         </section>
       )}
 

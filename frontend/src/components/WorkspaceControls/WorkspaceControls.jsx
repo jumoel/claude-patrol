@@ -8,9 +8,9 @@ import styles from './WorkspaceControls.module.css';
 
 /**
  * Workspace destroy controls for a PR.
- * @param {{ workspace: import('../../types').Workspace, onUpdate: () => void }} props
+ * @param {{ workspace: import('../../types').Workspace, onUpdate: () => void, deletionBlocked?: boolean }} props
  */
-export function WorkspaceControls({ workspace, onUpdate }) {
+export function WorkspaceControls({ workspace, onUpdate, deletionBlocked = false }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(/** @type {string | null} */ (null));
   const [confirmDestroy, setConfirmDestroy] = useState(false);
@@ -35,7 +35,13 @@ export function WorkspaceControls({ workspace, onUpdate }) {
       <Badge color="green">Workspace active</Badge>
       <span className={styles.path}>{workspace.path}</span>
       {!confirmDestroy ? (
-        <Button variant="danger" size="md" onClick={() => setConfirmDestroy(true)} disabled={loading}>
+        <Button
+          variant="danger"
+          size="md"
+          onClick={() => setConfirmDestroy(true)}
+          disabled={loading || deletionBlocked}
+          title={deletionBlocked ? 'Stop the active LLM session before deleting this workspace' : undefined}
+        >
           Destroy
         </Button>
       ) : (

@@ -1314,6 +1314,61 @@ export function createWorkItemService({
       });
     },
 
+    async removeRepositoryWorkspace(id, workspaceId) {
+      const config = getConfig();
+      return withWorkItemLock(id, async () => {
+        const item = getWorkItem(id);
+        if (!item) throw workItemError('work_item_not_found', 'Work item not found');
+        if (item.state !== 'ready') throw workItemError('work_item_busy', 'Work item is not ready');
+
+        const workspace = getDb()
+          .prepare('SELECT * FROM workspaces WHERE id = ? AND work_item_id = ?')
+          .get(workspaceId, id);
+        if (!workspace) {
+          throw workItemError('repository_not_in_work_item', 'Workspace does not belong to this work item');
+        }
+        const membership = getDb()
+          .prepare('SELECT 1 FROM work_item_repositories WHERE work_item_id = ? AND repo = ?')
+          .get(id, workspace.repo);
+        if (!membership) {
+          throw workItemError('repository_not_in_work_item', `Repository is not attached: ${workspace.repo}`);
+        }
+        const liveSession = getDb()
+          .prepare(
+            `SELECT id FROM sessions
+              WHERE status IN ('active', 'detached')
+                AND (work_item_id = ? OR workspace_id = ?)
+              LIMIT 1`,
+          )
+          .get(id, workspaceId);
+        if (liveSession) {
+          throw workItemError('session_exists', 'Stop the active LLM session before deleting this workspace');
+        }
+
+        const remainingRepositories = repositoriesFor(item).filter((repository) => repository !== workspace.repo);
+        writeTemporaryRootFiles(item.path, rootFileChildren(item, remainingRepositories), rootTask(item));
+        try {
+          await destroyChild(workspaceId, config, { deleteBookmark: false });
+          publishRootFiles(item.path);
+          const now = new Date().toISOString();
+          transaction(getDb(), () => {
+            getDb()
+              .prepare('DELETE FROM work_item_repositories WHERE work_item_id = ? AND repo = ?')
+              .run(id, workspace.repo);
+            getDb().prepare('UPDATE work_items SET updated_at = ? WHERE id = ?').run(now, id);
+          });
+        } catch (error) {
+          await clearTemporaryRootFiles(item.path);
+          throw error;
+        }
+        emitLocalChange();
+        return {
+          removed: true,
+          work_item: workItemDetail(getWorkItem(id), { config, getSessionStates }),
+        };
+      });
+    },
+
     destroy(id) {
       const row = getWorkItem(id);
       if (!row) throw workItemError('work_item_not_found', 'Work item not found');

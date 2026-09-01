@@ -123,14 +123,31 @@ export function registerWorkspaceRoutes(app) {
   });
 
   app.delete('/api/workspaces/:id', async (request, reply) => {
+    const workspace = getDb().prepare('SELECT * FROM workspaces WHERE id = ?').get(request.params.id);
+    if (!workspace) return reply.code(404).send({ error: 'Workspace not found', code: 'workspace_not_found' });
+    const liveSession = getDb()
+      .prepare(
+        `SELECT id FROM sessions
+          WHERE status IN ('active', 'detached')
+            AND (workspace_id = ? OR (? IS NOT NULL AND work_item_id = ?))
+          LIMIT 1`,
+      )
+      .get(workspace.id, workspace.work_item_id, workspace.work_item_id);
+    if (liveSession) {
+      return reply.code(409).send({
+        error: 'Stop the active LLM session before deleting this workspace',
+        code: 'session_exists',
+      });
+    }
     try {
-      const result = await destroyWorkspace(request.params.id, getConfig());
+      const result = workspace.work_item_id
+        ? await workItemService.removeRepositoryWorkspace(workspace.work_item_id, workspace.id)
+        : await destroyWorkspace(workspace.id, getConfig());
       emitLocalChange();
       return result;
     } catch (err) {
-      return reply
-        .code(err.code === 'work_item_child_managed' ? 409 : 400)
-        .send({ error: err.message, code: err.code });
+      const status = ['session_exists', 'work_item_busy', 'invalid_state'].includes(err.code) ? 409 : 400;
+      return reply.code(status).send({ error: err.message, code: err.code });
     }
   });
 

@@ -278,7 +278,7 @@
 
 .repositoryRow + .repositoryRow { border-top: 1px solid var(--line); }
 
-.repositoryRow > button { margin-top: 8px; }
+.repositoryActions { margin-top: 8px; }
 
 .repositoryName {
   color: var(--ink);

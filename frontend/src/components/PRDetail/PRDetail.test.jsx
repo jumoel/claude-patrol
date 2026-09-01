@@ -201,6 +201,17 @@ test('existing workspace session stays above PR detail content without duplicate
   assert.equal(terminal.getAttribute('data-workspace'), 'workspace-1');
   assert.equal(terminal.getAttribute('data-pr'), 'acme/widgets#42');
   assert.equal(screen.queryByRole('button', { name: '← Work' }), null);
+  assert.equal(screen.getByRole('button', { name: 'Destroy' }).hasAttribute('disabled'), true);
+});
+
+test('existing workspace stays visible without a live session', async () => {
+  api.fetchWorkspaces.mockResolvedValue([workspace()]);
+
+  renderDetail();
+
+  assert.ok(await screen.findByRole('heading', { name: 'Workspace' }));
+  assert.ok(screen.getByText('/tmp/widget-fix'));
+  assert.equal(screen.getByRole('button', { name: 'Destroy' }).hasAttribute('disabled'), false);
 });
 
 test('shows the work-item working indicator ahead of failed CI for an active session', async () => {
@@ -247,7 +258,7 @@ test('failed-check log and workspace cleanup actions keep their API contracts', 
   failing.ci_status = 'fail';
   api.fetchPR.mockResolvedValue(failing);
   api.fetchWorkspaces.mockResolvedValueOnce([workspace()]).mockResolvedValueOnce([]);
-  api.fetchSessions.mockResolvedValue([session()]);
+  api.fetchSessions.mockResolvedValue([]);
 
   renderDetail();
   await screen.findByRole('heading', { name: 'Ship the widget fix' });

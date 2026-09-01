@@ -4,6 +4,7 @@ import { useWorkItem } from '../../hooks/useWorkItems.js';
 import {
   createSession,
   destroyWorkItem,
+  destroyWorkspace,
   fetchSessions,
   killSession,
   reattachSession,
@@ -187,8 +188,15 @@ function ProgressSteps({ steps }) {
   );
 }
 
-/** @param {{repository: import('../../types').WorkItemRepository}} props */
-function RepositoryRow({ repository }) {
+/**
+ * @param {{
+ *   repository: import('../../types').WorkItemRepository,
+ *   deletionBlocked: boolean,
+ *   deleting: boolean,
+ *   onDelete: () => void,
+ * }} props
+ */
+function RepositoryRow({ repository, deletionBlocked, deleting, onDelete }) {
   const [copied, setCopied] = useState(false);
   const copyPath = useCallback(() => {
     if (!repository.checkout_available || !repository.path) return;
@@ -221,9 +229,24 @@ function RepositoryRow({ repository }) {
         </div>
       </dl>
       {repository.checkout_available && repository.path && (
-        <Button size="xs" onClick={copyPath}>
-          {copied ? 'Copied' : 'Copy path'}
-        </Button>
+        <Stack gap={2} wrap className={styles.repositoryActions}>
+          <Button size="xs" onClick={copyPath}>
+            {copied ? 'Copied' : 'Copy path'}
+          </Button>
+          {repository.workspace_id && (
+            <Button
+              variant="danger"
+              size="xs"
+              onClick={onDelete}
+              disabled={deletionBlocked || deleting}
+              busy={deleting}
+              aria-label={`Delete workspace ${repository.identifier}`}
+              title={deletionBlocked ? 'Stop the active LLM session before deleting this workspace' : undefined}
+            >
+              {deleting ? 'Deleting...' : 'Delete workspace'}
+            </Button>
+          )}
+        </Stack>
       )}
       {repository.warnings.length > 0 && (
         <ul className={styles.warnings}>
@@ -277,6 +300,7 @@ export function WorkItemDetail({
   const [sessionError, setSessionError] = useState('');
   const [actionError, setActionError] = useState('');
   const [actionPending, setActionPending] = useState(/** @type {'retry' | 'destroy' | null} */ (null));
+  const [deletingWorkspaceId, setDeletingWorkspaceId] = useState(/** @type {string | null} */ (null));
   const [collapsedPanes, setCollapsedPanes] = useState(() => loadPaneState(workItemId));
   const wsRef = useRef(/** @type {WebSocket | null} */ (null));
   const workItemState = workItem?.state;
@@ -372,6 +396,25 @@ export function WorkItemDetail({
     void runAction('destroy', () => destroyWorkItem(workItemId), 'Failed to destroy work item');
   }, [runAction, workItem, workItemId]);
 
+  const handleDeleteWorkspace = useCallback(
+    (/** @type {import('../../types').WorkItemRepository} */ repository) => {
+      if (!repository.workspace_id || session || sessionLoading || deletingWorkspaceId) return;
+      if (
+        !window.confirm(
+          `Delete the ${repository.identifier} checkout directory and its jj workspace registration. Patrol will leave its bookmark and commits in the source repository.`,
+        )
+      )
+        return;
+      setDeletingWorkspaceId(repository.workspace_id);
+      setActionError('');
+      destroyWorkspace(repository.workspace_id)
+        .then(reload)
+        .catch((nextError) => setActionError(getErrorMessage(nextError, 'Failed to delete workspace')))
+        .finally(() => setDeletingWorkspaceId(null));
+    },
+    [deletingWorkspaceId, reload, session, sessionLoading],
+  );
+
   const ensureSession = useCallback(async () => {
     if (session) return session;
     setSessionLoading(true);
@@ -431,7 +474,8 @@ export function WorkItemDetail({
   const creationBusy = workItem.state === 'resolving' || workItem.state === 'preparing';
   const destroying = workItem.state === 'destroying';
   const destroyed = workItem.state === 'destroyed';
-  const canDestroy = (workItem.state === 'ready' || workItem.state === 'error') && retryAction !== 'cleanup';
+  const canDestroy =
+    (workItem.state === 'ready' || workItem.state === 'error') && retryAction !== 'cleanup' && !deletingWorkspaceId;
   const selectedProviderName = provider === 'codex' ? 'Codex' : 'Claude';
   const resolverName = workItem.resolver_provider === 'codex' ? 'Codex' : 'Claude';
   const selectedPullRequest =
@@ -545,7 +589,7 @@ export function WorkItemDetail({
               variant="primary"
               size="md"
               onClick={ensureSession}
-              disabled={sessionLoading || !!actionPending}
+              disabled={sessionLoading || !!actionPending || Boolean(deletingWorkspaceId)}
               busy={sessionLoading}
             >
               {sessionLoading
@@ -615,7 +659,15 @@ export function WorkItemDetail({
       >
         <div className={styles.repositoryList}>
           {workItem.repository_workspaces.map((repository) => (
-            <RepositoryRow key={repository.identifier} repository={repository} />
+            <RepositoryRow
+              key={repository.identifier}
+              repository={repository}
+              deletionBlocked={
+                sessionLoading || Boolean(session) || Boolean(actionPending) || Boolean(deletingWorkspaceId)
+              }
+              deleting={deletingWorkspaceId === repository.workspace_id}
+              onDelete={() => handleDeleteWorkspace(repository)}
+            />
           ))}
           {workItem.repository_workspaces.length === 0 && (
             <p className={styles.empty}>Repositories have not been resolved.</p>

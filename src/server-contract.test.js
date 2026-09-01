@@ -125,6 +125,13 @@ test('PR API uses injected dependencies and reports authored freshness', async (
       sessions.json().map((session) => session.id),
       ['session-1'],
     );
+    const blockedWorkspaceDelete = await server.inject({
+      method: 'DELETE',
+      url: '/api/workspaces/ready-workspace',
+    });
+    assert.equal(blockedWorkspaceDelete.statusCode, 409);
+    assert.equal(blockedWorkspaceDelete.json().code, 'session_exists');
+    assert.equal(db.prepare("SELECT status FROM workspaces WHERE id = 'ready-workspace'").get().status, 'active');
     const activity = await server.inject({
       method: 'POST',
       url: '/api/sessions/session-1/activity/claude',

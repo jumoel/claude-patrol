@@ -15,6 +15,7 @@ const hook = vi.hoisted(() => ({
 const api = vi.hoisted(() => ({
   createSession: vi.fn(),
   destroyWorkItem: vi.fn(),
+  destroyWorkspace: vi.fn(),
   fetchSessions: vi.fn(),
   fetchProviderCapabilities: vi.fn(),
   killSession: vi.fn(),
@@ -126,9 +127,10 @@ beforeEach(() => {
   });
   api.retryWorkItem.mockResolvedValue({});
   api.destroyWorkItem.mockResolvedValue({});
+  api.destroyWorkspace.mockResolvedValue({});
 });
 
-test('ready detail renders one root terminal and no child controls', async () => {
+test('ready detail renders one root terminal and blocks repository deletion while it is active', async () => {
   const liveSession = {
     id: 'session-1',
     workspace_id: null,
@@ -158,8 +160,26 @@ test('ready detail renders one root terminal and no child controls', async () =>
   assert.equal(screen.queryByText('Live'), null);
   assert.ok(screen.getByText(/Update both repositories\.\s+Keep their changes aligned\./));
   assert.equal(screen.getAllByRole('button', { name: 'Copy path' }).length, 1);
+  assert.equal(screen.getByRole('button', { name: 'Delete workspace acme/alpha' }).hasAttribute('disabled'), true);
   assert.equal(screen.queryByRole('link', { name: /acme\/alpha/ }), null);
   assert.ok(screen.getByTestId('session-history').textContent?.includes('work_item'));
+});
+
+test('deletes one repository workspace after confirmation when no root session is active', async () => {
+  const user = userEvent.setup();
+  const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+  renderDetail();
+
+  const deleteButton = await screen.findByRole('button', { name: 'Delete workspace acme/alpha' });
+  await waitFor(() => assert.equal(deleteButton.hasAttribute('disabled'), false));
+  await user.click(deleteButton);
+
+  assert.deepEqual(confirm.mock.calls[0], [
+    'Delete the acme/alpha checkout directory and its jj workspace registration. Patrol will leave its bookmark and commits in the source repository.',
+  ]);
+  await waitFor(() => assert.deepEqual(api.destroyWorkspace.mock.calls, [['child-1']]));
+  await waitFor(() => assert.equal(hook.reload.mock.calls.length, 1));
+  confirm.mockRestore();
 });
 
 test('acknowledges the visible idle session and renders it as idle once acknowledged', async () => {

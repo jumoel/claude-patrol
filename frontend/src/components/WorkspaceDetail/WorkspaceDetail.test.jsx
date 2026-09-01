@@ -150,6 +150,7 @@ test('an existing session is the first work surface without duplicate page navig
   const history = screen.getByText('Past sessions');
   assert.ok(terminal.compareDocumentPosition(history) & Node.DOCUMENT_POSITION_FOLLOWING);
   assert.equal(screen.queryByRole('button', { name: '← Work' }), null);
+  assert.equal(screen.getByRole('button', { name: 'Destroy' }).hasAttribute('disabled'), true);
 });
 
 test('redirects an adopted workspace to its pull request when the workspace retains its repository', async () => {

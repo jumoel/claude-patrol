@@ -162,7 +162,14 @@ export function WorkspaceDetail({
       <header className={workPage.header}>
         <div className={workPage.headerActions}>
           {workspace.status === 'active' && (
-            <Button variant="danger" size="sm" onClick={handleDestroy} disabled={destroying} busy={destroying}>
+            <Button
+              variant="danger"
+              size="sm"
+              onClick={handleDestroy}
+              disabled={destroying || Boolean(session)}
+              busy={destroying}
+              title={session ? 'Stop the active LLM session before deleting this workspace' : undefined}
+            >
               {destroying ? 'Destroying...' : 'Destroy'}
             </Button>
           )}

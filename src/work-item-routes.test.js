@@ -574,3 +574,51 @@ test('session filters distinguish global, work-item, and managed child targets',
     await server.close();
   }
 });
+
+test('workspace deletion delegates managed children after the work-item session stops', async () => {
+  const removals = [];
+  const service = {
+    create() {},
+    list: () => [],
+    detail: () => null,
+    retry() {},
+    destroy() {},
+    removeRepositoryWorkspace: async (workItemId, workspaceId) => {
+      removals.push([workItemId, workspaceId]);
+      return { removed: true };
+    },
+  };
+  const server = await serverFixture(service);
+  const now = new Date().toISOString();
+  insertTestWorkItem(getDb(), { id: 'item-1', repositories: ['acme/widgets'], createdAt: now });
+  getDb()
+    .prepare(
+      `INSERT INTO workspaces (
+        id, work_item_id, name, path, bookmark, repo, status, created_at,
+        operation_state, operation_updated_at
+      ) VALUES ('child-1', 'item-1', 'child', '/tmp/child', 'patrol/work-item-1',
+        'acme/widgets', 'active', ?, 'ready', ?)`,
+    )
+    .run(now, now);
+  getDb()
+    .prepare(
+      `INSERT INTO sessions (id, work_item_id, pid, provider, status, started_at)
+       VALUES ('root-session', 'item-1', 1, 'codex', 'detached', ?)`,
+    )
+    .run(now);
+
+  try {
+    const blocked = await server.inject({ method: 'DELETE', url: '/api/workspaces/child-1' });
+    assert.equal(blocked.statusCode, 409);
+    assert.equal(blocked.json().code, 'session_exists');
+    assert.deepEqual(removals, []);
+
+    getDb().prepare("UPDATE sessions SET status = 'killed', ended_at = ? WHERE id = 'root-session'").run(now);
+    const removed = await server.inject({ method: 'DELETE', url: '/api/workspaces/child-1' });
+    assert.equal(removed.statusCode, 200);
+    assert.deepEqual(removed.json(), { removed: true });
+    assert.deepEqual(removals, [['item-1', 'child-1']]);
+  } finally {
+    await server.close();
+  }
+});
