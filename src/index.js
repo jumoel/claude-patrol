@@ -1,5 +1,6 @@
 import { execFile as execFileCb } from 'node:child_process';
 import { emitLocalChange } from './app-events.js';
+import { parseCliOptions } from './cli-args.js';
 import {
   configEvents,
   ensureConfig,
@@ -27,6 +28,7 @@ import {
 } from './pty-manager.js';
 import { startRulesEngine, stopRulesEngine } from './rules.js';
 import { createServer } from './server.js';
+import { createShutdownController } from './shutdown.js';
 import { validateStartup } from './startup.js';
 import { destroyTui, initTui, setHeader } from './tui.js';
 import { startUpdateChecks, stopUpdateChecks } from './update-check.js';
@@ -36,17 +38,35 @@ import { reconcilePatrolWorkspacesOnStartup } from './workspace-reconciliation.j
 import { startWorkspaceReconciliationScheduler } from './workspace-reconciliation-scheduler.js';
 
 /**
+ * One line describing what the server is doing, for the TUI header.
+ * @param {string} serverUrl
+ * @param {{ poll: { orgs: string[], repos: string[], interval_seconds: number }, work_items?: unknown }} config
+ */
+function statusHeader(serverUrl, config) {
+  const targets = [...config.poll.orgs.map((o) => `org:${o}`), ...config.poll.repos.map((r) => `repo:${r}`)].join(', ');
+  if (targets) return `${serverUrl}  |  polling ${targets} every ${config.poll.interval_seconds}s`;
+  if (config.work_items) return `${serverUrl}  |  work items enabled`;
+  return `${serverUrl}  |  setup mode - open browser to configure`;
+}
+
+/** Open the dashboard in the default browser; failures are only logged. */
+function openBrowser(serverUrl) {
+  execFileCb('open', [serverUrl], (err) => {
+    if (err) console.warn(`Could not open browser: ${err.message}`);
+  });
+}
+
+/**
  * Start the claude-patrol server.
- * @param {{ open?: boolean, noOpen?: boolean }} [options]
+ * @param {{ open?: boolean, noOpen?: boolean, reattach?: boolean, clean?: boolean }} [options]
  */
 export async function startServer(options = {}) {
+  const cli = parseCliOptions(process.argv.slice(2), options);
   // --port <number> overrides config.port and skips the single-instance check
-  const portFlagIdx = process.argv.indexOf('--port');
-  let portOverride = portFlagIdx !== -1 ? Number(process.argv[portFlagIdx + 1]) : null;
-  const hostFlagIdx = process.argv.indexOf('--host');
-  const hostOverride = hostFlagIdx !== -1 ? process.argv[hostFlagIdx + 1] : null;
+  let portOverride = cli.port;
+  const hostOverride = cli.host;
 
-  const isReattachEarly = options.reattach || process.argv.includes('--reattach');
+  const isReattachEarly = cli.reattach;
   // On a restart-style relaunch (--reattach) without an explicit --port, pin
   // to the previous instance's port so MCP URLs in already-running Claude
   // sessions stay valid.
@@ -91,7 +111,7 @@ export async function startServer(options = {}) {
     );
   }
 
-  const isClean = options.clean || process.argv.includes('--clean');
+  const isClean = cli.clean;
   if (isClean) {
     cleanupOrphanedSessions();
     cleanupOrphanedTmuxSessions();
@@ -197,18 +217,10 @@ export async function startServer(options = {}) {
   });
 
   // Start TUI if running in an interactive terminal
-  const isTTY = process.stdin.isTTY && process.stdout.isTTY;
+  const isTTY = Boolean(process.stdin.isTTY && process.stdout.isTTY);
   if (isTTY) {
-    const pollTargets = [...config.poll.orgs.map((o) => `org:${o}`), ...config.poll.repos.map((r) => `repo:${r}`)].join(
-      ', ',
-    );
-    const headerMsg = pollTargets
-      ? `${serverUrl}  |  polling ${pollTargets} every ${config.poll.interval_seconds}s`
-      : config.work_items
-        ? `${serverUrl}  |  work items enabled`
-        : `${serverUrl}  |  setup mode - open browser to configure`;
     initTui({
-      header: headerMsg,
+      header: statusHeader(serverUrl, config),
       footer: '[space] open browser  [ctrl-c] quit',
     });
   }
@@ -220,12 +232,7 @@ export async function startServer(options = {}) {
   }
 
   // Only open browser when explicitly requested via --open
-  const shouldOpen = !options.noOpen && (options.open || process.argv.includes('--open'));
-  if (shouldOpen) {
-    execFileCb('open', [serverUrl], (err) => {
-      if (err) console.warn(`Could not open browser: ${err.message}`);
-    });
-  }
+  if (!cli.noOpen && cli.open) openBrowser(serverUrl);
 
   configEvents.on('change', (newConfig) => {
     setCurrentConfig(newConfig);
@@ -242,20 +249,7 @@ export async function startServer(options = {}) {
       );
     }
     emitLocalChange();
-    // Update header with new config
-    if (isTTY) {
-      const targets = [
-        ...newConfig.poll.orgs.map((o) => `org:${o}`),
-        ...newConfig.poll.repos.map((r) => `repo:${r}`),
-      ].join(', ');
-      setHeader(
-        targets
-          ? `${serverUrl}  |  polling ${targets} every ${newConfig.poll.interval_seconds}s`
-          : newConfig.work_items
-            ? `${serverUrl}  |  work items enabled`
-            : `${serverUrl}  |  setup mode - open browser to configure`,
-      );
-    }
+    if (isTTY) setHeader(statusHeader(serverUrl, newConfig));
   });
 
   watchConfig();
@@ -275,10 +269,7 @@ export async function startServer(options = {}) {
   console.log('Running');
 
   // Graceful shutdown
-  let shutdownState = 'running'; // running | prompting | exiting
-
   async function doExit(killSessions) {
-    shutdownState = 'exiting';
     destroyTui();
     unwatchConfig();
     await stopPoller({ drain: true });
@@ -309,55 +300,17 @@ export async function startServer(options = {}) {
     process.exit(0);
   }
 
-  function shutdown(signal) {
-    const count = activeSessionCount();
-
-    if (shutdownState === 'exiting') {
-      process.exit(1);
-    }
-
-    if (shutdownState === 'prompting') {
-      // Second signal while prompting - exit preserving sessions
-      doExit(false);
-      return;
-    }
-
-    if (count === 0 || isClean || signal === 'SIGTERM') {
-      // No sessions, --clean mode, or SIGTERM: exit immediately
-      doExit(isClean);
-      return;
-    }
-
-    // Interactive prompt: active sessions exist
-    shutdownState = 'prompting';
-    destroyTui();
-    console.log(`\n${count} active session(s) running.`);
-    console.log('  [k] Kill sessions and exit');
-    console.log('  [Enter/p] Preserve sessions and exit (reattach on next start)');
-    console.log('  [Ctrl-C] Preserve and exit immediately');
-
-    // Re-enable raw mode so single keypresses are delivered immediately
-    if (isTTY && !process.stdin.isRaw) {
-      process.stdin.setRawMode(true);
-    }
-    process.stdin.resume();
-
-    const onKey = (key) => {
-      process.stdin.removeListener('data', onKey);
-      // Treat Ctrl-C as preserve-and-exit
-      if (key === '\x03') {
-        doExit(false);
-        return;
-      }
-      const first = key.trim().toLowerCase();
-      if (first === 'k') {
-        doExit(true);
-      } else {
-        doExit(false);
-      }
-    };
-    process.stdin.on('data', onKey);
-  }
+  const shutdownController = createShutdownController({
+    activeSessionCount,
+    exit: doExit,
+    forceExit: () => process.exit(1),
+    isClean,
+    isTTY,
+    stdin: process.stdin,
+    destroyTui,
+    log: (line) => console.log(line),
+  });
+  const shutdown = (signal) => shutdownController.shutdown(signal);
 
   process.on('SIGINT', () => shutdown('SIGINT'));
   process.on('SIGTERM', () => shutdown('SIGTERM'));
@@ -375,9 +328,7 @@ export async function startServer(options = {}) {
       }
       if (key === ' ') {
         console.log(`Opening ${serverUrl}...`);
-        execFileCb('open', [serverUrl], (err) => {
-          if (err) console.warn(`Could not open browser: ${err.message}`);
-        });
+        openBrowser(serverUrl);
       }
     });
   }
