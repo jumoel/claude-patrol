@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
 import { actionRegistry } from './actions.js';
 import { closeDb, getDb, initDb } from './db.js';
+import { ensureSessionAndSend } from './dispatcher.js';
 import { insertTestWorkItem } from './test-support/work-items.js';
 
 afterEach(() => closeDb());
@@ -230,4 +231,158 @@ test('list_sessions exposes work-item identity and only marks targetless session
   });
   assert.equal(sessions.find((session) => session.session_id === 'global').is_global, true);
   assert.equal(sessions.find((session) => session.session_id === 'global').activity_state, 'working');
+});
+
+function insertPr(id) {
+  const [repository, number] = id.split('#');
+  const [org, repo] = repository.split('/');
+  getDb()
+    .prepare(
+      `INSERT INTO prs (id, number, title, repo, org, author, url, branch, created_at, updated_at, synced_at)
+       VALUES (?, ?, ?, ?, ?, 'octocat', 'https://example.test', 'feature', '2026-08-27T12:00:00.000Z', '2026-08-27T12:00:00.000Z', '2026-08-27T12:00:00.000Z')`,
+    )
+    .run(id, Number(number), `PR ${number}`, repo, org);
+}
+
+function insertWorkspace(id, { prId = null, path = `/tmp/${id}`, state = 'ready' } = {}) {
+  getDb()
+    .prepare(
+      `INSERT INTO workspaces (id, pr_id, name, path, bookmark, repo, status, created_at, operation_state)
+       VALUES (?, ?, ?, ?, 'feature', 'acme/widgets', 'active', '2026-08-27T12:00:00.000Z', ?)`,
+    )
+    .run(id, prId, id, path, state);
+}
+
+function insertSession(id, { workspaceId = null, workItemId = null, status = 'active', provider = 'claude' } = {}) {
+  getDb()
+    .prepare(
+      `INSERT INTO sessions (id, workspace_id, work_item_id, pid, provider, status, started_at)
+       VALUES (?, ?, ?, 1, ?, ?, '2026-08-27T12:00:00.000Z')`,
+    )
+    .run(id, workspaceId, workItemId, provider, status);
+}
+
+test('workspace_id targets resolve the workspace session, refuse unknown workspaces, and create on demand', async () => {
+  initDb(':memory:');
+  insertWorkspace('ws-1');
+  insertSession('ws-1-session', { workspaceId: 'ws-1' });
+  const { appContext, calls } = dispatcherFixture();
+
+  const existing = await ensureSessionAndSend({ workspace_id: 'ws-1', prompt: 'hi' }, appContext);
+  assert.equal(existing.session_id, 'ws-1-session');
+  assert.equal(existing.workspace_id, 'ws-1');
+  assert.deepEqual(calls.dispatched.at(-1), { sessionId: 'ws-1-session', prompt: 'hi' });
+
+  await assert.rejects(
+    ensureSessionAndSend({ workspace_id: 'nope', prompt: 'hi' }, appContext),
+    (error) => error.code === 'no_workspace',
+  );
+
+  insertWorkspace('ws-2');
+  await assert.rejects(
+    ensureSessionAndSend({ workspace_id: 'ws-2', prompt: 'hi' }, appContext),
+    (error) => error.code === 'no_session',
+  );
+  const created = await ensureSessionAndSend({ workspace_id: 'ws-2', prompt: 'hi', autoCreate: true }, appContext);
+  assert.equal(created.session_id, 'created-1');
+  assert.deepEqual(calls.created.at(-1), {
+    target: { type: 'workspace', id: 'ws-2' },
+    cwd: '/tmp/ws-2',
+    provider: 'claude',
+  });
+  assert.equal(calls.waited.length, 1, 'a fresh session waits for its first idle');
+});
+
+test('pr_id targets use the legacy workspace, the owning work item, or create local work through the service', async () => {
+  initDb(':memory:');
+  for (const id of ['acme/widgets#1', 'acme/widgets#2', 'acme/widgets#3']) insertPr(id);
+  insertWorkspace('legacy', { prId: 'acme/widgets#1' });
+  insertSession('legacy-session', { workspaceId: 'legacy' });
+  const { appContext, calls } = dispatcherFixture();
+
+  const legacy = await ensureSessionAndSend({ pr_id: 'acme/widgets#1', prompt: 'hi' }, appContext);
+  assert.equal(legacy.session_id, 'legacy-session');
+
+  await assert.rejects(
+    ensureSessionAndSend({ pr_id: 'acme/widgets#2', prompt: 'hi' }, appContext),
+    (error) => error.code === 'no_workspace',
+  );
+
+  insertWorkItem('owner');
+  getDb()
+    .prepare(
+      "INSERT INTO work_item_pull_requests (pr_id, work_item_id, source, linked_at) VALUES ('acme/widgets#3', 'owner', 'explicit', '2026-08-27T12:00:00.000Z')",
+    )
+    .run();
+  const owned = await ensureSessionAndSend({ pr_id: 'acme/widgets#3', prompt: 'hi', autoCreate: true }, appContext);
+  assert.equal(owned.work_item_id, 'owner');
+  assert.deepEqual(calls.created.at(-1).target, { type: 'work_item', id: 'owner' });
+
+  const service = {
+    create({ source, pr_id }) {
+      assert.equal(source, 'pull_request');
+      assert.equal(pr_id, 'acme/widgets#2');
+      insertWorkItem('fresh');
+      return { id: 'fresh' };
+    },
+    async waitForIdle() {},
+  };
+  const created = await ensureSessionAndSend(
+    { pr_id: 'acme/widgets#2', prompt: 'hi', autoCreate: true },
+    { ...appContext, workItemService: service },
+  );
+  assert.equal(created.work_item_id, 'fresh');
+  assert.equal(calls.created.at(-1).cwd, '/tmp/fresh');
+});
+
+test('global targets need zero or one live global session and create one in global_terminal_cwd', async () => {
+  initDb(':memory:');
+  const { appContext, calls } = dispatcherFixture();
+
+  await assert.rejects(
+    ensureSessionAndSend({ global: true, prompt: 'hi' }, appContext),
+    (error) => error.code === 'no_session',
+  );
+  const created = await ensureSessionAndSend(
+    { global: true, prompt: 'hi', autoCreate: true, provider: 'codex' },
+    appContext,
+  );
+  assert.deepEqual(calls.created.at(-1), { target: { type: 'global' }, cwd: '/tmp', provider: 'codex' });
+  assert.equal(created.provider, 'codex');
+
+  insertSession('second-global', { provider: 'claude' });
+  await assert.rejects(
+    ensureSessionAndSend({ global: true, prompt: 'hi' }, appContext),
+    (error) => error.code === 'ambiguous_target',
+  );
+
+  getDb().prepare("DELETE FROM sessions WHERE id = 'second-global'").run();
+  getDb().prepare("UPDATE sessions SET status = 'detached' WHERE id = 'created-1'").run();
+  await assert.rejects(
+    ensureSessionAndSend({ global: true, prompt: 'hi' }, appContext),
+    (error) => error.code === 'session_detached',
+  );
+});
+
+test('waitForBusy queues behind a working session and prompts are cleaned before dispatch', async () => {
+  initDb(':memory:');
+  insertWorkspace('ws-1');
+  insertSession('busy', { workspaceId: 'ws-1' });
+  const { appContext, calls } = dispatcherFixture();
+  appContext.getSessionSnapshot = () => ({ activityState: 'working' });
+
+  await ensureSessionAndSend({ workspace_id: 'ws-1', prompt: 'line one\nline two\r\n', waitForBusy: true }, appContext);
+  assert.equal(calls.waited.length, 1);
+  assert.equal(calls.waited[0].timeout, 15 * 60_000, 'the busy wait uses the long timeout');
+  assert.deepEqual(calls.dispatched.at(-1), { sessionId: 'busy', prompt: 'line one line two ' });
+
+  calls.waited.length = 0;
+  await ensureSessionAndSend({ workspace_id: 'ws-1', prompt: 'no wait' }, appContext);
+  assert.equal(calls.waited.length, 0, 'without waitForBusy the busy check is left to dispatchToSession');
+
+  await assert.rejects(
+    ensureSessionAndSend({ workspace_id: 'ws-1', prompt: '\n\n  \n' }, appContext),
+    (error) => error.code === 'invalid_prompt',
+  );
+  await assert.rejects(ensureSessionAndSend({ prompt: 'hi' }, appContext), (error) => error.code === 'no_target');
 });

@@ -73,7 +73,11 @@ test('peer review request fails if the presenter never claims it', async () => {
       presenterProvider: 'codex',
       reviewerProvider: 'claude',
     });
-    await new Promise((resolve) => setTimeout(resolve, 15));
+    // Poll rather than sleep a fixed 15 ms: under load the 5 ms timer can land late.
+    const deadline = Date.now() + 2_000;
+    while (coordinator.getByWorkspace('workspace-1').status !== 'failed' && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
     const review = coordinator.getByWorkspace('workspace-1');
     assert.equal(review.status, 'failed');
     assert.equal(review.error.code, 'request_timeout');
