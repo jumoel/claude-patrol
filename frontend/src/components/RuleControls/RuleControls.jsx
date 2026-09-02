@@ -29,6 +29,8 @@ export function RuleControls({ prId }) {
   const [loading, setLoading] = useState(true);
   const [busyRule, setBusyRule] = useState(/** @type {{id: string, action: 'subscription' | 'run'} | null} */ (null));
   const [error, setError] = useState(/** @type {string | null} */ (null));
+  /** A failed subscribe or run; shown under the list without hiding it. */
+  const [actionError, setActionError] = useState(/** @type {string | null} */ (null));
   const [expanded, setExpanded] = useState(false);
   const initializedPrRef = useRef(/** @type {string | null} */ (null));
 
@@ -85,7 +87,7 @@ export function RuleControls({ prId }) {
     /** @param {import('../../types').RuleDefinition} rule */
     async (rule) => {
       setBusyRule({ id: rule.id, action: 'subscription' });
-      setError(null);
+      setActionError(null);
       try {
         if (subscriptions.has(rule.id)) {
           await unsubscribeRuleForPR(rule.id, prId);
@@ -94,7 +96,7 @@ export function RuleControls({ prId }) {
         }
         await load();
       } catch (err) {
-        setError(getErrorMessage(err));
+        setActionError(getErrorMessage(err));
       } finally {
         setBusyRule(null);
       }
@@ -106,11 +108,11 @@ export function RuleControls({ prId }) {
     /** @param {import('../../types').RuleDefinition} rule */
     async (rule) => {
       setBusyRule({ id: rule.id, action: 'run' });
-      setError(null);
+      setActionError(null);
       try {
         await runRuleManually(rule.id, { pr_id: prId, force: true });
       } catch (err) {
-        setError(getErrorMessage(err));
+        setActionError(getErrorMessage(err));
       } finally {
         setBusyRule(null);
       }
@@ -197,6 +199,11 @@ export function RuleControls({ prId }) {
             </div>
           );
         })}
+        {actionError && (
+          <p className={styles.error} role="alert">
+            {actionError}
+          </p>
+        )}
         {ruleErrors.length > 0 && (
           <p className={styles.error}>{ruleErrors.length} additional rule(s) failed to load.</p>
         )}

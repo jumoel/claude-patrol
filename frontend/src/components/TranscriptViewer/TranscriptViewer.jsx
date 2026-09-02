@@ -25,11 +25,14 @@ export function TranscriptViewer({ entries, loading, error }) {
     }
     if (search.trim()) {
       const term = search.toLowerCase();
+      // Every string field of a block is searchable, so a tool block matches on
+      // its name as well as its summary.
       result = result.filter((e) =>
-        e.content.some((b) => {
-          const text = b.text || b.input_summary || b.output_summary || b.name || '';
-          return text.toLowerCase().includes(term);
-        }),
+        e.content.some((b) =>
+          [b.text, b.input_summary, b.output_summary, b.name].some(
+            (field) => typeof field === 'string' && field.toLowerCase().includes(term),
+          ),
+        ),
       );
     }
     return result;

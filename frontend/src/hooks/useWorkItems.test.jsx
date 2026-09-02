@@ -109,7 +109,7 @@ test('the list reports a failed request, clears it on reload, and never fetches 
   assert.equal(eventStream.handlers.get('local-change')?.size, 1, 'only the enabled hook subscribes');
   act(() => disabled.result.current.reload());
   assert.equal(api.fetchWorkItems.mock.calls.length, 2);
-  assert.equal(disabled.result.current.loading, true, 'a disabled list never leaves loading');
+  assert.equal(disabled.result.current.loading, false, 'a disabled list settles instead of loading forever');
   assert.equal(disabled.result.current.loaded, false);
 });
 

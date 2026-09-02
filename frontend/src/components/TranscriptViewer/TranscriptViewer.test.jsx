@@ -89,7 +89,7 @@ test('Show thinking reveals thinking blocks and thinking-only entries', async ()
   assert.equal(screen.getAllByText('Claude').length, 1);
 });
 
-test('search narrows entries by the first populated field of each block and reports the match count', async () => {
+test('search matches every string field of a block and reports the match count', async () => {
   const user = userEvent.setup();
   render(<TranscriptViewer entries={entries()} loading={false} error={null} />);
   const search = screen.getByPlaceholderText('Search transcript...');
@@ -99,13 +99,13 @@ test('search narrows entries by the first populated field of each block and repo
   assert.ok(screen.getByText('You'));
   assert.equal(screen.queryByText('Tool Result'), null);
 
-  // Each block contributes only text || input_summary || output_summary || name, so
-  // the tool result named "Read" is not found by name once it has an output summary.
+  // "read" appears in the assistant text and as the tool name of the tool
+  // result, which has an output summary too; both entries match.
   await user.clear(search);
   await user.type(search, 'read');
-  assert.ok(screen.getByText('1 / 4 messages'));
+  assert.ok(screen.getByText('2 / 4 messages'));
   assert.ok(screen.getByText('Claude'));
-  assert.equal(screen.queryByText('Tool Result'), null);
+  assert.ok(screen.getByText('Tool Result'), 'a tool result is found by its tool name');
   assert.equal(screen.queryByText('You'), null);
 
   await user.clear(search);

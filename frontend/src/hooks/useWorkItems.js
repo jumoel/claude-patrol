@@ -37,7 +37,11 @@ export function useWorkItems(enabled = true) {
   }, [enabled]);
 
   useEffect(() => {
-    if (!enabled) return undefined;
+    if (!enabled) {
+      // Nothing will ever load; report settled like usePRs does.
+      setLoading(false);
+      return undefined;
+    }
     reload();
     /** @param {MessageEvent<string>} event */
     const onTask = (event) => {

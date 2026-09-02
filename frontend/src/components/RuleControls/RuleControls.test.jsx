@@ -182,7 +182,9 @@ test('Run now fires the rule with force, locks the row while running, and surfac
   api.runRuleManually.mockRejectedValueOnce(new Error('session_busy'));
   await user.click(screen.getAllByRole('button', { name: 'Run now' })[1]);
   assert.deepEqual(api.runRuleManually.mock.calls[1], ['label-triage', { pr_id: PR_ID, force: true }]);
-  assert.ok(await screen.findByText('Could not load rules: session_busy'));
+  assert.equal((await screen.findByRole('alert')).textContent, 'session_busy');
+  assert.equal(screen.getAllByRole('button', { name: 'Run now' }).length, 2, 'a failed run keeps the rules visible');
+  assert.equal(screen.queryByText(/Could not load rules/), null);
 });
 
 test('a failed load expands the section and shows the error', async () => {
