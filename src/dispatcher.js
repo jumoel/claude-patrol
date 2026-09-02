@@ -130,10 +130,15 @@ export async function ensureSessionAndSend(
       restoreSession(row.id);
       wasReattached = true;
       return db.prepare('SELECT * FROM sessions WHERE id = ?').get(row.id) ?? { ...row, status: 'active' };
-    } catch {
+    } catch (error) {
       const current = db.prepare('SELECT status FROM sessions WHERE id = ?').get(row.id);
       if (replaceDead && current?.status === 'killed') return null;
-      throw taggedError('session_detached', `work-item session ${row.id} could not be reattached`);
+      const failure = taggedError(
+        'session_detached',
+        `work-item session ${row.id} could not be reattached: ${error?.message ?? error}`,
+      );
+      failure.cause = error;
+      throw failure;
     }
   };
 

@@ -34,6 +34,25 @@ export function activitySettingsPathForSession(sessionId) {
   return resolve(tmpdir(), `patrol-activity-settings-${sessionId}.json`);
 }
 
+export function promptPathForSession(sessionId) {
+  return resolve(tmpdir(), `patrol-prompt-${sessionId}.txt`);
+}
+
+/**
+ * Every temp file a session may own, derived from its id so the exit handler
+ * can clean up after a reattach, when the launch-time list is gone.
+ * @param {string} sessionId
+ * @returns {string[]}
+ */
+export function sessionTempPaths(sessionId) {
+  return [
+    mcpConfigPathForSession(sessionId),
+    promptPathForSession(sessionId),
+    activityCredentialPathForSession(sessionId),
+    activitySettingsPathForSession(sessionId),
+  ];
+}
+
 export function readActivityCredential(sessionId) {
   try {
     const credential = JSON.parse(readFileSync(activityCredentialPathForSession(sessionId), 'utf8'));
@@ -152,7 +171,7 @@ export function buildSessionLaunch({
         tempPaths.push(mcpConfigPath);
         commandArgs.push('--mcp-config', mcpConfigPath);
 
-        const promptFile = resolve(tmpdir(), `patrol-prompt-${sessionId}.txt`);
+        const promptFile = promptPathForSession(sessionId);
         writeFileSync(promptFile, patrolPrompt);
         tempPaths.push(promptFile);
         commandArgs.push('--append-system-prompt-file', promptFile);

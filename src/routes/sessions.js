@@ -273,7 +273,8 @@ export function registerSessionRoutes(app) {
       emitLocalChange();
       return formatSession(session);
     } catch (err) {
-      return reply.code(400).send({ error: err.message });
+      const status = { session_not_found: 404, session_not_detached: 409, session_dead: 410 }[err.code] ?? 500;
+      return targetError(reply, err.code ?? 'session_reattach_failed', err.message, status);
     }
   });
 

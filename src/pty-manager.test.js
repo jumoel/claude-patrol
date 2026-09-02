@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { readFileSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { afterEach, describe, it } from 'node:test';
@@ -25,6 +25,7 @@ import {
   pollSessionStatuses,
   RingBuffer,
   reattachOrphanedSessions,
+  reattachSession,
   recordProviderActivity,
   setMcpPort,
   TerminalOutputBatcher,
@@ -34,6 +35,7 @@ import {
   activitySettingsPathForSession,
   buildSessionLaunch,
   readActivityCredential,
+  sessionTempPaths,
 } from './session-launch.js';
 import { insertTestWorkItem } from './test-support/work-items.js';
 
@@ -223,6 +225,71 @@ it('still launches the session when pre-trusting the directory fails', () => {
   assert.ok(commands.some(([command, subcommand]) => command === 'tmux' && subcommand === 'new-session'));
   assert.equal(warnings.length, 1);
   assert.match(warnings[0], /Could not pre-trust .* for claude.*config\.toml is read-only/);
+});
+
+it('reattachSession reports tagged errors for missing, live, and dead sessions', () => {
+  initDb(':memory:');
+  const db = getDb();
+  assert.throws(
+    () => reattachSession('no-such-session'),
+    (error) => error.code === 'session_not_found',
+  );
+
+  db.prepare(
+    "INSERT INTO sessions (id, workspace_id, pid, provider, status, started_at) VALUES ('live-session', NULL, 1, 'claude', 'active', ?)",
+  ).run(new Date().toISOString());
+  assert.throws(
+    () => reattachSession('live-session'),
+    (error) => error.code === 'session_not_detached',
+  );
+
+  db.prepare(
+    "INSERT INTO sessions (id, workspace_id, pid, provider, status, started_at) VALUES ('dead-session', NULL, 1, 'claude', 'detached', ?)",
+  ).run(new Date().toISOString());
+  // No tmux session named patrol-dead-session exists, so the liveness probe fails.
+  assert.throws(
+    () => reattachSession('dead-session'),
+    (error) => error.code === 'session_dead',
+  );
+  assert.equal(db.prepare('SELECT status FROM sessions WHERE id = ?').get('dead-session').status, 'killed');
+});
+
+it('removes every session temp file on exit even when the session was reattached', () => {
+  initDb(':memory:');
+  const sessionId = 'reattached-cleanup';
+  getDb()
+    .prepare(
+      "INSERT INTO sessions (id, workspace_id, pid, provider, status, started_at) VALUES (?, NULL, 1, 'claude', 'detached', ?)",
+    )
+    .run(sessionId, new Date().toISOString());
+  const paths = sessionTempPaths(sessionId);
+  for (const path of paths) writeFileSync(path, 'x');
+
+  let exitHandler = null;
+  const reattached = reattachOrphanedSessions({
+    isTmuxAlive: () => true,
+    execFileSync() {},
+    spawnPty() {
+      return {
+        pid: 7,
+        onData() {},
+        onExit(handler) {
+          exitHandler = handler;
+        },
+        kill() {
+          exitHandler?.({ exitCode: 0 });
+        },
+        write() {},
+        resize() {},
+      };
+    },
+  });
+  assert.equal(reattached, 1);
+  assert.equal(paths.every(existsSync), true);
+
+  assert.equal(killSession(sessionId, { killTmux() {}, isTmuxAlive: () => false }), true);
+  assert.deepEqual(paths.filter(existsSync), []);
+  assert.equal(getDb().prepare('SELECT status FROM sessions WHERE id = ?').get(sessionId).status, 'killed');
 });
 
 it('removes an inherited NO_COLOR setting from the Claude process', () => {

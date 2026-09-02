@@ -10,12 +10,11 @@ import { pollProviderSessionStatuses } from './provider-status-poller.js';
 import { trustSessionDirectory } from './provider-trust.js';
 import { normalizeProviderActivity, SessionActivityTracker } from './session-activity.js';
 import {
-  activityCredentialPathForSession,
-  activitySettingsPathForSession,
   buildSessionLaunch,
   mcpConfigPathForSession,
   normalizeSessionProvider,
   readActivityCredential,
+  sessionTempPaths,
 } from './session-launch.js';
 import {
   normalizeSessionTarget,
@@ -212,6 +211,9 @@ export class TerminalOutputBatcher {
 
 /** @type {Map<string, SessionEntry>} */
 const sessions = new Map();
+/** Transcript archives scheduled by PTY exit handlers and not yet finished. */
+const pendingArchives = new Set();
+const ARCHIVE_DELAY_MS = 500;
 /** @type {Map<string, {provider: 'claude'|'codex', token: string}>} */
 const activityCredentials = new Map();
 const sessionsAwaitingProviderStatus = new Set();
@@ -324,16 +326,14 @@ function attachPtyToTmux(sessionId, meta = {}, runtime = DEFAULT_SESSION_RUNTIME
     sessions.delete(sessionId);
     activityCredentials.delete(sessionId);
     stopProviderStatusTracking(sessionId);
-    const tempPaths = new Set([
-      ...(meta.tempPaths ?? []),
-      activityCredentialPathForSession(sessionId),
-      activitySettingsPathForSession(sessionId),
-    ]);
+    // Derive the temp file set from the id rather than trusting meta.tempPaths:
+    // a session reattached after a server restart has no launch-time list.
+    const tempPaths = new Set([...(meta.tempPaths ?? []), ...sessionTempPaths(sessionId)]);
     for (const path of tempPaths) {
       try {
         unlinkSync(path);
       } catch {
-        // The optional provider file may not exist for this session.
+        // Not every session writes every file (no MCP, no activity hooks).
       }
     }
     const endedAt = new Date().toISOString();
@@ -342,9 +342,20 @@ function attachPtyToTmux(sessionId, meta = {}, runtime = DEFAULT_SESSION_RUNTIME
     emitLocalChange();
 
     if (meta.claudeProjectDir) {
-      setTimeout(() => {
-        archiveTranscript(sessionId, meta.claudeProjectDir, meta.startedAt, endedAt);
-      }, 500);
+      // Claude finishes writing its JSONL shortly after the PTY closes. Track
+      // the timer so a shutdown can wait for the archive instead of exiting
+      // in front of it.
+      const archive = new Promise((resolvePromise) => {
+        setTimeout(() => {
+          try {
+            archiveTranscript(sessionId, meta.claudeProjectDir, meta.startedAt, endedAt);
+          } finally {
+            resolvePromise();
+          }
+        }, ARCHIVE_DELAY_MS);
+      });
+      pendingArchives.add(archive);
+      archive.finally(() => pendingArchives.delete(archive));
     }
   });
 
@@ -1154,6 +1165,22 @@ export function killAllSessions() {
 }
 
 /**
+ * Kill every live session and wait until each row is closed and every
+ * transcript archive scheduled by the exits has run. Shutdown calls this so
+ * process.exit does not land between the PTY exit and the 'killed' write.
+ * @param {number} [timeoutMs] per-session wait for the durable close
+ * @returns {Promise<{ closed: number, failed: string[] }>}
+ */
+export async function killAllSessionsAndWait(timeoutMs = 5_000) {
+  const ids = [...sessions.keys()];
+  killAllSessions();
+  const results = await Promise.allSettled(ids.map((id) => killSessionAndWait(id, timeoutMs)));
+  const failed = ids.filter((_, index) => results[index].status === 'rejected');
+  await Promise.allSettled([...pendingArchives]);
+  return { closed: ids.length - failed.length, failed };
+}
+
+/**
  * Check if a tmux session is alive by name.
  * @param {string} sessionId
  * @returns {boolean}
@@ -1190,15 +1217,18 @@ export function reattachSession(sessionId) {
   }
 
   const db = getDb();
-  const row = db.prepare("SELECT * FROM sessions WHERE id = ? AND status = 'detached'").get(sessionId);
-  if (!row) throw new Error('Session not found or not detached');
+  const row = db.prepare('SELECT * FROM sessions WHERE id = ?').get(sessionId);
+  if (!row) throw taggedError('session_not_found', `Session ${sessionId} not found`);
+  if (row.status !== 'detached') {
+    throw taggedError('session_not_detached', `Session ${sessionId} is ${row.status}, not detached`);
+  }
 
   if (!isTmuxSessionAlive(sessionId)) {
     db.prepare("UPDATE sessions SET status = 'killed', ended_at = ? WHERE id = ?").run(
       new Date().toISOString(),
       sessionId,
     );
-    throw new Error('Session tmux process is no longer alive');
+    throw taggedError('session_dead', `Session ${sessionId} tmux process is no longer alive`);
   }
 
   attachPtyToTmux(sessionId, {

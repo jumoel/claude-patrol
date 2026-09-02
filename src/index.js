@@ -18,7 +18,7 @@ import {
   activeSessionCount,
   cleanupOrphanedSessions,
   cleanupOrphanedTmuxSessions,
-  killAllSessions,
+  killAllSessionsAndWait,
   pollSessionStatuses,
   reattachOrphanedSessions,
   setMcpPort,
@@ -290,7 +290,10 @@ export async function startServer(options = {}) {
     workspaceReconciliationScheduler.stop();
     if (killSessions) {
       console.log('Killing all sessions...');
-      killAllSessions();
+      const { closed, failed } = await killAllSessionsAndWait();
+      if (failed.length > 0) {
+        console.warn(`Closed ${closed} session(s); ${failed.length} did not confirm within the timeout.`);
+      }
     } else {
       const n = activeSessionCount();
       if (n > 0) console.log(`Leaving ${n} session(s) running - will reattach on next start.`);
