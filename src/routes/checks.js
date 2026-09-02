@@ -100,9 +100,13 @@ function extractRunIds(checks) {
 export function registerCheckRoutes(app) {
   const { getDb } = app.appContext;
   app.post('/api/checks/retrigger', async (request, reply) => {
-    const { pr_id, check_name } = request.body;
-    if (!pr_id) {
+    const body = request.body && typeof request.body === 'object' ? request.body : {};
+    const { pr_id, check_name } = body;
+    if (typeof pr_id !== 'string' || pr_id.length === 0) {
       return reply.code(400).send({ error: 'pr_id is required' });
+    }
+    if (check_name !== undefined && check_name !== null && typeof check_name !== 'string') {
+      return reply.code(400).send({ error: 'check_name must be a string' });
     }
 
     const db = getDb();
@@ -236,9 +240,13 @@ export function registerCheckRoutes(app) {
 
     const runIds = extractRunIds(failed);
 
-    // Optional filter to a single run
-    const filterRunId = request.query.run_id;
-    const targetRunIds = filterRunId ? [filterRunId] : [...runIds];
+    // Optional filter to a single run. The value is interpolated into a gh api
+    // path, so accept only a numeric GitHub run id.
+    const filterRunId = request.query?.run_id;
+    if (filterRunId !== undefined && !/^\d{1,20}$/.test(String(filterRunId))) {
+      return reply.code(400).send({ error: 'run_id must be a numeric GitHub run id' });
+    }
+    const targetRunIds = filterRunId ? [String(filterRunId)] : [...runIds];
 
     const logs = [];
     for (const runId of targetRunIds) {

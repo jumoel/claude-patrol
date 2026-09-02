@@ -157,3 +157,39 @@ test('PR API uses injected dependencies and reports authored freshness', async (
     db.close();
   }
 });
+
+test('check retrigger rejects a request without a body instead of failing with 500', async () => {
+  const db = new DatabaseSync(':memory:');
+  migrateDb(db);
+  const config = parseConfig({ poll: { interval_seconds: 30, orgs: [], repos: [] } });
+  const context = createAppContext({
+    getConfig: () => config,
+    getDb: () => db,
+    appEvents: new EventEmitter(),
+    pollerEvents: new EventEmitter(),
+    getSessionStates: () => [],
+    getGhRateLimitState: () => ({ limited: false }),
+    recordProviderActivity: () => ({ accepted: true, duplicate: false, status: 202 }),
+    reconcilePatrolWorkspaces: async () => ({
+      deleted: [],
+      cleanedWorkspaces: [],
+      candidates: [],
+      blocked: [],
+      warnings: [],
+    }),
+  });
+  const server = await createServer({ context, config });
+  try {
+    const noBody = await server.inject({ method: 'POST', url: '/api/checks/retrigger' });
+    assert.equal(noBody.statusCode, 400);
+    const wrongType = await server.inject({
+      method: 'POST',
+      url: '/api/checks/retrigger',
+      payload: { pr_id: 'acme/widgets#1', check_name: 7 },
+    });
+    assert.equal(wrongType.statusCode, 400);
+  } finally {
+    await server.close();
+    db.close();
+  }
+});
