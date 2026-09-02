@@ -57,12 +57,12 @@ function parseHashParams() {
 }
 
 /**
- * Write filters, sorting, and stack view into the dashboard hash query string.
+ * Serialize filters, sorting and stack view as the dashboard hash query string.
  * @param {FilterState} filters
  * @param {SortState[]} sorting
  * @param {boolean} stackView
  */
-function writeHashParams(filters, sorting, stackView) {
+function dashboardQuery(filters, sorting, stackView) {
   const params = new URLSearchParams();
   for (const key of FILTER_KEYS) {
     if (filters[key]?.length) params.set(key, filters[key].join(','));
@@ -73,8 +73,18 @@ function writeHashParams(filters, sorting, stackView) {
     params.set('dir', sorting[0].desc ? 'desc' : 'asc');
   }
   if (!stackView) params.set('stacks', '0');
-  const qs = params.toString();
-  // Use replaceState to avoid polluting history with every filter/sort change
+  return params.toString();
+}
+
+/**
+ * Write the dashboard state into the hash without a history entry or a
+ * hashchange event, so every filter or sort change does not pollute history.
+ * @param {FilterState} filters
+ * @param {SortState[]} sorting
+ * @param {boolean} stackView
+ */
+function writeHashParams(filters, sorting, stackView) {
+  const qs = dashboardQuery(filters, sorting, stackView);
   history.replaceState(null, '', `${window.location.pathname}${window.location.search}${qs ? `#/?${qs}` : ''}`);
 }
 
@@ -139,11 +149,12 @@ export default function App() {
   );
   const closeGlobalTerminal = useCallback(() => setTerminalOpen(false), []);
   const scratchWorkspaces = dashboard.workspaceSource.workspaces.filter((workspace) => !workspace.pr_id);
-  const [updateAvailable, setUpdateAvailable] = useState(false);
-  const [commitsBehind, setCommitsBehind] = useState(0);
-  const [restartNeeded, setRestartNeeded] = useState(false);
-  const [startupSha, setStartupSha] = useState('');
-  const [currentSha, setCurrentSha] = useState('');
+  // Update status is a view of the public config, not state of its own.
+  const updateAvailable = publicConfig?.update_available ?? false;
+  const commitsBehind = publicConfig?.commits_behind ?? 0;
+  const restartNeeded = publicConfig?.restart_needed ?? false;
+  const startupSha = publicConfig?.startup_sha ?? '';
+  const currentSha = publicConfig?.current_sha ?? '';
 
   const { syncedAt, syncing, countdown, triggerSync, ghRateLimit } = prSource;
   const allPRs = prSource.prs;
@@ -159,11 +170,6 @@ export default function App() {
         if (cfg.needs_setup && parseAppRoute(window.location.hash).type === 'dashboard') {
           window.location.hash = '/setup';
         }
-        setUpdateAvailable(cfg.update_available || false);
-        setCommitsBehind(cfg.commits_behind || 0);
-        setRestartNeeded(cfg.restart_needed || false);
-        if (cfg.startup_sha) setStartupSha(cfg.startup_sha);
-        if (cfg.current_sha) setCurrentSha(cfg.current_sha);
       })
       .catch((nextError) => {
         setConfigError(getErrorMessage(nextError, 'Failed to load application configuration'));
@@ -183,14 +189,11 @@ export default function App() {
     [sorting, stackView],
   );
 
-  /** @type {import('@tanstack/react-table').OnChangeFn<import('@tanstack/react-table').SortingState>} */
+  /** @type {(next: SortState[]) => void} */
   const handleSortingChange = useCallback(
-    (updater) => {
-      setSorting((prev) => {
-        const next = typeof updater === 'function' ? updater(prev) : updater;
-        writeHashParams(filters, next, stackView);
-        return next;
-      });
+    (next) => {
+      setSorting(next);
+      writeHashParams(filters, next, stackView);
     },
     [filters, stackView],
   );
@@ -247,18 +250,8 @@ export default function App() {
   };
 
   const navigateBack = useCallback(() => {
-    // Build query string preserving current dashboard state
-    const params = new URLSearchParams();
-    for (const key of FILTER_KEYS) {
-      if (filters[key]?.length) params.set(key, filters[key].join(','));
-    }
-    if (filters.needsWork) params.set('needsWork', '1');
-    if (sorting.length > 0) {
-      params.set('sort', sorting[0].id);
-      params.set('dir', sorting[0].desc ? 'desc' : 'asc');
-    }
-    if (!stackView) params.set('stacks', '0');
-    const qs = params.toString();
+    // Return to the dashboard with its filters, sorting and view preserved.
+    const qs = dashboardQuery(filters, sorting, stackView);
     window.location.hash = qs ? `/?${qs}` : '';
   }, [filters, sorting, stackView]);
 

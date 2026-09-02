@@ -62,7 +62,7 @@ export class EventStreamHub {
   }
 }
 
-export const appEventStream = new EventStreamHub();
+const appEventStream = new EventStreamHub();
 
 /**
  * @param {string} type

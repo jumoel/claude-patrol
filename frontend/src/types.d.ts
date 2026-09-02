@@ -503,8 +503,8 @@ export interface PublicConfig {
   update_available?: boolean;
   commits_behind?: number;
   restart_needed?: boolean;
-  startup_sha?: string;
-  current_sha?: string;
+  startup_sha?: string | null;
+  current_sha?: string | null;
   capabilities?: {
     providers: Record<AgentProvider, ProviderCapability>;
   };
