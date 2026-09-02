@@ -13,7 +13,7 @@ import {
 import { closeDb, initDb } from './db.js';
 import { startHealthChecks, stopHealthChecks } from './health.js';
 import { isRunning, readPid, removePid, writePid } from './pid.js';
-import { reconcilePollTargets, resetStatements, startPoller, stopPoller } from './poller.js';
+import { reconcilePollTargets, startPoller, stopPoller } from './poller.js';
 import {
   activeSessionCount,
   cleanupOrphanedSessions,
@@ -229,7 +229,6 @@ export async function startServer(options = {}) {
 
   configEvents.on('change', (newConfig) => {
     setCurrentConfig(newConfig);
-    resetStatements();
     if (isPollConfigured(newConfig)) {
       console.log(`Config changed, ${pollerRunning ? 'restarting' : 'starting'} poller`);
       startPoller(newConfig);

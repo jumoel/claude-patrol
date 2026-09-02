@@ -1,12 +1,9 @@
 import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
 import { closeDb, getDb, initDb } from './db.js';
-import { adoptScratchWorkspaces, resetStatements } from './poller.js';
+import { adoptScratchWorkspaces } from './poller.js';
 
-afterEach(() => {
-  resetStatements();
-  closeDb();
-});
+afterEach(() => closeDb());
 
 function insertPr(id, branch) {
   const now = '2026-08-27T12:00:00.000Z';

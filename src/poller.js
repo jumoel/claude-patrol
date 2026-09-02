@@ -11,6 +11,16 @@ import { destroyWorkspace } from './workspace.js';
 
 export const pollerEvents = new EventEmitter();
 
+/**
+ * External effects of a poll cycle, injectable so pollOnce can run in tests
+ * without gh, jj or a real workspace on disk.
+ */
+const defaultPollerDeps = Object.freeze({
+  graphql: (query, variables) => ghGraphql(query, variables),
+  destroyWorkspace,
+  reconcileWorkItemPullRequests,
+});
+
 // Page size 50 with 30 inline check contexts. Larger inline payloads
 // can 504 from GitHub's gateway. Pagination picks up the rest for PRs that
 // exceed 30 checks (see CHECKS_PAGE_QUERY).
@@ -442,18 +452,36 @@ async function ghGraphql(query, variables) {
 }
 
 /**
+ * A search page without `data.search` is a failed fetch, never an empty set.
+ * The open-PR enumeration drives stale cleanup, and cleanup treats what it is
+ * given as the complete open set: returning a partial or empty list here
+ * would delete every other tracked PR in scope and destroy their workspaces.
+ * @param {object} result parsed GraphQL body
+ * @param {string} qualifier for the error message
+ */
+function requireSearchResult(result, qualifier) {
+  const search = result?.data?.search;
+  if (!search || !Array.isArray(search.nodes) || !search.pageInfo) {
+    throw new Error(
+      `gh graphql returned no search result for ${qualifier}: ${JSON.stringify(result ?? null).slice(0, 200)}`,
+    );
+  }
+  return search;
+}
+
+/**
  * Fetch remaining check contexts for a PR via pagination.
  * @param {string} nodeId - GitHub node ID of the PR
  * @param {string} startCursor - endCursor from the initial page
  * @returns {Promise<object[]>} additional context nodes
  */
-async function fetchRemainingChecks(nodeId, startCursor) {
+async function fetchRemainingChecks(nodeId, startCursor, graphql = ghGraphql) {
   const extra = [];
   let cursor = startCursor;
   let hasNext = true;
 
   while (hasNext) {
-    const result = await ghGraphql(CHECKS_PAGE_QUERY, { id: nodeId, cursor });
+    const result = await graphql(CHECKS_PAGE_QUERY, { id: nodeId, cursor });
     const contexts = result.data?.node?.commits?.nodes?.[0]?.commit?.statusCheckRollup?.contexts;
     if (!contexts) break;
     extra.push(...contexts.nodes);
@@ -475,7 +503,7 @@ async function fetchRemainingChecks(nodeId, startCursor) {
  *   incremental polls to avoid refetching unchanged PRs.
  * @returns {Promise<{prs: object[]}>}
  */
-async function fetchPRs(qualifier, sinceIso = null) {
+async function fetchPRs(qualifier, sinceIso = null, graphql = ghGraphql) {
   const allPRs = [];
   let cursor = null;
   let hasNext = true;
@@ -484,12 +512,8 @@ async function fetchPRs(qualifier, sinceIso = null) {
   while (hasNext) {
     const vars = { q: `${qualifier} is:pr is:open author:@me${sinceClause} sort:updated-desc` };
     if (cursor) vars.cursor = cursor;
-    const result = await ghGraphql(GRAPHQL_QUERY, vars);
-    const search = result.data?.search;
-    if (!search) {
-      console.warn(`[poller] Unexpected response shape for ${qualifier}:`, JSON.stringify(result).slice(0, 200));
-      break;
-    }
+    const result = await graphql(GRAPHQL_QUERY, vars);
+    const search = requireSearchResult(result, qualifier);
     allPRs.push(...search.nodes);
 
     hasNext = search.pageInfo.hasNextPage;
@@ -500,7 +524,7 @@ async function fetchPRs(qualifier, sinceIso = null) {
   for (const pr of allPRs) {
     const contextsConn = pr.commits?.nodes?.[0]?.commit?.statusCheckRollup?.contexts;
     if (contextsConn?.pageInfo?.hasNextPage) {
-      const extra = await fetchRemainingChecks(pr.id, contextsConn.pageInfo.endCursor);
+      const extra = await fetchRemainingChecks(pr.id, contextsConn.pageInfo.endCursor, graphql);
       contextsConn.nodes.push(...extra);
       contextsConn.pageInfo.hasNextPage = false;
     }
@@ -517,16 +541,15 @@ async function fetchPRs(qualifier, sinceIso = null) {
  * @param {string} qualifier
  * @returns {Promise<Array<{id: string, org: string, repo: string}>>}
  */
-async function fetchOpenPRIds(qualifier) {
+async function fetchOpenPRIds(qualifier, graphql = ghGraphql) {
   const out = [];
   let cursor = null;
   let hasNext = true;
   while (hasNext) {
     const vars = { q: `${qualifier} is:pr is:open author:@me` };
     if (cursor) vars.cursor = cursor;
-    const result = await ghGraphql(OPEN_IDS_QUERY, vars);
-    const search = result.data?.search;
-    if (!search) break;
+    const result = await graphql(OPEN_IDS_QUERY, vars);
+    const search = requireSearchResult(result, qualifier);
     for (const n of search.nodes) {
       if (n?.number == null) continue;
       const org = n.repository.owner.login;
@@ -593,61 +616,40 @@ function extractLabels(pr) {
   return (pr.labels?.nodes ?? []).map((l) => ({ name: l.name, color: l.color }));
 }
 
-/** @type {import('node:sqlite').StatementSync | null} */
-let upsertStmt = null;
-/** @type {import('node:sqlite').StatementSync | null} */
-let findStaleByOrgStmt = null;
-/** @type {import('node:sqlite').StatementSync | null} */
-let findStaleByRepoStmt = null;
-/** @type {import('node:sqlite').StatementSync | null} */
-let deletePrStmt = null;
-/** @type {import('node:sqlite').StatementSync | null} */
-let getExistingBodyStmt = null;
-/** @type {import('node:sqlite').StatementSync | null} */
-let getExistingPrevStmt = null;
-/** @type {import('node:sqlite').StatementSync | null} */
-let getPrByIdStmt = null;
-
 /**
- * Get or create cached prepared statements.
+ * Prepared statements, cached per database handle. Keying on the handle means
+ * a closed and re-opened database (tests, --clean) gets fresh statements
+ * without anyone having to remember a reset call.
+ * @type {WeakMap<object, Record<string, import('node:sqlite').StatementSync>>}
  */
+const statementCache = new WeakMap();
+
 function getStatements() {
   const db = getDb();
-  if (!upsertStmt) {
-    upsertStmt = db.prepare(`
+  let statements = statementCache.get(db);
+  if (!statements) {
+    statements = {
+      upsert: db.prepare(`
       INSERT OR REPLACE INTO prs (id, number, title, body, body_html, repo, org, author, url, branch, head_oid, base_branch, is_fork, draft, mergeable, checks, reviews, labels, comments, created_at, updated_at, synced_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
+    `),
+      findStaleByOrg: db.prepare('SELECT id FROM prs WHERE org = ? AND id NOT IN (SELECT value FROM json_each(?))'),
+      findStaleByRepo: db.prepare(
+        'SELECT id FROM prs WHERE org = ? AND repo = ? AND id NOT IN (SELECT value FROM json_each(?))',
+      ),
+      deletePr: db.prepare('DELETE FROM prs WHERE id = ?'),
+      getExistingBody: db.prepare('SELECT body, body_html FROM prs WHERE id = ?'),
+      getExistingPrev: db.prepare('SELECT checks, mergeable, labels, draft FROM prs WHERE id = ?'),
+      getPrById: db.prepare('SELECT * FROM prs WHERE id = ?'),
+      findScratches: db.prepare(
+        "SELECT * FROM workspaces WHERE pr_id IS NULL AND work_item_id IS NULL AND status = 'active' AND operation_state = 'ready' ORDER BY created_at, id",
+      ),
+      findPrByBranch: db.prepare('SELECT id FROM prs WHERE org = ? AND repo = ? AND branch = ? ORDER BY id'),
+      adoptWorkspace: db.prepare('UPDATE workspaces SET pr_id = ? WHERE id = ?'),
+    };
+    statementCache.set(db, statements);
   }
-  if (!findStaleByOrgStmt) {
-    findStaleByOrgStmt = db.prepare('SELECT id FROM prs WHERE org = ? AND id NOT IN (SELECT value FROM json_each(?))');
-  }
-  if (!findStaleByRepoStmt) {
-    findStaleByRepoStmt = db.prepare(
-      'SELECT id FROM prs WHERE org = ? AND repo = ? AND id NOT IN (SELECT value FROM json_each(?))',
-    );
-  }
-  if (!deletePrStmt) {
-    deletePrStmt = db.prepare('DELETE FROM prs WHERE id = ?');
-  }
-  if (!getExistingBodyStmt) {
-    getExistingBodyStmt = db.prepare('SELECT body, body_html FROM prs WHERE id = ?');
-  }
-  if (!getExistingPrevStmt) {
-    getExistingPrevStmt = db.prepare('SELECT checks, mergeable, labels, draft FROM prs WHERE id = ?');
-  }
-  if (!getPrByIdStmt) {
-    getPrByIdStmt = db.prepare('SELECT * FROM prs WHERE id = ?');
-  }
-  return {
-    upsert: upsertStmt,
-    findStaleByOrg: findStaleByOrgStmt,
-    findStaleByRepo: findStaleByRepoStmt,
-    deletePr: deletePrStmt,
-    getExistingBody: getExistingBodyStmt,
-    getExistingPrev: getExistingPrevStmt,
-    getPrById: getPrByIdStmt,
-  };
+  return statements;
 }
 
 /**
@@ -686,12 +688,12 @@ function computeChanges(prev, next) {
  * @param {string} prId
  * @param {object} config
  */
-async function cleanupStalePR(prId, config) {
+async function cleanupStalePR(prId, config, deps = defaultPollerDeps) {
   const db = getDb();
   const workspaces = db.prepare('SELECT id FROM workspaces WHERE pr_id = ?').all(prId);
   for (const ws of workspaces) {
     try {
-      const result = await destroyWorkspace(ws.id, config);
+      const result = await deps.destroyWorkspace(ws.id, config);
       if (!result.ok) {
         throw new Error(result.warnings.join('; ') || 'workspace cleanup was incomplete');
       }
@@ -810,12 +812,12 @@ function upsertPRs(prs) {
  * @param {string | null} repo
  * @param {string[]} seenIds
  */
-async function cleanupStaleScope(scope, org, repo, seenIds, config) {
+async function cleanupStaleScope(scope, org, repo, seenIds, config, deps = defaultPollerDeps) {
   const { findStaleByOrg, findStaleByRepo, deletePr } = getStatements();
   const seenJson = JSON.stringify(seenIds);
   const stale = scope === 'org' ? findStaleByOrg.all(org, seenJson) : findStaleByRepo.all(org, repo, seenJson);
   for (const row of stale) {
-    await cleanupStalePR(row.id, config);
+    await cleanupStalePR(row.id, config, deps);
     deletePr.run(row.id);
   }
 }
@@ -833,6 +835,35 @@ const FULL_SWEEP_INTERVAL_MS = 30 * 60 * 1000;
 const INCREMENTAL_BUFFER_MS = 10 * 60 * 1000;
 let lastFullSweepAt = null;
 let lastSweepAt = null;
+let sweepCursorsHydrated = false;
+
+/**
+ * Forget the in-memory sweep cursors. By default the next cycle is a full
+ * fetch (poll targets changed). With `hydrateFromDb` the next cycle reads the
+ * persisted cursors again, which is what a fresh process does; tests use it.
+ * @param {{ hydrateFromDb?: boolean }} [options]
+ */
+export function resetSweepCursors({ hydrateFromDb = false } = {}) {
+  lastFullSweepAt = null;
+  lastSweepAt = null;
+  sweepCursorsHydrated = !hydrateFromDb;
+}
+
+/**
+ * Restore the cursors recordSync persisted so a restart resumes incremental
+ * polling instead of paying for a full fetch of every open PR.
+ */
+function hydrateSweepCursors() {
+  if (sweepCursorsHydrated) return;
+  sweepCursorsHydrated = true;
+  const row = getDb().prepare('SELECT last_sweep_at, last_full_sweep_at FROM sync_state WHERE id = 1').get();
+  const parse = (value) => {
+    const ms = value ? Date.parse(value) : Number.NaN;
+    return Number.isFinite(ms) ? ms : null;
+  };
+  lastSweepAt = parse(row?.last_sweep_at);
+  lastFullSweepAt = parse(row?.last_full_sweep_at);
+}
 
 /**
  * Decide whether this cycle should do a full sweep.
@@ -875,7 +906,8 @@ function recordSync({ syncedAt, sweepStartedAt, fullSweep }) {
  *   Used by the manual "Sync now" button so it always returns authoritative,
  *   fully cleaned-up state.
  */
-async function pollOnce(config, { force = false } = {}) {
+export async function pollOnce(config, { force = false, deps = defaultPollerDeps } = {}) {
+  hydrateSweepCursors();
   // Skip the cycle entirely if gh is rate-limited and we know when it resets.
   // Without a known reset time we still try, so we can detect recovery and
   // re-fetch the reset window. The first failed call will re-flag us as limited.
@@ -911,8 +943,8 @@ async function pollOnce(config, { force = false } = {}) {
   let lightIds;
   try {
     [result, lightIds] = await Promise.all([
-      fetchPRs(qualifier, since),
-      needLightSweep ? fetchOpenPRIds(qualifier) : Promise.resolve(null),
+      fetchPRs(qualifier, since, deps.graphql),
+      needLightSweep ? fetchOpenPRIds(qualifier, deps.graphql) : Promise.resolve(null),
     ]);
   } catch (err) {
     throw new Error(`GitHub refresh failed: ${err.message}`, { cause: err });
@@ -925,7 +957,7 @@ async function pollOnce(config, { force = false } = {}) {
   if (fullSweep) lastFullSweepAt = sweepStartedAt;
 
   upsertPRs(result.prs);
-  await reconcileWorkItemPullRequests(
+  await deps.reconcileWorkItemPullRequests(
     result.prs.map((pr) => makePrId(pr.repository.owner.login, pr.repository.name, pr.number)),
   );
 
@@ -939,7 +971,12 @@ async function pollOnce(config, { force = false } = {}) {
         org: pr.repository.owner.login,
         repo: pr.repository.name,
       }))
-    : lightIds || [];
+    : lightIds;
+  if (!Array.isArray(openPrs)) {
+    // Both fetchers throw on a bad page, so this cannot happen; keep the
+    // guard because cleanup below deletes everything not in this list.
+    throw new Error('open PR enumeration is unavailable; skipping stale cleanup');
+  }
 
   const bucketize = (openList) => {
     const byOrg = new Map();
@@ -960,11 +997,11 @@ async function pollOnce(config, { force = false } = {}) {
 
   try {
     for (const org of orgs) {
-      await cleanupStaleScope('org', org, null, seen.byOrg.get(org) || [], config);
+      await cleanupStaleScope('org', org, null, seen.byOrg.get(org) || [], config, deps);
     }
     for (const ownerRepo of repos) {
       const [owner, repo] = ownerRepo.split('/');
-      await cleanupStaleScope('repo', owner, repo, seen.byRepo.get(ownerRepo) || [], config);
+      await cleanupStaleScope('repo', owner, repo, seen.byRepo.get(ownerRepo) || [], config, deps);
     }
   } catch (err) {
     console.error(`[poller] Stale PR cleanup failed: ${err.message}`);
@@ -985,13 +1022,6 @@ async function pollOnce(config, { force = false } = {}) {
   });
 }
 
-/** @type {import('node:sqlite').StatementSync | null} */
-let findScratchesStmt = null;
-/** @type {import('node:sqlite').StatementSync | null} */
-let findPrByBranchStmt = null;
-/** @type {import('node:sqlite').StatementSync | null} */
-let adoptWorkspaceStmt = null;
-
 /**
  * Adopt scratch workspaces that match newly-synced PRs.
  * A scratch workspace is adopted only when its repository and bookmark match
@@ -1006,15 +1036,8 @@ let adoptWorkspaceStmt = null;
  * }>}
  */
 export function adoptScratchWorkspaces() {
-  const db = getDb();
-  if (!findScratchesStmt) {
-    findScratchesStmt = db.prepare(
-      "SELECT * FROM workspaces WHERE pr_id IS NULL AND work_item_id IS NULL AND status = 'active' AND operation_state = 'ready' ORDER BY created_at, id",
-    );
-    findPrByBranchStmt = db.prepare('SELECT id FROM prs WHERE org = ? AND repo = ? AND branch = ? ORDER BY id');
-    adoptWorkspaceStmt = db.prepare('UPDATE workspaces SET pr_id = ? WHERE id = ?');
-  }
-  const scratches = findScratchesStmt.all();
+  const { findScratches, findPrByBranch, adoptWorkspace } = getStatements();
+  const scratches = findScratches.all();
   if (scratches.length === 0) return [];
 
   let adopted = 0;
@@ -1022,7 +1045,7 @@ export function adoptScratchWorkspaces() {
   for (const ws of scratches) {
     const repositoryParts = ws.repo?.split('/') ?? [];
     const matches =
-      repositoryParts.length === 2 ? findPrByBranchStmt.all(repositoryParts[0], repositoryParts[1], ws.bookmark) : [];
+      repositoryParts.length === 2 ? findPrByBranch.all(repositoryParts[0], repositoryParts[1], ws.bookmark) : [];
     if (matches.length === 0) {
       results.push({ workspace_id: ws.id, workspace_name: ws.name, status: 'not_found' });
       console.log(`[poller] No PR match for scratch workspace ${ws.name} (repo=${ws.repo}, bookmark=${ws.bookmark})`);
@@ -1044,7 +1067,7 @@ export function adoptScratchWorkspaces() {
     }
 
     const [pr] = matches;
-    adoptWorkspaceStmt.run(pr.id, ws.id);
+    adoptWorkspace.run(pr.id, ws.id);
     adopted++;
     results.push({ workspace_id: ws.id, workspace_name: ws.name, status: 'adopted', pr_id: pr.id });
     console.log(`[poller] Adopted workspace ${ws.name} for PR ${pr.id}`);
@@ -1060,7 +1083,7 @@ export function adoptScratchWorkspaces() {
  * Runs when targets change to avoid stale data from removed targets.
  * @param {object} config
  */
-async function cleanupRemovedTargets(config) {
+async function cleanupRemovedTargets(config, deps = defaultPollerDeps) {
   const db = getDb();
   const orgSet = new Set(config.poll.orgs);
   const repoSet = new Set(config.poll.repos);
@@ -1075,7 +1098,7 @@ async function cleanupRemovedTargets(config) {
     // This org/repo combo is no longer monitored - clean it up
     const staleRows = db.prepare('SELECT id FROM prs WHERE org = ? AND repo = ?').all(org, repo);
     for (const row of staleRows) {
-      await cleanupStalePR(row.id, config);
+      await cleanupStalePR(row.id, config, deps);
     }
     db.prepare('DELETE FROM prs WHERE org = ? AND repo = ?').run(org, repo);
     console.log(`[poller] Cleaned up ${staleRows.length} stale PR(s) from ${fullRepo} (no longer monitored)`);
@@ -1094,10 +1117,7 @@ const pollFlight = new SingleFlight({
     cleanupTargets: previous.cleanupTargets || next.cleanupTargets,
   }),
   run: async ({ config, force, resetSweeps, cleanupTargets }) => {
-    if (resetSweeps) {
-      lastFullSweepAt = null;
-      lastSweepAt = null;
-    }
+    if (resetSweeps) resetSweepCursors();
     if (cleanupTargets) await cleanupRemovedTargets(config);
     return pollOnce(config, { force });
   },
@@ -1170,20 +1190,4 @@ export function reconcilePollTargets(config) {
 
 export function getPollerStatus() {
   return { active: pollFlight.active, pending: pollFlight.pending };
-}
-
-/**
- * Reset cached prepared statements (needed if db is re-initialized).
- */
-export function resetStatements() {
-  upsertStmt = null;
-  findStaleByOrgStmt = null;
-  findStaleByRepoStmt = null;
-  deletePrStmt = null;
-  getExistingBodyStmt = null;
-  getExistingPrevStmt = null;
-  getPrByIdStmt = null;
-  findScratchesStmt = null;
-  findPrByBranchStmt = null;
-  adoptWorkspaceStmt = null;
 }
