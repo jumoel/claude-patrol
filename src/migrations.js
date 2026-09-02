@@ -73,6 +73,11 @@ function restoreResetWorkspaceOwnership(db, workspaces) {
     insert.run(workspace.path, workspace.repo, workspace.name, now, now, now);
   }
 }
+/**
+ * Fresh-database table creators emit the current schema shape. The add*
+ * migrations further down are conditional and become no-ops after these run;
+ * they exist for databases created before the columns they add.
+ */
 function createWorkItemTables(db) {
   db.exec(`
     CREATE TABLE work_items (
@@ -126,7 +131,7 @@ function createWorkItemTables(db) {
   `);
 }
 
-function createWorkspaceTablesV9(db) {
+function createWorkspaceTables(db) {
   db.exec(`
     CREATE TABLE workspaces (
       id TEXT PRIMARY KEY,
@@ -396,7 +401,7 @@ function resetSchema(db) {
       ON automation_jobs(dedupe_key) WHERE dedupe_key IS NOT NULL;
   `);
   createWorkItemTables(db);
-  createWorkspaceTablesV9(db);
+  createWorkspaceTables(db);
   createWorkItemPullRequestTable(db);
   createWorkspaceOrphansTable(db);
 }
@@ -442,7 +447,7 @@ function migrateV8ToV9(db) {
   `);
 
   createWorkItemTables(db);
-  createWorkspaceTablesV9(db);
+  createWorkspaceTables(db);
 
   db.exec(`
     INSERT INTO workspaces (
@@ -522,7 +527,7 @@ function migrateWorkItemsToV15(db) {
   db.exec('DROP TABLE work_items');
 
   createWorkItemTables(db);
-  createWorkspaceTablesV9(db);
+  createWorkspaceTables(db);
   createWorkItemPullRequestTable(db);
 
   const insertItem = db.prepare(`
@@ -723,13 +728,14 @@ export function migrateDb(db) {
     addSessionNames(db);
     addSessionLastIdleAt(db);
     addPrHeadOid(db);
-    createWorkItemPullRequestTable(db);
+    // The v>=9 branch above already created this table before migrating work items.
+    if (version < 9) createWorkItemPullRequestTable(db);
     addWorkItemCreationSource(db);
     createWorkspaceOrphansTable(db);
     restoreResetWorkspaceOwnership(db, resetWorkspaceOwnership);
     db.exec(`PRAGMA user_version = ${CURRENT_SCHEMA_VERSION}`);
     db.exec('COMMIT');
-    const kind = version < 7 ? 'Destructive schema reset' : 'Schema migration';
+    const kind = version === 0 ? 'Schema initialized' : version < 7 ? 'Destructive schema reset' : 'Schema migration';
     console.log(`[db] ${kind} to version ${CURRENT_SCHEMA_VERSION} complete`);
   } catch (error) {
     db.exec('ROLLBACK');

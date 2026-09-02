@@ -6,6 +6,27 @@ import { promisify } from 'node:util';
 export const execFile = promisify(execFileCb);
 
 /**
+ * Parse a JSON column that the writer guarantees is valid, without letting a
+ * corrupt row take down a whole listing. Returns `fallback` for null, empty or
+ * unparseable values and for values of the wrong container type.
+ * @template T
+ * @param {string | null | undefined} value
+ * @param {T} fallback
+ * @returns {T}
+ */
+export function parseJsonColumn(value, fallback) {
+  if (value === null || value === undefined || value === '') return fallback;
+  try {
+    const parsed = JSON.parse(value);
+    if (Array.isArray(fallback) !== Array.isArray(parsed)) return fallback;
+    if (parsed === null || typeof parsed !== typeof fallback) return fallback;
+    return parsed;
+  } catch {
+    return fallback;
+  }
+}
+
+/**
  * Resolve ~ to home directory in a path.
  * @param {string} p
  * @returns {string}

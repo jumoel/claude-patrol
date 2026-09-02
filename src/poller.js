@@ -5,7 +5,7 @@ import { emitGhRateLimit, emitLocalChange } from './app-events.js';
 import { getDb } from './db.js';
 import { deriveCIStatus, formatPR } from './pr-status.js';
 import { SingleFlight } from './single-flight.js';
-import { makePrId } from './utils.js';
+import { makePrId, parseJsonColumn } from './utils.js';
 import { reconcileWorkItemPullRequests } from './work-item-prs.js';
 import { destroyWorkspace } from './workspace.js';
 
@@ -664,7 +664,7 @@ function computeChanges(prev, next) {
   if (!prev) return null;
   const changes = {};
 
-  const prevCi = deriveCIStatus(JSON.parse(prev.checks));
+  const prevCi = deriveCIStatus(parseJsonColumn(prev.checks, []));
   const nextCi = deriveCIStatus(extractChecks(next));
   if (prevCi !== nextCi) changes.ci_status = { from: prevCi, to: nextCi };
 
@@ -674,7 +674,7 @@ function computeChanges(prev, next) {
   const nextDraft = next.isDraft ? 1 : 0;
   if (prev.draft !== nextDraft) changes.draft = { from: !!prev.draft, to: !!next.isDraft };
 
-  const prevLabels = new Set(JSON.parse(prev.labels).map((l) => l.name));
+  const prevLabels = new Set(parseJsonColumn(prev.labels, []).map((l) => l.name));
   const nextLabels = new Set(extractLabels(next).map((l) => l.name));
   const added = [...nextLabels].filter((l) => !prevLabels.has(l));
   const removed = [...prevLabels].filter((l) => !nextLabels.has(l));

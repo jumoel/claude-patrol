@@ -1,4 +1,4 @@
-import { isFailedCheck, isPassedCheck } from './utils.js';
+import { isFailedCheck, isPassedCheck, parseJsonColumn } from './utils.js';
 
 /**
  * Derive overall CI status from checks array.
@@ -37,16 +37,16 @@ export function deriveReviewStatus(reviews) {
  * @returns {object}
  */
 export function formatPR(row) {
-  const checks = JSON.parse(row.checks);
-  const reviews = JSON.parse(row.reviews);
+  const checks = parseJsonColumn(row.checks, []);
+  const reviews = parseJsonColumn(row.reviews, []);
   return {
     ...row,
     draft: Boolean(row.draft),
     is_fork: Boolean(row.is_fork),
     checks,
     reviews,
-    labels: JSON.parse(row.labels),
-    comments: row.comments ? JSON.parse(row.comments) : [],
+    labels: parseJsonColumn(row.labels, []),
+    comments: parseJsonColumn(row.comments, []),
     ci_status: deriveCIStatus(checks),
     review_status: deriveReviewStatus(reviews),
     base_branch: row.base_branch || 'main',
