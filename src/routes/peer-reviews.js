@@ -1,4 +1,5 @@
-import { sendError, sendErrorFrom } from '../http-errors.js';
+import { z } from 'zod';
+import { parseBody, sendError, sendErrorFrom } from '../http-errors.js';
 
 const REVIEW_TOOLS = Object.freeze({
   claude: 'review_with_claude',
@@ -85,6 +86,9 @@ function workItemReadiness(row, getSessionPeerReviewReadiness) {
   return getSessionPeerReviewReadiness(row.session_id);
 }
 
+const emptyBody = z.object({}).strict().optional();
+const workItemReviewBody = z.object({ pr_id: z.string().min(1) }).strict();
+
 /** Register explicit, user-triggered peer review routes. */
 export function registerPeerReviewRoutes(app) {
   const {
@@ -123,11 +127,7 @@ export function registerPeerReviewRoutes(app) {
     if (child?.work_item_id) {
       return sendError(reply, 'work_item_child_managed', 'Work-item children do not support peer review');
     }
-    const body = request.body;
-    if (
-      body !== undefined &&
-      (body === null || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).length > 0)
-    ) {
+    if (parseBody(emptyBody, request.body).error) {
       return sendError(reply, 'invalid_request', 'This endpoint does not accept request fields');
     }
 
@@ -188,19 +188,10 @@ export function registerPeerReviewRoutes(app) {
   });
 
   app.post('/api/work-items/:id/peer-review', async (request, reply) => {
-    const body = request.body;
-    if (
-      !body ||
-      typeof body !== 'object' ||
-      Array.isArray(body) ||
-      Object.keys(body).length !== 1 ||
-      typeof body.pr_id !== 'string' ||
-      !body.pr_id
-    ) {
-      return sendError(reply, 'invalid_request', 'This endpoint requires pr_id');
-    }
+    const body = parseBody(workItemReviewBody, request.body);
+    if (body.error) return sendError(reply, 'invalid_request', `This endpoint requires pr_id (${body.error})`);
 
-    const row = findWorkItemSession(getDb(), request.params.id, body.pr_id);
+    const row = findWorkItemSession(getDb(), request.params.id, body.data.pr_id);
     if (!row) return sendError(reply, 'work_item_not_found', 'Work item not found');
     const readiness = workItemReadiness(row, getSessionPeerReviewReadiness);
     if (!readiness.ready) {

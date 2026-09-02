@@ -1,7 +1,8 @@
 import { copyFileSync, cpSync, existsSync, mkdirSync } from 'node:fs';
 import { basename, resolve } from 'node:path';
+import { z } from 'zod';
 import { emitLocalChange } from '../app-events.js';
-import { sendError, sendErrorFrom } from '../http-errors.js';
+import { parseBody, sendError, sendErrorFrom } from '../http-errors.js';
 import { normalizeGlobalSessionName } from '../pty-manager.js';
 import { normalizeSessionProvider } from '../session-launch.js';
 import { sessionTargetFromRow } from '../session-target.js';
@@ -85,42 +86,47 @@ export function registerSessionRoutes(app) {
     return reply.code(result.status).send({ accepted: true, duplicate: result.duplicate });
   });
 
+  // Exactly one target, a provider, and no other fields. Values are checked by
+  // the domain helpers below so their error codes (invalid_provider,
+  // invalid_session_name) stay specific.
+  const createSessionBody = z.union([
+    z.object({ global: z.literal(true), provider: z.string(), name: z.unknown().optional() }).strict(),
+    z.object({ workspace_id: z.string().min(1), provider: z.string() }).strict(),
+    z.object({ work_item_id: z.string().min(1), provider: z.string() }).strict(),
+  ]);
+
   app.post('/api/sessions', (request, reply) => {
-    const { workspace_id, work_item_id, global: isGlobal, name: rawName } = request.body || {};
+    const body = parseBody(createSessionBody, request.body);
+    if (body.error) {
+      return sendError(
+        reply,
+        'invalid_request',
+        `Exactly one session target and a provider are required (${body.error})`,
+      );
+    }
     let provider;
     try {
-      provider = request.body?.provider === undefined ? null : normalizeSessionProvider(request.body.provider);
+      provider = normalizeSessionProvider(body.data.provider);
     } catch (error) {
       return sendError(reply, 'invalid_provider', error.message);
     }
     const db = getDb();
 
-    const keys = request.body && typeof request.body === 'object' ? Object.keys(request.body) : [];
-    const targetCount = (workspace_id ? 1 : 0) + (work_item_id ? 1 : 0) + (isGlobal === true ? 1 : 0);
-    if (targetCount !== 1) {
-      return sendError(reply, 'invalid_request', 'Exactly one session target is required');
-    }
-
     let cwd;
     let target;
     let sessionOptions = {};
-    if (isGlobal === true) {
-      if (keys.some((key) => !['global', 'provider', 'name'].includes(key)) || provider === null) {
-        return sendError(reply, 'invalid_request', 'Global sessions require global: true and provider');
-      }
+    if ('global' in body.data) {
       let name;
       try {
-        name = normalizeGlobalSessionName(rawName);
+        name = normalizeGlobalSessionName(body.data.name);
       } catch (error) {
         return sendError(reply, 'invalid_session_name', error.message);
       }
       cwd = getConfig().global_terminal_cwd || process.cwd();
       target = { type: 'global' };
       sessionOptions = { name, reuseExisting: false };
-    } else if (workspace_id) {
-      if (keys.some((key) => !['workspace_id', 'provider'].includes(key)) || provider === null) {
-        return sendError(reply, 'invalid_request', 'Workspace sessions require workspace_id and provider');
-      }
+    } else if ('workspace_id' in body.data) {
+      const { workspace_id } = body.data;
       const workspace = db
         .prepare(
           "SELECT * FROM workspaces WHERE id = ? AND work_item_id IS NULL AND status = 'active' AND operation_state = 'ready'",
@@ -140,10 +146,8 @@ export function registerSessionRoutes(app) {
       }
       cwd = workspace.path;
       target = { type: 'workspace', id: workspace_id };
-    } else if (work_item_id) {
-      if (keys.some((key) => !['work_item_id', 'provider'].includes(key)) || provider === null) {
-        return sendError(reply, 'invalid_request', 'Work-item sessions require work_item_id and provider');
-      }
+    } else {
+      const { work_item_id } = body.data;
       const workItem = db.prepare('SELECT * FROM work_items WHERE id = ?').get(work_item_id);
       if (!workItem) return sendError(reply, 'work_item_not_found', 'Work item not found', { status: 404 });
       if (workItem.state !== 'ready')
@@ -157,8 +161,6 @@ export function registerSessionRoutes(app) {
       sessionOptions = {
         enablePatrolMcp: true,
       };
-    } else {
-      return sendError(reply, 'invalid_request', 'Session target is required');
     }
 
     try {

@@ -1,4 +1,5 @@
-import { sendErrorFrom } from '../http-errors.js';
+import { z } from 'zod';
+import { parseBody, sendErrorFrom } from '../http-errors.js';
 import { providerSetup } from '../provider-setup.js';
 import { linkWorkItemPullRequest, unlinkWorkItemPullRequest } from '../work-item-prs.js';
 
@@ -28,29 +29,34 @@ function sendError(reply, error, config) {
   });
 }
 
+// Field presence and unknown keys are checked here; the values themselves are
+// validated by the work-item service so its specific error codes
+// (invalid_title, invalid_repositories, ...) reach the client.
+const field = z.unknown().optional();
+const createWorkItemBody = z.union([
+  z.object({ source: z.literal('manual'), title: field, repositories: field, bookmark: field }).strict(),
+  z.object({ source: z.literal('reference'), reference: field, resolver_provider: field }).strict(),
+  z.object({ source: z.literal('pull_request'), pr_id: field }).strict(),
+  // Legacy shape without `source`.
+  z.object({ reference: field, work_provider: field }).strict(),
+]);
+const pullRequestBody = z.object({ pr: z.string() }).strict();
+const addRepositoryBody = z.object({ repository: z.unknown(), revision: field }).strict();
+const emptyBody = z.object({}).strict().nullish();
+
 export function registerWorkItemRoutes(app) {
   const { getConfig, workItemService } = app.appContext;
 
   app.post('/api/work-items', (request, reply) => {
-    const body = request.body;
-    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    const parsed = parseBody(createWorkItemBody, request.body);
+    if (parsed.error) {
       return sendError(
         reply,
-        { code: 'invalid_request', message: 'Expected a work-item creation request' },
+        { code: 'invalid_request', message: `Expected a work-item creation request (${parsed.error})` },
         getConfig(),
       );
     }
-    const keys = Object.keys(body);
-    const allowedBySource = {
-      manual: new Set(['source', 'title', 'repositories', 'bookmark']),
-      reference: new Set(['source', 'reference', 'resolver_provider']),
-      pull_request: new Set(['source', 'pr_id']),
-      legacy: new Set(['reference', 'work_provider']),
-    };
-    const contract = body.source === undefined ? allowedBySource.legacy : allowedBySource[body.source];
-    if (!contract || keys.some((key) => !contract.has(key))) {
-      return sendError(reply, { code: 'invalid_request', message: 'Unknown work-item creation field' }, getConfig());
-    }
+    const body = parsed.data;
     try {
       const workItem = workItemService.create(
         body.source === undefined
@@ -90,59 +96,46 @@ export function registerWorkItemRoutes(app) {
     }
   });
 
-  const validatePullRequestBody = (body) =>
-    body &&
-    typeof body === 'object' &&
-    !Array.isArray(body) &&
-    Object.keys(body).length === 1 &&
-    typeof body.pr === 'string';
-
   app.post('/api/work-items/:id/pull-requests', (request, reply) => {
-    if (!validatePullRequestBody(request.body)) {
-      return sendError(reply, { code: 'invalid_request', message: 'Expected pr' }, getConfig());
-    }
+    const body = parseBody(pullRequestBody, request.body);
+    if (body.error)
+      return sendError(reply, { code: 'invalid_request', message: `Expected pr (${body.error})` }, getConfig());
     try {
-      return { pull_request: linkWorkItemPullRequest(request.params.id, request.body.pr) };
+      return { pull_request: linkWorkItemPullRequest(request.params.id, body.data.pr) };
     } catch (error) {
       return sendError(reply, error, getConfig());
     }
   });
 
   app.delete('/api/work-items/:id/pull-requests', (request, reply) => {
-    if (!validatePullRequestBody(request.body)) {
-      return sendError(reply, { code: 'invalid_request', message: 'Expected pr' }, getConfig());
-    }
+    const body = parseBody(pullRequestBody, request.body);
+    if (body.error)
+      return sendError(reply, { code: 'invalid_request', message: `Expected pr (${body.error})` }, getConfig());
     try {
-      return unlinkWorkItemPullRequest(request.params.id, request.body.pr);
+      return unlinkWorkItemPullRequest(request.params.id, body.data.pr);
     } catch (error) {
       return sendError(reply, error, getConfig());
     }
   });
 
   app.post('/api/work-items/:id/repositories', async (request, reply) => {
-    const body = request.body;
-    if (
-      !body ||
-      typeof body !== 'object' ||
-      Array.isArray(body) ||
-      Object.keys(body).some((key) => !['repository', 'revision'].includes(key)) ||
-      !Object.hasOwn(body, 'repository')
-    ) {
-      return sendError(reply, { code: 'invalid_request', message: 'Expected repository' }, getConfig());
+    const body = parseBody(addRepositoryBody, request.body);
+    if (body.error || !Object.hasOwn(body.data, 'repository')) {
+      return sendError(
+        reply,
+        { code: 'invalid_request', message: `Expected repository${body.error ? ` (${body.error})` : ''}` },
+        getConfig(),
+      );
     }
     try {
-      return await workItemService.addRepository(request.params.id, body.repository, body.revision);
+      return await workItemService.addRepository(request.params.id, body.data.repository, body.data.revision);
     } catch (error) {
       return sendError(reply, error, getConfig());
     }
   });
 
   app.post('/api/work-items/:id/retry', (request, reply) => {
-    if (
-      request.body !== undefined &&
-      request.body !== null &&
-      (typeof request.body !== 'object' || Array.isArray(request.body) || Object.keys(request.body).length > 0)
-    ) {
+    if (parseBody(emptyBody, request.body).error) {
       return sendError(
         reply,
         { code: 'invalid_request', message: 'Retry does not accept request fields' },

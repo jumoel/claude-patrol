@@ -71,6 +71,23 @@ export const ERROR_STATUS = Object.freeze({
 });
 
 /**
+ * Validate a request body against a zod schema. Returns the parsed data or a
+ * one-line description of what was wrong, for an invalid_request envelope.
+ * @template T
+ * @param {{ safeParse: (value: unknown) => { success: true, data: T } | { success: false, error: { issues: Array<{ path: PropertyKey[], message: string }> } } }} schema
+ * @param {unknown} body
+ * @returns {{ data: T, error: null } | { data: null, error: string }}
+ */
+export function parseBody(schema, body) {
+  const result = schema.safeParse(body);
+  if (result.success) return { data: result.data, error: null };
+  const error = result.error.issues
+    .map((issue) => `${issue.path.map(String).join('.') || 'body'}: ${issue.message}`)
+    .join('; ');
+  return { data: null, error };
+}
+
+/**
  * @param {string | undefined} code
  * @param {number} [fallback]
  */
