@@ -124,7 +124,8 @@ export function registerCheckRoutes(app) {
     let failedRest = null;
     try {
       failedRest = await fetchFreshFailedChecks(row.org, row.repo, row.branch);
-    } catch {
+    } catch (error) {
+      console.warn(`[checks] Fresh check lookup failed for ${pr_id}; using DB checks: ${error.message}`);
       failedRest = null;
     }
 

@@ -12,6 +12,7 @@
 import { spawn } from 'node:child_process';
 import { resolve } from 'node:path';
 import { createJavaScriptChangePoller } from './file-change-poller.js';
+import { RESTART_EXIT_CODE } from './update-check.js';
 
 const ROOT = resolve(import.meta.dirname, '..');
 const FRONTEND = resolve(ROOT, 'frontend');
@@ -94,9 +95,9 @@ function startServer(reattach) {
       return;
     }
     if (code === null) return; // killed by signal during cleanup
-    // Exit 42 = user-triggered restart (e.g. "Apply update" in the web UI).
+    // User-triggered restart (e.g. "Apply update" in the web UI).
     // Relaunch with --reattach so existing sessions are recovered.
-    if (code === 42) {
+    if (code === RESTART_EXIT_CODE) {
       sendToServer(`${prefix('watch', 'magenta')}Server requested restart, relaunching...`);
       startServer(true);
       return;

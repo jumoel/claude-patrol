@@ -187,12 +187,6 @@ export function setHeader(text) {
   render();
 }
 
-/** Update the footer text and re-render. */
-export function setFooter(text) {
-  footerText = text;
-  render();
-}
-
 /** Tear down the TUI, restoring console methods and clearing the screen. */
 export function destroyTui() {
   if (!active) return;

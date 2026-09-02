@@ -1,4 +1,4 @@
-export const ACTIVITY_IDLE_THRESHOLD_MS = 10_000;
+const ACTIVITY_IDLE_THRESHOLD_MS = 10_000;
 
 const CLAUDE_WORKING_EVENTS = new Set(['UserPromptSubmit', 'MessageDisplay', 'PostToolUse', 'PostToolUseFailure']);
 

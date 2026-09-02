@@ -217,5 +217,3 @@ export class AutomationQueue {
     }
   }
 }
-
-export { ReservationError };

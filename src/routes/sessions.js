@@ -18,6 +18,7 @@ import {
   findSessionJsonl,
   getOrCreateTranscriptSummary,
   parseTranscript,
+  resolveSessionJsonlPath,
 } from '../transcripts.js';
 import { execFile, expandPath, toClaudeProjectKey } from '../utils.js';
 
@@ -332,15 +333,7 @@ export function registerSessionRoutes(app) {
       if (item) claudeProjectDir = claudeProjectDirForWorkspace(item.path);
     }
 
-    let jsonlPath = null;
-
-    // Prefer our archived copy
-    if (session.transcript_path && existsSync(session.transcript_path)) {
-      jsonlPath = session.transcript_path;
-    } else if (claudeProjectDir) {
-      // Try to find the live JSONL
-      jsonlPath = findSessionJsonl(claudeProjectDir, session.started_at, session.ended_at);
-    }
+    const jsonlPath = resolveSessionJsonlPath(session, claudeProjectDir);
 
     if (!jsonlPath) return sendError(reply, 'transcript_not_found', 'No transcript available');
 

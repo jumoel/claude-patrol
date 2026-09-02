@@ -38,7 +38,9 @@ export function findSessionJsonl(claudeProjectDir, startedAt, endedAt) {
         best = fullPath;
         bestMtime = mtime;
       }
-    } catch {}
+    } catch {
+      // Removed between readdir and stat: not a candidate.
+    }
   }
 
   return best;
@@ -116,7 +118,9 @@ export function getOrCreateTranscriptSummary(jsonlPath) {
       const jsonlMtime = statSync(jsonlPath).mtimeMs;
       const summaryMtime = statSync(summaryPath).mtimeMs;
       if (summaryMtime >= jsonlMtime) return summaryPath;
-    } catch {}
+    } catch {
+      // Unreadable mtimes: fall through and regenerate the summary.
+    }
   }
 
   try {
@@ -244,7 +248,7 @@ export function parseTranscript(jsonlPath) {
  * @param {Array | string | undefined} content
  * @returns {Array}
  */
-export function simplifyContent(content) {
+function simplifyContent(content) {
   if (!content) return [];
   if (typeof content === 'string') return [{ type: 'text', text: content }];
   if (!Array.isArray(content)) return [];

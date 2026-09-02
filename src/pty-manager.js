@@ -218,7 +218,7 @@ const ARCHIVE_DELAY_MS = 500;
 const activityCredentials = new Map();
 const sessionsAwaitingProviderStatus = new Set();
 const providerStatusGenerations = new Map();
-export const SESSION_STATUS_POLL_INTERVAL_MS = 1_000;
+const SESSION_STATUS_POLL_INTERVAL_MS = 1_000;
 let sessionStatusPollingEnabled = false;
 let sessionStatusPollTimer = null;
 let sessionStatusPollInFlight = null;
@@ -593,7 +593,9 @@ export function reattachOrphanedSessions(runtimeOverrides = {}) {
       const tmuxName = `patrol-${session.id}`;
       try {
         runtime.execFileSync('tmux', ['set-option', '-t', tmuxName, 'status', 'off'], { timeout: 5_000 });
-      } catch {}
+      } catch {
+        // Cosmetic only: the tmux status line stays visible if the option is rejected.
+      }
       attachPtyToTmux(
         session.id,
         {
@@ -918,7 +920,14 @@ const WS_MESSAGE_HANDLERS = {
         for (let i = 0; i < msg.data.length; i++) {
           hexKeys.push(msg.data.charCodeAt(i).toString(16).padStart(2, '0'));
         }
-        execFile('tmux', ['send-keys', '-t', ctx.tmuxName, '-H', ...hexKeys], { timeout: 2000 }, () => {});
+        (ctx.execFile ?? execFile)(
+          'tmux',
+          ['send-keys', '-t', ctx.tmuxName, '-H', ...hexKeys],
+          { timeout: 2000 },
+          (error) => {
+            if (error) console.warn(`[pty-manager] tmux send-keys failed for ${ctx.tmuxName}: ${error.message}`);
+          },
+        );
       } else {
         entry.proc.write(msg.data);
       }
@@ -931,7 +940,9 @@ const WS_MESSAGE_HANDLERS = {
     validate: (msg) => typeof msg.text === 'string',
     handle: (entry, msg) => {
       entry.markWorking?.('terminal_input');
-      submitPromptToEntry(entry, msg.text).catch(() => {});
+      submitPromptToEntry(entry, msg.text).catch((error) => {
+        console.warn(`[pty-manager] prompt-submit write failed: ${error.message}`);
+      });
     },
   },
   resize: {

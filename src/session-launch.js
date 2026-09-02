@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expandPath, toClaudeProjectKey } from './utils.js';
 
-export const SESSION_PROVIDERS = Object.freeze(['claude', 'codex']);
+const SESSION_PROVIDERS = Object.freeze(['claude', 'codex']);
 
 /**
  * Validate an agent provider at an API or process boundary.
@@ -215,7 +215,9 @@ export function buildSessionLaunch({
     for (const path of tempPaths) {
       try {
         unlinkSync(path);
-      } catch {}
+      } catch {
+        // The launch failed part-way; this file may not have been written yet.
+      }
     }
     throw error;
   }
