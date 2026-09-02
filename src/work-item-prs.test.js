@@ -156,3 +156,35 @@ test('PR dispatch resolves through the owning work item instead of a standalone 
     (error) => error.code === 'no_session',
   );
 });
+
+test('provenance reconciliation does not re-run jj for pairs that already failed to match', async () => {
+  initDb(':memory:');
+  insertWorkItem('one', ['acme/widgets']);
+  insertWorkItem('two', ['acme/widgets']);
+  insertChildWorkspace('child-one', 'one', '/tmp/one/repos/widgets');
+  insertChildWorkspace('child-two', 'two', '/tmp/two/repos/widgets');
+  const headOid = '3'.repeat(64);
+  insertPullRequest('acme/widgets#23', headOid);
+  const missCache = new Map();
+  let calls = 0;
+  const options = {
+    runExec: async () => {
+      calls += 1;
+      return { stdout: '' };
+    },
+    logger: { warn() {} },
+    missCache,
+  };
+
+  assert.deepEqual(await reconcileWorkItemPullRequests(['acme/widgets#23'], options), []);
+  assert.equal(calls, 2, 'one jj log per candidate checkout on the first cycle');
+  assert.equal(missCache.size, 2);
+
+  assert.deepEqual(await reconcileWorkItemPullRequests(['acme/widgets#23'], options), []);
+  assert.equal(calls, 2, 'no jj log for pairs already known not to match');
+
+  // A new head on the PR is a new question.
+  getDb().prepare('UPDATE prs SET head_oid = ? WHERE id = ?').run('4'.repeat(64), 'acme/widgets#23');
+  await reconcileWorkItemPullRequests(['acme/widgets#23'], options);
+  assert.equal(calls, 4);
+});

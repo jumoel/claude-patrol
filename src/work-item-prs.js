@@ -231,11 +231,34 @@ export function unlinkWorkItemPullRequest(workItemId, pullRequest) {
 }
 
 /**
+ * Negative provenance results, keyed by PR head, checkout path and the
+ * checkout's base commit. A `jj log` answer only changes when one of those
+ * three changes, so an unowned PR that did not match a checkout last cycle is
+ * not asked again. Bounded and insertion-ordered so the oldest entries fall
+ * out first.
+ * @type {Map<string, true>}
+ */
+const provenanceMisses = new Map();
+const PROVENANCE_MISS_LIMIT = 5000;
+
+function rememberMiss(cache, key) {
+  if (cache.size >= PROVENANCE_MISS_LIMIT) cache.delete(cache.keys().next().value);
+  cache.set(key, true);
+}
+
+/**
  * Link unowned PRs when their GitHub head is provably in exactly one work-item
  * checkout's immutable history. `--ignore-working-copy` keeps reconciliation
  * read-only and avoids snapshotting an agent's in-progress edits.
+ *
+ * Runs every poll cycle for every unowned open PR, so the cost is one `jj log`
+ * per (PR, candidate checkout) pair minus the pairs already known not to
+ * match (see provenanceMisses).
  */
-export async function reconcileWorkItemPullRequests(prIds, { runExec = execFile, logger = console } = {}) {
+export async function reconcileWorkItemPullRequests(
+  prIds,
+  { runExec = execFile, logger = console, missCache = provenanceMisses } = {},
+) {
   const ids = [...new Set((prIds ?? []).filter((id) => typeof id === 'string'))];
   if (ids.length === 0) return [];
   const db = getDb();
@@ -266,6 +289,8 @@ export async function reconcileWorkItemPullRequests(prIds, { runExec = execFile,
     const matches = [];
     for (const candidate of candidates.all(`${pr.org}/${pr.repo}`, pr.created_at)) {
       if (candidate.base_commit === pr.head_oid) continue;
+      const missKey = `${pr.head_oid}|${candidate.path}|${candidate.base_commit ?? ''}`;
+      if (missCache.has(missKey)) continue;
       try {
         const { stdout } = await runExec(
           'jj',
@@ -288,9 +313,12 @@ export async function reconcileWorkItemPullRequests(prIds, { runExec = execFile,
             .some((line) => line.trim() === pr.head_oid)
         ) {
           matches.push(candidate.work_item_id);
+        } else {
+          rememberMiss(missCache, missKey);
         }
       } catch {
         // A missing commit or removed checkout is not a provenance match.
+        rememberMiss(missCache, missKey);
       }
     }
     const unique = [...new Set(matches)];
