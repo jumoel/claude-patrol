@@ -9,7 +9,7 @@ import { getSessionSnapshot } from './pty-manager.js';
  * Strip verbose fields from a PR for compact list responses.
  * Full details are available via get_pr.
  */
-export function summarizePR(pr) {
+function summarizePR(pr) {
   return {
     id: pr.id,
     number: pr.number,
@@ -480,7 +480,7 @@ export const actionRegistry = {
       id: z.string().describe('Workspace ID'),
     }),
     ruleFireable: true,
-    dispatch: ({ id }) => ({ method: 'DELETE', path: `/api/workspaces/${id}` }),
+    dispatch: ({ id }) => ({ method: 'DELETE', path: `/api/workspaces/${encodeURIComponent(id)}` }),
   },
 
   cleanup_workspaces: {
@@ -642,7 +642,7 @@ export const actionRegistry = {
     ruleFireable: false,
     mcpHandler: async (app, { pr_id, workspace_id }) => {
       if (!pr_id && !workspace_id) {
-        return { error: 'Either pr_id or workspace_id is required.' };
+        return { ok: false, error: 'invalid_request', message: 'Either pr_id or workspace_id is required.' };
       }
       if (pr_id && !workspace_id) {
         const workspaces = await inject(app, {
