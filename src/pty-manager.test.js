@@ -37,9 +37,13 @@ import {
   readActivityCredential,
   sessionTempPaths,
 } from './session-launch.js';
+import { resetSessionRegistryForTests } from './session-registry.js';
 import { insertTestWorkItem } from './test-support/work-items.js';
 
-afterEach(() => closeDb());
+afterEach(() => {
+  resetSessionRegistryForTests();
+  closeDb();
+});
 
 /** The slice of the app context wait_for_idle reads. */
 const waitForIdleApp = () => ({ appContext: { getDb, getSessionSnapshot, appEvents } });

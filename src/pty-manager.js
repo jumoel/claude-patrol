@@ -1,4 +1,4 @@
-import { execFile, execFileSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { randomUUID, timingSafeEqual } from 'node:crypto';
 import { accessSync, chmodSync, constants, readFileSync, unlinkSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
@@ -7,9 +7,9 @@ import pty from 'node-pty';
 import { appEvents, emitLocalChange, emitSessionState } from './app-events.js';
 import { getDb } from './db.js';
 import { taggedError } from './errors.js';
-import { pollProviderSessionStatuses } from './provider-status-poller.js';
 import { trustSessionDirectory } from './provider-trust.js';
 import { normalizeProviderActivity, SessionActivityTracker } from './session-activity.js';
+import { submitPromptToEntry } from './session-input.js';
 import {
   buildSessionLaunch,
   mcpConfigPathForSession,
@@ -17,15 +17,35 @@ import {
   readActivityCredential,
   sessionTempPaths,
 } from './session-launch.js';
+import { activityCredentials, pendingArchives, sessions } from './session-registry.js';
+import {
+  pollSessionStatuses,
+  requestProviderStatus,
+  SESSION_STATUS_POLL_INTERVAL_MS,
+  startSessionStatusPolling,
+  stopProviderStatusTracking,
+  stopSessionStatusPolling,
+} from './session-status.js';
 import {
   normalizeSessionTarget,
   sessionTargetColumns,
   sessionTargetFromRow,
   sessionTargetWhere,
 } from './session-target.js';
+import { BUFFER_MAX, RingBuffer, TerminalOutputBatcher } from './terminal-buffer.js';
+import { isTmuxSessionAlive, killTmuxSession, listPatrolTmuxSessions, tmuxSessionName } from './tmux.js';
 import { archiveTranscript } from './transcripts.js';
+import { dispatchWsMessage } from './ws-dispatch.js';
 
-const BUFFER_MAX = 50_000;
+export {
+  dispatchWsMessage,
+  pollSessionStatuses,
+  RingBuffer,
+  startSessionStatusPolling,
+  stopSessionStatusPolling,
+  TerminalOutputBatcher,
+};
+
 export const MAX_LIVE_GLOBAL_SESSIONS = 16;
 export const BOOT_TIMEOUT_MS_DEFAULT = 30_000;
 // A nested peer-review tool may use its full 30 minute budget. The presenting
@@ -104,125 +124,7 @@ export function getSessionPeerReviewReadiness(sessionId) {
   };
 }
 
-/**
- * Fixed-size circular buffer. Appends copy only the new bytes; linearization
- * happens on the much less frequent replay path.
- */
-export class RingBuffer {
-  constructor(capacity) {
-    if (!Number.isInteger(capacity) || capacity <= 0) {
-      throw new RangeError('RingBuffer capacity must be a positive integer');
-    }
-    this.buf = Buffer.alloc(capacity);
-    this.start = 0;
-    this.len = 0;
-  }
-
-  append(data) {
-    const chunk = Buffer.isBuffer(data) ? data : Buffer.from(data);
-    if (chunk.length >= this.buf.length) {
-      // Data larger than buffer - keep only the tail
-      chunk.copy(this.buf, 0, chunk.length - this.buf.length);
-      this.start = 0;
-      this.len = this.buf.length;
-      return;
-    }
-
-    const overflow = Math.max(0, this.len + chunk.length - this.buf.length);
-    this.start = (this.start + overflow) % this.buf.length;
-    this.len -= overflow;
-
-    const writeStart = (this.start + this.len) % this.buf.length;
-    const firstLength = Math.min(chunk.length, this.buf.length - writeStart);
-    chunk.copy(this.buf, writeStart, 0, firstLength);
-    if (firstLength < chunk.length) {
-      chunk.copy(this.buf, 0, firstLength);
-    }
-    this.len += chunk.length;
-  }
-
-  contents() {
-    if (this.len === 0) return this.buf.subarray(0, 0);
-    const end = this.start + this.len;
-    if (end <= this.buf.length) return this.buf.subarray(this.start, end);
-
-    const result = Buffer.allocUnsafe(this.len);
-    const firstLength = this.buf.length - this.start;
-    this.buf.copy(result, 0, this.start);
-    this.buf.copy(result, firstLength, 0, end - this.buf.length);
-    return result;
-  }
-}
-
-/**
- * Coalesce the small PTY reads emitted in one event-loop turn into one output
- * frame. The replay buffer remains authoritative while no browser is attached.
- */
-export class TerminalOutputBatcher {
-  constructor(websockets, schedule = setImmediate, cancel = clearImmediate) {
-    this.websockets = websockets;
-    this.schedule = schedule;
-    this.cancel = cancel;
-    this.pendingChunks = [];
-    this.flushHandle = null;
-  }
-
-  append(data) {
-    if (!this.hasOpenSocket()) return;
-    this.pendingChunks.push(data);
-    if (this.flushHandle !== null) return;
-    this.flushHandle = this.schedule(() => {
-      this.flushHandle = null;
-      this.flush();
-    });
-  }
-
-  flush() {
-    if (this.flushHandle !== null) {
-      this.cancel(this.flushHandle);
-      this.flushHandle = null;
-    }
-    if (this.pendingChunks.length === 0) return;
-
-    const data = this.pendingChunks.join('');
-    this.pendingChunks.length = 0;
-    if (!this.hasOpenSocket()) return;
-
-    const msg = JSON.stringify({ type: 'output', data });
-    for (const ws of this.websockets) {
-      if (ws.readyState === 1) ws.send(msg);
-    }
-  }
-
-  hasOpenSocket() {
-    for (const ws of this.websockets) {
-      if (ws.readyState === 1) return true;
-    }
-    return false;
-  }
-}
-
-/**
- * @typedef {object} SessionEntry
- * @property {import('node-pty').IPty} proc
- * @property {RingBuffer} buffer
- * @property {Set<import('ws').WebSocket>} websockets
- * @property {TerminalOutputBatcher} output
- */
-
-/** @type {Map<string, SessionEntry>} */
-const sessions = new Map();
-/** Transcript archives scheduled by PTY exit handlers and not yet finished. */
-const pendingArchives = new Set();
 const ARCHIVE_DELAY_MS = 500;
-/** @type {Map<string, {provider: 'claude'|'codex', token: string}>} */
-const activityCredentials = new Map();
-const sessionsAwaitingProviderStatus = new Set();
-const providerStatusGenerations = new Map();
-const SESSION_STATUS_POLL_INTERVAL_MS = 1_000;
-let sessionStatusPollingEnabled = false;
-let sessionStatusPollTimer = null;
-let sessionStatusPollInFlight = null;
 
 /**
  * Spawn a node-pty attached to an existing tmux session and wire up
@@ -234,7 +136,7 @@ let sessionStatusPollInFlight = null;
  */
 function attachPtyToTmux(sessionId, meta = {}, runtime = DEFAULT_SESSION_RUNTIME) {
   const db = getDb();
-  const tmuxName = `patrol-${sessionId}`;
+  const tmuxName = tmuxSessionName(sessionId);
   const proc = runtime.spawnPty('tmux', ['attach-session', '-t', tmuxName], {
     name: 'xterm-256color',
     cols: 120,
@@ -367,113 +269,6 @@ function attachPtyToTmux(sessionId, meta = {}, runtime = DEFAULT_SESSION_RUNTIME
   return entry;
 }
 
-function requestProviderStatus(sessionId, delay = 0) {
-  sessionsAwaitingProviderStatus.add(sessionId);
-  providerStatusGenerations.set(sessionId, (providerStatusGenerations.get(sessionId) ?? 0) + 1);
-  scheduleSessionStatusPoll(delay);
-}
-
-function stopProviderStatusTracking(sessionId) {
-  sessionsAwaitingProviderStatus.delete(sessionId);
-  providerStatusGenerations.delete(sessionId);
-}
-
-function scheduleSessionStatusPoll(delay = SESSION_STATUS_POLL_INTERVAL_MS) {
-  if (!sessionStatusPollingEnabled || sessionStatusPollTimer !== null || sessionStatusPollInFlight !== null) return;
-  if (sessionsAwaitingProviderStatus.size === 0) return;
-  sessionStatusPollTimer = setTimeout(async () => {
-    sessionStatusPollTimer = null;
-    try {
-      await pollSessionStatuses();
-    } catch (error) {
-      console.warn(`[pty-manager] Session status poll failed: ${error.message}`);
-    } finally {
-      scheduleSessionStatusPoll();
-    }
-  }, delay);
-  sessionStatusPollTimer.unref?.();
-}
-
-/**
- * Poll provider-owned status surfaces. Codex sessions stay subscribed while
- * idle because Codex exposes completion notifications but no turn-start event;
- * a queued follow-up turn is otherwise invisible after the first idle poll.
- */
-export async function pollSessionStatuses({ probe = pollProviderSessionStatuses } = {}) {
-  if (sessionStatusPollInFlight) return sessionStatusPollInFlight;
-  const candidateGenerations = new Map();
-  const candidateProviders = new Map();
-  const candidates = [...sessionsAwaitingProviderStatus]
-    .map((sessionId) => {
-      const row = getDb().prepare('SELECT provider FROM sessions WHERE id = ?').get(sessionId);
-      if (row) {
-        candidateGenerations.set(sessionId, providerStatusGenerations.get(sessionId));
-        candidateProviders.set(sessionId, row.provider);
-      }
-      return row ? { sessionId, provider: row.provider } : null;
-    })
-    .filter(Boolean);
-  if (candidates.length === 0) return 0;
-
-  sessionStatusPollInFlight = (async () => {
-    const statuses = await probe(candidates);
-    let applied = 0;
-    for (const [sessionId, status] of statuses) {
-      if (!sessionsAwaitingProviderStatus.has(sessionId)) continue;
-      if (providerStatusGenerations.get(sessionId) !== candidateGenerations.get(sessionId)) continue;
-      const entry = sessions.get(sessionId);
-      if (!entry) {
-        stopProviderStatusTracking(sessionId);
-        continue;
-      }
-      if (candidateProviders.get(sessionId) === 'codex') {
-        if (status.state === 'working') {
-          entry.providerWorkingObserved = true;
-        } else if (
-          entry.activity.snapshot().activityState === 'working' &&
-          !entry.providerWorkingObserved &&
-          !entry.providerCompletionObserved
-        ) {
-          // An idle pane immediately after dispatch can still be showing the
-          // state from before the prompt reached Codex. Keep polling until the
-          // active turn or its completion notification has been observed.
-          continue;
-        }
-      }
-      entry.restoringPersistedIdle = entry.activity.snapshot().activityState === null && status.state !== 'working';
-      try {
-        entry.activity.handleStatusPoll(status);
-      } finally {
-        entry.restoringPersistedIdle = false;
-      }
-      applied++;
-      if (status.state !== 'working' && candidateProviders.get(sessionId) !== 'codex') {
-        stopProviderStatusTracking(sessionId);
-      }
-    }
-    return applied;
-  })().finally(() => {
-    sessionStatusPollInFlight = null;
-  });
-  return sessionStatusPollInFlight;
-}
-
-export function startSessionStatusPolling() {
-  sessionStatusPollingEnabled = true;
-  scheduleSessionStatusPoll(0);
-}
-
-export async function stopSessionStatusPolling() {
-  sessionStatusPollingEnabled = false;
-  if (sessionStatusPollTimer !== null) clearTimeout(sessionStatusPollTimer);
-  sessionStatusPollTimer = null;
-  try {
-    await sessionStatusPollInFlight;
-  } catch {
-    // The polling loop already reports probe failures.
-  }
-}
-
 function activityTokenEqual(actual, expected) {
   if (typeof actual !== 'string' || typeof expected !== 'string') return false;
   const actualBuffer = Buffer.from(actual);
@@ -543,24 +338,13 @@ export function cleanupOrphanedSessions() {
  * Kill any orphaned tmux sessions from a previous server run.
  */
 export function cleanupOrphanedTmuxSessions() {
-  try {
-    const output = execFileSync('tmux', ['list-sessions', '-F', '#{session_name}'], {
-      encoding: 'utf8',
-      timeout: 5000,
-    });
-    for (const line of output.trim().split('\n')) {
-      const name = line.trim();
-      if (name.startsWith('patrol-')) {
-        try {
-          execFileSync('tmux', ['kill-session', '-t', name], { timeout: 5000 });
-          console.log(`[pty-manager] Killed orphaned tmux session: ${name}`);
-        } catch {
-          /* session may have already died */
-        }
-      }
+  for (const name of listPatrolTmuxSessions()) {
+    try {
+      execFileSync('tmux', ['kill-session', '-t', name], { timeout: 5000 });
+      console.log(`[pty-manager] Killed orphaned tmux session: ${name}`);
+    } catch {
+      /* session may have already died */
     }
-  } catch {
-    // tmux server not running or no sessions - that's fine
   }
 }
 
@@ -591,7 +375,7 @@ export function reattachOrphanedSessions(runtimeOverrides = {}) {
     }
 
     try {
-      const tmuxName = `patrol-${session.id}`;
+      const tmuxName = tmuxSessionName(session.id);
       try {
         runtime.execFileSync('tmux', ['set-option', '-t', tmuxName, 'status', 'off'], { timeout: 5_000 });
       } catch {
@@ -633,9 +417,8 @@ export function reattachOrphanedSessions(runtimeOverrides = {}) {
  * @param {string[]} tempPaths
  */
 function rollbackFailedSessionStart(sessionId, runtime, tempPaths) {
-  const tmuxName = `patrol-${sessionId}`;
   try {
-    runtime.execFileSync('tmux', ['kill-session', '-t', tmuxName], { timeout: 5000 });
+    killTmuxSession(sessionId, runtime);
   } catch {
     // The tmux process may not have been created yet.
   }
@@ -690,7 +473,7 @@ function findReusableSession(target, provider, runtime) {
     const entry = sessions.get(existing.id);
     sessions.delete(existing.id);
     try {
-      runtime.execFileSync('tmux', ['kill-session', '-t', `patrol-${existing.id}`], { timeout: 5000 });
+      killTmuxSession(existing.id, runtime);
     } catch {
       try {
         entry?.proc.kill();
@@ -797,7 +580,7 @@ export function createSessionWithRuntime(target, cwd, options = {}) {
   const activityToken = randomUUID();
   const sessionName =
     normalizedTarget.type === 'global' ? (normalizeGlobalSessionName(name) ?? nextGlobalSessionName(provider)) : null;
-  const tmuxName = `patrol-${id}`;
+  const tmuxName = tmuxSessionName(id);
   const tempPaths = [];
 
   try {
@@ -892,115 +675,6 @@ export function createResumedSession(target, cwd, claudeSessionId) {
 }
 
 /**
- * WebSocket message dispatch table. Each entry owns both validation and
- * handling for a single message type, so adding a new type is one entry -
- * impossible to add a handler without validation or vice versa. Previously
- * had a separate `parseWsMessage` whitelist that drifted from the dispatcher
- * and silently dropped `prompt-submit` messages for the duration of the
- * f2436f3 → ebf502f window. (See `claude-patrol#2`.)
- *
- * Handlers receive `(entry, msg, ctx)`. `ctx` carries per-session info that
- * isn't on the entry itself (currently just `tmuxName`).
- *
- * @type {Record<string, {
- *   validate: (msg: any) => boolean,
- *   handle: (entry: any, msg: any, ctx: { tmuxName: string, execFile?: typeof execFile }) => void,
- * }>}
- */
-const WS_MESSAGE_HANDLERS = {
-  input: {
-    validate: (msg) => typeof msg.data === 'string',
-    handle: (entry, msg, ctx) => {
-      if (msg.data.includes('\r') || msg.data.includes('\n')) entry.markWorking?.('terminal_input');
-      // CSI u sequences (kitty keyboard protocol) can't go through tmux's
-      // input parser - it doesn't understand them. Route them via
-      // `tmux send-keys` which writes directly to the inner pane's PTY,
-      // bypassing tmux's own key interpretation.
-      if (msg.data.includes('\x1b[') && /\x1b\[\d+;\d+u/.test(msg.data)) {
-        const hexKeys = [];
-        for (let i = 0; i < msg.data.length; i++) {
-          hexKeys.push(msg.data.charCodeAt(i).toString(16).padStart(2, '0'));
-        }
-        (ctx.execFile ?? execFile)(
-          'tmux',
-          ['send-keys', '-t', ctx.tmuxName, '-H', ...hexKeys],
-          { timeout: 2000 },
-          (error) => {
-            if (error) console.warn(`[pty-manager] tmux send-keys failed for ${ctx.tmuxName}: ${error.message}`);
-          },
-        );
-      } else {
-        entry.proc.write(msg.data);
-      }
-    },
-  },
-  'prompt-submit': {
-    // Programmatic prompt submission: write the text, wait briefly, write
-    // Enter. Shares `submitPromptToEntry` with the server-side rules engine
-    // so the split timing lives in one place.
-    validate: (msg) => typeof msg.text === 'string',
-    handle: (entry, msg) => {
-      entry.markWorking?.('terminal_input');
-      submitPromptToEntry(entry, msg.text).catch((error) => {
-        console.warn(`[pty-manager] prompt-submit write failed: ${error.message}`);
-      });
-    },
-  },
-  resize: {
-    validate: (msg) => Number.isInteger(msg.cols) && Number.isInteger(msg.rows),
-    handle: (entry, msg) => {
-      try {
-        entry.proc.resize(msg.cols, msg.rows);
-      } catch {
-        // PTY fd already closed (EBADF) - session exited but WS still open
-        return;
-      }
-    },
-  },
-  scroll: {
-    validate: (msg) => Number.isInteger(msg.lines) && msg.lines !== 0 && Math.abs(msg.lines) <= 100,
-    handle: (_entry, msg, ctx) => {
-      const count = Math.abs(msg.lines);
-      const command = msg.lines < 0 ? 'scroll-up' : 'scroll-down';
-      const scrollCommand = `send-keys -X -t ${ctx.tmuxName} -N ${count} ${command}`;
-      const enterAndScrollCommand = `copy-mode -e -t ${ctx.tmuxName} ; ${scrollCommand}`;
-      const execFileImpl = ctx.execFile ?? execFile;
-      execFileImpl(
-        'tmux',
-        ['if-shell', '-F', '-t', ctx.tmuxName, '#{pane_in_mode}', scrollCommand, enterAndScrollCommand],
-        { timeout: 2_000 },
-        () => {},
-      );
-    },
-  },
-};
-
-/**
- * Dispatch a parsed WS message to its handler. Returns the handler entry that
- * was invoked (for testing) or null if the message was rejected. Exported so
- * tests can hit the validation + dispatch path without standing up a real
- * WebSocket + PTY.
- *
- * @param {string} raw - raw WS frame text
- * @param {any}    entry - session entry from the `sessions` map
- * @param {{tmuxName: string, execFile?: typeof execFile}} ctx
- * @returns {{ type: string } | null}
- */
-export function dispatchWsMessage(raw, entry, ctx) {
-  let msg;
-  try {
-    msg = JSON.parse(raw);
-  } catch {
-    return null;
-  }
-  if (!msg || typeof msg.type !== 'string') return null;
-  const handler = WS_MESSAGE_HANDLERS[msg.type];
-  if (!handler || !handler.validate(msg)) return null;
-  handler.handle(entry, msg, ctx);
-  return { type: msg.type };
-}
-
-/**
  * Attach a WebSocket to an existing session.
  * @param {string} sessionId
  * @param {import('ws').WebSocket} ws
@@ -1025,7 +699,7 @@ export function attachSession(sessionId, ws) {
 
   entry.websockets.add(ws);
 
-  const tmuxName = `patrol-${sessionId}`;
+  const tmuxName = tmuxSessionName(sessionId);
   ws.on('message', (raw) => {
     dispatchWsMessage(raw.toString(), entry, { tmuxName });
   });
@@ -1037,12 +711,7 @@ export function attachSession(sessionId, ws) {
 
 function sessionKillRuntime(overrides = {}) {
   return {
-    killTmux:
-      overrides.killTmux ??
-      ((sessionId) =>
-        execFileSync('tmux', ['kill-session', '-t', `patrol-${sessionId}`], {
-          timeout: 5000,
-        })),
+    killTmux: overrides.killTmux ?? ((sessionId) => killTmuxSession(sessionId)),
     isTmuxAlive: overrides.isTmuxAlive ?? isTmuxSessionAlive,
   };
 }
@@ -1193,20 +862,6 @@ export async function killAllSessionsAndWait(timeoutMs = 5_000) {
 }
 
 /**
- * Check if a tmux session is alive by name.
- * @param {string} sessionId
- * @returns {boolean}
- */
-function isTmuxSessionAlive(sessionId) {
-  try {
-    execFileSync('tmux', ['has-session', '-t', `patrol-${sessionId}`], { timeout: 5000 });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/**
  * Check if a session is alive in memory and its tmux session is still running.
  * @param {string} sessionId
  * @returns {boolean}
@@ -1251,40 +906,6 @@ export function reattachSession(sessionId) {
 
   return db.prepare('SELECT * FROM sessions WHERE id = ?').get(sessionId);
 }
-
-/**
- * Default delay between writing prompt text and writing the Enter that
- * submits it. Single source of truth for the WS `prompt-submit` handler and
- * server-side dispatchers.
- */
-const PROMPT_SUBMIT_DELAY_MS = 100;
-
-/**
- * Internal: write `text + Enter` to a session entry's PTY using the two-step
- * split that Claude's TUI requires (text first, brief delay, then Enter).
- * Sending them as a single write can cause the TUI to swallow Enter while
- * still painting the input field.
- *
- * Both the WebSocket `prompt-submit` handler and `dispatchToSession` route
- * through here so the split lives in exactly one place.
- *
- * @param {object} entry - session entry from `sessions` map
- * @param {string} text
- * @param {number} delay
- * @returns {Promise<void>}
- */
-async function submitPromptToEntry(entry, text, delay = PROMPT_SUBMIT_DELAY_MS) {
-  const stripped = text.replace(/\r+$/, '');
-  entry.proc.write(stripped);
-  await new Promise((r) => setTimeout(r, delay));
-  entry.proc.write('\r');
-}
-
-/**
- * Build a tagged Error. The `code` property is what the dispatcher and MCP
- * handlers branch on; the message is for human-readable logging. Exported
- * so the dispatcher can produce the same shape of error.
- */
 
 /**
  * Dispatch a prompt to an in-memory session: busy check, force-set working
