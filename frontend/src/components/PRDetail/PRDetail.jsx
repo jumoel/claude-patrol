@@ -1,15 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAgentProvider } from '../../context/AgentProviderContext.jsx';
+import { useCopyFeedback } from '../../hooks/useCopyFeedback.js';
 import { useSyncEvents } from '../../hooks/useSyncEvents.js';
+import { useTargetSession } from '../../hooks/useTargetSession.js';
 import {
-  createSession as apiCreateSession,
   createWorkspace as apiCreateWorkspace,
-  killSession as apiKillSession,
-  reattachSession as apiReattachSession,
   fetchCheckLogs,
   fetchPR,
   fetchPRComments,
-  fetchSessions,
   fetchWorkspaces,
   refreshPR,
   retriggerChecks,
@@ -106,7 +104,18 @@ export function PRDetail({ prId, onBack, workspaceStates, acknowledgedSessionIds
   const { provider } = useAgentProvider();
   const [pr, setPR] = useState(/** @type {import('../../types').PullRequest | null} */ (null));
   const [workspace, setWorkspace] = useState(/** @type {import('../../types').Workspace | null} */ (null));
-  const [session, setSession] = useState(/** @type {import('../../types').Session | null} */ (null));
+  const {
+    session,
+    setSession,
+    actionError,
+    setActionError,
+    load: loadSession,
+    start: startSession,
+    kill: handleKillSession,
+    reattach: handleReattach,
+    handleExit: handleSessionExit,
+  } = useTargetSession({ onAcknowledgeSession });
+  const branchCopy = useCopyFeedback();
   const [comments, setComments] = useState(
     /** @type {import('../../types').PullRequestCommentsResponse | null} */ (null),
   );
@@ -114,52 +123,66 @@ export function PRDetail({ prId, onBack, workspaceStates, acknowledgedSessionIds
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [commentsError, setCommentsError] = useState('');
-  const [actionError, setActionError] = useState('');
   const [openingSession, setOpeningSession] = useState(false);
   const [openingStep, setOpeningStep] = useState('');
   const [openingError, setOpeningError] = useState('');
   const [retriggering, setRetriggering] = useState(false);
-  const [copiedBranch, setCopiedBranch] = useState(false);
   const [togglingDraft, setTogglingDraft] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const wsRef = useRef(/** @type {WebSocket | null} */ (null));
 
   /** Deduped local-work creation promise so both buttons share a single in-flight request. */
   const workspacePromiseRef = useRef(/** @type {Promise<import('../../types').Workspace | null> | null} */ (null));
+  /** Incremented per load so a response for a superseded load (older sync, previous prId) is dropped. */
+  const loadRequest = useRef(0);
 
   const loadData = useCallback(async () => {
+    const requestId = ++loadRequest.current;
+    const stale = () => loadRequest.current !== requestId;
     setLoadError('');
     try {
       const [prData, workspaces] = await Promise.all([fetchPR(prId), fetchWorkspaces(prId)]);
+      if (stale()) return;
       setPR(prData);
       const active = workspaces[0] || null;
       setWorkspace(active);
       if (active) {
-        const sessions = await fetchSessions({ type: 'workspace', id: active.id });
-        setSession(sessions[0] || null);
+        // loadSession already stored the session; a superseded load must not.
+        const next = await loadSession({ type: 'workspace', id: active.id });
+        if (stale()) return;
+        setSession(next);
       } else {
         setSession(null);
       }
     } catch (err) {
+      if (stale()) return;
       setPR(null);
       setLoadError(getErrorMessage(err, 'Failed to load pull request'));
     } finally {
-      setLoading(false);
+      if (!stale()) setLoading(false);
     }
     // Fetch comments in parallel (non-blocking)
     setCommentsLoading(true);
     setCommentsError('');
     fetchPRComments(prId)
-      .then(setComments)
+      .then((next) => {
+        if (!stale()) setComments(next);
+      })
       .catch((err) => {
+        if (stale()) return;
         setComments(null);
         setCommentsError(getErrorMessage(err, 'Failed to load comments'));
       })
-      .finally(() => setCommentsLoading(false));
-  }, [prId]);
+      .finally(() => {
+        if (!stale()) setCommentsLoading(false);
+      });
+  }, [loadSession, prId, setSession]);
 
   useEffect(() => {
     loadData();
+    return () => {
+      loadRequest.current += 1;
+    };
   }, [loadData]);
   useSyncEvents(loadData);
 
@@ -196,8 +219,7 @@ export function PRDetail({ prId, onBack, workspaceStates, acknowledgedSessionIds
       let sess = session;
       if (!sess) {
         setOpeningStep('Starting session...');
-        sess = await apiCreateSession({ type: 'workspace', id: ws.id }, provider);
-        setSession(sess);
+        sess = await startSession({ type: 'workspace', id: ws.id }, provider);
       }
       setOpeningStep('Connecting...');
       return { ws, sess };
@@ -208,7 +230,7 @@ export function PRDetail({ prId, onBack, workspaceStates, acknowledgedSessionIds
       setOpeningSession(false);
       setOpeningStep('');
     }
-  }, [getOrCreateWorkspace, provider, session]);
+  }, [getOrCreateWorkspace, provider, session, startSession]);
 
   const handleOpenInAgent = useCallback(async () => {
     await ensureWorkspaceAndSession();
@@ -225,37 +247,7 @@ export function PRDetail({ prId, onBack, workspaceStates, acknowledgedSessionIds
     } finally {
       setRetriggering(false);
     }
-  }, [pr, prId]);
-
-  const handleKillSession = useCallback(async () => {
-    if (!session) return;
-    setActionError('');
-    try {
-      await apiKillSession(session.id);
-      setSession(null);
-    } catch (err) {
-      setActionError(getErrorMessage(err, 'Failed to stop terminal'));
-    }
-  }, [session]);
-
-  const handleSessionExit = useCallback(() => {
-    setSession(null);
-  }, []);
-
-  const handleReattach = useCallback(async () => {
-    if (!session) return;
-    setActionError('');
-    try {
-      const updated = await apiReattachSession(session.id);
-      setSession(updated);
-    } catch (err) {
-      setActionError(getErrorMessage(err, 'Failed to reattach terminal'));
-    }
-  }, [session]);
-
-  useEffect(() => {
-    if (session) onAcknowledgeSession(session.id);
-  }, [onAcknowledgeSession, session]);
+  }, [pr, prId, setActionError]);
 
   const handleRefresh = useCallback(async () => {
     if (refreshing) return;
@@ -276,7 +268,7 @@ export function PRDetail({ prId, onBack, workspaceStates, acknowledgedSessionIds
     } finally {
       setRefreshing(false);
     }
-  }, [prId, refreshing, onBack]);
+  }, [prId, refreshing, onBack, setActionError]);
 
   const handleToggleDraft = useCallback(async () => {
     if (!pr) return;
@@ -290,7 +282,7 @@ export function PRDetail({ prId, onBack, workspaceStates, acknowledgedSessionIds
     } finally {
       setTogglingDraft(false);
     }
-  }, [pr, prId]);
+  }, [pr, prId, setActionError]);
 
   const handleInvestigateFailures = useCallback(async () => {
     if (!pr) return;
@@ -311,7 +303,7 @@ export function PRDetail({ prId, onBack, workspaceStates, acknowledgedSessionIds
 
     const command = `Investigate the failed CI checks on this PR (${pr.org}/${pr.repo}#${pr.number}, branch: ${pr.branch}). The following checks failed: ${failedCheckNames.join(', ')}. Look at the CI logs and determine root causes.`;
     sendTerminalCommand(ws, command);
-  }, [pr, ensureWorkspaceAndSession]);
+  }, [pr, ensureWorkspaceAndSession, setActionError]);
 
   if (loading) {
     return <LoadingIndicator className={shared.loading}>Loading pull request...</LoadingIndicator>;
@@ -430,14 +422,7 @@ export function PRDetail({ prId, onBack, workspaceStates, acknowledgedSessionIds
             {pr.org}/{pr.repo}
           </span>
           <span aria-hidden="true">·</span>
-          <button
-            title="Copy branch name"
-            onClick={() => {
-              navigator.clipboard.writeText(pr.branch);
-              setCopiedBranch(true);
-              setTimeout(() => setCopiedBranch(false), 1500);
-            }}
-          >
+          <button title="Copy branch name" onClick={() => branchCopy.copy(pr.branch)}>
             <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
               <path
                 fillRule="evenodd"
@@ -445,7 +430,7 @@ export function PRDetail({ prId, onBack, workspaceStates, acknowledgedSessionIds
               />
             </svg>
             {pr.branch}
-            {copiedBranch && <span className={styles.copiedToast}>Copied!</span>}
+            {branchCopy.status === 'copied' && <span className={styles.copiedToast}>Copied!</span>}
           </button>
           <span aria-hidden="true">·</span>
           <span>Updated {getRelativeTime(pr.updated_at)}</span>

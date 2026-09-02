@@ -1,14 +1,8 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAgentProvider } from '../../context/AgentProviderContext.jsx';
 import { useSyncEvents } from '../../hooks/useSyncEvents.js';
-import {
-  createSession as apiCreateSession,
-  destroyWorkspace as apiDestroyWorkspace,
-  killSession as apiKillSession,
-  reattachSession as apiReattachSession,
-  fetchSessions,
-  fetchWorkspace,
-} from '../../lib/api.js';
+import { useTargetSession } from '../../hooks/useTargetSession.js';
+import { destroyWorkspace as apiDestroyWorkspace, fetchWorkspace } from '../../lib/api.js';
 import { getErrorMessage } from '../../lib/errors.js';
 import { sessionAttentionState } from '../../lib/session-attention.js';
 import { getRelativeTime } from '../../lib/time.js';
@@ -42,35 +36,54 @@ export function WorkspaceDetail({
 }) {
   const { provider } = useAgentProvider();
   const [workspace, setWorkspace] = useState(/** @type {import('../../types').Workspace | null} */ (null));
-  const [session, setSession] = useState(/** @type {import('../../types').Session | null} */ (null));
+  const {
+    session,
+    setSession,
+    actionError,
+    setActionError,
+    load: loadSession,
+    start: startSession,
+    kill: handleKillSession,
+    reattach: handleReattach,
+    handleExit: handleSessionExit,
+  } = useTargetSession({ onAcknowledgeSession });
   const [loading, setLoading] = useState(true);
   const [openingSession, setOpeningSession] = useState(false);
   const [openingError, setOpeningError] = useState('');
   const [loadError, setLoadError] = useState('');
-  const [actionError, setActionError] = useState('');
   const [destroying, setDestroying] = useState(false);
+  /** Incremented per load so a response for a superseded load is dropped. */
+  const loadRequest = useRef(0);
 
   const loadData = useCallback(async () => {
+    const requestId = ++loadRequest.current;
+    const stale = () => loadRequest.current !== requestId;
     setLoadError('');
     try {
       const ws = await fetchWorkspace(workspaceId);
+      if (stale()) return;
       setWorkspace(ws);
       if (ws.status === 'active') {
-        const sessions = await fetchSessions({ type: 'workspace', id: ws.id });
-        setSession(sessions[0] || null);
+        const next = await loadSession({ type: 'workspace', id: ws.id });
+        if (stale()) return;
+        setSession(next);
       } else {
         setSession(null);
       }
     } catch (err) {
+      if (stale()) return;
       setWorkspace(null);
       setLoadError(getErrorMessage(err, 'Failed to load workspace'));
     } finally {
-      setLoading(false);
+      if (!stale()) setLoading(false);
     }
-  }, [workspaceId]);
+  }, [loadSession, setSession, workspaceId]);
 
   useEffect(() => {
     loadData();
+    return () => {
+      loadRequest.current += 1;
+    };
   }, [loadData]);
   useSyncEvents(loadData);
 
@@ -79,44 +92,13 @@ export function WorkspaceDetail({
     setOpeningSession(true);
     setOpeningError('');
     try {
-      const sess = await apiCreateSession({ type: 'workspace', id: workspace.id }, provider);
-      setSession(sess);
+      await startSession({ type: 'workspace', id: workspace.id }, provider);
     } catch (err) {
       setOpeningError(getErrorMessage(err, `Failed to start ${provider === 'codex' ? 'Codex' : 'Claude'}`));
     } finally {
       setOpeningSession(false);
     }
-  }, [provider, workspace]);
-
-  const handleKillSession = useCallback(async () => {
-    if (!session) return;
-    setActionError('');
-    try {
-      await apiKillSession(session.id);
-      setSession(null);
-    } catch (err) {
-      setActionError(getErrorMessage(err, 'Failed to stop terminal'));
-    }
-  }, [session]);
-
-  const handleSessionExit = useCallback(() => {
-    setSession(null);
-  }, []);
-
-  const handleReattach = useCallback(async () => {
-    if (!session) return;
-    setActionError('');
-    try {
-      const updated = await apiReattachSession(session.id);
-      setSession(updated);
-    } catch (err) {
-      setActionError(getErrorMessage(err, 'Failed to reattach terminal'));
-    }
-  }, [session]);
-
-  useEffect(() => {
-    if (session) onAcknowledgeSession(session.id);
-  }, [onAcknowledgeSession, session]);
+  }, [provider, startSession, workspace]);
 
   const handleDestroy = useCallback(async () => {
     if (!workspace) return;
@@ -129,7 +111,7 @@ export function WorkspaceDetail({
       setActionError(getErrorMessage(err, 'Failed to destroy workspace'));
       setDestroying(false);
     }
-  }, [workspace, onBack]);
+  }, [workspace, onBack, setActionError]);
 
   // Auto-redirect to PR detail when a scratch workspace gets adopted
   useEffect(() => {

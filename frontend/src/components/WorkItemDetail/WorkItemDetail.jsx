@@ -1,15 +1,9 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useAgentProvider } from '../../context/AgentProviderContext.jsx';
+import { useCopyFeedback } from '../../hooks/useCopyFeedback.js';
+import { useTargetSession } from '../../hooks/useTargetSession.js';
 import { useWorkItem } from '../../hooks/useWorkItems.js';
-import {
-  createSession,
-  destroyWorkItem,
-  destroyWorkspace,
-  fetchSessions,
-  killSession,
-  reattachSession,
-  retryWorkItem,
-} from '../../lib/api.js';
+import { destroyWorkItem, destroyWorkspace, retryWorkItem } from '../../lib/api.js';
 import { getErrorMessage } from '../../lib/errors.js';
 import { workItemPath } from '../../lib/routes.js';
 import { sessionAttentionState } from '../../lib/session-attention.js';
@@ -197,14 +191,12 @@ function ProgressSteps({ steps }) {
  * }} props
  */
 function RepositoryRow({ repository, deletionBlocked, deleting, onDelete }) {
-  const [copied, setCopied] = useState(false);
+  const { status: copyStatus, copy } = useCopyFeedback();
   const copyPath = useCallback(() => {
     if (!repository.checkout_available || !repository.path) return;
-    navigator.clipboard.writeText(repository.path).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    });
-  }, [repository.checkout_available, repository.path]);
+    void copy(repository.path);
+  }, [copy, repository.checkout_available, repository.path]);
+  const copied = copyStatus === 'copied';
 
   return (
     <div className={styles.repositoryRow}>
@@ -261,17 +253,10 @@ function RepositoryRow({ repository, deletionBlocked, deleting, onDelete }) {
 
 /** @param {{recovery: import('../../types').RecoveryAction}} props */
 function RecoveryCommandButton({ recovery }) {
-  const [copied, setCopied] = useState(false);
-  const copy = useCallback(async () => {
-    if (!recovery.command) return;
-    await navigator.clipboard.writeText(recovery.command);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
-  }, [recovery.command]);
-
+  const { status, copy } = useCopyFeedback();
   return (
-    <Button size="sm" onClick={copy}>
-      {copied ? 'Copied' : recovery.label}
+    <Button size="sm" onClick={() => recovery.command && copy(recovery.command)}>
+      {status === 'copied' ? 'Copied' : recovery.label}
     </Button>
   );
 }
@@ -295,27 +280,33 @@ export function WorkItemDetail({
   const { provider } = useAgentProvider();
   const { workItem, loading, error, reload } = useWorkItem(workItemId);
   const target = useMemo(() => ({ type: /** @type {'work_item'} */ ('work_item'), id: workItemId }), [workItemId]);
-  const [session, setSession] = useState(/** @type {import('../../types').Session | null} */ (null));
+  const {
+    session,
+    setSession,
+    actionError,
+    setActionError,
+    load: loadSession,
+    start: startSession,
+    kill: handleKillSession,
+    reattach: handleReattach,
+    handleExit: handleSessionExit,
+  } = useTargetSession({ onAcknowledgeSession, onChange: reload });
   const [sessionLoading, setSessionLoading] = useState(true);
   const [sessionError, setSessionError] = useState('');
-  const [actionError, setActionError] = useState('');
   const [actionPending, setActionPending] = useState(/** @type {'retry' | 'destroy' | null} */ (null));
   const [deletingWorkspaceId, setDeletingWorkspaceId] = useState(/** @type {string | null} */ (null));
+  // App keys this component on the work item id, so the initializer runs per item.
   const [collapsedPanes, setCollapsedPanes] = useState(() => loadPaneState(workItemId));
   const wsRef = useRef(/** @type {WebSocket | null} */ (null));
   const workItemState = workItem?.state;
   const expectedSessionId = workItem?.session?.id;
 
-  useEffect(() => {
-    setCollapsedPanes(loadPaneState(workItemId));
-  }, [workItemId]);
-
+  // With no PR selected in the route, select the first linked one. Replacing
+  // the hash fires hashchange, which is how App re-parses the route.
   useEffect(() => {
     const firstPullRequest = workItem?.pull_requests[0];
     if (!firstPullRequest || workItem.pull_requests.some((pullRequest) => pullRequest.id === selectedPrId)) return;
-    const path = workItemPath(workItem.id, firstPullRequest.id);
-    history.replaceState(null, '', `${window.location.pathname}${window.location.search}#${path}`);
-    window.dispatchEvent(new Event('hashchange'));
+    window.location.replace(`#${workItemPath(workItem.id, firstPullRequest.id)}`);
   }, [selectedPrId, workItem]);
 
   const togglePane = useCallback(
@@ -340,25 +331,19 @@ export function WorkItemDetail({
       setSessionLoading(false);
       return undefined;
     }
-    let active = true;
+    const controller = new AbortController();
     setSessionLoading(true);
-    fetchSessions(target)
-      .then((sessions) => {
-        if (active) {
-          setSessionError('');
-          setSession(sessions.find((candidate) => candidate.id === expectedSessionId) ?? sessions[0] ?? null);
-        }
-      })
+    loadSession(target, { preferredId: expectedSessionId, signal: controller.signal })
+      .then(() => setSessionError(''))
       .catch((nextError) => {
-        if (active) setSessionError(getErrorMessage(nextError, 'Failed to load terminal state'));
+        if (controller.signal.aborted) return;
+        setSessionError(getErrorMessage(nextError, 'Failed to load terminal state'));
       })
       .finally(() => {
-        if (active) setSessionLoading(false);
+        if (!controller.signal.aborted) setSessionLoading(false);
       });
-    return () => {
-      active = false;
-    };
-  }, [expectedSessionId, target, workItemState]);
+    return () => controller.abort();
+  }, [expectedSessionId, loadSession, setSession, target, workItemState]);
 
   const runAction = useCallback(
     async (
@@ -377,7 +362,7 @@ export function WorkItemDetail({
         setActionPending(null);
       }
     },
-    [reload],
+    [reload, setActionError],
   );
 
   const handleRetry = useCallback(() => {
@@ -412,7 +397,7 @@ export function WorkItemDetail({
         .catch((nextError) => setActionError(getErrorMessage(nextError, 'Failed to delete workspace')))
         .finally(() => setDeletingWorkspaceId(null));
     },
-    [deletingWorkspaceId, reload, session, sessionLoading],
+    [deletingWorkspaceId, reload, session, sessionLoading, setActionError],
   );
 
   const ensureSession = useCallback(async () => {
@@ -420,43 +405,14 @@ export function WorkItemDetail({
     setSessionLoading(true);
     setActionError('');
     try {
-      const created = await createSession(target, provider);
-      setSession(created);
-      reload();
-      return created;
+      return await startSession(target, provider);
     } catch (nextError) {
       setActionError(getErrorMessage(nextError, 'Failed to restart terminal'));
       return null;
     } finally {
       setSessionLoading(false);
     }
-  }, [provider, reload, session, target]);
-
-  const handleKillSession = useCallback(async () => {
-    if (!session) return;
-    setActionError('');
-    try {
-      await killSession(session.id);
-      setSession(null);
-      reload();
-    } catch (nextError) {
-      setActionError(getErrorMessage(nextError, 'Failed to stop terminal'));
-    }
-  }, [reload, session]);
-
-  const handleSessionExit = useCallback(() => {
-    setSession(null);
-    reload();
-  }, [reload]);
-
-  const handleReattach = useCallback(async () => {
-    if (!session) return;
-    setSession(await reattachSession(session.id));
-  }, [session]);
-
-  useEffect(() => {
-    if (session) onAcknowledgeSession(session.id);
-  }, [onAcknowledgeSession, session]);
+  }, [provider, session, setActionError, startSession, target]);
 
   if (loading) return <LoadingIndicator className={shared.loading}>Loading work item...</LoadingIndicator>;
   if (!workItem) {
