@@ -80,10 +80,11 @@ This runs `vite build --watch` for the frontend and the backend server concurren
 If you install globally (`pnpm install -g`), the `claude-patrol` command is available:
 
 ```sh
-$ claude-patrol start [--open] [--host address]  # build frontend, start server
+$ claude-patrol start [--open] [--host address]  # build frontend if stale, start server
 $ claude-patrol stop             # graceful shutdown
 $ claude-patrol status           # show running state and uptime
-$ claude-patrol clean            # remove DB, PID file, MCP config
+$ claude-patrol attach [id]      # attach a terminal to a running session (tmux)
+$ claude-patrol clean            # remove the database and PID file
 ```
 
 Running without a subcommand defaults to `start`.
@@ -231,7 +232,7 @@ Flat object, all keys must match (implicit AND). No nesting, no operators. For O
 | `labels` | PR triggers | array of strings, ALL must be present |
 | `workspace_repo` | session.idle | scalar or array |
 
-"PR triggers" means `ci.finalized` and `mergeable.changed` - both carry a PR context. `session.idle` only supports `workspace_repo`.
+"PR triggers" means `ci.finalized`, `mergeable.changed`, `labels.changed` and `draft.changed` - all four carry a PR context. `session.idle` only supports `workspace_repo`.
 
 Invalid values (e.g. `ci_status: "success"`) are rejected at load time with a clear error.
 
@@ -350,33 +351,65 @@ No native database dependencies - `node:sqlite` is built into Node.js.
 
 ## API
 
-**PRs**: `GET /api/prs` (filterable), `GET /api/prs/:id`, `GET /api/prs/:id/diff`, `GET /api/prs/:id/comments`, `GET /api/prs/:id/check-logs`
+Every failure is `{ "error": { "code", "message", "detail", "failed_provider", "retry_action", "recovery_actions" } }`; the code decides the HTTP status (see `src/http-errors.js`).
 
-**Workspaces**: `POST /api/workspaces`, `GET /api/workspaces`, `GET /api/workspaces/:id`, `DELETE /api/workspaces/:id`, `GET /api/workspaces/operations`, `POST /api/workspaces/:id/retry-cleanup`, `POST /api/workspaces/:id/terminal`, `POST /api/workspaces/cleanup`
+**Pull requests**: `GET /api/prs` (filterable), `GET /api/prs/:id`, `POST /api/prs/:id/refresh`, `POST /api/prs/:id/draft`, `GET /api/prs/:id/diff`, `GET /api/prs/:id/comments`, `GET /api/prs/:id/check-logs`, `GET /api/prs/:pr_id/rule-subscriptions`, `POST /api/checks/retrigger`
 
-**Work items**: `POST /api/work-items`, `GET /api/work-items`, `GET /api/work-items/:id`, `POST /api/work-items/:id/retry`, `DELETE /api/work-items/:id`
+**Work items**: `POST /api/work-items`, `GET /api/work-items`, `GET /api/work-items/:id`, `POST /api/work-items/:id/retry`, `DELETE /api/work-items/:id`, `GET /api/work-items/:id/repositories/available`, `POST /api/work-items/:id/repositories`, `POST /api/work-items/:id/pull-requests`, `DELETE /api/work-items/:id/pull-requests`, `GET /api/work-items/:id/peer-review`, `POST /api/work-items/:id/peer-review`
 
-**Codex reviews**: `GET /api/workspaces/:id/codex-review`, `POST /api/workspaces/:id/codex-review`, `GET /api/capabilities/codex-review`
+**Workspaces**: `POST /api/workspaces`, `GET /api/workspaces`, `GET /api/workspaces/:id`, `DELETE /api/workspaces/:id`, `GET /api/workspaces/operations`, `POST /api/workspaces/:id/retry-cleanup`, `POST /api/workspaces/:id/terminal`, `POST /api/workspaces/cleanup`, `GET /api/workspaces/orphans`, `POST /api/workspaces/orphans/reconcile`, `GET /api/workspaces/:id/peer-review`, `POST /api/workspaces/:id/peer-review`
 
-**Sessions**: `POST /api/sessions`, `GET /api/sessions`, `DELETE /api/sessions/:id`, `POST /api/sessions/:id/popout`, `GET /api/sessions/history`, `GET /api/sessions/:id/transcript`
+**Sessions**: `POST /api/sessions`, `GET /api/sessions`, `PATCH /api/sessions/:id`, `DELETE /api/sessions/:id`, `POST /api/sessions/:id/reattach`, `POST /api/sessions/:id/promote`, `POST /api/sessions/:id/activity/:provider`, `GET /api/sessions/history`, `GET /api/sessions/:id/transcript`, `GET /ws/sessions/:id` (WebSocket terminal)
 
-**Rules**: `GET /api/rules`, `GET /api/rules/runs`, `POST /api/rules/:id/run`, `POST /api/rules/:id/run-all`, `GET /api/rules/:id/subscriptions`, `POST /api/rules/:id/subscribe`, `DELETE /api/rules/:id/subscribe`, `GET /api/prs/:pr_id/rule-subscriptions`
+**Rules**: `GET /api/rules`, `GET /api/rules/runs`, `POST /api/rules/:id/run`, `POST /api/rules/:id/run-all`, `GET /api/rules/:id/subscriptions`, `POST /api/rules/:id/subscribe`, `DELETE /api/rules/:id/subscribe`, `POST /api/rules/:id/subscribe-all`
 
-**Other**: `POST /api/sync/trigger`, `GET /api/config`, `GET /api/events` (SSE), `POST /api/checks/retrigger`
+**Setup and configuration**: `GET /api/config`, `POST /api/config`, `GET /api/capabilities/providers`, `GET /api/repos`, `GET /api/setup/accounts`, `GET /api/setup/repos`
+
+**Server**: `POST /api/sync/trigger`, `GET /api/events` (SSE), `GET /api/tasks`, `POST /api/update`, `POST /api/restart`, `GET /api/restart/status`, `POST /mcp/:sessionId` (per-session MCP endpoint)
 
 ## MCP tools
 
-When Claude Code connects via the auto-generated MCP config, it gets access to:
+When a session connects through its auto-generated MCP config (`/mcp/:sessionId`), it gets these tools. The list is the `actionRegistry` in `src/actions.js`; the descriptions there are the source of truth.
 
-- `list_prs` - list and filter PRs
-- `get_pr` / `get_pr_diff` / `get_pr_comments` - PR details
-- `get_check_logs` - failed CI logs with error extraction
-- `create_workspace` / `create_scratch_workspace` / `destroy_workspace` / `cleanup_workspaces` - workspace management
-- `list_workspaces` - list workspaces with filtering
-- `retrigger_checks` - re-run failed CI
-- `wait_for_checks` - poll until CI checks reach a final state
-- `trigger_sync` - force a GitHub poll
-- `review_with_codex` - fulfill an explicit Review with Codex request for the calling PR workspace
+**Pull requests**
+
+- `list_prs` - List all tracked pull requests.
+- `get_pr` - Get details for a single PR by its database ID.
+- `refresh_pr` - Force-refresh a single PR from GitHub right now, bypassing the incremental poll cadence.
+- `get_pr_diff` - Get the diff for a PR.
+- `get_pr_comments` - Get review comments and conversation for a PR.
+- `get_check_logs` - Get the actual output of failed CI checks for a PR.
+- `retrigger_checks` - Re-run failed CI checks for a PR.
+- `wait_for_checks` - Wait until all CI checks on a PR reach a final state (no more running/queued checks).
+- `trigger_sync` - Trigger an immediate sync of PR data from GitHub.
+
+**Work items and workspaces**
+
+- `start_work_item` - Start a reference-based work item and wait for Patrol to prepare its repository workspaces.
+- `add_repo_workspace` - Add a configured repository workspace to a ready work item.
+- `list_available_repositories` - List configured local repositories that can be added to a work item.
+- `link_pull_request` - Link a pull request to its originating work item immediately after creating it.
+- `unlink_pull_request` - Remove an incorrect pull-request association from a work item without changing GitHub or deleting either object.
+- `create_workspace` - Create a one-repository work item for a PR and prepare its jj checkout.
+- `create_scratch_workspace` - Create a manual work item without an external reference.
+- `list_workspaces` - List workspaces.
+- `destroy_workspace` - Destroy a workspace by its ID.
+- `cleanup_workspaces` - Destroy active workspaces whose PRs match the given conditions.
+
+**Sessions**
+
+- `list_sessions` - List dispatchable Claude and Codex sessions known to Patrol.
+- `send_prompt_to_session` - Send a prompt to another Claude or Codex session.
+- `wait_for_idle` - Wait until a Claude or Codex session reaches idle.
+- `get_session_history` - List previous Claude and Codex sessions for a PR or workspace.
+- `get_session_transcript` - Get a summary of a previous Claude session.
+- `review_with_claude` - Run the user-requested review with the other provider for the calling session's PR diff; reservation-gated from the UI.
+- `review_with_codex` - Run the user-requested review with the other provider for the calling session's PR diff; reservation-gated from the UI.
+
+**Rules**
+
+- `run_rule_for_all_matching_prs` - Fire a rule against every PR matching its `where` clause at once.
+- `subscribe_rule_for_all_matching_prs` - Subscribe every PR matching a rule's `where` clause to that rule.
 
 ## License
 

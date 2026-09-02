@@ -1,19 +1,24 @@
 # Future Ideas
 
-Things worth building eventually but not yet prioritized.
+Things worth building eventually but not yet prioritized. Two earlier entries
+(session transcript persistence, the automation loop) shipped as
+`src/transcripts.js` and `src/rules.js` and are gone from this list.
 
-## Notification and alerting
+## External notifications
 
-The poller already detects CI failures, review requests, and merge conflicts. Hooking that into external channels (Slack webhooks, email, macOS notifications) would surface problems without needing the dashboard open. The `pollerEvents` EventEmitter in `src/poller.js` already emits `sync` events with PR counts - a notification module could subscribe to that same emitter and diff state between cycles to detect transitions (passing -> failing, no reviews -> changes requested, etc.). Slack's incoming webhook API is the lowest-friction integration point.
+Browser notifications for idle sessions exist (`frontend/src/hooks/useIdleNotification.js`).
+Nothing reaches you when the dashboard is closed. The poller emits `pr-changed`
+events with computed transitions (`src/poller.js`, consumed by the rules
+engine), so a notification module could subscribe to the same emitter and post
+to Slack incoming webhooks, email, or macOS notifications when CI fails, a
+review requests changes, or a merge conflict appears. A rule action type
+(`notify`) would fit the existing engine better than a separate subscriber.
 
-## Session transcript persistence
+## Create a work item from the command palette
 
-Terminal sessions use a 50KB ring buffer (`src/pty-manager.js` RingBuffer class) that gets garbage collected when the session ends. For post-mortem debugging or audit trails, the full session output should be persisted. Options: stream to a file on disk during the session (append-only, cheap), or snapshot the buffer to the DB on session exit. The DB approach is simpler but caps at 50KB per session. File-based streaming captures everything but needs a retention/cleanup policy. Either way, the `proc.onData` handler in `createSession()` is the hook point - add a second consumer alongside the WebSocket broadcast.
-
-## Automation loop
-
-The most valuable next step: auto-dispatch Claude Code when the poller detects an actionable state. For example, when CI fails on a PR that has a workspace, automatically start a session and send "investigate and fix the CI failures" as the initial prompt. The pieces exist - `createSession()` spawns Claude, `QuickActions` already constructs investigation prompts, and the poller knows which PRs have failures. What's missing is the orchestration: a rules engine that evaluates PR state transitions and decides when to act. Needs guardrails (max concurrent sessions, cooldown between retries, opt-in per repo/PR) to avoid runaway automation. The `pollerEvents` sync event is the trigger point, and the MCP server tools (`create_scratch_workspace`, etc.) give Claude the ability to act on its findings.
-
-## Create scratch workspace from command palette
-
-The command palette (Cmd+K) only searches and navigates to existing PRs and workspaces. It should also support creating a scratch workspace directly. Add an "action" item type that pins a "New Scratch Workspace" entry in results, fuzzy-matching against "new", "scratch", and "create". Selecting it switches the palette into a create form with a repo dropdown and branch input. Submits via the existing `POST /api/workspaces { repo, branch }` endpoint, closes the palette, and navigates to the new workspace. No backend changes needed - just `CommandPalette.jsx` (action item type, create-mode state, and form) and `CommandPalette.module.css` (form styles). Escape in create mode returns to search; a second Escape closes the palette entirely.
+The command palette (Cmd+K) searches and navigates to existing PRs, work items
+and scratch workspaces. It should also create manual work: an "action" item
+type pinned in results, fuzzy-matching "new", "scratch" and "create", which
+switches the palette into the Start work form (title, repositories, optional
+bookmark) and submits through `POST /api/work-items` with `source: "manual"`.
+Escape in create mode returns to search; a second Escape closes the palette.
