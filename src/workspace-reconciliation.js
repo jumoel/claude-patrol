@@ -183,6 +183,13 @@ function canonicalOwnedPaths(excludeWorkspaceId = null) {
 
 function databaseOwner(path, excludeWorkspaceId = null) {
   const canonical = canonicalDirectory(path) ?? resolve(path);
+  // Fast path: most rows store the path exactly as it is on disk, so an
+  // exact lookup answers without realpath-ing every workspace row. The full
+  // canonical scan below still catches symlinked or re-spelled paths.
+  const exact = getDb()
+    .prepare('SELECT id FROM workspaces WHERE path IN (?, ?) AND id IS NOT ? LIMIT 1')
+    .get(path, canonical, excludeWorkspaceId);
+  if (exact) return exact.id;
   return canonicalOwnedPaths(excludeWorkspaceId).get(canonical) ?? null;
 }
 
@@ -483,7 +490,6 @@ async function cleanupOrphan(orphan, config, runtime) {
       throw cleanupError('workspace_forget_failed', `jj workspace forget failed: ${error.message}`);
   }
 
-  updateOrphan(orphan.path, 'destroying', 'destroy:transcripts');
   updateOrphan(orphan.path, 'destroying', 'destroy:directory');
   assertPatrolAvailable(runtime.isPatrolAvailable);
   const finalOwner = databaseOwner(orphan.path);
