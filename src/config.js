@@ -18,6 +18,7 @@ const PATH_FIELDS = ['db_path', 'workspace_base_path', 'work_dir', 'global_termi
 
 const OWNER_REPO_RE =
   /^(?!\.{1,2}\/)(?![^/]+\/\.{1,2}$)[^\s/\\\u0000-\u001f\u007f-\u009f]+\/[^\s/\\\u0000-\u001f\u007f-\u009f]+$/u;
+const OWNER_RE = /^(?!-)[^\s/\\\u0000-\u001f\u007f-\u009f]+$/u;
 const MCP_NAME_RE = /^[A-Za-z0-9_-]+$/;
 const MCP_TOOL_RE = /^[A-Za-z0-9_.-]+$/;
 
@@ -88,7 +89,7 @@ export const configSchema = z
     poll: z
       .object({
         interval_seconds: z.number().int().min(5).default(30),
-        orgs: z.array(z.string()).default([]),
+        orgs: z.array(z.string().regex(OWNER_RE, 'must be a GitHub owner name')).default([]),
         repos: z.array(z.string().regex(OWNER_REPO_RE, 'must be "owner/repo" format')).default([]),
       })
       .default({ interval_seconds: 30, orgs: [], repos: [] }),
@@ -210,24 +211,19 @@ function writeConfigAtomic(path, value) {
 
 /**
  * Validate, atomically persist, and publish a partial configuration update.
- * The raw on-disk object is merged so normalized absolute paths are never
- * written back over the user's portable path values.
+ * Top-level keys are replaced, except that a plain-object section in the
+ * patch (poll, security, automation, work_items, repos, ...) is merged one
+ * level deep into the existing section; arrays and scalars inside a section
+ * are replaced. The raw on-disk object is merged so normalized absolute paths
+ * are never written back over the user's portable path values.
  */
 export function updateConfig(patch, path = defaultConfigPath()) {
   const raw = JSON.parse(readFileSync(path, 'utf8'));
-  const mergeSection = (key) => {
-    if (!Object.hasOwn(patch, key)) return raw[key];
-    const value = patch[key];
-    if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
-    return { ...(raw[key] ?? {}), ...value };
-  };
-  const merged = {
-    ...raw,
-    ...patch,
-    poll: mergeSection('poll'),
-    security: mergeSection('security'),
-    workspace_reconciliation: mergeSection('workspace_reconciliation'),
-  };
+  const isSection = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+  const merged = { ...raw };
+  for (const [key, value] of Object.entries(patch)) {
+    merged[key] = isSection(value) && isSection(raw[key]) ? { ...raw[key], ...value } : value;
+  }
   const normalized = parseConfig(merged);
   writeConfigAtomic(path, merged);
   setCurrentConfig(normalized);

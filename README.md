@@ -104,7 +104,7 @@ Running without a subcommand defaults to `start`.
 | `workspace_reconciliation.hourly_policy` | Hourly orphan behavior: `report_only` by default, or `delete_after_retention`. Startup and explicit cleanup remain immediate. |
 | `workspace_reconciliation.retention_hours` | Continuous orphan age required by hourly deletion mode (default 168 hours). |
 | `workspace_base_path` | Base directory for jj workspaces |
-| `work_dir` | Base directory where your repos are cloned. Expects a `<org>/<repo>` structure (e.g. `~/work/acme/api-server`, `~/work/acme/webapp`). When creating jj workspaces, Claude Patrol resolves the main repo at `<work_dir>/<org>/<repo>`. |
+| `work_dir` | Base directory where your repos are cloned. Expects a `<org>/<repo>` structure (e.g. `~/work/acme/api-server`, `~/work/acme/webapp`). When creating jj workspaces, Claude Patrol resolves the main repo at `<work_dir>/<org>/<repo>`. Defaults to the same directory as `workspace_base_path`, which only works if your checkouts live there, so set it explicitly. |
 | `global_terminal_cwd` | Working directory for the global terminal |
 | `default_session_provider` | Initial session provider, `claude` or `codex`. A provider saved in the browser overrides this default. |
 | `symlink_memory` | Create `.claude/memory` symlinks in workspaces |

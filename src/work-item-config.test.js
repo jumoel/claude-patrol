@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, test } from 'node:test';
-import { isConfigured, isPollConfigured, isWorkItemsConfigured, parseConfig } from './config.js';
+import { isConfigured, isPollConfigured, isWorkItemsConfigured, parseConfig, updateConfig } from './config.js';
 import { providerSetup } from './provider-setup.js';
 import { ensureManualSourceRepository, resolveWorkspaceRevision, sourceRepositoryPath } from './workspace.js';
 
@@ -227,4 +227,39 @@ test('manual source preparation clones missing repositories into work_dir scope 
     ['gh', ['repo', 'clone', 'acme/widgets', expectedPath]],
     ['jj', ['git', 'init', '--colocate']],
   ]);
+});
+
+test('poll.orgs rejects values that are not GitHub owner names', () => {
+  assert.equal(parseConfig({ poll: { orgs: ['acme', 'my-org'] } }).poll.orgs.length, 2);
+  for (const bad of ['acme corp', '-acme', 'acme/repo', 'acme\nx']) {
+    assert.throws(
+      () => parseConfig({ poll: { orgs: [bad] } }),
+      /poll\.orgs/,
+      `expected ${JSON.stringify(bad)} to be rejected`,
+    );
+  }
+});
+
+test('updateConfig merges every object section one level deep and replaces the rest', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'patrol-config-'));
+  const file = join(dir, 'config.json');
+  writeFileSync(
+    file,
+    JSON.stringify({
+      poll: { orgs: ['acme'], repos: ['acme/a'], interval_seconds: 30 },
+      automation: { concurrency: 4 },
+      repos: { 'acme/a': { defaultRevision: 'main@origin' } },
+      symlink_memory: true,
+    }),
+  );
+  try {
+    updateConfig({ automation: {}, repos: { 'acme/b': {} }, poll: { repos: ['acme/b'] }, symlink_memory: false }, file);
+    const written = JSON.parse(readFileSync(file, 'utf8'));
+    assert.equal(written.automation.concurrency, 4, 'an empty section patch keeps existing keys');
+    assert.deepEqual(Object.keys(written.repos), ['acme/a', 'acme/b'], 'repos merges instead of replacing');
+    assert.deepEqual(written.poll, { orgs: ['acme'], repos: ['acme/b'], interval_seconds: 30 }, 'arrays are replaced');
+    assert.equal(written.symlink_memory, false, 'scalars are replaced');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
