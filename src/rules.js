@@ -190,6 +190,8 @@ let loadErrors = [];
 let app = null;
 let started = false;
 let automationQueue = null;
+/** Wall clock for cooldown windows and run timestamps; injectable for tests. */
+let clock = () => Date.now();
 
 function onConfigChange(cfg) {
   loadRules(cfg?.rules);
@@ -211,10 +213,12 @@ function onSessionState(event) {
  * Initialize and wire up the rules engine. Idempotent.
  * @param {import('fastify').FastifyInstance} fastifyApp
  * @param {object} initialConfig
+ * @param {{ now?: () => number }} [options] clock override for tests
  */
-export function startRulesEngine(fastifyApp, initialConfig) {
+export function startRulesEngine(fastifyApp, initialConfig, { now } = {}) {
   if (started) return;
   app = fastifyApp;
+  clock = now ?? (() => Date.now());
 
   loadRules(initialConfig?.rules);
   automationQueue = new AutomationQueue({
@@ -285,6 +289,47 @@ export function getRuleLoadErrors() {
 }
 
 /**
+ * Drop a (rule, pr) subscription. One helper for every consumption path so the
+ * natural trigger, Run Now, run-all and the post-fire consume leave the same
+ * state behind.
+ * @param {object} rule
+ * @param {string} prId
+ * @param {string} reason logged so the audit trail says which path consumed it
+ */
+function consumeSubscription(rule, prId, reason) {
+  getDb().prepare('DELETE FROM rule_subscriptions WHERE rule_id = ? AND pr_id = ?').run(rule.id, prId);
+  console.log(`[rules] ${reason} consumed subscription: rule=${rule.id} pr=${prId}`);
+}
+
+/**
+ * Resolve the PR and repository behind a session's workspace. Scratch
+ * workspaces carry `repo` directly; PR workspaces resolve it through `prs`.
+ * @param {string | null} workspaceId
+ * @returns {{ prId: string | null, workspaceRepo: string | null }}
+ */
+function resolveWorkspaceContext(workspaceId) {
+  if (!workspaceId) return { prId: null, workspaceRepo: null };
+  const db = getDb();
+  const ws = db.prepare('SELECT pr_id, repo FROM workspaces WHERE id = ?').get(workspaceId);
+  if (!ws) return { prId: null, workspaceRepo: null };
+  let workspaceRepo = ws.repo ?? null;
+  if (!workspaceRepo && ws.pr_id) {
+    const pr = db.prepare('SELECT org, repo FROM prs WHERE id = ?').get(ws.pr_id);
+    if (pr) workspaceRepo = `${pr.org}/${pr.repo}`;
+  }
+  return { prId: ws.pr_id ?? null, workspaceRepo };
+}
+
+/** The ready, non-work-item workspace attached to a PR, if any. */
+function findReadyPrWorkspace(prId) {
+  return getDb()
+    .prepare(
+      "SELECT id FROM workspaces WHERE pr_id = ? AND work_item_id IS NULL AND status = 'active' AND operation_state = 'ready'",
+    )
+    .get(prId);
+}
+
+/**
  * Dispatch a `pr-changed` event to matching rules. Two triggers consume this:
  *   - `ci.finalized`: fires when changes.ci_status.to is in {pass, fail}.
  *   - `mergeable.changed`: fires when changes.mergeable exists.
@@ -316,10 +361,7 @@ async function handlePrChanged(event) {
     // of the trigger firing for this PR, regardless of where-match or fire
     // outcome. Delete it before the fire so a fire-error doesn't preserve the
     // subscription (which would contradict until-next-trigger semantics).
-    if (subscribed && rule.consume_on === 'trigger') {
-      getDb().prepare('DELETE FROM rule_subscriptions WHERE rule_id = ? AND pr_id = ?').run(rule.id, pr.id);
-      console.log(`[rules] consume_on=trigger consumed subscription: rule=${rule.id} pr=${pr.id}`);
-    }
+    if (subscribed && rule.consume_on === 'trigger') consumeSubscription(rule, pr.id, 'consume_on=trigger');
 
     if (!matches(rule.where, predCtx)) continue;
     const cooldownKey = pr.id;
@@ -348,23 +390,7 @@ async function handlePrChanged(event) {
 async function handleSessionIdle(event) {
   if (event.target?.type === 'work_item' || event.workItemId) return;
   const { sessionId, workspaceId } = event;
-
-  // Resolve workspace_repo from workspaces (scratch) or via prs (PR-attached).
-  let workspaceRepo = null;
-  let prId = null;
-  if (workspaceId) {
-    const db = getDb();
-    const ws = db.prepare('SELECT pr_id, repo FROM workspaces WHERE id = ?').get(workspaceId);
-    if (ws) {
-      prId = ws.pr_id;
-      if (ws.repo) {
-        workspaceRepo = ws.repo;
-      } else if (ws.pr_id) {
-        const pr = db.prepare('SELECT org, repo FROM prs WHERE id = ?').get(ws.pr_id);
-        if (pr) workspaceRepo = `${pr.org}/${pr.repo}`;
-      }
-    }
-  }
+  const { prId, workspaceRepo } = resolveWorkspaceContext(workspaceId);
 
   const predCtx = { workspace_repo: workspaceRepo };
   const tmplCtx = { pr: null, session: { id: sessionId, workspace_id: workspaceId, workspace_repo: workspaceRepo } };
@@ -461,7 +487,7 @@ function templateValue(val, tmplCtx) {
 function cooldownOk(rule, cooldownKey) {
   const minutes = rule.cooldown_minutes;
   if (minutes === 0) return true;
-  const cutoff = new Date(Date.now() - minutes * 60_000).toISOString();
+  const cutoff = new Date(clock() - minutes * 60_000).toISOString();
   const db = getDb();
   const recent = db
     .prepare('SELECT id FROM rule_runs WHERE rule_id = ? AND cooldown_key = ? AND started_at > ? LIMIT 1')
@@ -483,7 +509,7 @@ export function fireRule(rule, ctx, { force = false } = {}) {
   // Caller may pre-assign an id (e.g. bulk run-all wants to return ids before
   // the fire completes). Fall back to a fresh UUID otherwise.
   const id = ctx._id ?? randomUUID();
-  const startedAt = new Date().toISOString();
+  const startedAt = new Date(clock()).toISOString();
 
   const runRow = {
     id,
@@ -517,8 +543,7 @@ async function executeRuleJob({ rule, ctx }, runRow) {
   // consume_on=fire rules consume only after their complete action chain has
   // succeeded. Queue failures deliberately leave the subscription armed.
   if (rule.consume_on === 'fire' && rule.requires_subscription && runRow.pr_id) {
-    getDb().prepare('DELETE FROM rule_subscriptions WHERE rule_id = ? AND pr_id = ?').run(rule.id, runRow.pr_id);
-    console.log(`[rules] consume_on=fire consumed subscription: rule=${rule.id} pr=${runRow.pr_id}`);
+    consumeSubscription(rule, runRow.pr_id, 'consume_on=fire');
   }
 }
 
@@ -566,12 +591,7 @@ async function dispatchClaude(ctx, prompt, runRow) {
   // doesn't expose the intermediate state. Pre-resolve workspace_id ourselves
   // when it already exists; if autoCreate has to make one, the rule_run row
   // will pick it up from the dispatcher's return value.
-  const db = getDb();
-  const existing = db
-    .prepare(
-      "SELECT id FROM workspaces WHERE pr_id = ? AND work_item_id IS NULL AND status = 'active' AND operation_state = 'ready'",
-    )
-    .get(ctx.pr_id);
+  const existing = findReadyPrWorkspace(ctx.pr_id);
   if (existing) updateRunRow(runRow, { workspace_id: existing.id });
 
   try {
@@ -590,11 +610,7 @@ async function dispatchClaude(ctx, prompt, runRow) {
     // before failing (e.g. session creation crashed mid-flight), pick it
     // up so the rule_run row reflects the partial state.
     if (!runRow.workspace_id) {
-      const ws = db
-        .prepare(
-          "SELECT id FROM workspaces WHERE pr_id = ? AND work_item_id IS NULL AND status = 'active' AND operation_state = 'ready'",
-        )
-        .get(ctx.pr_id);
+      const ws = findReadyPrWorkspace(ctx.pr_id);
       if (ws) updateRunRow(runRow, { workspace_id: ws.id });
     }
     // If the dispatcher resolved a session before failing (e.g. session_busy
@@ -634,8 +650,7 @@ export async function manualRunRule(ruleId, options = {}) {
     // the event firing on its own. consume_on=fire is handled in fireRule on
     // success; permanent (no consume_on) subscriptions stay put.
     if (rule.requires_subscription && rule.consume_on === 'trigger' && isSubscribed(rule.id, pr.id)) {
-      db.prepare('DELETE FROM rule_subscriptions WHERE rule_id = ? AND pr_id = ?').run(rule.id, pr.id);
-      console.log(`[rules] manual run consumed subscription (consume_on=trigger): rule=${rule.id} pr=${pr.id}`);
+      consumeSubscription(rule, pr.id, 'manual run (consume_on=trigger)');
     }
     return fireRule(
       rule,
@@ -668,19 +683,7 @@ export async function manualRunRule(ruleId, options = {}) {
     if (sess.work_item_id || sess.workspace_work_item_id) {
       throw new Error('work-item sessions do not participate in rules');
     }
-    let workspaceRepo = null;
-    let prId = null;
-    if (sess.workspace_id) {
-      const ws = db.prepare('SELECT pr_id, repo FROM workspaces WHERE id = ?').get(sess.workspace_id);
-      if (ws) {
-        prId = ws.pr_id;
-        if (ws.repo) workspaceRepo = ws.repo;
-        else if (ws.pr_id) {
-          const pr = db.prepare('SELECT org, repo FROM prs WHERE id = ?').get(ws.pr_id);
-          if (pr) workspaceRepo = `${pr.org}/${pr.repo}`;
-        }
-      }
-    }
+    const { prId, workspaceRepo } = resolveWorkspaceContext(sess.workspace_id);
     const cooldownKey = sess.id;
     if (!options.force && !cooldownOk(rule, cooldownKey)) {
       throw new Error('cooldown active (pass force=true to bypass)');
@@ -818,12 +821,12 @@ export function runRuleForAll(ruleId, options = {}) {
     // leave the same state behind as the natural trigger. consume_on=fire is
     // handled in fireRule on success.
     if (rule.requires_subscription && rule.consume_on === 'trigger' && isSubscribed(rule.id, pr.id)) {
-      db.prepare('DELETE FROM rule_subscriptions WHERE rule_id = ? AND pr_id = ?').run(rule.id, pr.id);
-      console.log(`[rules] run-all consumed subscription (consume_on=trigger): rule=${rule.id} pr=${pr.id}`);
+      consumeSubscription(rule, pr.id, 'run-all (consume_on=trigger)');
     }
 
-    // Fire-and-forget. The fireRule INSERT is synchronous so the run_id is
-    // already valid when this returns; the action chain runs in the background.
+    // Fire-and-forget. fireRule enqueues synchronously, so the rule_runs row
+    // exists and run_id is valid when this returns; the action chain runs on
+    // the automation queue in the background.
     const runId = randomUUID();
     try {
       fireRule(
@@ -854,9 +857,9 @@ export function runRuleForAll(ruleId, options = {}) {
  * `subscribeRule` for "opt every matching PR in" use cases. Idempotent: PRs
  * already subscribed are reported under `already_subscribed`.
  *
- * Only valid for rules with `requires_subscription: true`. Since the rule
- * loader (`validateRule`) already requires PR triggers for subscription rules,
- * iterating PRs is sound here.
+ * Only valid for rules with `requires_subscription: true`. Since `ruleSchema`
+ * already requires PR triggers for subscription rules, iterating PRs is sound
+ * here.
  *
  * @param {string} ruleId
  * @returns {{subscribed: Array<{pr_id: string}>, already_subscribed: Array<{pr_id: string}>, skipped: Array<{pr_id: string, reason: string}>}}
