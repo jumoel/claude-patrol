@@ -1,8 +1,8 @@
-import { execFile as execFileCb } from 'node:child_process';
 import { emitLocalChange } from '../app-events.js';
 import { sendError, sendErrorFrom } from '../http-errors.js';
 import { formatPR } from '../pr-status.js';
 import { runTask } from '../tasks.js';
+import { execFile } from '../utils.js';
 import { destroyWorkspace } from '../workspace.js';
 
 /**
@@ -160,7 +160,7 @@ export function registerWorkspaceRoutes(app) {
     }
   });
 
-  app.post('/api/workspaces/:id/terminal', (request, reply) => {
+  app.post('/api/workspaces/:id/terminal', async (request, reply) => {
     const db = getDb();
     const candidate = db.prepare('SELECT * FROM workspaces WHERE id = ?').get(request.params.id);
     if (candidate?.work_item_id) {
@@ -168,10 +168,22 @@ export function registerWorkspaceRoutes(app) {
     }
     const workspace = candidate?.status === 'active' && candidate.operation_state === 'ready' ? candidate : null;
     if (!workspace) return sendError(reply, 'workspace_not_found', 'Workspace not found or not active');
-    execFileCb('open', ['-na', 'Ghostty.app', '--args', '--working-directory', workspace.path], (err) => {
-      if (err) console.warn(`[workspaces] Failed to open Ghostty: ${err.message}`);
-    });
-    return { ok: true };
+    if (process.platform !== 'darwin') {
+      return sendError(reply, 'terminal_unsupported', 'Opening a terminal window is only supported on macOS', {
+        status: 501,
+      });
+    }
+    const terminalApp = getConfig().terminal_app ?? 'Ghostty';
+    try {
+      await execFile('open', ['-na', `${terminalApp}.app`, '--args', '--working-directory', workspace.path], {
+        timeout: 10_000,
+      });
+    } catch (error) {
+      return sendError(reply, 'terminal_launch_failed', `Could not open ${terminalApp}: ${error.message}`, {
+        status: 502,
+      });
+    }
+    return { ok: true, terminal_app: terminalApp };
   });
 
   app.post('/api/workspaces/cleanup', async (request, _reply) => {

@@ -85,6 +85,9 @@ export const configSchema = z
     work_dir: z.string().default('~/.claude-patrol/workspaces'),
     global_terminal_cwd: z.string().optional(),
     default_session_provider: z.enum(['claude', 'codex']).default('claude'),
+    // macOS application name handed to `open -na <app>.app` by the workspace
+    // "Terminal" button. Any terminal that accepts --working-directory works.
+    terminal_app: z.string().trim().min(1).max(128).default('Ghostty'),
     symlink_memory: z.boolean().default(false),
     poll: z
       .object({

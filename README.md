@@ -26,7 +26,7 @@ You'll need these installed and on your PATH:
 - **claude** - Claude Code CLI, when Claude sessions or resolution are enabled
 - **codex** - Codex CLI, when Codex sessions, resolution, or reviews are enabled
 - **tmux** - terminal multiplexer (sessions survive server restarts)
-- **Ghostty** (optional) - for the "Pop out" and "Terminal" buttons
+- **A macOS terminal app** (optional) - the "Terminal" button opens a workspace in Ghostty by default; set `terminal_app` to use another app that accepts `--working-directory`
 
 ## Getting started
 
@@ -107,6 +107,7 @@ Running without a subcommand defaults to `start`.
 | `work_dir` | Base directory where your repos are cloned. Expects a `<org>/<repo>` structure (e.g. `~/work/acme/api-server`, `~/work/acme/webapp`). When creating jj workspaces, Claude Patrol resolves the main repo at `<work_dir>/<org>/<repo>`. Defaults to the same directory as `workspace_base_path`, which only works if your checkouts live there, so set it explicitly. |
 | `global_terminal_cwd` | Working directory for the global terminal |
 | `default_session_provider` | Initial session provider, `claude` or `codex`. A provider saved in the browser overrides this default. |
+| `terminal_app` | macOS application the workspace "Terminal" button opens, passed to `open -na <app>.app`. Defaults to `Ghostty`. |
 | `symlink_memory` | Create `.claude/memory` symlinks in workspaces |
 | `repos.<org/repo>.symlinks` | Additional symlinks to create in workspaces |
 | `repos.<org/repo>.initCommands` | Commands to run after workspace creation |
