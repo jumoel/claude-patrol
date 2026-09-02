@@ -152,10 +152,16 @@ export class AutomationQueue {
         .run(new Date().toISOString(), job.id);
       if (claimed.changes === 0) continue;
       this.#running++;
-      this.#run(job).finally(() => {
-        this.#running--;
-        this.#schedulePump();
-      });
+      this.#run(job)
+        .catch((error) => {
+          // #run settles the completion itself; this only guards the process
+          // against an unhandled rejection from a bug in the finalization path.
+          console.error(`[rules] automation job ${job.id} failed to finalize: ${error?.message ?? error}`);
+        })
+        .finally(() => {
+          this.#running--;
+          this.#schedulePump();
+        });
     }
   }
 
@@ -171,23 +177,38 @@ export class AutomationQueue {
     }
 
     const endedAt = new Date().toISOString();
-    const status = error ? 'error' : 'success';
-    db.exec('BEGIN IMMEDIATE');
+    let status = error ? 'error' : 'success';
+    let finalRun;
     try {
-      db.prepare('UPDATE rule_runs SET status = ?, error = ?, ended_at = ? WHERE id = ?').run(
-        status,
-        error,
-        endedAt,
-        job.id,
-      );
-      db.prepare("UPDATE automation_jobs SET status = 'done', updated_at = ? WHERE id = ?").run(endedAt, job.id);
-      db.exec('COMMIT');
+      db.exec('BEGIN IMMEDIATE');
+      try {
+        db.prepare('UPDATE rule_runs SET status = ?, error = ?, ended_at = ? WHERE id = ?').run(
+          status,
+          error,
+          endedAt,
+          job.id,
+        );
+        db.prepare("UPDATE automation_jobs SET status = 'done', updated_at = ? WHERE id = ?").run(endedAt, job.id);
+        db.exec('COMMIT');
+      } catch (updateError) {
+        try {
+          db.exec('ROLLBACK');
+        } catch {
+          // The transaction never opened or the connection is gone; nothing to roll back.
+        }
+        throw updateError;
+      }
+      finalRun = db.prepare('SELECT * FROM rule_runs WHERE id = ?').get(job.id);
     } catch (updateError) {
-      db.exec('ROLLBACK');
-      throw updateError;
+      // The run finished but its outcome could not be persisted. Report the
+      // failure to the waiter instead of leaving the completion pending and
+      // letting the rejection escape #pump.
+      status = 'error';
+      const message = `failed to record run outcome: ${updateError?.message ?? updateError}`;
+      console.error(`[rules] automation job ${job.id} ${message}`);
+      finalRun = { id: job.id, status, error: error ? `${error}; ${message}` : message, ended_at: endedAt };
     }
 
-    const finalRun = db.prepare('SELECT * FROM rule_runs WHERE id = ?').get(job.id);
     this.#onUpdate(finalRun);
     const resolve = this.#completions.get(job.id);
     if (resolve) {

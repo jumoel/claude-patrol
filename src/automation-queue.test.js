@@ -145,3 +145,52 @@ test('queued jobs resume after a restart without replaying interrupted jobs', as
   );
   await thirdQueue.stop();
 });
+
+test('a failure while recording the outcome settles the completion and keeps the queue alive', async () => {
+  initDb(':memory:');
+  const rejections = [];
+  const onRejection = (reason) => rejections.push(reason);
+  process.on('unhandledRejection', onRejection);
+  let failOutcomeWrites = false;
+  const realDb = getDb();
+  // Same connection, but the UPDATE that records the run outcome throws once
+  // the flag is set. Everything else passes through.
+  const db = new Proxy(realDb, {
+    get(target, property) {
+      if (property === 'prepare') {
+        return (sql) => {
+          if (failOutcomeWrites && sql.startsWith('UPDATE rule_runs SET status = ?')) {
+            throw new Error('disk I/O error');
+          }
+          return target.prepare(sql);
+        };
+      }
+      const value = target[property];
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  });
+  const queue = new AutomationQueue({
+    getDb: () => db,
+    concurrency: 1,
+    execute: async ({ fail }) => {
+      failOutcomeWrites = fail;
+    },
+  });
+  queue.start();
+
+  try {
+    const broken = queue.enqueue({ run: run('broken'), payload: { fail: true } });
+    const outcome = await broken.completion;
+    assert.equal(outcome.status, 'error');
+    assert.match(outcome.error, /failed to record run outcome: disk I\/O error/);
+
+    failOutcomeWrites = false;
+    const next = queue.enqueue({ run: run('next'), payload: { fail: false } });
+    assert.equal((await next.completion).status, 'success');
+    await queue.stop();
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(rejections, []);
+  } finally {
+    process.off('unhandledRejection', onRejection);
+  }
+});
