@@ -3,6 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, test, vi } from 'vitest';
 import { AgentProviderProvider } from '../../context/AgentProviderContext.jsx';
+import { assertFocused } from '../../test-support/dom.js';
 import { StartWorkLauncher } from './StartWorkLauncher.jsx';
 
 const api = vi.hoisted(() => ({
@@ -112,7 +113,7 @@ test('mode switching preserves values and cancel restores focus', async () => {
   assert.equal(/** @type {HTMLInputElement} */ (screen.getByLabelText('Reference')).value, 'PROJECT-42');
   await user.click(screen.getByRole('button', { name: 'Cancel' }));
   await new Promise((resolve) => requestAnimationFrame(resolve));
-  assert.equal(document.activeElement, screen.getByRole('button', { name: '+ Start work' }));
+  assertFocused(screen.getByRole('button', { name: '+ Start work' }));
 });
 
 test('a pending launch locks mode, cancel, and repeat submission', async () => {

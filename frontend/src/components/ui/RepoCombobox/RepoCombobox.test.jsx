@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, test, vi } from 'vitest';
+import { assertFocused } from '../../../test-support/dom.js';
 import { RepoCombobox } from './RepoCombobox.jsx';
 
 const api = vi.hoisted(() => ({ fetchAllRepos: vi.fn() }));
@@ -24,7 +25,7 @@ test('opens from the keyboard and selects a filtered repository', async () => {
 
   assert.deepEqual(onChange.mock.calls, [['acme/widgets']]);
   assert.equal(screen.queryByRole('listbox'), null);
-  assert.equal(document.activeElement, trigger);
+  assertFocused(trigger);
 });
 
 test('shows repository load failures and retries in place', async () => {

@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { useEffect, useRef } from 'react';
 import { beforeEach, test, vi } from 'vitest';
 import { AgentProviderProvider } from '../../context/AgentProviderContext.jsx';
+import { assertFocused } from '../../test-support/dom.js';
 import { GlobalTerminal } from './GlobalTerminal.jsx';
 
 const api = vi.hoisted(() => ({
@@ -115,7 +116,7 @@ test('renders accessible tabs and mounts only the selected terminal', async () =
   tabs[0].focus();
   fireEvent.keyDown(tabs[0], { key: 'ArrowRight' });
   assert.deepEqual(callbacks.onSelectSession.mock.calls, [['reviewer']]);
-  await waitFor(() => assert.equal(document.activeElement, tabs[1]));
+  await waitFor(() => assertFocused(tabs[1]));
 
   view.rerender(
     <AgentProviderProvider>
@@ -149,7 +150,7 @@ test('focuses the terminal after clicking its global session tab', async () => {
 
   await user.click(tab);
 
-  await waitFor(() => assert.equal(document.activeElement, screen.getByRole('textbox', { name: 'Terminal input' })));
+  await waitFor(() => assertFocused(screen.getByRole('textbox', { name: 'Terminal input' })));
 });
 
 test('creates a global session only from the explicit create control', async () => {

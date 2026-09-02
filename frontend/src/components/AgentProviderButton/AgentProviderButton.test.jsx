@@ -3,6 +3,7 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, test, vi } from 'vitest';
 import { AgentProviderProvider, useAgentProvider } from '../../context/AgentProviderContext.jsx';
+import { assertFocused } from '../../test-support/dom.js';
 import { AgentProviderButton } from './AgentProviderButton.jsx';
 
 const api = vi.hoisted(() => ({
@@ -43,16 +44,6 @@ function Harness(props = {}) {
 
 const onAction = vi.fn();
 
-/**
- * Compare focus with a boolean. A failing `assert.equal(document.activeElement, el)` makes
- * node:assert inspect both DOM nodes (and their React fibers) to build its diff, which
- * exhausts memory inside waitFor.
- * @param {Element} element
- */
-function hasFocus(element) {
-  return document.activeElement === element;
-}
-
 beforeEach(() => {
   onAction.mockReset();
   localStorage.clear();
@@ -90,7 +81,7 @@ test('shows the context provider, and choosing another one updates the context a
   assert.ok(screen.getByRole('button', { name: 'Choose agent provider, currently Codex' }));
   assert.equal(screen.getByTestId('context-provider').textContent, 'codex');
   assert.equal(localStorage.getItem(STORAGE_KEY), 'codex');
-  assert.ok(hasFocus(trigger), 'focus returns to the trigger after choosing');
+  assertFocused(trigger, 'focus returns to the trigger after choosing');
 });
 
 test('an explicit value overrides the displayed provider without changing the context', async () => {
@@ -138,19 +129,19 @@ test('arrow keys open the menu on the selected provider, move between options, a
   await user.keyboard('{ArrowDown}');
   const claude = screen.getByRole('menuitemradio', { name: /Claude/ });
   const codex = screen.getByRole('menuitemradio', { name: /Codex/ });
-  await waitFor(() => assert.ok(hasFocus(claude), 'the selected option takes focus on the next frame'));
+  await waitFor(() => assertFocused(claude, 'the selected option takes focus on the next frame'));
 
   await user.keyboard('{ArrowDown}');
-  assert.ok(hasFocus(codex));
+  assertFocused(codex);
   await user.keyboard('{ArrowDown}');
-  assert.ok(hasFocus(claude), 'focus wraps around');
+  assertFocused(claude, 'focus wraps around');
   await user.keyboard('{End}');
-  assert.ok(hasFocus(codex));
+  assertFocused(codex);
   await user.keyboard('{Home}');
-  assert.ok(hasFocus(claude));
+  assertFocused(claude);
 
   await user.keyboard('{Escape}');
   assert.equal(screen.queryByRole('menu'), null);
-  assert.ok(hasFocus(trigger), 'Escape returns focus to the trigger');
+  assertFocused(trigger, 'Escape returns focus to the trigger');
   assert.equal(screen.getByTestId('context-provider').textContent, 'claude', 'moving focus does not select');
 });
