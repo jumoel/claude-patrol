@@ -17,7 +17,7 @@ We do **not** use `preinstall` / `postinstall` hooks - install hooks are dangero
 
 ## Gates
 
-Run all four before committing; CI (`.github/workflows/ci.yml`) runs the same set on push and pull request.
+Run all four before committing. There is no CI; these are the only gates.
 
 - `pnpm run lint` (biome, also formatting)
 - `pnpm run typecheck` (tsc over the frontend JS)
