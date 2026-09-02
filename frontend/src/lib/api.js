@@ -377,6 +377,21 @@ export function createManualWorkItem(title, repositories, bookmark) {
   });
 }
 
+/**
+ * Add a repository to a ready work item. Discovered repositories are cloned
+ * into work_dir by the server on first use.
+ * @param {string} workItemId
+ * @param {string} repository
+ * @param {string} [revision]
+ * @returns {Promise<import('../types').AddWorkItemRepositoryResponse>}
+ */
+export function addWorkItemRepository(workItemId, repository, revision) {
+  return request(path`/api/work-items/${workItemId}/repositories`, {
+    method: 'POST',
+    body: { repository, ...(revision ? { revision } : {}) },
+  });
+}
+
 /** @param {string} id @returns {Promise<{work_item: import('../types').WorkItemListItem}>} */
 export function retryWorkItem(id) {
   return request(path`/api/work-items/${id}/retry`, { method: 'POST', body: {} });

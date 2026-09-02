@@ -3,7 +3,7 @@ import { useAgentProvider } from '../../context/AgentProviderContext.jsx';
 import { useCopyFeedback } from '../../hooks/useCopyFeedback.js';
 import { useTargetSession } from '../../hooks/useTargetSession.js';
 import { useWorkItem } from '../../hooks/useWorkItems.js';
-import { destroyWorkItem, destroyWorkspace, retryWorkItem } from '../../lib/api.js';
+import { addWorkItemRepository, destroyWorkItem, destroyWorkspace, retryWorkItem } from '../../lib/api.js';
 import { getErrorMessage } from '../../lib/errors.js';
 import { workItemPath } from '../../lib/routes.js';
 import { sessionAttentionState } from '../../lib/session-attention.js';
@@ -17,6 +17,7 @@ import { Badge } from '../ui/Badge/Badge.jsx';
 import { Box } from '../ui/Box/Box.jsx';
 import { Button } from '../ui/Button/Button.jsx';
 import { LoadingIndicator } from '../ui/LoadingIndicator/LoadingIndicator.jsx';
+import { RepoCombobox } from '../ui/RepoCombobox/RepoCombobox.jsx';
 import { SessionStateBadge } from '../ui/SessionStateBadge/SessionStateBadge.jsx';
 import { Spinner } from '../ui/Spinner/Spinner.jsx';
 import { Stack } from '../ui/Stack/Stack.jsx';
@@ -296,6 +297,8 @@ export function WorkItemDetail({
   const [sessionError, setSessionError] = useState('');
   const [actionPending, setActionPending] = useState(/** @type {'retry' | 'destroy' | null} */ (null));
   const [deletingWorkspaceId, setDeletingWorkspaceId] = useState(/** @type {string | null} */ (null));
+  const [repositoryToAdd, setRepositoryToAdd] = useState('');
+  const [addingRepository, setAddingRepository] = useState(false);
   // App keys this component on the work item id, so the initializer runs per item.
   const [collapsedPanes, setCollapsedPanes] = useState(() => loadPaneState(workItemId));
   const wsRef = useRef(/** @type {WebSocket | null} */ (null));
@@ -400,6 +403,21 @@ export function WorkItemDetail({
     },
     [deletingWorkspaceId, reload, session, sessionLoading, setActionError],
   );
+
+  const handleAddRepository = useCallback(async () => {
+    if (!repositoryToAdd || addingRepository) return;
+    setAddingRepository(true);
+    setActionError('');
+    try {
+      await addWorkItemRepository(workItemId, repositoryToAdd);
+      setRepositoryToAdd('');
+      reload();
+    } catch (nextError) {
+      setActionError(getErrorMessage(nextError, `Failed to add ${repositoryToAdd}`));
+    } finally {
+      setAddingRepository(false);
+    }
+  }, [addingRepository, reload, repositoryToAdd, setActionError, workItemId]);
 
   const ensureSession = useCallback(async () => {
     if (session) return session;
@@ -615,6 +633,26 @@ export function WorkItemDetail({
         collapsed={collapsedPanes.repositories}
         onToggle={() => togglePane('repositories')}
       >
+        {workItem.state === 'ready' && !destroyed && (
+          <div className={styles.addRepository}>
+            <RepoCombobox
+              value={repositoryToAdd}
+              onChange={setRepositoryToAdd}
+              disabled={addingRepository || Boolean(actionPending) || Boolean(deletingWorkspaceId)}
+              ariaLabel="Repository to add"
+              excludedValues={workItem.repository_workspaces.map((repository) => repository.identifier)}
+            />
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={handleAddRepository}
+              disabled={!repositoryToAdd || addingRepository || Boolean(actionPending) || Boolean(deletingWorkspaceId)}
+              busy={addingRepository}
+            >
+              {addingRepository ? 'Adding...' : 'Add repository'}
+            </Button>
+          </div>
+        )}
         <div className={styles.repositoryList}>
           {workItem.repository_workspaces.map((repository) => (
             <RepositoryRow

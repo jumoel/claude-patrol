@@ -13,7 +13,9 @@ const hook = vi.hoisted(() => ({
 }));
 
 const api = vi.hoisted(() => ({
+  addWorkItemRepository: vi.fn(),
   createSession: vi.fn(),
+  fetchAllRepos: vi.fn(),
   destroyWorkItem: vi.fn(),
   destroyWorkspace: vi.fn(),
   fetchSessions: vi.fn(),
@@ -437,4 +439,32 @@ test('a ready work item can switch providers before opening an idle terminal', a
   assert.deepEqual(api.createSession.mock.calls, [[{ type: 'work_item', id: 'item-1' }, 'claude']]);
   assert.ok(await screen.findByTestId('root-terminal'));
   assert.equal(hook.reload.mock.calls.length, 1);
+});
+
+test('a repository picked in the combobox is added to the work item and the page reloads', async () => {
+  const user = userEvent.setup();
+  hook.workItem = detail();
+  api.fetchAllRepos.mockResolvedValue({ repos: ['acme/alpha', 'acme/beta', 'acme/gamma', 'acme/new-repository'] });
+  api.addWorkItemRepository.mockResolvedValue({ added: true, work_item: detail() });
+  renderDetail();
+
+  const addButton = /** @type {HTMLButtonElement} */ (await screen.findByRole('button', { name: 'Add repository' }));
+  assert.equal(addButton.disabled, true, 'nothing selected yet');
+  await user.click(screen.getByRole('button', { name: 'Repository to add' }));
+  assert.equal(screen.queryByRole('option', { name: 'acme/alpha' }), null, 'attached repositories are excluded');
+  await user.click(await screen.findByRole('option', { name: 'acme/gamma' }));
+  assert.equal(addButton.disabled, false);
+
+  await user.click(addButton);
+  await waitFor(() => assert.deepEqual(api.addWorkItemRepository.mock.calls, [['item-1', 'acme/gamma']]));
+  await waitFor(() => assert.ok(hook.reload.mock.calls.length >= 1));
+  assert.equal(addButton.disabled, true, 'the selection is cleared after a successful add');
+
+  api.addWorkItemRepository.mockRejectedValueOnce(
+    new Error('Repository is not available through configured GitHub discovery: acme/gamma'),
+  );
+  await user.click(screen.getByRole('button', { name: 'Repository to add' }));
+  await user.click(await screen.findByRole('option', { name: 'acme/gamma' }));
+  await user.click(screen.getByRole('button', { name: 'Add repository' }));
+  assert.ok(await screen.findByText(/not available through configured GitHub discovery/));
 });

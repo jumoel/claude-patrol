@@ -224,6 +224,12 @@ export interface WorkItemRepository {
   warnings: string[];
 }
 
+export interface AddWorkItemRepositoryResponse {
+  added: boolean;
+  work_item: WorkItemDetail;
+  repository_workspace?: WorkItemRepository;
+}
+
 export interface WorkItemDetail extends Omit<WorkItemListItem, 'error'> {
   summary: string | null;
   root_path: string;
