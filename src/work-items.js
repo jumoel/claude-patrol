@@ -238,26 +238,32 @@ export function createWorkItemService({
       if (item.state === 'destroyed') throw workItemError('work_item_destroyed', 'Work item is destroyed');
       const config = getConfig();
       const attached = new Map(repositoryMemberships(id).map((membership) => [membership.repo, membership.state]));
-      return Object.keys(config.repos ?? {})
-        .sort()
-        .map((repository) => {
-          let available = true;
-          let unavailableCode = null;
-          try {
-            sourceRepositoryPath(repository, config);
-          } catch (error) {
-            available = false;
-            unavailableCode = error.code ?? 'repository_unavailable';
-          }
-          return {
-            repository,
-            default_revision: config.repos?.[repository]?.defaultRevision ?? null,
-            attached: attached.has(repository),
-            membership_state: attached.get(repository) ?? null,
-            available,
-            unavailable_code: unavailableCode,
-          };
-        });
+      const configured = new Set(Object.keys(config.repos ?? {}));
+      // Repositories in polled orgs are addable too, but only GitHub can
+      // enumerate them; the UI lists those through GET /api/repos.
+      const discovered = (config.poll?.repos ?? []).filter((repository) => !configured.has(repository));
+      return [...configured, ...discovered].sort().map((repository) => {
+        const isConfigured = configured.has(repository);
+        let checkoutPresent = true;
+        let unavailableCode = null;
+        try {
+          sourceRepositoryPath(repository, config);
+        } catch (error) {
+          checkoutPresent = false;
+          unavailableCode = error.code ?? 'repository_unavailable';
+        }
+        return {
+          repository,
+          source: isConfigured ? 'configured' : 'discovered',
+          default_revision: config.repos?.[repository]?.defaultRevision ?? null,
+          attached: attached.has(repository),
+          membership_state: attached.get(repository) ?? null,
+          // A discovered repository without a checkout is cloned on first add.
+          available: isConfigured ? checkoutPresent : true,
+          checkout_present: checkoutPresent,
+          unavailable_code: isConfigured ? unavailableCode : null,
+        };
+      });
     },
 
     async addRepository(id, rawRepository, rawRevision) {
@@ -265,7 +271,7 @@ export function createWorkItemService({
       return withWorkItemLock(id, async () => {
         const row = getWorkItem(id);
         if (!row) throw workItemError('work_item_not_found', 'Work item not found');
-        const repository = validateRepository(rawRepository, config);
+        const repository = validateRepository(rawRepository, config, { allowDiscovered: true });
         const existingRepositories = repositoriesFor(row);
         const pendingWorkspace = pendingRepositoryAddition(row);
         if (row.state === 'error' && pendingWorkspace?.repo === repository) {
@@ -296,14 +302,17 @@ export function createWorkItemService({
         if (existingRepositories.length >= 32) {
           throw workItemError('repository_limit', 'Work items can contain at most 32 repositories');
         }
-        const startRevision = validateRevision(rawRevision, repository, config);
+        // Only an explicit revision is validated here; the lifecycle resolves
+        // the default (config, then the clone's default branch, then trunk()).
+        const requestedRevision =
+          rawRevision === undefined || rawRevision === null ? null : validateRevision(rawRevision, repository, config);
         return runTask(
           {
             kind: 'work-item.add-repository',
             label: `Add ${repository}`,
             context: { workItemId: id, repo: repository },
           },
-          (task) => addRepositoryLifecycle(id, repository, startRevision, task),
+          (task) => addRepositoryLifecycle(id, repository, requestedRevision, task),
         );
       });
     },

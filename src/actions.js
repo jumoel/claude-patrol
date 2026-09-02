@@ -252,15 +252,15 @@ export const actionRegistry = {
 
   add_repo_workspace: {
     description:
-      "Add a configured repository workspace to a ready work item. Omit work_item_id when calling from that work item's own session; provide it when calling from another Patrol session. Repositories without a configured defaultRevision require revision. Waits for workspace creation and returns the updated work item. Re-adding an existing repository is a no-op.",
+      "Add a repository workspace to a ready work item. Any repository configured in repos, listed in poll.repos, or belonging to a polled GitHub org can be added; repositories without a local checkout are cloned into work_dir first. Omit work_item_id when calling from that work item's own session; provide it when calling from another Patrol session. Without revision the start revision is the configured defaultRevision, else the clone's default branch, else jj's trunk(). Waits for workspace creation and returns the updated work item. Re-adding an existing repository is a no-op.",
     schema: z.object({
-      repo: z.string().min(3).describe('Configured repository in owner/repo format'),
+      repo: z.string().min(3).describe('Repository in owner/repo format (configured, polled, or in a polled org)'),
       revision: z
         .string()
         .min(1)
         .max(512)
         .optional()
-        .describe('Starting jj revision; required when the repository has no configured defaultRevision'),
+        .describe('Starting jj revision; defaults to the configured defaultRevision, the default branch, or trunk()'),
       work_item_id: z.string().min(1).optional().describe('Target work-item ID; inferred from a work-item caller'),
     }),
     ruleFireable: false,
@@ -289,7 +289,7 @@ export const actionRegistry = {
 
   list_available_repositories: {
     description:
-      "List configured local repositories that can be added to a work item. Omit work_item_id when calling from that work item's own session. Returns default revisions, attachment state, and truthful availability without exposing unattached filesystem paths.",
+      "List repositories that can be added to a work item: every configured repos entry and every poll.repos entry, with source, default revision, attachment state and whether a local checkout exists. Repositories in polled GitHub orgs are addable by name with add_repo_workspace even though they are not enumerated here. Omit work_item_id when calling from that work item's own session.",
     schema: z.object({
       work_item_id: z.string().min(1).optional().describe('Target work-item ID; inferred from a work-item caller'),
     }),

@@ -25,6 +25,7 @@ import {
   repositoriesFor,
   repositoryMemberships,
   sanitizeLogText,
+  setMembershipStartRevision,
   setMembershipState,
   validateRevision,
   withWorkItemLock,
@@ -261,11 +262,7 @@ export function createWorkItemLifecycle({
         const startRevision = membership.start_revision ?? prepared.startRevision;
         validateRevision(startRevision, membership.repo, config);
         membership.start_revision = startRevision;
-        getDb()
-          .prepare(
-            'UPDATE work_item_repositories SET start_revision = ?, updated_at = ? WHERE work_item_id = ? AND repo = ?',
-          )
-          .run(startRevision, new Date().toISOString(), id, membership.repo);
+        setMembershipStartRevision(id, membership.repo, startRevision);
       }
       const children = memberships.map((membership) => ({
         ...childDescriptor(item, membership.repo),
@@ -310,15 +307,31 @@ export function createWorkItemLifecycle({
     }
   };
 
-  const addRepositoryLifecycle = async (id, repository, startRevision, task) => {
+  /**
+   * Add one repository to a ready work item. `requestedRevision` is the
+   * caller's explicit revision or null. Configured repositories resolve their
+   * revision from config up front; discovered ones (GitHub org or poll.repos)
+   * are cloned into work_dir first, like manual creation does, and take the
+   * clone's default branch unless a revision was requested.
+   */
+  const addRepositoryLifecycle = async (id, repository, requestedRevision, task) => {
     const item = getWorkItem(id);
     const repositories = repositoriesFor(item);
     const child = childDescriptor(item, repository);
+    const config = getConfig();
+    const configured = Boolean(config.repos?.[repository]);
+    let startRevision = requestedRevision ?? (configured ? validateRevision(undefined, repository, config) : null);
     beginRepositoryAddition(item, child, startRevision);
     logStage(id, 'child_creation', `adding ${repository}`);
     updateTaskProgress(task.id, { current: 0, total: 1 });
 
     try {
+      if (!configured) {
+        logStage(id, 'child_creation', `preparing source repository ${repository}`);
+        const prepared = await prepareSourceRepository(repository, config);
+        startRevision = validateRevision(startRevision ?? prepared.startRevision, repository, config);
+        setMembershipStartRevision(id, repository, startRevision);
+      }
       await createChild({
         id: child.id,
         workItemId: id,

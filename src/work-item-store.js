@@ -542,6 +542,13 @@ export function setMembershipState(id, state, repo = null) {
   }
 }
 
+/** Record the resolved start revision for one repository membership. */
+export function setMembershipStartRevision(id, repo, startRevision) {
+  getDb()
+    .prepare('UPDATE work_item_repositories SET start_revision = ?, updated_at = ? WHERE work_item_id = ? AND repo = ?')
+    .run(startRevision, new Date().toISOString(), id, repo);
+}
+
 /** Return a work item to ready/complete with no progress and no error. */
 export function markReady(id) {
   getDb()

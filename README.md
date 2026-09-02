@@ -386,8 +386,8 @@ When a session connects through its auto-generated MCP config (`/mcp/:sessionId`
 **Work items and workspaces**
 
 - `start_work_item` - Start a reference-based work item and wait for Patrol to prepare its repository workspaces.
-- `add_repo_workspace` - Add a configured repository workspace to a ready work item.
-- `list_available_repositories` - List configured local repositories that can be added to a work item.
+- `add_repo_workspace` - Add a repository workspace to a ready work item.
+- `list_available_repositories` - List repositories that can be added to a work item: every configured repos entry and every poll.repos entry, with source, default revision, attachment state and whether a local checkout exists.
 - `link_pull_request` - Link a pull request to its originating work item immediately after creating it.
 - `unlink_pull_request` - Remove an incorrect pull-request association from a work item without changing GitHub or deleting either object.
 - `create_workspace` - Create a one-repository work item for a PR and prepare its jj checkout.

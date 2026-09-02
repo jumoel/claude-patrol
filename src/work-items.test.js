@@ -409,7 +409,7 @@ test('repository discovery reflects additions immediately in the running work it
   assert.equal(beta.membership_state, 'ready');
 });
 
-test('repository additions reject repositories outside the configured repos', async () => {
+test('repository additions reject repositories outside configured repos and GitHub discovery', async () => {
   const { service } = fixture({
     resolver: {
       resolve: async () => ({
@@ -423,10 +423,55 @@ test('repository additions reject repositories outside the configured repos', as
   await service.waitForIdle(created.id);
 
   await assert.rejects(
-    service.addRepository(created.id, 'acme/unconfigured'),
-    (error) => error.code === 'repository_not_configured',
+    service.addRepository(created.id, 'other/unconfigured'),
+    (error) => error.code === 'repository_not_discovered',
   );
   assert.deepEqual(service.detail(created.id).repositories, ['acme/alpha']);
+});
+
+test('a discovered repository is cloned into work_dir before its workspace is added', async () => {
+  const preparations = [];
+  const { service, config } = fixture({
+    resolver: {
+      resolve: async () => ({ title: 'Scoped repair', summary: 'Only alpha is needed.', repositories: ['acme/alpha'] }),
+    },
+    prepareSourceRepository: async (repository, sourceConfig) => {
+      const [scope, name] = repository.split('/');
+      const sourcePath = join(sourceConfig.work_dir, scope, name);
+      mkdirSync(join(sourcePath, '.jj'), { recursive: true });
+      preparations.push(repository);
+      return { sourcePath, startRevision: 'develop@origin' };
+    },
+  });
+  config.poll.repos = ['acme/listed'];
+  const created = service.create({ reference: 'PROJECT-DISCOVERED', workProvider: 'claude' });
+  await service.waitForIdle(created.id);
+
+  const listed = service.availableRepositories(created.id).find((entry) => entry.repository === 'acme/listed');
+  assert.deepEqual(listed, {
+    repository: 'acme/listed',
+    source: 'discovered',
+    default_revision: null,
+    attached: false,
+    membership_state: null,
+    available: true,
+    checkout_present: false,
+    unavailable_code: null,
+  });
+  const alpha = service.availableRepositories(created.id).find((entry) => entry.repository === 'acme/alpha');
+  assert.equal(alpha.source, 'configured');
+  assert.equal(alpha.checkout_present, true);
+
+  // acme is a polled org, so any acme repository can be added by name.
+  const result = await service.addRepository(created.id, 'acme/discovered');
+  assert.equal(result.added, true);
+  assert.deepEqual(preparations, ['acme/discovered']);
+  assert.equal(result.repository_workspace.start_revision, 'develop@origin', 'the clone default branch is used');
+  assert.deepEqual(result.work_item.repositories, ['acme/alpha', 'acme/discovered']);
+
+  const explicit = await service.addRepository(created.id, 'acme/listed', 'release@origin');
+  assert.equal(explicit.repository_workspace.start_revision, 'release@origin', 'an explicit revision wins');
+  assert.deepEqual(preparations, ['acme/discovered', 'acme/listed']);
 });
 
 test('a configured repository without a default revision is added from trunk() unless a revision is given', async () => {
