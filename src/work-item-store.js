@@ -109,7 +109,7 @@ export function clearErrorPatch() {
 }
 
 export function retryAction(row) {
-  if (!row || row.state !== 'error') return null;
+  if (row?.state !== 'error') return null;
   if (['child_creation', 'child_compensation'].includes(row.stage) && pendingRepositoryAddition(row)) {
     return 'repository_addition';
   }

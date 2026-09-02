@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Restart loop for `pnpm start`. The server can request a restart by exiting
-# with code 42 - everything else propagates and breaks the loop.
+# Restart loop for `pnpm start` and `claude-patrol start`. The server can
+# request a restart by exiting with code 42 (RESTART_EXIT_CODE in
+# src/update-check.js) - everything else propagates and breaks the loop.
 #
 # Why a wrapper instead of spawning a detached child from inside node:
 # when the parent node process exits, the parent shell takes the terminal

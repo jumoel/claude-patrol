@@ -105,7 +105,7 @@ export function dispatchWsMessage(raw, entry, ctx) {
   }
   if (!msg || typeof msg.type !== 'string') return null;
   const handler = WS_MESSAGE_HANDLERS[msg.type];
-  if (!handler || !handler.validate(msg)) return null;
+  if (!handler?.validate(msg)) return null;
   handler.handle(entry, msg, ctx);
   return { type: msg.type };
 }

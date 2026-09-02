@@ -1,6 +1,6 @@
-import { defineConfig } from 'vite';
-import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
+import react from '@vitejs/plugin-react';
+import { defineConfig } from 'vite';
 
 export default defineConfig({
   plugins: [tailwindcss(), react()],
@@ -18,8 +18,10 @@ export default defineConfig({
       },
       {
         find: /^@xterm\/addon-unicode-graphemes$/,
-        replacement: new URL('../vendor/xterm.js/addons/addon-unicode-graphemes/lib/addon-unicode-graphemes.mjs', import.meta.url)
-          .pathname,
+        replacement: new URL(
+          '../vendor/xterm.js/addons/addon-unicode-graphemes/lib/addon-unicode-graphemes.mjs',
+          import.meta.url,
+        ).pathname,
       },
       {
         find: /^@xterm\/addon-webgl$/,

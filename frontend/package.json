@@ -10,21 +10,24 @@
     "generate:favicon": "node scripts/generate-favicon.js"
   },
   "dependencies": {
-    "@tailwindcss/vite": "^4.2.1",
-    "@xterm/xterm": "file:../vendor/xterm.js",
+    "@tailwindcss/vite": "^4.3.3",
     "@xterm/addon-fit": "file:../vendor/xterm.js/addons/addon-fit",
     "@xterm/addon-unicode-graphemes": "file:../vendor/xterm.js/addons/addon-unicode-graphemes",
     "@xterm/addon-webgl": "file:../vendor/xterm.js/addons/addon-webgl",
-    "react": "^19.2.4",
-    "react-dom": "^19.2.4",
-    "tailwindcss": "^4.2.1"
+    "@xterm/xterm": "file:../vendor/xterm.js",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "tailwindcss": "^4.3.3"
   },
   "devDependencies": {
-    "@testing-library/react": "^16.3.0",
-    "@testing-library/user-event": "^14.6.1",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.7",
     "@vitejs/plugin-react": "^5.1.4",
     "jsdom": "^26.1.0",
-    "vitest": "^3.2.4",
-    "vite": "^7.3.1"
+    "vite": "^7.3.1",
+    "vitest": "^3.2.4"
+  },
+  "engines": {
+    "node": ">=22"
   }
 }

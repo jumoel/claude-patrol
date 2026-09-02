@@ -37,7 +37,8 @@ export npm_config_shell=/bin/sh
 export npm_config_script_shell=/bin/sh
 
 echo "Installing dependencies..."
-npm install
+# ci installs exactly what xterm.js's lockfile pins and fails instead of rewriting it.
+npm ci
 
 echo "Building xterm.js..."
 # npm run setup runs: presetup (tsgo/tsc) -> setup (esbuild) -> postsetup (demo)

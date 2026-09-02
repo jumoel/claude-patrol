@@ -25,7 +25,7 @@ if [ ! -d frontend/node_modules ]; then
 fi
 
 OUT=frontend/dist/index.html
-WATCH_PATHS=(frontend/src frontend/index.html frontend/vite.config.js frontend/vite.config.ts frontend/package.json)
+WATCH_PATHS=(frontend/src frontend/public frontend/index.html frontend/vite.config.js frontend/vite.config.ts frontend/package.json vendor/xterm.js/lib)
 
 # Filter to paths that actually exist (vite config may be .js or .ts).
 existing=()

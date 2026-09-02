@@ -1,5 +1,5 @@
 {
-  "$schema": "https://biomejs.dev/schemas/2.4.7/schema.json",
+  "$schema": "https://biomejs.dev/schemas/2.5.11/schema.json",
   "vcs": {
     "enabled": true,
     "clientKind": "git",
@@ -11,6 +11,7 @@
       "scripts/**/*.js",
       "src/**/*.js",
       "frontend/scripts/**/*.js",
+      "frontend/vite.config.js",
       "frontend/src/**/*.js",
       "frontend/src/**/*.jsx"
     ]

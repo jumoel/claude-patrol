@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { execSync, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { existsSync, rmSync, unlinkSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -12,34 +12,23 @@ const command = args[0] || 'start';
 
 switch (command) {
   case 'start': {
+    // Same path as `pnpm start`: rebuild the frontend only when its sources
+    // changed, then run the shell restart loop. The loop keeps this foreground
+    // process on the terminal across user-triggered restarts (exit code 42, see
+    // RESTART_EXIT_CODE in src/update-check.js), which an in-process
+    // startServer could not do without dropping the TUI back to the shell.
     const rootDir = join(dirname(fileURLToPath(import.meta.url)), '..');
-    console.log('[claude-patrol] Building frontend...');
-    execSync('pnpm --filter claude-patrol-frontend build', { cwd: rootDir, stdio: 'inherit' });
-
-    // Supervise the server so user-triggered restarts (exit code 42) relaunch
-    // it without losing the controlling terminal. Running startServer in-process
-    // would exit this whole script on restart, dropping the TUI back to the shell.
-    const childArgs = [join(rootDir, 'src/index.js'), ...args.slice(1)];
-    let firstRun = true;
-    while (true) {
-      const runArgs = firstRun
-        ? childArgs
-        : childArgs.includes('--reattach')
-          ? childArgs
-          : [...childArgs, '--reattach'];
-      const result = spawnSync(process.execPath, runArgs, { cwd: rootDir, stdio: 'inherit' });
-      if (result.error) {
-        console.error(`[claude-patrol] Failed to launch server: ${result.error.message}`);
-        process.exit(1);
-      }
-      if (result.signal) {
-        process.exit(1);
-      }
-      if (result.status !== 42) {
-        process.exit(result.status ?? 0);
-      }
-      firstRun = false;
+    const build = spawnSync('bash', [join(rootDir, 'scripts/build-if-stale.sh')], { cwd: rootDir, stdio: 'inherit' });
+    if (build.status !== 0) process.exit(build.status ?? 1);
+    const loop = spawnSync('bash', [join(rootDir, 'scripts/start-loop.sh'), ...args.slice(1)], {
+      cwd: rootDir,
+      stdio: 'inherit',
+    });
+    if (loop.error) {
+      console.error(`[claude-patrol] Failed to launch server: ${loop.error.message}`);
+      process.exit(1);
     }
+    process.exit(loop.signal ? 1 : (loop.status ?? 0));
     break;
   }
 
@@ -248,7 +237,7 @@ Commands:
   stop               Stop the running server
   status             Check if the server is running
   attach [id]        Attach terminal to a running session (tmux)
-  clean              Remove data files (DB, PID, MCP config)
+  clean              Remove the database and PID file
   help               Show this help
 
 Config: ${configPath()}

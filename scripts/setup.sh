@@ -54,11 +54,13 @@ else
 fi
 
 check_cmd pnpm  "pnpm"          "install via 'npm i -g pnpm' or corepack"
-check_cmd gh    "GitHub CLI"    "install via 'brew install gh' then 'gh auth login'"
 check_cmd jj    "Jujutsu (jj)"  "install via 'brew install jj' (see https://github.com/jj-vcs/jj)"
 check_cmd tmux  "tmux"          "install via 'brew install tmux'"
-check_cmd claude "Claude Code"  "install via 'npm i -g @anthropic-ai/claude-code'"
-check_optional ghostty "Ghostty" "optional - needed only for Pop-out / Terminal buttons"
+# Each of these is needed only when the matching feature is configured (README "Prerequisites").
+check_optional gh     "GitHub CLI"  "needed for GitHub polling - 'brew install gh' then 'gh auth login'"
+check_optional claude "Claude Code" "needed for Claude sessions and resolution - 'npm i -g @anthropic-ai/claude-code'"
+check_optional codex  "Codex CLI"   "needed for Codex sessions, resolution and reviews"
+check_optional ghostty "Ghostty"    "needed only for the workspace Terminal button (or set terminal_app)"
 
 if [ ${#missing[@]} -gt 0 ]; then
   echo

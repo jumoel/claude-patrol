@@ -95,7 +95,7 @@ export class PeerReviewCoordinator {
   claim({ workspaceId = null, workItemId = null, sessionId, reviewerProvider }) {
     const targetKey = workspaceId ? `workspace:${workspaceId}` : workItemId ? `work_item:${workItemId}` : null;
     const review = targetKey ? this.reviews.get(targetKey) : null;
-    if (!review || review.status !== 'requested') {
+    if (review?.status !== 'requested') {
       throw taggedError('review_not_requested', 'No peer review was requested for this work target');
     }
     if (review.sessionId !== sessionId) {
@@ -116,7 +116,7 @@ export class PeerReviewCoordinator {
 
   markDelivering(reviewId) {
     const review = this.findById(reviewId);
-    if (!review || review.status !== 'running') return null;
+    if (review?.status !== 'running') return null;
     review.status = 'delivering';
     review.resultReadyAt = new Date(this.now()).toISOString();
     review.observedDeliveryWork = true;
