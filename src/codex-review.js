@@ -1,16 +1,11 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { taggedError } from './errors.js';
 import { resolveReviewRange } from './review-range.js';
 import { runTask } from './tasks.js';
 import { execFile } from './utils.js';
 
 export const CODEX_REVIEW_TIMEOUT_MS = 30 * 60 * 1000;
-
-function taggedError(code, message, cause) {
-  const error = new Error(message, cause ? { cause } : undefined);
-  error.code = code;
-  return error;
-}
 
 function createConnection({ cwd, environment }) {
   const transport = new StdioClientTransport({

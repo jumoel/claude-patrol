@@ -1,27 +1,21 @@
 import { existsSync, lstatSync, readdirSync, realpathSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
-import { basename, dirname, isAbsolute, relative, resolve, sep } from 'node:path';
-import { getDb } from './db.js';
+import { basename, dirname, resolve, sep } from 'node:path';
+import { getDb, withTransaction } from './db.js';
+import { taggedError } from './errors.js';
 import { sanitizePublicText } from './public-errors.js';
-import { execFile, expandPath, toClaudeProjectKey } from './utils.js';
-import { destroyWorkspaceWithGuards, dockerComposeDown, sourceRepositoryPath } from './workspace.js';
+import { claudeProjectDir, execFile, expandPath, relationInside } from './utils.js';
+import {
+  destroyWorkspaceWithGuards,
+  dockerComposeDown,
+  isAlreadyForgotten,
+  sourceRepositoryPath,
+} from './workspace.js';
 import {
   PATROL_WORKSPACE_MARKER,
   readPatrolWorkspaceMarker,
   writePatrolWorkspaceMarker,
 } from './workspace-ownership.js';
-
-function cleanupError(code, message) {
-  const error = new Error(message);
-  error.code = code;
-  return error;
-}
-
-function relationInside(root, candidate) {
-  const relation = relative(root, candidate);
-  if (relation === '' || relation === '..' || relation.startsWith(`..${sep}`) || isAbsolute(relation)) return null;
-  return relation;
-}
 
 function canonicalDirectory(path) {
   try {
@@ -40,18 +34,18 @@ function workspaceCoordinates(path, config, { allowMissing = false } = {}) {
     try {
       canonical = resolve(realpathSync(dirname(resolve(path))), basename(path));
     } catch {
-      throw cleanupError('unsafe_workspace_path', `Workspace parent cannot be verified: ${path}`);
+      throw taggedError('unsafe_workspace_path', `Workspace parent cannot be verified: ${path}`);
     }
   }
-  if (!canonical) throw cleanupError('unsafe_workspace_path', `Workspace path is not a real directory: ${path}`);
+  if (!canonical) throw taggedError('unsafe_workspace_path', `Workspace path is not a real directory: ${path}`);
   const relation = relationInside(base, canonical);
   const parts = relation?.split(sep) ?? [];
   if (parts.length !== 3 || parts.some((part) => !part || part === '.' || part === '..')) {
-    throw cleanupError('unsafe_workspace_path', `Workspace path is outside Patrol's exact workspace depth: ${path}`);
+    throw taggedError('unsafe_workspace_path', `Workspace path is outside Patrol's exact workspace depth: ${path}`);
   }
   const [owner, repoName, leaf] = parts;
   if (owner === 'work-items') {
-    throw cleanupError('work_item_child_managed', `Work-item paths are not owned by workspace reconciliation: ${path}`);
+    throw taggedError('work_item_child_managed', `Work-item paths are not owned by workspace reconciliation: ${path}`);
   }
   return { base, canonical, owner, repoName, leaf, repo: `${owner}/${repoName}` };
 }
@@ -144,7 +138,7 @@ function markDatabaseWorkspaces(config) {
       const coordinates = workspaceCoordinates(workspace.path, config);
       const repo = workspace.repo ?? coordinates.repo;
       if (repo !== coordinates.repo)
-        throw cleanupError('workspace_identity_changed', 'database repository does not match path');
+        throw taggedError('workspace_identity_changed', 'database repository does not match path');
       const markerPath = resolve(coordinates.canonical, '.jj', PATROL_WORKSPACE_MARKER);
       const marker = readPatrolWorkspaceMarker(coordinates.canonical);
       if (marker) {
@@ -221,8 +215,7 @@ function recordOrphans(candidates, now) {
       last_seen = excluded.last_seen
   `);
   const remove = db.prepare('DELETE FROM workspace_orphans WHERE path = ?');
-  db.exec('BEGIN IMMEDIATE');
-  try {
+  withTransaction(db, () => {
     for (const candidate of candidates) {
       if (owned.has(candidate.path)) {
         remove.run(candidate.path);
@@ -233,16 +226,12 @@ function recordOrphans(candidates, now) {
     for (const row of db.prepare('SELECT path FROM workspace_orphans').all()) {
       if (owned.has(canonicalDirectory(row.path) ?? resolve(row.path))) remove.run(row.path);
     }
-    db.exec('COMMIT');
-  } catch (error) {
-    db.exec('ROLLBACK');
-    throw error;
-  }
+  });
 }
 
 function assertPatrolAvailable(isPatrolAvailable) {
   if (!isPatrolAvailable()) {
-    throw cleanupError('patrol_unavailable', 'Patrol is not available; source deletion is disabled');
+    throw taggedError('patrol_unavailable', 'Patrol is not available; source deletion is disabled');
   }
 }
 
@@ -287,28 +276,28 @@ async function processesUsing(path, runExec) {
     const pids = [...new Set(stdout.split(/\s+/).filter((value) => /^\d+$/.test(value)))];
     if (pids.length > 0) return pids;
     if (Number(error.code) === 1 && stdout.trim() === '' && String(error.stderr ?? '').trim() === '') return [];
-    throw cleanupError('process_check_failed', `Could not inspect processes using ${path}: ${error.message}`);
+    throw taggedError('process_check_failed', `Could not inspect processes using ${path}: ${error.message}`);
   }
 }
 
 async function assertNoUsage(path, runExec, excludeWorkspaceId = null) {
   const sessions = liveSessionsUsing(path, excludeWorkspaceId);
   if (sessions.length > 0) {
-    throw cleanupError(
+    throw taggedError(
       'workspace_in_use',
       `Live Patrol sessions use the workspace: ${sessions.map((session) => session.id).join(', ')}`,
     );
   }
   const pids = await processesUsing(path, runExec);
   if (pids.length > 0) {
-    throw cleanupError('workspace_in_use', `Processes use the workspace tree: ${pids.join(', ')}`);
+    throw taggedError('workspace_in_use', `Processes use the workspace tree: ${pids.join(', ')}`);
   }
 }
 
 async function assertWorkspaceIdentity(candidate, config, runExec) {
   const coordinates = workspaceCoordinates(candidate.path, config);
   if (coordinates.repo !== candidate.repo) {
-    throw cleanupError(
+    throw taggedError(
       'workspace_identity_changed',
       `Workspace repository changed from ${candidate.repo} to ${coordinates.repo}`,
     );
@@ -316,10 +305,7 @@ async function assertWorkspaceIdentity(candidate, config, runExec) {
   const sourcePath = sourceRepositoryPath(candidate.repo, config);
   const jjWorkspaces = await listJjWorkspaces(sourcePath, runExec);
   if (jjWorkspaces.get(coordinates.canonical) !== candidate.workspaceName) {
-    throw cleanupError(
-      'workspace_identity_changed',
-      'The jj workspace name or root no longer matches Patrol ownership',
-    );
+    throw taggedError('workspace_identity_changed', 'The jj workspace name or root no longer matches Patrol ownership');
   }
   if (candidate.ownershipSource === 'marker') {
     const marker = readPatrolWorkspaceMarker(coordinates.canonical);
@@ -329,10 +315,10 @@ async function assertWorkspaceIdentity(candidate, config, runExec) {
       marker.repo !== candidate.repo ||
       marker.name !== candidate.workspaceName
     ) {
-      throw cleanupError('workspace_identity_changed', 'The Patrol workspace ownership marker is missing or changed');
+      throw taggedError('workspace_identity_changed', 'The Patrol workspace ownership marker is missing or changed');
     }
   } else if (candidate.ownershipSource !== 'database') {
-    throw cleanupError('workspace_identity_changed', 'The Patrol workspace ownership source is invalid');
+    throw taggedError('workspace_identity_changed', 'The Patrol workspace ownership source is invalid');
   }
   return { ...coordinates, sourcePath };
 }
@@ -347,10 +333,10 @@ async function inspectJjSafety(candidate, config, runExec) {
       maxBuffer: 16 * 1024 * 1024,
     });
   } catch (error) {
-    throw cleanupError('jj_snapshot_failed', `Fresh jj snapshot failed: ${error.message}`);
+    throw taggedError('jj_snapshot_failed', `Fresh jj snapshot failed: ${error.message}`);
   }
   if (/\b(?:warning|error):/i.test(String(snapshot.stderr ?? ''))) {
-    throw cleanupError('jj_snapshot_warning', `Fresh jj snapshot produced warnings: ${snapshot.stderr.trim()}`);
+    throw taggedError('jj_snapshot_warning', `Fresh jj snapshot produced warnings: ${snapshot.stderr.trim()}`);
   }
 
   let metadata;
@@ -371,13 +357,13 @@ async function inspectJjSafety(candidate, config, runExec) {
       { encoding: 'utf8', timeout: 30_000 },
     ));
   } catch (error) {
-    throw cleanupError('jj_inspection_failed', `Could not inspect the fresh jj commit: ${error.message}`);
+    throw taggedError('jj_inspection_failed', `Could not inspect the fresh jj commit: ${error.message}`);
   }
   const [commitId, empty, conflict] = String(metadata).trim().split('\t');
   if (!/^[0-9a-f]{40,64}$/i.test(commitId ?? '') || !['true', 'false'].includes(empty)) {
-    throw cleanupError('jj_inspection_failed', 'Fresh jj commit metadata was incomplete');
+    throw taggedError('jj_inspection_failed', 'Fresh jj commit metadata was incomplete');
   }
-  if (conflict === 'true') throw cleanupError('jj_conflict', 'The workspace commit contains conflicts');
+  if (conflict === 'true') throw taggedError('jj_conflict', 'The workspace commit contains conflicts');
   if (empty === 'true') return { ...identity, commitId, empty: true };
 
   try {
@@ -387,7 +373,7 @@ async function inspectJjSafety(candidate, config, runExec) {
       { encoding: 'utf8', timeout: 120_000, maxBuffer: 16 * 1024 * 1024 },
     );
   } catch (error) {
-    throw cleanupError('jj_fetch_failed', `Remote bookmark fetch failed: ${error.message}`);
+    throw taggedError('jj_fetch_failed', `Remote bookmark fetch failed: ${error.message}`);
   }
 
   let reachable;
@@ -408,10 +394,10 @@ async function inspectJjSafety(candidate, config, runExec) {
       { encoding: 'utf8', timeout: 30_000 },
     ));
   } catch (error) {
-    throw cleanupError('jj_reachability_failed', `Remote reachability check failed: ${error.message}`);
+    throw taggedError('jj_reachability_failed', `Remote reachability check failed: ${error.message}`);
   }
   if (!String(reachable).split(/\s+/).includes(commitId)) {
-    throw cleanupError(
+    throw taggedError(
       'unpublished_changes',
       'The non-empty workspace commit is not reachable from a fetched remote bookmark',
     );
@@ -422,22 +408,16 @@ async function inspectJjSafety(candidate, config, runExec) {
 async function inspectAutomaticCleanup(candidate, config, runtime, excludeWorkspaceId = null) {
   assertPatrolAvailable(runtime.isPatrolAvailable);
   const owner = databaseOwner(candidate.path, excludeWorkspaceId);
-  if (owner) throw cleanupError('workspace_reowned', `Workspace path is owned by database row ${owner}`);
+  if (owner) throw taggedError('workspace_reowned', `Workspace path is owned by database row ${owner}`);
   await assertNoUsage(candidate.path, runtime.runExec, excludeWorkspaceId);
   return inspectJjSafety(candidate, config, runtime.runExec);
-}
-
-function alreadyForgotten(error) {
-  return /no such workspace|no workspace named|workspace.*(?:not found|does not exist|unknown)/i.test(
-    error?.message ?? '',
-  );
 }
 
 async function cleanupMissingOrphan(orphan, config, runtime) {
   assertPatrolAvailable(runtime.isPatrolAvailable);
   const coordinates = workspaceCoordinates(orphan.path, config, { allowMissing: true });
   if (coordinates.repo !== orphan.repo || !['marker', 'database'].includes(orphan.ownership_source)) {
-    throw cleanupError('workspace_identity_changed', 'The missing workspace no longer matches Patrol ownership');
+    throw taggedError('workspace_identity_changed', 'The missing workspace no longer matches Patrol ownership');
   }
   updateOrphan(orphan.path, 'destroying', 'destroy:forget_workspace');
   try {
@@ -447,12 +427,11 @@ async function cleanupMissingOrphan(orphan, config, runtime) {
       timeout: 30_000,
     });
   } catch (error) {
-    if (!alreadyForgotten(error))
-      throw cleanupError('workspace_forget_failed', `jj workspace forget failed: ${error.message}`);
+    if (!isAlreadyForgotten(error))
+      throw taggedError('workspace_forget_failed', `jj workspace forget failed: ${error.message}`);
   }
   updateOrphan(orphan.path, 'destroying', 'destroy:claude_project');
-  const projectPath = resolve(expandPath('~/.claude/projects'), toClaudeProjectKey(orphan.path));
-  await runtime.removeDirectory(projectPath);
+  await runtime.removeDirectory(claudeProjectDir(orphan.path));
   getDb().prepare('DELETE FROM workspace_orphans WHERE path = ?').run(orphan.path);
 }
 
@@ -472,11 +451,11 @@ async function cleanupOrphan(orphan, config, runtime) {
 
   updateOrphan(orphan.path, 'destroying', 'destroy:docker');
   const dockerWarning = await runtime.dockerDown(orphan.path);
-  if (dockerWarning) throw cleanupError('docker_cleanup_failed', dockerWarning);
+  if (dockerWarning) throw taggedError('docker_cleanup_failed', dockerWarning);
 
   assertPatrolAvailable(runtime.isPatrolAvailable);
   const owner = databaseOwner(orphan.path);
-  if (owner) throw cleanupError('workspace_reowned', `Workspace path is owned by database row ${owner}`);
+  if (owner) throw taggedError('workspace_reowned', `Workspace path is owned by database row ${owner}`);
   await assertNoUsage(orphan.path, runtime.runExec);
 
   updateOrphan(orphan.path, 'destroying', 'destroy:forget_workspace');
@@ -486,20 +465,19 @@ async function cleanupOrphan(orphan, config, runtime) {
       timeout: 30_000,
     });
   } catch (error) {
-    if (!alreadyForgotten(error))
-      throw cleanupError('workspace_forget_failed', `jj workspace forget failed: ${error.message}`);
+    if (!isAlreadyForgotten(error))
+      throw taggedError('workspace_forget_failed', `jj workspace forget failed: ${error.message}`);
   }
 
   updateOrphan(orphan.path, 'destroying', 'destroy:directory');
   assertPatrolAvailable(runtime.isPatrolAvailable);
   const finalOwner = databaseOwner(orphan.path);
-  if (finalOwner) throw cleanupError('workspace_reowned', `Workspace path is owned by database row ${finalOwner}`);
+  if (finalOwner) throw taggedError('workspace_reowned', `Workspace path is owned by database row ${finalOwner}`);
   await assertNoUsage(orphan.path, runtime.runExec);
   await runtime.removeDirectory(orphan.path);
 
   updateOrphan(orphan.path, 'destroying', 'destroy:claude_project');
-  const projectPath = resolve(expandPath('~/.claude/projects'), toClaudeProjectKey(orphan.path));
-  await runtime.removeDirectory(projectPath);
+  await runtime.removeDirectory(claudeProjectDir(orphan.path));
   getDb().prepare('DELETE FROM workspace_orphans WHERE path = ?').run(orphan.path);
 }
 
@@ -507,7 +485,7 @@ async function cleanupStaleDatabaseWorkspace(workspace, config, runtime) {
   if (!existsSync(workspace.path)) {
     const coordinates = workspaceCoordinates(workspace.path, config, { allowMissing: true });
     if (workspace.repo && coordinates.repo !== workspace.repo) {
-      throw cleanupError(
+      throw taggedError(
         'workspace_identity_changed',
         'The missing workspace repository no longer matches its database row',
       );
@@ -537,7 +515,7 @@ async function cleanupStaleDatabaseWorkspace(workspace, config, runtime) {
       assertPatrolAvailable(runtime.isPatrolAvailable);
       workspaceCoordinates(workspace.path, config);
       const owner = databaseOwner(workspace.path, workspace.id);
-      if (owner) throw cleanupError('workspace_reowned', `Workspace path is also owned by database row ${owner}`);
+      if (owner) throw taggedError('workspace_reowned', `Workspace path is also owned by database row ${owner}`);
       await assertNoUsage(workspace.path, runtime.runExec, workspace.id);
     },
   });
@@ -548,7 +526,7 @@ async function inspectStaleDatabaseWorkspace(workspace, config, runtime) {
   if (!existsSync(workspace.path)) {
     const coordinates = workspaceCoordinates(workspace.path, config, { allowMissing: true });
     if (workspace.repo && coordinates.repo !== workspace.repo) {
-      throw cleanupError(
+      throw taggedError(
         'workspace_identity_changed',
         'The missing workspace repository no longer matches its database row',
       );
@@ -576,7 +554,7 @@ function assertRetentionElapsed(orphan, observedAt, minimumAgeMs) {
   const observed = Date.parse(observedAt);
   if (!Number.isFinite(firstSeen) || !Number.isFinite(observed) || observed - firstSeen < minimumAgeMs) {
     const eligibleAt = Number.isFinite(firstSeen) ? new Date(firstSeen + minimumAgeMs).toISOString() : 'unknown';
-    throw cleanupError('retention_pending', `Continuous orphan retention has not elapsed; eligible at ${eligibleAt}`);
+    throw taggedError('retention_pending', `Continuous orphan retention has not elapsed; eligible at ${eligibleAt}`);
   }
 }
 
@@ -585,7 +563,7 @@ async function inspectOrphan(orphan, config, runtime) {
   if (!existsSync(orphan.path)) {
     const coordinates = workspaceCoordinates(orphan.path, config, { allowMissing: true });
     if (coordinates.repo !== orphan.repo || !['marker', 'database'].includes(orphan.ownership_source)) {
-      throw cleanupError('workspace_identity_changed', 'The missing workspace no longer matches Patrol ownership');
+      throw taggedError('workspace_identity_changed', 'The missing workspace no longer matches Patrol ownership');
     }
     return;
   }
@@ -620,7 +598,7 @@ export async function reconcilePatrolWorkspaces(
     now = () => new Date().toISOString(),
   } = {},
 ) {
-  if (reconciliationRunning) throw cleanupError('reconciliation_busy', 'Workspace reconciliation is already running');
+  if (reconciliationRunning) throw taggedError('reconciliation_busy', 'Workspace reconciliation is already running');
   reconciliationRunning = true;
   try {
     return await runWorkspaceReconciliation(config, {

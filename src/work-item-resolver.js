@@ -5,6 +5,7 @@ import { resolve } from 'node:path';
 import { TextDecoder } from 'node:util';
 import { z } from 'zod';
 import { buildCodexEnvironment } from './codex-capability.js';
+import { taggedError } from './errors.js';
 import { sanitizePublicText } from './public-errors.js';
 import { execFile } from './utils.js';
 
@@ -32,10 +33,39 @@ const resultSchema = z
   })
   .strict();
 
-function resolverError(code, message, cause) {
-  const error = new Error(sanitizePublicText(message), cause ? { cause } : undefined);
-  error.code = code;
-  return error;
+const resolverError = (code, message, cause) => taggedError(code, sanitizePublicText(message), { cause });
+
+/**
+ * The one place that knows which MCP tools a resolver run may call and how
+ * many. Both post-hoc output parsers and the streaming inspector enforce the
+ * same policy through it.
+ * @param {'claude'|'codex'} provider
+ * @param {object} config
+ */
+function resolverToolPolicy(provider, config) {
+  const server = config.resolver.server;
+  const allowed = new Set(
+    provider === 'claude' ? server.enabled_tools.map((tool) => `mcp__${server.name}__${tool}`) : server.enabled_tools,
+  );
+  return {
+    server,
+    /** @param {{ server: string, tool: string }} tool */
+    assertAllowed(tool) {
+      const ok = provider === 'claude' ? allowed.has(tool.tool) : tool.server === server.name && allowed.has(tool.tool);
+      if (!ok) {
+        throw resolverError(
+          'resolver_tool_violation',
+          `Resolver attempted disallowed tool ${tool.server}/${tool.tool}`,
+        );
+      }
+    },
+    /** @param {number} calls */
+    assertWithinCallLimit(calls) {
+      if (calls > RESOLVER_MAX_MCP_CALLS) {
+        throw resolverError('resolver_call_limit', 'Resolver exceeded the MCP call limit');
+      }
+    },
+  };
 }
 
 function tomlString(value) {
@@ -200,9 +230,7 @@ function claudeToolName(block) {
 
 export function parseClaudeResolverOutput(stdout, config) {
   const events = jsonLines(stdout);
-  const allowed = new Set(
-    config.resolver.server.enabled_tools.map((tool) => `mcp__${config.resolver.server.name}__${tool}`),
-  );
+  const policy = resolverToolPolicy('claude', config);
   let calls = 0;
   let successfulCalls = 0;
   const pendingCallIds = new Set();
@@ -222,8 +250,7 @@ export function parseClaudeResolverOutput(stdout, config) {
       const name = claudeToolName(block);
       if (!name) continue;
       calls += 1;
-      if (!allowed.has(name))
-        throw resolverError('resolver_tool_violation', `Resolver attempted disallowed tool ${name}`);
+      policy.assertAllowed({ server: policy.server.name, tool: name });
       if (typeof block.id === 'string') pendingCallIds.add(block.id);
     }
     if (event?.type === 'result') {
@@ -231,9 +258,7 @@ export function parseClaudeResolverOutput(stdout, config) {
       final = event.structured_output ?? event.result ?? null;
     }
   }
-  if (calls > RESOLVER_MAX_MCP_CALLS) {
-    throw resolverError('resolver_call_limit', 'Resolver exceeded the MCP call limit');
-  }
+  policy.assertWithinCallLimit(calls);
   const parsedFinal = parseFinalObject(final);
   if (successfulCalls === 0) throw resolverError('resolution_failed', 'Resolver completed without an MCP lookup');
   return parsedFinal;
@@ -389,8 +414,7 @@ export function extractResolverReference(stdout, provider, config, reference) {
 
 export function parseCodexResolverOutput(stdout, config) {
   const events = jsonLines(stdout);
-  const server = config.resolver.server;
-  const allowed = new Set(server.enabled_tools);
+  const policy = resolverToolPolicy('codex', config);
   let calls = 0;
   let successfulCalls = 0;
   const startedCallIds = new Set();
@@ -401,12 +425,7 @@ export function parseCodexResolverOutput(stdout, config) {
     const item = event?.item;
     const tool = codexToolIdentity(item);
     if (tool) {
-      if (tool.server !== server.name || !allowed.has(tool.tool)) {
-        throw resolverError(
-          'resolver_tool_violation',
-          `Resolver attempted disallowed tool ${tool.server}/${tool.tool}`,
-        );
-      }
+      policy.assertAllowed(tool);
       const callId = typeof item.id === 'string' ? item.id : null;
       if (event?.type === 'item.started') {
         calls += 1;
@@ -432,9 +451,7 @@ export function parseCodexResolverOutput(stdout, config) {
     }
   }
   if (!completed) throw resolverError('invalid_provider_output', 'Codex did not complete the resolver turn');
-  if (calls > RESOLVER_MAX_MCP_CALLS) {
-    throw resolverError('resolver_call_limit', 'Resolver exceeded the MCP call limit');
-  }
+  policy.assertWithinCallLimit(calls);
   const parsedFinal = parseFinalObject(finalAgentMessage);
   if (successfulCalls === 0) throw resolverError('resolution_failed', 'Resolver completed without an MCP lookup');
   return parsedFinal;
@@ -553,9 +570,8 @@ export function runLimitedProcess({
 function createToolInspector(provider, config) {
   let callCount = 0;
   const startedCodexCallIds = new Set();
-  const server = config.resolver.server;
-  const allowedClaude = new Set(server.enabled_tools.map((tool) => `mcp__${server.name}__${tool}`));
-  const allowedCodex = new Set(server.enabled_tools);
+  const policy = resolverToolPolicy(provider, config);
+  const server = policy.server;
   return (line) => {
     if (!line.trim()) return;
     let event;
@@ -584,16 +600,7 @@ function createToolInspector(provider, config) {
       if (identity) tools.push(identity);
     }
     for (const tool of tools) {
-      const allowed =
-        provider === 'claude'
-          ? allowedClaude.has(tool.tool)
-          : tool.server === server.name && allowedCodex.has(tool.tool);
-      if (!allowed) {
-        throw resolverError(
-          'resolver_tool_violation',
-          `Resolver attempted disallowed tool ${tool.server}/${tool.tool}`,
-        );
-      }
+      policy.assertAllowed(tool);
       let countCall = true;
       if (provider === 'codex') {
         if (event?.type === 'item.completed' && (event.item.error || event.item.status === 'failed')) {
@@ -607,9 +614,7 @@ function createToolInspector(provider, config) {
         }
       }
       if (countCall) callCount += 1;
-      if (callCount > RESOLVER_MAX_MCP_CALLS) {
-        throw resolverError('resolver_call_limit', 'Resolver exceeded the MCP call limit');
-      }
+      policy.assertWithinCallLimit(callCount);
     }
   };
 }

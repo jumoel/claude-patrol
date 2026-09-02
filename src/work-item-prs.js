@@ -1,20 +1,15 @@
 import { emitLocalChange } from './app-events.js';
 import { getDb } from './db.js';
+import { taggedError } from './errors.js';
 import { formatPR } from './pr-status.js';
 import { execFile } from './utils.js';
 
 const PR_ID_PATTERN = /^([^\s/#]+)\/([^\s/#]+)#([1-9]\d*)$/u;
 const COMMIT_ID_PATTERN = /^[0-9a-f]{40,64}$/iu;
 
-function ownershipError(code, message) {
-  const error = new Error(message);
-  error.code = code;
-  return error;
-}
-
 /** @param {string} value */
 export function parsePullRequestReference(value) {
-  if (typeof value !== 'string') throw ownershipError('invalid_pull_request', 'Pull request must be a string');
+  if (typeof value !== 'string') throw taggedError('invalid_pull_request', 'Pull request must be a string');
   const trimmed = value.trim();
   let canonical = trimmed;
   if (/^https?:\/\//iu.test(trimmed)) {
@@ -22,19 +17,19 @@ export function parsePullRequestReference(value) {
     try {
       url = new URL(trimmed);
     } catch {
-      throw ownershipError('invalid_pull_request', 'Pull request URL is invalid');
+      throw taggedError('invalid_pull_request', 'Pull request URL is invalid');
     }
     if (url.protocol !== 'https:' || url.hostname.toLowerCase() !== 'github.com') {
-      throw ownershipError('invalid_pull_request', 'Pull request URL must use https://github.com');
+      throw taggedError('invalid_pull_request', 'Pull request URL must use https://github.com');
     }
     const parts = url.pathname.split('/').filter(Boolean);
     if (parts.length < 4 || parts[2] !== 'pull' || !/^[1-9]\d*$/u.test(parts[3])) {
-      throw ownershipError('invalid_pull_request', 'Expected a GitHub pull request URL');
+      throw taggedError('invalid_pull_request', 'Expected a GitHub pull request URL');
     }
     canonical = `${parts[0]}/${parts[1]}#${parts[3]}`;
   }
   const match = PR_ID_PATTERN.exec(canonical);
-  if (!match) throw ownershipError('invalid_pull_request', 'Expected owner/repo#number or a GitHub pull request URL');
+  if (!match) throw taggedError('invalid_pull_request', 'Expected owner/repo#number or a GitHub pull request URL');
   const [, org, repo, number] = match;
   return {
     id: `${org}/${repo}#${number}`,
@@ -186,13 +181,13 @@ export function enrichPullRequestsWithOwners(prs, db = getDb()) {
 export function linkWorkItemPullRequest(workItemId, pullRequest, { source = 'explicit', emit = true } = {}) {
   const db = getDb();
   const workItem = db.prepare('SELECT * FROM work_items WHERE id = ?').get(workItemId);
-  if (!workItem) throw ownershipError('work_item_not_found', 'Work item not found');
+  if (!workItem) throw taggedError('work_item_not_found', 'Work item not found');
   if (['destroying', 'destroyed'].includes(workItem.state)) {
-    throw ownershipError('invalid_state', 'Destroyed work items cannot accept pull requests');
+    throw taggedError('invalid_state', 'Destroyed work items cannot accept pull requests');
   }
   const parsed = parsePullRequestReference(pullRequest);
   if (!repositoriesFor(workItem).includes(parsed.repository)) {
-    throw ownershipError(
+    throw taggedError(
       'repository_not_in_work_item',
       `Pull request repository is not part of this work item: ${parsed.repository}`,
     );
@@ -201,7 +196,7 @@ export function linkWorkItemPullRequest(workItemId, pullRequest, { source = 'exp
   if (current?.work_item_id === workItemId)
     return linkedPullRequest(current, db.prepare('SELECT * FROM prs WHERE id = ?').get(parsed.id));
   if (current) {
-    throw ownershipError(
+    throw taggedError(
       'pull_request_owned',
       `Pull request ${parsed.id} already belongs to work item ${current.work_item_id}`,
     );
@@ -223,7 +218,7 @@ export function unlinkWorkItemPullRequest(workItemId, pullRequest) {
   const current = db.prepare('SELECT work_item_id FROM work_item_pull_requests WHERE pr_id = ?').get(parsed.id);
   if (!current) return { removed: false, pr_id: parsed.id, work_item_id: workItemId };
   if (current.work_item_id !== workItemId) {
-    throw ownershipError('pull_request_owned', `Pull request ${parsed.id} belongs to another work item`);
+    throw taggedError('pull_request_owned', `Pull request ${parsed.id} belongs to another work item`);
   }
   db.prepare('DELETE FROM work_item_pull_requests WHERE pr_id = ?').run(parsed.id);
   emitLocalChange();

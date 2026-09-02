@@ -1,13 +1,8 @@
 import { randomUUID } from 'node:crypto';
+import { taggedError } from './errors.js';
 
 const FINAL_STATUSES = new Set(['complete', 'failed', 'delivery_unconfirmed']);
 const ACTIVE_STATUSES = new Set(['requested', 'running', 'delivering']);
-
-function reviewError(code, message) {
-  const error = new Error(message);
-  error.code = code;
-  return error;
-}
 
 function providerName(provider) {
   return provider === 'codex' ? 'Codex' : 'Claude';
@@ -60,10 +55,10 @@ export class PeerReviewCoordinator {
 
   request({ workspaceId = null, workItemId = null, sessionId, prId, presenterProvider, reviewerProvider }) {
     const targetKey = workspaceId ? `workspace:${workspaceId}` : workItemId ? `work_item:${workItemId}` : null;
-    if (!targetKey) throw reviewError('review_target_required', 'A workspace or work item is required');
+    if (!targetKey) throw taggedError('review_target_required', 'A workspace or work item is required');
     const existing = this.reviews.get(targetKey);
     if (existing && ACTIVE_STATUSES.has(existing.status)) {
-      throw reviewError('review_in_progress', 'A peer review is already in progress for this work target');
+      throw taggedError('review_in_progress', 'A peer review is already in progress for this work target');
     }
 
     const review = {
@@ -87,7 +82,7 @@ export class PeerReviewCoordinator {
     this.setTimer(review.id, this.requestTimeoutMs, () => {
       this.fail(
         review.id,
-        reviewError(
+        taggedError(
           'request_timeout',
           `${providerName(presenterProvider)} did not start the ${providerName(reviewerProvider)} review within two minutes`,
         ),
@@ -101,13 +96,13 @@ export class PeerReviewCoordinator {
     const targetKey = workspaceId ? `workspace:${workspaceId}` : workItemId ? `work_item:${workItemId}` : null;
     const review = targetKey ? this.reviews.get(targetKey) : null;
     if (!review || review.status !== 'requested') {
-      throw reviewError('review_not_requested', 'No peer review was requested for this work target');
+      throw taggedError('review_not_requested', 'No peer review was requested for this work target');
     }
     if (review.sessionId !== sessionId) {
-      throw reviewError('review_session_mismatch', 'This peer review belongs to a different presenter session');
+      throw taggedError('review_session_mismatch', 'This peer review belongs to a different presenter session');
     }
     if (review.reviewerProvider !== reviewerProvider) {
-      throw reviewError(
+      throw taggedError(
         'review_provider_mismatch',
         `This review is reserved for ${providerName(review.reviewerProvider)}`,
       );

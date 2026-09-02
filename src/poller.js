@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { unlinkSync } from 'node:fs';
 import { emitGhRateLimit, emitLocalChange } from './app-events.js';
-import { getDb } from './db.js';
+import { getDb, withTransaction } from './db.js';
 import { deriveCIStatus, formatPR } from './pr-status.js';
 import { SingleFlight } from './single-flight.js';
 import { makePrId, parseJsonColumn } from './utils.js';
@@ -736,8 +736,7 @@ function upsertPRs(prs) {
   /** @type {Array<{id: string, prev: object, changes: object}>} */
   const pendingDiffs = [];
 
-  db.exec('BEGIN');
-  try {
+  withTransaction(db, () => {
     for (const pr of prs) {
       const prOrg = pr.repository.owner.login;
       const repo = pr.repository.name;
@@ -786,11 +785,7 @@ function upsertPRs(prs) {
       const changes = computeChanges(prev, pr);
       if (changes) pendingDiffs.push({ id, prev, changes });
     }
-    db.exec('COMMIT');
-  } catch (err) {
-    db.exec('ROLLBACK');
-    throw err;
-  }
+  });
 
   // Emit pr-changed events only after the transaction has committed - if the
   // upsert rolled back, downstream consumers must not see transitions for

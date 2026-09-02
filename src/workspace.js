@@ -1,14 +1,16 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, realpathSync, rmSync, symlinkSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
-import { dirname, isAbsolute, relative, resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { emitLocalChange } from './app-events.js';
-import { getDb } from './db.js';
+import { getDb, withTransaction } from './db.js';
+import { taggedError } from './errors.js';
+import { createKeyedLock } from './keyed-lock.js';
 import { killSessionAndWait } from './pty-manager.js';
 import { sanitizePublicText, sanitizeWorkspaceWarnings } from './public-errors.js';
 import { runTask } from './tasks.js';
 import { archiveTranscript } from './transcripts.js';
-import { execFile, expandPath, toClaudeProjectKey } from './utils.js';
+import { claudeProjectDir, execFile, expandPath, relationInside, toClaudeProjectKey } from './utils.js';
 import { getPullRequestOwner } from './work-item-prs.js';
 import { writePatrolWorkspaceMarker } from './workspace-ownership.js';
 
@@ -36,35 +38,14 @@ async function ensureJjInit(repoPath, { runExec = execFile } = {}) {
   }
 }
 
-/** @type {Map<string, Promise<unknown>>} */
-const workspaceLocks = new Map();
-
-/** @type {Map<string, Promise<unknown>>} */
-const sourceRepositoryLocks = new Map();
-
-function workspaceError(code, message) {
-  const error = new Error(message);
-  error.code = code;
-  return error;
-}
-
-function inTransaction(db, fn) {
-  db.exec('BEGIN IMMEDIATE');
-  try {
-    const result = fn();
-    db.exec('COMMIT');
-    return result;
-  } catch (error) {
-    db.exec('ROLLBACK');
-    throw error;
-  }
-}
+const withWorkspaceLock = createKeyedLock();
+const withSourceRepositoryLock = createKeyedLock();
 
 function reserveWorkspaceRow(workspace) {
   const db = getDb();
-  inTransaction(db, () => {
+  withTransaction(db, () => {
     if (existsSync(workspace.path)) {
-      throw workspaceError('workspace_path_exists', `Workspace path already exists: ${workspace.path}`);
+      throw taggedError('workspace_path_exists', `Workspace path already exists: ${workspace.path}`);
     }
     const conflict = db
       .prepare(
@@ -74,7 +55,7 @@ function reserveWorkspaceRow(workspace) {
       )
       .get(workspace.repo, workspace.bookmark);
     if (conflict) {
-      throw workspaceError(
+      throw taggedError(
         'workspace_conflict',
         `Active workspace ${conflict.id} already owns ${workspace.repo} bookmark ${workspace.bookmark}`,
       );
@@ -83,14 +64,14 @@ function reserveWorkspaceRow(workspace) {
       .prepare('SELECT workspace_id FROM workspace_claims WHERE repo = ? AND bookmark = ?')
       .get(workspace.repo, workspace.bookmark);
     if (claim) {
-      throw workspaceError(
+      throw taggedError(
         'workspace_busy',
         `Workspace operation ${claim.workspace_id} already owns ${workspace.repo} bookmark ${workspace.bookmark}`,
       );
     }
     const orphan = db.prepare('SELECT operation_state FROM workspace_orphans WHERE path = ?').get(workspace.path);
     if (orphan) {
-      throw workspaceError(
+      throw taggedError(
         'workspace_busy',
         `Workspace path is pending orphan reconciliation (${orphan.operation_state}): ${workspace.path}`,
       );
@@ -124,7 +105,7 @@ function reserveWorkspaceRow(workspace) {
 
 function finishWorkspaceOperation(id, state, step, error, extra = {}) {
   const db = getDb();
-  inTransaction(db, () => {
+  withTransaction(db, () => {
     updateWorkspaceOperation(id, state, step, error, extra);
     db.prepare('DELETE FROM workspace_claims WHERE workspace_id = ?').run(id);
   });
@@ -132,15 +113,12 @@ function finishWorkspaceOperation(id, state, step, error, extra = {}) {
 
 function claimWorkspaceForDestroy(workspace) {
   const db = getDb();
-  inTransaction(db, () => {
+  withTransaction(db, () => {
     const current = db
       .prepare('SELECT workspace_id FROM workspace_claims WHERE repo = ? AND bookmark = ?')
       .get(workspace.repo, workspace.bookmark);
     if (current && current.workspace_id !== workspace.id) {
-      throw workspaceError(
-        'workspace_busy',
-        `Another workspace operation owns ${workspace.repo} ${workspace.bookmark}`,
-      );
+      throw taggedError('workspace_busy', `Another workspace operation owns ${workspace.repo} ${workspace.bookmark}`);
     }
     if (!current) {
       db.prepare(
@@ -154,7 +132,7 @@ function claimWorkspaceForDestroy(workspace) {
   });
 }
 
-function isAlreadyForgotten(error) {
+export function isAlreadyForgotten(error) {
   if (error?.code === 'ENOENT') return false;
   return /no such workspace|no workspace named|workspace.*(?:not found|does not exist|unknown)/i.test(
     error?.message ?? '',
@@ -211,7 +189,7 @@ export function recoverInterruptedWorkspaceOperations() {
     )
     .all();
   if (interrupted.length === 0) return [];
-  inTransaction(db, () => {
+  withTransaction(db, () => {
     const now = new Date().toISOString();
     const update = db.prepare(
       `UPDATE workspaces
@@ -243,27 +221,6 @@ export function recoverInterruptedWorkspaceOperations() {
  * @param {() => Promise<T>} fn
  * @returns {Promise<T>}
  */
-async function withWorkspaceLock(id, fn) {
-  const prev = workspaceLocks.get(id);
-  const current = (async () => {
-    if (prev) {
-      try {
-        await prev;
-      } catch {
-        /* prior holder's failure is its own to report */
-      }
-    }
-    return fn();
-  })();
-  workspaceLocks.set(id, current);
-  try {
-    return await current;
-  } finally {
-    if (workspaceLocks.get(id) === current) {
-      workspaceLocks.delete(id);
-    }
-  }
-}
 
 /**
  * Create a jj workspace for a PR.
@@ -276,7 +233,7 @@ export async function createWorkspace(prId, config) {
   const db = getDb();
   const owner = getPullRequestOwner(prId);
   if (owner) {
-    throw workspaceError(
+    throw taggedError(
       'pr_owned_by_work_item',
       `PR ${prId} belongs to work item ${owner.title ?? owner.reference ?? owner.id}; use its shared workspace and session`,
     );
@@ -308,7 +265,7 @@ export async function createWorkspace(prId, config) {
     });
   } catch (error) {
     if (error.message.includes('UNIQUE'))
-      throw workspaceError('workspace_conflict', `Active workspace already exists for ${prId}`);
+      throw taggedError('workspace_conflict', `Active workspace already exists for ${prId}`);
     throw error;
   }
 
@@ -363,7 +320,7 @@ export async function createWorkspace(prId, config) {
         deleteBookmark: false,
       });
       emitLocalChange();
-      throw workspaceError('workspace_create_failed', `Workspace creation failed: ${sanitizePublicText(err.message)}`);
+      throw taggedError('workspace_create_failed', `Workspace creation failed: ${sanitizePublicText(err.message)}`);
     }
 
     finishWorkspaceOperation(id, 'ready', 'create:complete', null);
@@ -454,7 +411,7 @@ export async function createScratchWorkspace(repo, branch, config, { startRevisi
         deleteBookmark: false,
       });
       emitLocalChange();
-      throw workspaceError('workspace_create_failed', `Workspace creation failed: ${sanitizePublicText(err.message)}`);
+      throw taggedError('workspace_create_failed', `Workspace creation failed: ${sanitizePublicText(err.message)}`);
     }
 
     finishWorkspaceOperation(id, 'ready', 'create:complete', null);
@@ -464,25 +421,20 @@ export async function createScratchWorkspace(repo, branch, config, { startRevisi
 
 export function sourceRepositoryPath(repo, config) {
   const [owner, name, extra] = String(repo).split('/');
-  if (!owner || !name || extra) throw workspaceError('invalid_repository', `Invalid repository identifier: ${repo}`);
+  if (!owner || !name || extra) throw taggedError('invalid_repository', `Invalid repository identifier: ${repo}`);
   let workDir;
   let source;
   try {
     workDir = realpathSync(expandPath(config.work_dir));
     source = realpathSync(resolve(workDir, owner, name));
   } catch {
-    throw workspaceError('repository_unavailable', `Configured source repository is unavailable: ${repo}`);
+    throw taggedError('repository_unavailable', `Configured source repository is unavailable: ${repo}`);
   }
-  const relation = relative(workDir, source);
-  if (
-    relation === '..' ||
-    relation.startsWith(`..${process.platform === 'win32' ? '\\' : '/'}`) ||
-    isAbsolute(relation)
-  ) {
-    throw workspaceError('unsafe_repository_path', `Configured source repository escapes work_dir: ${repo}`);
+  if (!relationInside(workDir, source)) {
+    throw taggedError('unsafe_repository_path', `Configured source repository escapes work_dir: ${repo}`);
   }
   if (!existsSync(resolve(source, '.jj'))) {
-    throw workspaceError('jj_required', `Configured source repository is not a jj repository: ${repo}`);
+    throw taggedError('jj_required', `Configured source repository is not a jj repository: ${repo}`);
   }
   return source;
 }
@@ -501,7 +453,7 @@ export async function ensureManualSourceRepository(repo, config, { runExec = exe
     const validSegment = (value) =>
       Boolean(value) && value !== '.' && value !== '..' && !/[\s/\\\u0000-\u001f\u007f-\u009f]/u.test(value);
     if (!validSegment(scope) || !validSegment(name) || extra) {
-      throw workspaceError('invalid_repository', `Invalid repository identifier: ${repo}`);
+      throw taggedError('invalid_repository', `Invalid repository identifier: ${repo}`);
     }
 
     let defaultBranch;
@@ -513,7 +465,7 @@ export async function ensureManualSourceRepository(repo, config, { runExec = exe
       );
       defaultBranch = String(stdout).trim();
     } catch (error) {
-      throw workspaceError(
+      throw taggedError(
         'repository_discovery_failed',
         `Could not inspect GitHub repository ${repo}: ${sanitizePublicText(error.message)}`,
       );
@@ -523,20 +475,15 @@ export async function ensureManualSourceRepository(repo, config, { runExec = exe
       Buffer.byteLength(defaultBranch, 'utf8') > 255 ||
       /[\u0000-\u001f\u007f-\u009f]/u.test(defaultBranch)
     ) {
-      throw workspaceError('repository_default_branch_missing', `GitHub repository ${repo} has no default branch`);
+      throw taggedError('repository_default_branch_missing', `GitHub repository ${repo} has no default branch`);
     }
 
     const workDir = expandPath(config.work_dir);
     mkdirSync(workDir, { recursive: true });
     const realWorkDir = realpathSync(workDir);
     const destination = resolve(realWorkDir, scope, name);
-    const relation = relative(realWorkDir, destination);
-    if (
-      relation === '..' ||
-      relation.startsWith(`..${process.platform === 'win32' ? '\\' : '/'}`) ||
-      isAbsolute(relation)
-    ) {
-      throw workspaceError('unsafe_repository_path', `Repository path escapes work_dir: ${repo}`);
+    if (!relationInside(realWorkDir, destination)) {
+      throw taggedError('unsafe_repository_path', `Repository path escapes work_dir: ${repo}`);
     }
 
     let cloned = false;
@@ -546,7 +493,7 @@ export async function ensureManualSourceRepository(repo, config, { runExec = exe
         cloned = true;
         await runExec('gh', ['repo', 'clone', repo, destination], { encoding: 'utf8' });
       } else if (!existsSync(resolve(destination, '.git')) && !existsSync(resolve(destination, '.jj'))) {
-        throw workspaceError(
+        throw taggedError(
           'repository_path_conflict',
           `Repository destination exists but is not a Git or jj repository: ${destination}`,
         );
@@ -560,30 +507,14 @@ export async function ensureManualSourceRepository(repo, config, { runExec = exe
     } catch (error) {
       if (cloned) await rm(destination, { recursive: true, force: true });
       if (error.code) throw error;
-      throw workspaceError(
+      throw taggedError(
         'repository_clone_failed',
         `Could not prepare GitHub repository ${repo}: ${sanitizePublicText(error.message)}`,
       );
     }
   };
 
-  const previous = sourceRepositoryLocks.get(repo);
-  const serialized = (async () => {
-    if (previous) {
-      try {
-        await previous;
-      } catch {
-        // The earlier caller reports its own failure. This caller retries.
-      }
-    }
-    return operation();
-  })();
-  sourceRepositoryLocks.set(repo, serialized);
-  try {
-    return await serialized;
-  } finally {
-    if (sourceRepositoryLocks.get(repo) === serialized) sourceRepositoryLocks.delete(repo);
-  }
+  return withSourceRepositoryLock(repo, operation);
 }
 
 export async function resolveWorkspaceRevision(repo, revision, config) {
@@ -598,7 +529,7 @@ export async function resolveWorkspaceRevision(repo, revision, config) {
       },
     ));
   } catch (error) {
-    throw workspaceError(
+    throw taggedError(
       'revision_unresolved',
       sanitizePublicText(`Could not resolve configured revision for ${repo}: ${error.message}`),
     );
@@ -608,7 +539,7 @@ export async function resolveWorkspaceRevision(repo, revision, config) {
     .map((line) => line.trim())
     .filter(Boolean);
   if (commits.length !== 1 || !/^[0-9a-f]{40,64}$/i.test(commits[0])) {
-    throw workspaceError('revision_ambiguous', `Configured revision for ${repo} did not resolve to exactly one commit`);
+    throw taggedError('revision_ambiguous', `Configured revision for ${repo} did not resolve to exactly one commit`);
   }
   return { sourcePath, commitId: commits[0] };
 }
@@ -645,7 +576,7 @@ export async function createWorkItemChild({
         encoding: 'utf8',
       });
       if (String(stdout).trim()) {
-        throw workspaceError('bookmark_exists', `Bookmark already exists in ${repo}: ${bookmark}`);
+        throw taggedError('bookmark_exists', `Bookmark already exists in ${repo}: ${bookmark}`);
       }
 
       mkdirSync(dirname(workspacePath), { recursive: true });
@@ -672,7 +603,7 @@ export async function createWorkItemChild({
         error,
         deleteBookmark: bookmarkCreated ? bookmark : false,
       });
-      throw workspaceError(error.code ?? 'setup_failed', sanitizePublicText(error.message));
+      throw taggedError(error.code ?? 'setup_failed', sanitizePublicText(error.message));
     }
   });
 }
@@ -854,9 +785,7 @@ async function compensateWorkspaceCreation({ id, name, workspacePath, mainRepoPa
 
   updateWorkspaceOperation(id, 'creating', 'create:compensation_claude_project');
   try {
-    const claudeProjects = expandPath('~/.claude/projects');
-    const workspaceKey = toClaudeProjectKey(workspacePath);
-    await rm(resolve(claudeProjects, workspaceKey), { recursive: true, force: true });
+    await rm(claudeProjectDir(workspacePath), { recursive: true, force: true });
   } catch (caught) {
     finishWorkspaceOperation(
       id,
@@ -984,7 +913,7 @@ function symlinkMemory(workspacePath, mainRepoPath) {
 export async function destroyWorkspace(workspaceId, config) {
   const workspace = getDb().prepare('SELECT work_item_id FROM workspaces WHERE id = ?').get(workspaceId);
   if (workspace?.work_item_id) {
-    throw workspaceError(
+    throw taggedError(
       'work_item_child_managed',
       'Work-item child workspaces can only be removed through their work item',
     );
@@ -1003,7 +932,7 @@ export async function destroyWorkspaceWithGuards(
 ) {
   const workspace = getDb().prepare('SELECT work_item_id FROM workspaces WHERE id = ?').get(workspaceId);
   if (workspace?.work_item_id) {
-    throw workspaceError(
+    throw taggedError(
       'work_item_child_managed',
       'Work-item child workspaces can only be removed through their work item',
     );
@@ -1044,7 +973,7 @@ async function destroyWorkspaceLocked(workspaceId, config, { deleteBookmark, run
     if (pr) workspaceRepo = `${pr.org}/${pr.repo}`;
   }
   if (!workspaceRepo) {
-    throw workspaceError('workspace_repository_missing', `Workspace ${workspaceId} has no repository identifier`);
+    throw taggedError('workspace_repository_missing', `Workspace ${workspaceId} has no repository identifier`);
   }
   const mainRepoPath = sourceRepositoryPath(workspaceRepo, config);
   workspace.repo = workspaceRepo;
@@ -1078,7 +1007,7 @@ async function destroyWorkspaceLocked(workspaceId, config, { deleteBookmark, run
         // Step 2: Docker compose down if applicable
         updateWorkspaceOperation(workspaceId, 'destroying', 'destroy:docker');
         const dockerWarning = await dockerComposeDown(workspace.path);
-        if (dockerWarning) throw workspaceError('docker_cleanup_failed', dockerWarning);
+        if (dockerWarning) throw taggedError('docker_cleanup_failed', dockerWarning);
 
         // Step 3: jj workspace forget
         updateWorkspaceOperation(workspaceId, 'destroying', 'destroy:forget_workspace');
@@ -1086,7 +1015,7 @@ async function destroyWorkspaceLocked(workspaceId, config, { deleteBookmark, run
           await runExec('jj', ['workspace', 'forget', workspace.name, '-R', mainRepoPath]);
         } catch (err) {
           if (!isAlreadyForgotten(err)) {
-            throw workspaceError('workspace_forget_failed', `jj workspace forget failed: ${err.message}`);
+            throw taggedError('workspace_forget_failed', `jj workspace forget failed: ${err.message}`);
           }
         }
 
@@ -1098,7 +1027,7 @@ async function destroyWorkspaceLocked(workspaceId, config, { deleteBookmark, run
             try {
               archiveTranscript(sess.id, sess.claude_project_dir, sess.started_at, sess.ended_at);
             } catch (err) {
-              throw workspaceError(
+              throw taggedError(
                 'transcript_archive_failed',
                 `Transcript archive failed for ${sess.id}: ${err.message}`,
               );
@@ -1112,18 +1041,15 @@ async function destroyWorkspaceLocked(workspaceId, config, { deleteBookmark, run
           if (beforeDirectoryRemoval) await beforeDirectoryRemoval(workspace);
           await rm(workspace.path, { recursive: true, force: true });
         } catch (err) {
-          throw workspaceError('directory_cleanup_failed', `Directory cleanup failed: ${err.message}`);
+          throw taggedError('directory_cleanup_failed', `Directory cleanup failed: ${err.message}`);
         }
 
         // Step 6: Clean up Claude project memory symlink.
         updateWorkspaceOperation(workspaceId, 'destroying', 'destroy:claude_project');
         try {
-          const claudeProjects = expandPath('~/.claude/projects');
-          const wsKey = toClaudeProjectKey(workspace.path);
-          const wsProjectDir = resolve(claudeProjects, wsKey);
-          await rm(wsProjectDir, { recursive: true, force: true });
+          await rm(claudeProjectDir(workspace.path), { recursive: true, force: true });
         } catch (err) {
-          throw workspaceError('provider_state_cleanup_failed', `Claude memory cleanup failed: ${err.message}`);
+          throw taggedError('provider_state_cleanup_failed', `Claude memory cleanup failed: ${err.message}`);
         }
 
         if (deleteBookmark) {
@@ -1138,7 +1064,7 @@ async function destroyWorkspaceLocked(workspaceId, config, { deleteBookmark, run
               await runExec('jj', ['bookmark', 'delete', workspace.bookmark, '-R', mainRepoPath]);
             }
           } catch (error) {
-            throw workspaceError('bookmark_cleanup_failed', `Bookmark cleanup failed: ${error.message}`);
+            throw taggedError('bookmark_cleanup_failed', `Bookmark cleanup failed: ${error.message}`);
           }
         }
 
@@ -1161,6 +1087,6 @@ async function destroyWorkspaceLocked(workspaceId, config, { deleteBookmark, run
       sanitizePublicText(error.message),
     );
     emitLocalChange();
-    throw workspaceError(error.code ?? 'workspace_cleanup_failed', sanitizePublicText(error.message));
+    throw taggedError(error.code ?? 'workspace_cleanup_failed', sanitizePublicText(error.message));
   }
 }

@@ -1,8 +1,8 @@
 import { copyFileSync, existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 import { getDb } from './db.js';
 import { transcriptsDir } from './paths.js';
-import { expandPath, toClaudeProjectKey } from './utils.js';
+import { claudeProjectDir } from './utils.js';
 
 /**
  * Find the best-matching Claude Code JSONL file for a session.
@@ -190,7 +190,7 @@ export function resolveSessionJsonlPath(sess, fallbackProjectDir) {
  * @returns {string}
  */
 export function claudeProjectDirForWorkspace(workspacePath) {
-  return resolve(expandPath('~/.claude/projects'), toClaudeProjectKey(workspacePath));
+  return claudeProjectDir(workspacePath);
 }
 
 /**

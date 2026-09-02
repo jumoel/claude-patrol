@@ -3,13 +3,15 @@ import { existsSync } from 'node:fs';
 import { mkdir, readdir, readFile, rm, unlink } from 'node:fs/promises';
 import { basename, resolve } from 'node:path';
 import { emitLocalChange } from './app-events.js';
-import { getDb } from './db.js';
+import { getDb, withTransaction } from './db.js';
+import { taggedError } from './errors.js';
+import { createKeyedLock } from './keyed-lock.js';
 import { providerSetup } from './provider-setup.js';
 import { createSession, isSessionAlive, killSessionAndWait } from './pty-manager.js';
 import { sanitizePublicText } from './public-errors.js';
 import { runTask, updateTaskProgress } from './tasks.js';
 import { archiveTranscript } from './transcripts.js';
-import { execFile, expandPath, toClaudeProjectKey } from './utils.js';
+import { claudeProjectDir, execFile, expandPath } from './utils.js';
 import { generatedRootFileNames, publishRootFiles, writeTemporaryRootFiles } from './work-item-files.js';
 import { listWorkItemPullRequests, listWorkItemPullRequestsBatch } from './work-item-prs.js';
 import { createWorkItemResolver } from './work-item-resolver.js';
@@ -20,7 +22,6 @@ import {
   sourceRepositoryPath,
 } from './workspace.js';
 
-const workItemLocks = new Map();
 const WORK_ITEM_STATES = new Set(['resolving', 'preparing', 'ready', 'error', 'destroying', 'destroyed']);
 const WORK_ITEM_STAGES = new Set([
   'provider_check',
@@ -36,24 +37,8 @@ const WORK_ITEM_STAGES = new Set([
   'complete',
 ]);
 
-function workItemError(code, message, failedProvider = null) {
-  const error = new Error(sanitizePublicText(message));
-  error.code = code;
-  error.failedProvider = failedProvider;
-  return error;
-}
-
-function transaction(db, fn) {
-  db.exec('BEGIN IMMEDIATE');
-  try {
-    const result = fn();
-    db.exec('COMMIT');
-    return result;
-  } catch (error) {
-    db.exec('ROLLBACK');
-    throw error;
-  }
-}
+const workItemError = (code, message, failedProvider = null) =>
+  taggedError(code, sanitizePublicText(message), { failedProvider });
 
 const WORK_ITEM_SELECT = `
   SELECT wi.*,
@@ -107,7 +92,7 @@ function mutateWorkItem(id, patch, expectedStates = null) {
     stateClause = ` AND state IN (${expectedStates.map(() => '?').join(', ')})`;
     values.push(...expectedStates);
   }
-  const result = transaction(db, () =>
+  const result = withTransaction(db, () =>
     db.prepare(`UPDATE work_items SET ${assignments.join(', ')} WHERE id = ?${stateClause}`).run(...values),
   );
   if (expectedStates?.length && result.changes !== 1) {
@@ -478,19 +463,7 @@ function recordFailure(id, error, { code = null, provider = null, stage = null }
   });
 }
 
-async function withWorkItemLock(id, fn) {
-  const previous = workItemLocks.get(id);
-  const current = (async () => {
-    if (previous) await previous.catch(() => {});
-    return fn();
-  })();
-  workItemLocks.set(id, current);
-  try {
-    return await current;
-  } finally {
-    if (workItemLocks.get(id) === current) workItemLocks.delete(id);
-  }
-}
+const withWorkItemLock = createKeyedLock();
 
 function validateReference(value) {
   if (typeof value !== 'string') throw workItemError('invalid_reference', 'Reference must be a string');
@@ -627,7 +600,7 @@ export function createWorkItemService({
   const beginRepositoryAddition = (item, child, startRevision) => {
     const db = getDb();
     const now = new Date().toISOString();
-    transaction(db, () => {
+    withTransaction(db, () => {
       const nextPosition = db
         .prepare(
           'SELECT COALESCE(MAX(position), -1) + 1 AS position FROM work_item_repositories WHERE work_item_id = ?',
@@ -661,7 +634,7 @@ export function createWorkItemService({
   const finishRepositoryAddition = (id, repository, { remove = false } = {}) => {
     const db = getDb();
     const now = new Date().toISOString();
-    transaction(db, () => {
+    withTransaction(db, () => {
       if (remove) {
         db.prepare('DELETE FROM work_item_repositories WHERE work_item_id = ? AND repo = ?').run(id, repository);
       } else {
@@ -992,7 +965,7 @@ export function createWorkItemService({
       });
       const now = new Date().toISOString();
       const config = getConfig();
-      transaction(getDb(), () => {
+      withTransaction(getDb(), () => {
         getDb().prepare('DELETE FROM work_item_repositories WHERE work_item_id = ?').run(id);
         const insert = getDb().prepare(
           `INSERT INTO work_item_repositories (
@@ -1065,7 +1038,7 @@ export function createWorkItemService({
         archiveTranscript(session.id, session.claude_project_dir, session.started_at, session.ended_at);
       }
     }
-    const claudeProject = resolve(expandPath('~/.claude/projects'), toClaudeProjectKey(item.path));
+    const claudeProject = claudeProjectDir(item.path);
     if (existsSync(claudeProject)) {
       await rm(claudeProject, { recursive: true, force: true });
     }
@@ -1207,7 +1180,7 @@ export function createWorkItemService({
         repositories = [{ repo, startRevision: pullRequest.head_oid ?? pullRequest.branch }];
       }
 
-      transaction(getDb(), () => {
+      withTransaction(getDb(), () => {
         getDb()
           .prepare(
             `INSERT INTO work_items (
@@ -1391,7 +1364,7 @@ export function createWorkItemService({
           await destroyChild(workspaceId, config, { deleteBookmark: false });
           publishRootFiles(item.path);
           const now = new Date().toISOString();
-          transaction(getDb(), () => {
+          withTransaction(getDb(), () => {
             getDb()
               .prepare('DELETE FROM work_item_repositories WHERE work_item_id = ? AND repo = ?')
               .run(id, workspace.repo);
@@ -1493,7 +1466,7 @@ export function recoverInterruptedWorkItems() {
     )
     .all();
   if (rows.length === 0) return [];
-  transaction(db, () => {
+  withTransaction(db, () => {
     const now = new Date().toISOString();
     const fail = db.prepare(
       `UPDATE work_items

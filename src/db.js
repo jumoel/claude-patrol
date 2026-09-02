@@ -52,6 +52,27 @@ export function closeDb() {
   db = null;
 }
 
+/**
+ * Run `fn` inside a transaction and commit, or roll back and rethrow. Uses
+ * BEGIN IMMEDIATE so a writer takes the lock up front instead of failing on
+ * its first write.
+ * @template T
+ * @param {import('node:sqlite').DatabaseSync} database
+ * @param {() => T} fn
+ * @returns {T}
+ */
+export function withTransaction(database, fn) {
+  database.exec('BEGIN IMMEDIATE');
+  try {
+    const result = fn();
+    database.exec('COMMIT');
+    return result;
+  } catch (error) {
+    database.exec('ROLLBACK');
+    throw error;
+  }
+}
+
 /** Get the active database instance. */
 export function getDb() {
   if (!db) throw new Error('Database not initialized. Call initDb() first.');

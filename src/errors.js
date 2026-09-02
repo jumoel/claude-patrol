@@ -6,11 +6,11 @@
  * extra fields for the HTTP envelope (failedProvider, sessionId, ...).
  * @param {string} code
  * @param {string} message
- * @param {{ cause?: unknown } & Record<string, unknown>} [extras]
+ * @param {Error | ({ cause?: unknown } & Record<string, unknown>)} [extras] an Error is taken as the cause
  * @returns {Error & { code: string }}
  */
 export function taggedError(code, message, extras = {}) {
-  const { cause, ...fields } = extras;
+  const { cause, ...fields } = extras instanceof Error ? { cause: extras } : extras;
   const error = cause === undefined ? new Error(message) : new Error(message, { cause });
   error.code = code;
   Object.assign(error, fields);

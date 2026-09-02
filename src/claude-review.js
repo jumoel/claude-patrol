@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { taggedError } from './errors.js';
 import { resolveReviewRange } from './review-range.js';
 import { runTask } from './tasks.js';
 import { execFile } from './utils.js';
@@ -6,12 +7,6 @@ import { execFile } from './utils.js';
 export const CLAUDE_REVIEW_TIMEOUT_MS = 30 * 60 * 1000;
 const MAX_DIFF_BYTES = 8 * 1024 * 1024;
 const MAX_OUTPUT_BYTES = 2 * 1024 * 1024;
-
-function taggedError(code, message, cause) {
-  const error = new Error(message, cause ? { cause } : undefined);
-  error.code = code;
-  return error;
-}
 
 function reviewPrompt({ pr, range }) {
   return [

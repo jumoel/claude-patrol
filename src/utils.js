@@ -1,6 +1,6 @@
 import { execFile as execFileCb } from 'node:child_process';
 import { homedir } from 'node:os';
-import { resolve } from 'node:path';
+import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { promisify } from 'node:util';
 
 export const execFile = promisify(execFileCb);
@@ -105,4 +105,28 @@ export function makePrId(org, repo, number) {
  */
 export function toClaudeProjectKey(fsPath) {
   return fsPath.replace(/[/.]/g, '-');
+}
+
+/**
+ * Relative path of `candidate` below `root`, or null when it is the root
+ * itself, escapes it, or lives on another volume. Used before any destructive
+ * filesystem step so a symlink or a bad config value cannot point outside the
+ * directory Patrol owns.
+ * @param {string} root
+ * @param {string} candidate
+ * @returns {string | null}
+ */
+export function relationInside(root, candidate) {
+  const relation = relative(root, candidate);
+  if (relation === '' || relation === '..' || relation.startsWith(`..${sep}`) || isAbsolute(relation)) return null;
+  return relation;
+}
+
+/**
+ * Directory where Claude Code keeps its per-project state for `fsPath`.
+ * @param {string} fsPath
+ * @returns {string}
+ */
+export function claudeProjectDir(fsPath) {
+  return resolve(expandPath('~/.claude/projects'), toClaudeProjectKey(fsPath));
 }

@@ -2,7 +2,7 @@ import { readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { expandPath, toClaudeProjectKey } from './utils.js';
+import { claudeProjectDir as claudeProjectDirFor } from './utils.js';
 
 const SESSION_PROVIDERS = Object.freeze(['claude', 'codex']);
 
@@ -158,7 +158,7 @@ export function buildSessionLaunch({
   try {
     if (provider === 'claude') {
       commandArgs = claudeSessionId ? ['claude', '--resume', claudeSessionId] : ['claude'];
-      claudeProjectDir = resolve(expandPath('~/.claude/projects'), toClaudeProjectKey(cwd));
+      claudeProjectDir = claudeProjectDirFor(cwd);
 
       if (activityBaseUrl) {
         const settingsPath = writeClaudeActivitySettings(sessionId);

@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import pty from 'node-pty';
 import { appEvents, emitLocalChange, emitSessionState } from './app-events.js';
 import { getDb } from './db.js';
+import { taggedError } from './errors.js';
 import { pollProviderSessionStatuses } from './provider-status-poller.js';
 import { trustSessionDirectory } from './provider-trust.js';
 import { normalizeProviderActivity, SessionActivityTracker } from './session-activity.js';
@@ -1284,11 +1285,6 @@ async function submitPromptToEntry(entry, text, delay = PROMPT_SUBMIT_DELAY_MS) 
  * handlers branch on; the message is for human-readable logging. Exported
  * so the dispatcher can produce the same shape of error.
  */
-export function taggedError(code, msg) {
-  const e = new Error(msg);
-  e.code = code;
-  return e;
-}
 
 /**
  * Dispatch a prompt to an in-memory session: busy check, force-set working

@@ -1,11 +1,6 @@
 import { realpath } from 'node:fs/promises';
+import { taggedError } from './errors.js';
 import { execFile } from './utils.js';
-
-function taggedError(code, message, cause) {
-  const error = new Error(message, cause ? { cause } : undefined);
-  error.code = code;
-  return error;
-}
 
 function exactPattern(value) {
   return `exact:${JSON.stringify(value)}`;

@@ -1,12 +1,12 @@
 import { getCurrentConfig } from './config.js';
 import { getDb } from './db.js';
+import { taggedError } from './errors.js';
 import {
   BOOT_TIMEOUT_MS_DEFAULT,
   createSession,
   dispatchToSession,
   getSessionSnapshot,
   reattachSession,
-  taggedError,
   waitForFirstIdle,
 } from './pty-manager.js';
 import { normalizeSessionProvider } from './session-launch.js';
