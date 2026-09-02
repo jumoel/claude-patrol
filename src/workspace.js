@@ -269,62 +269,16 @@ export async function createWorkspace(prId, config) {
     throw error;
   }
 
-  return withWorkspaceLock(id, async () => {
-    try {
-      await runTask(
-        {
-          kind: 'workspace.create',
-          label: `Create ${name}`,
-          context: { workspaceId: id, prId, repo: `${pr.org}/${pr.repo}` },
-        },
-        async () => {
-          updateWorkspaceOperation(id, 'creating', 'create:initialize_repository');
-          await ensureJjInit(mainRepoPath);
-          mkdirSync(dirname(workspacePath), { recursive: true });
-          updateWorkspaceOperation(id, 'creating', 'create:add_workspace');
-          await execFile('jj', [
-            'workspace',
-            'add',
-            workspacePath,
-            '--name',
-            name,
-            '-r',
-            pr.branch,
-            '-R',
-            mainRepoPath,
-          ]);
-          writePatrolWorkspaceMarker(workspacePath, {
-            id,
-            repo: `${pr.org}/${pr.repo}`,
-            name,
-            kind: 'pr',
-          });
-          updateWorkspaceOperation(id, 'creating', 'create:post_setup');
-          const warnings = await runPostCreateSetup(workspacePath, mainRepoPath, name, config, `${pr.org}/${pr.repo}`);
-          const safeWarnings = sanitizeWorkspaceWarnings(warnings);
-          db.prepare('UPDATE workspaces SET setup_warnings_json = ? WHERE id = ?').run(
-            JSON.stringify(safeWarnings),
-            id,
-          );
-          return { warnings: safeWarnings };
-        },
-      );
-    } catch (err) {
-      await compensateWorkspaceCreation({
-        id,
-        name,
-        workspacePath,
-        mainRepoPath,
-        repo: `${pr.org}/${pr.repo}`,
-        error: err,
-        deleteBookmark: false,
-      });
-      emitLocalChange();
-      throw taggedError('workspace_create_failed', `Workspace creation failed: ${sanitizePublicText(err.message)}`);
-    }
-
-    finishWorkspaceOperation(id, 'ready', 'create:complete', null);
-    return db.prepare('SELECT * FROM workspaces WHERE id = ?').get(id);
+  return runWorkspaceCreation({
+    id,
+    name,
+    workspacePath,
+    mainRepoPath,
+    repo: `${pr.org}/${pr.repo}`,
+    startRevision: pr.branch,
+    markerKind: 'pr',
+    taskContext: { workspaceId: id, prId, repo: `${pr.org}/${pr.repo}` },
+    config,
   });
 }
 
@@ -336,7 +290,6 @@ export async function createWorkspace(prId, config) {
  * @returns {Promise<object>} workspace record
  */
 export async function createScratchWorkspace(repo, branch, config, { startRevision = 'main@origin' } = {}) {
-  const db = getDb();
   const [org, repoName] = repo.split('/');
   if (!org || !repoName) {
     throw new Error(`Invalid repo format: ${repo} (expected "org/repo")`);
@@ -356,50 +309,80 @@ export async function createScratchWorkspace(repo, branch, config, { startRevisi
 
   reserveWorkspaceRow({ id, name, path: workspacePath, bookmark: branch, repo, now, startRevision });
 
+  return runWorkspaceCreation({
+    id,
+    name,
+    workspacePath,
+    mainRepoPath,
+    repo,
+    startRevision,
+    markerKind: 'scratch',
+    taskContext: { workspaceId: id, repo, branch },
+    config,
+    // Create the bookmark for the branch; non-fatal because it may already exist.
+    afterAdd: async () => {
+      try {
+        await execFile('jj', ['bookmark', 'create', branch, '-R', workspacePath]);
+        return [];
+      } catch (err) {
+        return [`Bookmark create failed: ${err.message}`];
+      }
+    },
+  });
+}
+
+/**
+ * The create sequence shared by PR and scratch workspaces: init jj in the
+ * source repo, `jj workspace add` at the start revision, write the ownership
+ * marker, run any kind-specific step, then post-create setup. Any failure runs
+ * the compensation chain and surfaces as workspace_create_failed.
+ *
+ * @param {{
+ *   id: string, name: string, workspacePath: string, mainRepoPath: string, repo: string,
+ *   startRevision: string, markerKind: 'pr'|'scratch', taskContext: object, config: object,
+ *   afterAdd?: () => Promise<string[]>,
+ * }} input
+ * @returns {Promise<object>} the ready workspace row
+ */
+async function runWorkspaceCreation({
+  id,
+  name,
+  workspacePath,
+  mainRepoPath,
+  repo,
+  startRevision,
+  markerKind,
+  taskContext,
+  config,
+  afterAdd = async () => [],
+}) {
+  const db = getDb();
   return withWorkspaceLock(id, async () => {
     try {
-      await runTask(
-        {
-          kind: 'workspace.create',
-          label: `Create ${name}`,
-          context: { workspaceId: id, repo, branch },
-        },
-        async () => {
-          updateWorkspaceOperation(id, 'creating', 'create:initialize_repository');
-          await ensureJjInit(mainRepoPath);
-          mkdirSync(dirname(workspacePath), { recursive: true });
-          updateWorkspaceOperation(id, 'creating', 'create:add_workspace');
-          await execFile('jj', [
-            'workspace',
-            'add',
-            workspacePath,
-            '--name',
-            name,
-            '-r',
-            startRevision,
-            '-R',
-            mainRepoPath,
-          ]);
-          writePatrolWorkspaceMarker(workspacePath, { id, repo, name, kind: 'scratch' });
-
-          // Create bookmark for the branch (non-fatal - may already exist)
-          const warnings = [];
-          try {
-            await execFile('jj', ['bookmark', 'create', branch, '-R', workspacePath]);
-          } catch (err) {
-            warnings.push(`Bookmark create failed: ${err.message}`);
-          }
-
-          updateWorkspaceOperation(id, 'creating', 'create:post_setup');
-          warnings.push(...(await runPostCreateSetup(workspacePath, mainRepoPath, name, config, repo)));
-          const safeWarnings = sanitizeWorkspaceWarnings(warnings);
-          db.prepare('UPDATE workspaces SET setup_warnings_json = ? WHERE id = ?').run(
-            JSON.stringify(safeWarnings),
-            id,
-          );
-          return { warnings: safeWarnings };
-        },
-      );
+      await runTask({ kind: 'workspace.create', label: `Create ${name}`, context: taskContext }, async () => {
+        updateWorkspaceOperation(id, 'creating', 'create:initialize_repository');
+        await ensureJjInit(mainRepoPath);
+        mkdirSync(dirname(workspacePath), { recursive: true });
+        updateWorkspaceOperation(id, 'creating', 'create:add_workspace');
+        await execFile('jj', [
+          'workspace',
+          'add',
+          workspacePath,
+          '--name',
+          name,
+          '-r',
+          startRevision,
+          '-R',
+          mainRepoPath,
+        ]);
+        writePatrolWorkspaceMarker(workspacePath, { id, repo, name, kind: markerKind });
+        const warnings = [...(await afterAdd())];
+        updateWorkspaceOperation(id, 'creating', 'create:post_setup');
+        warnings.push(...(await runPostCreateSetup(workspacePath, mainRepoPath, name, config, repo)));
+        const safeWarnings = sanitizeWorkspaceWarnings(warnings);
+        db.prepare('UPDATE workspaces SET setup_warnings_json = ? WHERE id = ?').run(JSON.stringify(safeWarnings), id);
+        return { warnings: safeWarnings };
+      });
     } catch (err) {
       await compensateWorkspaceCreation({
         id,
@@ -738,75 +721,54 @@ export async function pruneStaleComposeStacks(workspaceBasePath) {
  * @param {string} opts.mainRepoPath
  * @param {string} opts.repo
  */
-async function compensateWorkspaceCreation({ id, name, workspacePath, mainRepoPath, repo, error, deleteBookmark }) {
+async function compensateWorkspaceCreation({
+  id,
+  name,
+  workspacePath,
+  mainRepoPath,
+  repo,
+  error,
+  deleteBookmark,
+  removeProviderState = removeClaudeProjectState,
+}) {
   const originalError = sanitizePublicText(error?.message ?? String(error));
-  updateWorkspaceOperation(id, 'creating', 'create:compensation_docker', originalError);
-
-  try {
-    const dockerWarning = await dockerComposeDown(workspacePath);
-    if (dockerWarning) throw new Error(dockerWarning);
-  } catch (caught) {
-    finishWorkspaceOperation(
-      id,
-      'error',
+  /** @type {Array<[string, () => Promise<unknown>]>} */
+  const steps = [
+    [
       'create:compensation_docker',
-      sanitizePublicText(`${originalError}; ${caught.message}`),
-    );
-    return false;
-  }
-
-  updateWorkspaceOperation(id, 'creating', 'create:compensation_forget');
-  try {
-    await execFile('jj', ['workspace', 'forget', name, '-R', mainRepoPath]);
-  } catch (caught) {
-    if (!isAlreadyForgotten(caught)) {
-      finishWorkspaceOperation(
-        id,
-        'error',
-        'create:compensation_forget',
-        sanitizePublicText(`${originalError}; ${caught.message}`),
-      );
-      return false;
-    }
-  }
-
-  updateWorkspaceOperation(id, 'creating', 'create:compensation_directory');
-  try {
-    await rm(workspacePath, { recursive: true, force: true });
-  } catch (caught) {
-    finishWorkspaceOperation(
-      id,
-      'error',
-      'create:compensation_directory',
-      sanitizePublicText(`${originalError}; ${caught.message}`),
-    );
-    return false;
-  }
-
-  updateWorkspaceOperation(id, 'creating', 'create:compensation_claude_project');
-  try {
-    await rm(claudeProjectDir(workspacePath), { recursive: true, force: true });
-  } catch (caught) {
-    finishWorkspaceOperation(
-      id,
-      'error',
-      'create:compensation_claude_project',
-      sanitizePublicText(`${originalError}; ${caught.message}`),
-    );
-    return false;
-  }
-
+      async () => {
+        const dockerWarning = await dockerComposeDown(workspacePath);
+        if (dockerWarning) throw new Error(dockerWarning);
+      },
+    ],
+    [
+      'create:compensation_forget',
+      async () => {
+        try {
+          await execFile('jj', ['workspace', 'forget', name, '-R', mainRepoPath]);
+        } catch (caught) {
+          if (!isAlreadyForgotten(caught)) throw caught;
+        }
+      },
+    ],
+    ['create:compensation_directory', () => rm(workspacePath, { recursive: true, force: true })],
+    ['create:compensation_claude_project', () => removeProviderState(workspacePath)],
+  ];
   if (deleteBookmark) {
-    updateWorkspaceOperation(id, 'creating', 'create:compensation_bookmark');
+    steps.push([
+      'create:compensation_bookmark',
+      () => execFile('jj', ['bookmark', 'delete', deleteBookmark, '-R', mainRepoPath]),
+    ]);
+  }
+
+  for (const [index, [step, run]] of steps.entries()) {
+    // The first step carries the original failure into operation_error so a
+    // compensation that stops part-way still names what went wrong.
+    updateWorkspaceOperation(id, 'creating', step, index === 0 ? originalError : null);
     try {
-      await execFile('jj', ['bookmark', 'delete', deleteBookmark, '-R', mainRepoPath]);
+      await run();
     } catch (caught) {
-      finishWorkspaceOperation(
-        id,
-        'error',
-        'create:compensation_bookmark',
-        sanitizePublicText(`${originalError}; ${caught.message}`),
-      );
+      finishWorkspaceOperation(id, 'error', step, sanitizePublicText(`${originalError}; ${caught.message}`));
       return false;
     }
   }
@@ -818,6 +780,15 @@ async function compensateWorkspaceCreation({ id, name, workspacePath, mainRepoPa
     repo,
   });
   return true;
+}
+
+/**
+ * Remove Claude Code's per-project state (memory symlink, session index) for
+ * a workspace path. Injectable so tests can observe or skip the removal.
+ * @param {string} workspacePath
+ */
+export function removeClaudeProjectState(workspacePath) {
+  return rm(claudeProjectDir(workspacePath), { recursive: true, force: true });
 }
 
 /**
@@ -921,14 +892,18 @@ export async function destroyWorkspace(workspaceId, config) {
   return destroyWorkspaceInternal(workspaceId, config, { deleteBookmark: false });
 }
 
-export async function destroyWorkItemChild(workspaceId, config, { deleteBookmark = false, runExec = execFile } = {}) {
-  return destroyWorkspaceInternal(workspaceId, config, { deleteBookmark, runExec });
+export async function destroyWorkItemChild(
+  workspaceId,
+  config,
+  { deleteBookmark = false, runExec = execFile, removeProviderState } = {},
+) {
+  return destroyWorkspaceInternal(workspaceId, config, { deleteBookmark, runExec, removeProviderState });
 }
 
 export async function destroyWorkspaceWithGuards(
   workspaceId,
   config,
-  { runExec = execFile, beforeDirectoryRemoval } = {},
+  { runExec = execFile, beforeDirectoryRemoval, removeProviderState } = {},
 ) {
   const workspace = getDb().prepare('SELECT work_item_id FROM workspaces WHERE id = ?').get(workspaceId);
   if (workspace?.work_item_id) {
@@ -941,20 +916,110 @@ export async function destroyWorkspaceWithGuards(
     deleteBookmark: false,
     runExec,
     beforeDirectoryRemoval,
+    removeProviderState,
   });
 }
 
-async function destroyWorkspaceInternal(
-  workspaceId,
-  config,
-  { deleteBookmark, runExec = execFile, beforeDirectoryRemoval },
-) {
-  return withWorkspaceLock(workspaceId, () =>
-    destroyWorkspaceLocked(workspaceId, config, { deleteBookmark, runExec, beforeDirectoryRemoval }),
-  );
+async function destroyWorkspaceInternal(workspaceId, config, options) {
+  return withWorkspaceLock(workspaceId, () => destroyWorkspaceLocked(workspaceId, config, options));
 }
 
-async function destroyWorkspaceLocked(workspaceId, config, { deleteBookmark, runExec, beforeDirectoryRemoval }) {
+/**
+ * The ordered destroy steps for a workspace row. Each step records its
+ * operation_step before running so an interrupted destroy resumes from the
+ * right place, and wraps its failure in the code the UI keys retry hints on.
+ */
+function destroySteps(
+  workspace,
+  mainRepoPath,
+  { deleteBookmark, runExec, beforeDirectoryRemoval, removeProviderState },
+) {
+  const db = getDb();
+  const steps = [
+    {
+      step: 'destroy:sessions',
+      async run() {
+        const sessions = db
+          .prepare("SELECT * FROM sessions WHERE workspace_id = ? AND status IN ('active', 'detached')")
+          .all(workspace.id);
+        for (const session of sessions) await killSessionAndWait(session.id);
+      },
+    },
+    {
+      step: 'destroy:docker',
+      async run() {
+        const dockerWarning = await dockerComposeDown(workspace.path);
+        if (dockerWarning) throw taggedError('docker_cleanup_failed', dockerWarning);
+      },
+    },
+    {
+      step: 'destroy:forget_workspace',
+      code: 'workspace_forget_failed',
+      label: 'jj workspace forget failed',
+      async run() {
+        try {
+          await runExec('jj', ['workspace', 'forget', workspace.name, '-R', mainRepoPath]);
+        } catch (err) {
+          if (!isAlreadyForgotten(err)) throw err;
+        }
+      },
+    },
+    {
+      // Archive session transcripts before removing provider state.
+      step: 'destroy:transcripts',
+      async run() {
+        for (const sess of db.prepare('SELECT * FROM sessions WHERE workspace_id = ?').all(workspace.id)) {
+          if (!sess.claude_project_dir || sess.transcript_path) continue;
+          try {
+            archiveTranscript(sess.id, sess.claude_project_dir, sess.started_at, sess.ended_at);
+          } catch (err) {
+            throw taggedError('transcript_archive_failed', `Transcript archive failed for ${sess.id}: ${err.message}`);
+          }
+        }
+      },
+    },
+    {
+      // Only after jj forget succeeded.
+      step: 'destroy:directory',
+      code: 'directory_cleanup_failed',
+      label: 'Directory cleanup failed',
+      async run() {
+        if (beforeDirectoryRemoval) await beforeDirectoryRemoval(workspace);
+        await rm(workspace.path, { recursive: true, force: true });
+      },
+    },
+    {
+      step: 'destroy:claude_project',
+      code: 'provider_state_cleanup_failed',
+      label: 'Claude memory cleanup failed',
+      run: () => removeProviderState(workspace.path),
+    },
+  ];
+  if (deleteBookmark) {
+    steps.push({
+      step: 'destroy:bookmark',
+      code: 'bookmark_cleanup_failed',
+      label: 'Bookmark cleanup failed',
+      async run() {
+        const { stdout } = await runExec(
+          'jj',
+          ['bookmark', 'list', workspace.bookmark, '-T', 'name ++ "\\n"', '-R', mainRepoPath],
+          { encoding: 'utf8' },
+        );
+        if (String(stdout).trim()) {
+          await runExec('jj', ['bookmark', 'delete', workspace.bookmark, '-R', mainRepoPath]);
+        }
+      },
+    });
+  }
+  return steps;
+}
+
+async function destroyWorkspaceLocked(
+  workspaceId,
+  config,
+  { deleteBookmark, runExec = execFile, beforeDirectoryRemoval, removeProviderState = removeClaudeProjectState },
+) {
   const db = getDb();
   const workspace = db.prepare('SELECT * FROM workspaces WHERE id = ?').get(workspaceId);
   if (!workspace) {
@@ -995,76 +1060,15 @@ async function destroyWorkspaceLocked(workspaceId, config, { deleteBookmark, run
         context: { workspaceId, prId: workspace.pr_id, repo: workspaceRepo },
       },
       async () => {
-        // Step 1: Kill active sessions for this workspace
-        updateWorkspaceOperation(workspaceId, 'destroying', 'destroy:sessions');
-        const sessions = db
-          .prepare("SELECT * FROM sessions WHERE workspace_id = ? AND status IN ('active', 'detached')")
-          .all(workspaceId);
-        for (const session of sessions) {
-          await killSessionAndWait(session.id);
-        }
-
-        // Step 2: Docker compose down if applicable
-        updateWorkspaceOperation(workspaceId, 'destroying', 'destroy:docker');
-        const dockerWarning = await dockerComposeDown(workspace.path);
-        if (dockerWarning) throw taggedError('docker_cleanup_failed', dockerWarning);
-
-        // Step 3: jj workspace forget
-        updateWorkspaceOperation(workspaceId, 'destroying', 'destroy:forget_workspace');
-        try {
-          await runExec('jj', ['workspace', 'forget', workspace.name, '-R', mainRepoPath]);
-        } catch (err) {
-          if (!isAlreadyForgotten(err)) {
-            throw taggedError('workspace_forget_failed', `jj workspace forget failed: ${err.message}`);
-          }
-        }
-
-        // Step 4: Archive session transcripts before removing provider state.
-        updateWorkspaceOperation(workspaceId, 'destroying', 'destroy:transcripts');
-        const allSessions = db.prepare('SELECT * FROM sessions WHERE workspace_id = ?').all(workspaceId);
-        for (const sess of allSessions) {
-          if (sess.claude_project_dir && !sess.transcript_path) {
-            try {
-              archiveTranscript(sess.id, sess.claude_project_dir, sess.started_at, sess.ended_at);
-            } catch (err) {
-              throw taggedError(
-                'transcript_archive_failed',
-                `Transcript archive failed for ${sess.id}: ${err.message}`,
-              );
-            }
-          }
-        }
-
-        // Step 5: Remove the directory only after jj forget succeeded.
-        updateWorkspaceOperation(workspaceId, 'destroying', 'destroy:directory');
-        try {
-          if (beforeDirectoryRemoval) await beforeDirectoryRemoval(workspace);
-          await rm(workspace.path, { recursive: true, force: true });
-        } catch (err) {
-          throw taggedError('directory_cleanup_failed', `Directory cleanup failed: ${err.message}`);
-        }
-
-        // Step 6: Clean up Claude project memory symlink.
-        updateWorkspaceOperation(workspaceId, 'destroying', 'destroy:claude_project');
-        try {
-          await rm(claudeProjectDir(workspace.path), { recursive: true, force: true });
-        } catch (err) {
-          throw taggedError('provider_state_cleanup_failed', `Claude memory cleanup failed: ${err.message}`);
-        }
-
-        if (deleteBookmark) {
-          updateWorkspaceOperation(workspaceId, 'destroying', 'destroy:bookmark');
+        const options = { deleteBookmark, runExec, beforeDirectoryRemoval, removeProviderState };
+        for (const { step, code, label, run } of destroySteps(workspace, mainRepoPath, options)) {
+          updateWorkspaceOperation(workspaceId, 'destroying', step);
           try {
-            const { stdout } = await runExec(
-              'jj',
-              ['bookmark', 'list', workspace.bookmark, '-T', 'name ++ "\\n"', '-R', mainRepoPath],
-              { encoding: 'utf8' },
-            );
-            if (String(stdout).trim()) {
-              await runExec('jj', ['bookmark', 'delete', workspace.bookmark, '-R', mainRepoPath]);
-            }
-          } catch (error) {
-            throw taggedError('bookmark_cleanup_failed', `Bookmark cleanup failed: ${error.message}`);
+            await run();
+          } catch (err) {
+            // Steps without a code raise their own tagged errors.
+            if (!code) throw err;
+            throw taggedError(code, `${label}: ${err.message}`);
           }
         }
 
