@@ -69,9 +69,10 @@ test('work-item configuration rejects ambiguous repositories and unsafe resolver
       parseConfig(workItemConfig({ work_items: { ...workItemConfig().work_items, repositories: ['acme/missing'] } })),
     /missing repos\.acme\/missing/,
   );
-  assert.throws(
-    () => parseConfig({ ...workItemConfig(), repos: { 'acme/widgets': {} } }),
-    /defaultRevision.*required/s,
+  assert.equal(
+    parseConfig({ ...workItemConfig(), repos: { 'acme/widgets': {} } }).repos['acme/widgets'].defaultRevision,
+    undefined,
+    'defaultRevision is optional; work items fall back to trunk()',
   );
   assert.throws(
     () =>

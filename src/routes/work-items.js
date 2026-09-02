@@ -40,7 +40,6 @@ function errorStatus(code) {
       'repository_not_configured',
       'repository_not_discovered',
       'invalid_revision',
-      'revision_required',
       'invalid_provider',
       'work_items_not_configured',
       'invalid_pull_request',

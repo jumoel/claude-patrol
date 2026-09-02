@@ -116,16 +116,12 @@ export const configSchema = z
   })
   .passthrough()
   .superRefine((config, ctx) => {
+    // Work-item repositories need a repos entry so their source checkout is
+    // known. defaultRevision stays optional: the work item falls back to jj's
+    // trunk() alias (see work-items.js DEFAULT_START_REVISION).
     for (const repo of config.work_items?.repositories ?? []) {
-      const repoConfig = config.repos?.[repo];
-      if (!repoConfig) {
+      if (!config.repos?.[repo]) {
         ctx.addIssue({ code: 'custom', path: ['work_items', 'repositories'], message: `missing repos.${repo}` });
-      } else if (!repoConfig.defaultRevision) {
-        ctx.addIssue({
-          code: 'custom',
-          path: ['repos', repo, 'defaultRevision'],
-          message: 'is required for work-item repositories',
-        });
       }
     }
   });

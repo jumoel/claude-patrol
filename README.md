@@ -110,7 +110,7 @@ Running without a subcommand defaults to `start`.
 | `symlink_memory` | Create `.claude/memory` symlinks in workspaces |
 | `repos.<org/repo>.symlinks` | Additional symlinks to create in workspaces |
 | `repos.<org/repo>.initCommands` | Commands to run after workspace creation |
-| `repos.<org/repo>.defaultRevision` | Required starting jj revision for a repository available to Work Items |
+| `repos.<org/repo>.defaultRevision` | Starting jj revision for a repository available to Work Items. Defaults to `trunk()`, jj's alias for the remote `main`/`master`/`trunk` bookmark, so set it only when the trunk lives elsewhere |
 | `work_items.repositories` | Candidate `owner/repo` identifiers the resolver may select |
 | `work_items.resolver.provider` | Optional fixed resolver provider, `claude` or `codex`. Omit to use the work item's selected provider. |
 | `work_items.resolver.server` | One read-only HTTP MCP server, with `name`, `transport`, `url`, and `enabled_tools` |

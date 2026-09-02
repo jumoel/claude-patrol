@@ -429,7 +429,7 @@ test('repository additions reject repositories outside the configured repos', as
   assert.deepEqual(service.detail(created.id).repositories, ['acme/alpha']);
 });
 
-test('a configured repository outside the resolver candidates can be added from an explicit revision', async () => {
+test('a configured repository without a default revision is added from trunk() unless a revision is given', async () => {
   const { service } = fixture({
     resolver: {
       resolve: async () => ({
@@ -442,11 +442,19 @@ test('a configured repository outside the resolver candidates can be added from 
   const created = service.create({ reference: 'PROJECT-REVISION', workProvider: 'codex' });
   await service.waitForIdle(created.id);
 
-  await assert.rejects(service.addRepository(created.id, 'acme/gamma'), (error) => error.code === 'revision_required');
   const result = await service.addRepository(created.id, 'acme/gamma', 'feature@git');
   assert.equal(result.added, true);
   assert.equal(result.repository_workspace.start_revision, 'feature@git');
   assert.deepEqual(result.work_item.repositories, ['acme/alpha', 'acme/gamma']);
+});
+
+test('a manual work item on a configured repository without defaultRevision starts from trunk()', async () => {
+  const { service } = fixture();
+  const created = service.create({ source: 'manual', title: 'Trunk default', repositories: ['acme/gamma'] });
+  await service.waitForIdle(created.id);
+  const detail = service.detail(created.id);
+  assert.equal(detail.state, 'ready');
+  assert.equal(detail.repository_workspaces[0].start_revision, 'trunk()');
 });
 
 test('a failed repository addition restores the ready work item and its root files', async () => {

@@ -198,11 +198,16 @@ function validateRepository(value, config, { allowDiscovered = false } = {}) {
   return repository;
 }
 
+/**
+ * Start revision when neither the request nor `repos.<repo>.defaultRevision`
+ * names one. jj's built-in `trunk()` alias resolves to the remote main, master
+ * or trunk bookmark, so a repository only needs a `defaultRevision` when its
+ * trunk is somewhere else.
+ */
+const DEFAULT_START_REVISION = 'trunk()';
+
 function validateRevision(value, repository, config) {
-  const rawRevision = value ?? config.repos?.[repository]?.defaultRevision;
-  if (rawRevision === undefined) {
-    throw workItemError('revision_required', `revision is required for ${repository}`);
-  }
+  const rawRevision = value ?? config.repos?.[repository]?.defaultRevision ?? DEFAULT_START_REVISION;
   if (typeof rawRevision !== 'string') throw workItemError('invalid_revision', 'Revision must be a string');
   const revision = rawRevision.trim();
   const bytes = Buffer.byteLength(revision, 'utf8');
