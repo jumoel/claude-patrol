@@ -1,5 +1,5 @@
+import { sendErrorFrom } from '../http-errors.js';
 import { providerSetup } from '../provider-setup.js';
-import { sanitizePublicText } from '../public-errors.js';
 import { linkWorkItemPullRequest, unlinkWorkItemPullRequest } from '../work-item-prs.js';
 
 function recoveryActions(error, config) {
@@ -14,60 +14,18 @@ function recoveryActions(error, config) {
   ];
 }
 
-function errorStatus(code) {
-  if (code === 'work_item_not_found') return 404;
-  if (
-    [
-      'work_item_busy',
-      'work_item_destroyed',
-      'invalid_state',
-      'session_exists',
-      'work_item_child_managed',
-      'pull_request_owned',
-      'legacy_workspace_exists',
-    ].includes(code)
-  )
-    return 409;
-  if (
-    [
-      'invalid_request',
-      'invalid_reference',
-      'invalid_title',
-      'invalid_bookmark',
-      'invalid_repositories',
-      'invalid_source',
-      'invalid_repository',
-      'repository_not_configured',
-      'repository_not_discovered',
-      'invalid_revision',
-      'invalid_provider',
-      'work_items_not_configured',
-      'invalid_pull_request',
-      'pull_request_not_found',
-      'repository_limit',
-      'repository_not_in_work_item',
-    ].includes(code)
-  ) {
-    return 400;
-  }
-  return 500;
-}
-
-export function workItemErrorEnvelope(error, config) {
-  const code = error.code ?? 'internal_error';
-  return {
-    code,
-    message: sanitizePublicText(error.message ?? 'Request failed', { maxBytes: 4096 }),
-    detail: null,
-    failed_provider: error.failedProvider ?? null,
-    retry_action: null,
-    recovery_actions: recoveryActions(error, config),
-  };
-}
-
+/**
+ * Send the shared error envelope for a work-item failure, adding the
+ * provider recovery actions that depend on the current config.
+ * @param {import('fastify').FastifyReply} reply
+ * @param {{ code?: string, message?: string, failedProvider?: string | null }} error
+ * @param {object} config
+ */
 function sendError(reply, error, config) {
-  const envelope = workItemErrorEnvelope(error, config);
-  return reply.code(errorStatus(envelope.code)).send({ error: envelope });
+  return sendErrorFrom(reply, error, {
+    failed_provider: error.failedProvider ?? null,
+    recovery_actions: recoveryActions(error, config),
+  });
 }
 
 export function registerWorkItemRoutes(app) {

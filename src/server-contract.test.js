@@ -4,6 +4,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { test } from 'node:test';
 import { createAppContext } from './app-context.js';
 import { parseConfig } from './config.js';
+import { closeDb, initDb } from './db.js';
 import { migrateDb } from './migrations.js';
 import { createServer } from './server.js';
 
@@ -130,7 +131,7 @@ test('PR API uses injected dependencies and reports authored freshness', async (
       url: '/api/workspaces/ready-workspace',
     });
     assert.equal(blockedWorkspaceDelete.statusCode, 409);
-    assert.equal(blockedWorkspaceDelete.json().code, 'session_exists');
+    assert.equal(blockedWorkspaceDelete.json().error.code, 'session_exists');
     assert.equal(db.prepare("SELECT status FROM workspaces WHERE id = 'ready-workspace'").get().status, 'active');
     const activity = await server.inject({
       method: 'POST',
@@ -191,5 +192,104 @@ test('check retrigger rejects a request without a body instead of failing with 5
   } finally {
     await server.close();
     db.close();
+  }
+});
+
+test('every route reports failures with the same error envelope and status table', async () => {
+  const db = new DatabaseSync(':memory:');
+  migrateDb(db);
+  // The reattach route still reads the module-level database (see the
+  // route-layer DI ticket), so give it one as well.
+  initDb(':memory:');
+  const config = parseConfig({ poll: { interval_seconds: 30, orgs: [], repos: [] } });
+  const context = createAppContext({
+    getConfig: () => config,
+    getDb: () => db,
+    appEvents: new EventEmitter(),
+    pollerEvents: new EventEmitter(),
+    getSessionStates: () => [],
+    getGhRateLimitState: () => ({ limited: false }),
+    recordProviderActivity: () => ({ accepted: false, reason: 'invalid_credential', status: 403 }),
+    reconcilePatrolWorkspaces: async () => ({
+      deleted: [],
+      cleanedWorkspaces: [],
+      candidates: [],
+      blocked: [],
+      warnings: [],
+    }),
+  });
+  const server = await createServer({ context, config });
+  const envelopeKeys = ['code', 'message', 'detail', 'failed_provider', 'retry_action', 'recovery_actions'];
+  const cases = [
+    { method: 'GET', url: '/api/prs/acme%2Fwidgets%2399', status: 404, code: 'pr_not_found' },
+    { method: 'GET', url: '/api/prs/acme%2Fwidgets%2399/comments', status: 404, code: 'pr_not_found' },
+    {
+      method: 'POST',
+      url: '/api/prs/acme%2Fwidgets%2399/draft',
+      payload: { draft: true },
+      status: 404,
+      code: 'pr_not_found',
+    },
+    { method: 'GET', url: '/api/workspaces/nope', status: 404, code: 'workspace_not_found' },
+    { method: 'DELETE', url: '/api/workspaces/nope', status: 404, code: 'workspace_not_found' },
+    { method: 'POST', url: '/api/workspaces', payload: {}, status: 400, code: 'invalid_request' },
+    {
+      method: 'POST',
+      url: '/api/workspaces/orphans/reconcile',
+      payload: { dry_run: 'yes' },
+      status: 400,
+      code: 'invalid_dry_run',
+    },
+    { method: 'POST', url: '/api/sessions', payload: {}, status: 400, code: 'invalid_request' },
+    { method: 'POST', url: '/api/sessions/nope/reattach', status: 404, code: 'session_not_found' },
+    { method: 'GET', url: '/api/sessions/nope/transcript', status: 404, code: 'session_not_found' },
+    {
+      method: 'POST',
+      url: '/api/sessions/nope/promote',
+      payload: { repo: 'a/b', branch: 'c' },
+      status: 404,
+      code: 'session_not_found',
+    },
+    { method: 'POST', url: '/api/sessions/nope/activity/claude', status: 403, code: 'invalid_credential' },
+    { method: 'POST', url: '/api/checks/retrigger', status: 400, code: 'invalid_request' },
+    { method: 'POST', url: '/api/config', payload: [], status: 400, code: 'invalid_request' },
+    { method: 'POST', url: '/api/rules/nope/run', payload: {}, status: 404, code: 'rule_not_found' },
+    { method: 'POST', url: '/api/rules/nope/subscribe', payload: {}, status: 400, code: 'invalid_request' },
+    { method: 'GET', url: '/api/setup/repos', status: 400, code: 'invalid_request' },
+    { method: 'GET', url: '/api/workspaces/nope/peer-review', status: 404, code: 'workspace_not_found' },
+    {
+      method: 'POST',
+      url: '/api/work-items/nope/peer-review',
+      payload: { pr_id: 'x' },
+      status: 404,
+      code: 'work_item_not_found',
+    },
+  ];
+  server.get('/api/test-throw', () => {
+    throw new Error('boom');
+  });
+  cases.push({ method: 'GET', url: '/api/test-throw', status: 500, code: 'internal_error' });
+  try {
+    const badJson = await server.inject({
+      method: 'POST',
+      url: '/api/config',
+      payload: '{not json',
+      headers: { 'content-type': 'application/json' },
+    });
+    assert.equal(badJson.statusCode, 400);
+    assert.equal(badJson.json().error.code, 'request_failed');
+    for (const { method, url, payload, status, code } of cases) {
+      const response = await server.inject({ method, url, payload });
+      const body = response.json();
+      assert.equal(response.statusCode, status, `${method} ${url} status`);
+      assert.deepEqual(Object.keys(body), ['error'], `${method} ${url} top-level shape`);
+      assert.deepEqual(Object.keys(body.error), envelopeKeys, `${method} ${url} envelope keys`);
+      assert.equal(body.error.code, code, `${method} ${url} code`);
+      assert.equal(typeof body.error.message, 'string', `${method} ${url} message`);
+    }
+  } finally {
+    await server.close();
+    db.close();
+    closeDb();
   }
 });

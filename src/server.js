@@ -6,6 +6,7 @@ import fastifyWebsocket from '@fastify/websocket';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import Fastify from 'fastify';
 import { createAppContext } from './app-context.js';
+import { sendError } from './http-errors.js';
 import { createMcpServer } from './mcp-server.js';
 import { registerCheckRoutes } from './routes/checks.js';
 import { registerCommentRoutes } from './routes/comments.js';
@@ -49,6 +50,23 @@ export async function createServer(options = {}) {
   const security = options.securityPolicy ?? createSecurityPolicy(config);
   const app = Fastify({ logger: false });
   app.decorate('appContext', context);
+
+  // Unhandled route errors and body-parse failures would otherwise leave in
+  // Fastify's own { statusCode, error, message } shape. Fold them into the one
+  // envelope every route uses (http-errors.js) so clients parse a single form.
+  app.setErrorHandler((error, request, reply) => {
+    const statusCode = Number(error?.statusCode);
+    const clientError = statusCode >= 400 && statusCode < 500;
+    if (!clientError) {
+      console.error(`[server] ${request.method} ${request.url} failed: ${error?.stack ?? error}`);
+    }
+    return sendError(
+      reply,
+      clientError ? (error.validation ? 'invalid_request' : 'request_failed') : 'internal_error',
+      error?.message ?? 'Request failed',
+      { status: clientError ? statusCode : 500 },
+    );
+  });
   if (!options.context) {
     for (const capability of Object.values(context.providerCapabilities)) capability.start();
   }
@@ -62,7 +80,7 @@ export async function createServer(options = {}) {
   app.addHook('onRequest', async (request, reply) => {
     const path = request.url.split('?')[0];
     if (!isOriginAllowed(request, security.allowedOrigins) && isProtectedPath(path)) {
-      return reply.code(403).send({ error: 'Origin not allowed' });
+      return sendError(reply, 'origin_not_allowed', 'Origin not allowed');
     }
 
     if (typeof request.query?.token === 'string' && security.hasValidToken(request)) {
@@ -73,7 +91,7 @@ export async function createServer(options = {}) {
     }
 
     if (isProtectedPath(path) && !security.authenticate(request)) {
-      return reply.code(401).send({ error: 'Authentication required' });
+      return sendError(reply, 'authentication_required', 'Authentication required');
     }
   });
 
@@ -129,7 +147,7 @@ export async function createServer(options = {}) {
       )
       .get(callerSessionId);
     if (!session) {
-      return reply.code(404).send({ error: 'unknown session' });
+      return sendError(reply, 'session_not_found', 'Unknown session');
     }
 
     reply.hijack();
@@ -205,7 +223,7 @@ export async function createServer(options = {}) {
     // SPA fallback - serve index.html for non-API routes
     app.setNotFoundHandler((request, reply) => {
       if (request.url.startsWith('/api/') || request.url.startsWith('/ws/')) {
-        reply.code(404).send({ error: 'Not found' });
+        sendError(reply, 'not_found', 'Not found');
       } else {
         reply.sendFile('index.html');
       }

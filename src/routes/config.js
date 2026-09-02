@@ -1,4 +1,5 @@
 import { isConfigured, isPollConfigured, isWorkItemsConfigured } from '../config.js';
+import { sendError } from '../http-errors.js';
 import { providerSetup } from '../provider-setup.js';
 import { getRestartStatus, getUpdateStatus, pullUpdate, restartServer } from '../update-check.js';
 
@@ -65,7 +66,7 @@ export function registerConfigRoutes(app) {
   app.post('/api/config', (request, reply) => {
     const body = request.body;
     if (!body || typeof body !== 'object' || Array.isArray(body)) {
-      return reply.code(400).send({ error: 'Request body must be a JSON object' });
+      return sendError(reply, 'invalid_request', 'Request body must be a JSON object');
     }
 
     try {
@@ -73,14 +74,18 @@ export function registerConfigRoutes(app) {
       return { ok: true };
     } catch (err) {
       const validationError = err.message.startsWith('Invalid config:') || err instanceof SyntaxError;
-      return reply.code(validationError ? 400 : 500).send({ error: `Failed to write config: ${err.message}` });
+      return sendError(
+        reply,
+        validationError ? 'invalid_config' : 'config_write_failed',
+        `Failed to write config: ${err.message}`,
+      );
     }
   });
 
   app.post('/api/update', async (_request, reply) => {
     const result = await pullUpdate();
     if (!result.ok) {
-      return reply.code(500).send({ error: result.error });
+      return sendError(reply, 'update_failed', result.error);
     }
     return { ok: true, output: result.output };
   });
@@ -92,7 +97,7 @@ export function registerConfigRoutes(app) {
   app.post('/api/restart', (_request, reply) => {
     const status = getUpdateStatus();
     if (!status.restart_needed) {
-      return reply.code(400).send({ error: 'No restart needed - already running latest version' });
+      return sendError(reply, 'restart_not_needed', 'No restart needed - already running latest version');
     }
     reply.send({ ok: true, message: 'Restarting server...' });
     restartServer();

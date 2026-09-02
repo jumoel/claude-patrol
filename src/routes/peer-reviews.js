@@ -1,3 +1,5 @@
+import { sendError, sendErrorFrom } from '../http-errors.js';
+
 const REVIEW_TOOLS = Object.freeze({
   claude: 'review_with_claude',
   codex: 'review_with_codex',
@@ -13,10 +15,6 @@ function providerName(provider) {
 
 function reviewPrompt(reviewerProvider) {
   return `Run the Patrol ${REVIEW_TOOLS[reviewerProvider]} tool now. Wait for it to finish, then present the complete review findings to me. Do not edit files or act on the findings.`;
-}
-
-function sendError(reply, status, code, message) {
-  return reply.code(status).send({ error: message, code });
 }
 
 function findWorkspaceSession(db, workspaceId, requireReady = false) {
@@ -101,10 +99,10 @@ export function registerPeerReviewRoutes(app) {
   app.get('/api/workspaces/:id/peer-review', (request, reply) => {
     const child = getDb().prepare('SELECT work_item_id FROM workspaces WHERE id = ?').get(request.params.id);
     if (child?.work_item_id) {
-      return sendError(reply, 409, 'work_item_child_managed', 'Work-item children do not support peer review');
+      return sendError(reply, 'work_item_child_managed', 'Work-item children do not support peer review');
     }
     const workspace = findWorkspaceSession(getDb(), request.params.id);
-    if (!workspace) return sendError(reply, 404, 'workspace_not_found', 'Workspace not found');
+    if (!workspace) return sendError(reply, 'workspace_not_found', 'Workspace not found');
     const reviewerProvider = workspace.presenter_provider ? inverseProvider(workspace.presenter_provider) : null;
     let readiness = { ready: true, reason: null };
     if (!workspace.pr_id) readiness = { ready: false, reason: 'pr_workspace_required' };
@@ -123,24 +121,19 @@ export function registerPeerReviewRoutes(app) {
   app.post('/api/workspaces/:id/peer-review', async (request, reply) => {
     const child = getDb().prepare('SELECT work_item_id FROM workspaces WHERE id = ?').get(request.params.id);
     if (child?.work_item_id) {
-      return sendError(reply, 409, 'work_item_child_managed', 'Work-item children do not support peer review');
+      return sendError(reply, 'work_item_child_managed', 'Work-item children do not support peer review');
     }
     const body = request.body;
     if (
       body !== undefined &&
       (body === null || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).length > 0)
     ) {
-      return sendError(reply, 400, 'invalid_request', 'This endpoint does not accept request fields');
+      return sendError(reply, 'invalid_request', 'This endpoint does not accept request fields');
     }
 
     const row = findWorkspaceSession(getDb(), request.params.id, true);
     if (!row?.pr_id || !row.session_id) {
-      return sendError(
-        reply,
-        409,
-        'review_not_ready',
-        'A ready PR workspace with an attached agent session is required',
-      );
+      return sendError(reply, 'review_not_ready', 'A ready PR workspace with an attached agent session is required');
     }
 
     const reviewerProvider = inverseProvider(row.presenter_provider);
@@ -148,7 +141,6 @@ export function registerPeerReviewRoutes(app) {
     if (!capability.available) {
       return sendError(
         reply,
-        503,
         `${reviewerProvider}_unavailable`,
         capability.reason || `${providerName(reviewerProvider)} is unavailable`,
       );
@@ -158,9 +150,9 @@ export function registerPeerReviewRoutes(app) {
     if (!readiness.ready) {
       return sendError(
         reply,
-        409,
         readiness.reason,
         `Restart this ${providerName(row.presenter_provider)} session before requesting a peer review`,
+        { status: 409 },
       );
     }
 
@@ -178,15 +170,14 @@ export function registerPeerReviewRoutes(app) {
       return reply.code(202).send({ review, dispatchedAt });
     } catch (error) {
       if (review) peerReviewCoordinator.fail(review.id, error);
-      const status = error.code === 'review_in_progress' || error.code === 'session_busy' ? 409 : 500;
-      return sendError(reply, status, error.code || 'review_dispatch_failed', error.message);
+      return sendErrorFrom(reply, error, { code: error.code || 'review_dispatch_failed' });
     }
   });
 
   app.get('/api/work-items/:id/peer-review', (request, reply) => {
     const prId = typeof request.query?.pr_id === 'string' ? request.query.pr_id : null;
     const row = findWorkItemSession(getDb(), request.params.id, prId);
-    if (!row) return sendError(reply, 404, 'work_item_not_found', 'Work item not found');
+    if (!row) return sendError(reply, 'work_item_not_found', 'Work item not found');
     const reviewerProvider = row.presenter_provider ? inverseProvider(row.presenter_provider) : null;
     return {
       review: peerReviewCoordinator.getByWorkItem(request.params.id),
@@ -206,19 +197,16 @@ export function registerPeerReviewRoutes(app) {
       typeof body.pr_id !== 'string' ||
       !body.pr_id
     ) {
-      return sendError(reply, 400, 'invalid_request', 'This endpoint requires pr_id');
+      return sendError(reply, 'invalid_request', 'This endpoint requires pr_id');
     }
 
     const row = findWorkItemSession(getDb(), request.params.id, body.pr_id);
-    if (!row) return sendError(reply, 404, 'work_item_not_found', 'Work item not found');
+    if (!row) return sendError(reply, 'work_item_not_found', 'Work item not found');
     const readiness = workItemReadiness(row, getSessionPeerReviewReadiness);
     if (!readiness.ready) {
-      return sendError(
-        reply,
-        409,
-        readiness.reason,
-        'A ready work item, linked PR, repository, and session are required',
-      );
+      return sendError(reply, readiness.reason, 'A ready work item, linked PR, repository, and session are required', {
+        status: 409,
+      });
     }
 
     const reviewerProvider = inverseProvider(row.presenter_provider);
@@ -226,7 +214,6 @@ export function registerPeerReviewRoutes(app) {
     if (!capability.available) {
       return sendError(
         reply,
-        503,
         `${reviewerProvider}_unavailable`,
         capability.reason || `${providerName(reviewerProvider)} is unavailable`,
       );
@@ -246,8 +233,7 @@ export function registerPeerReviewRoutes(app) {
       return reply.code(202).send({ review, dispatchedAt });
     } catch (error) {
       if (review) peerReviewCoordinator.fail(review.id, error);
-      const status = error.code === 'review_in_progress' || error.code === 'session_busy' ? 409 : 500;
-      return sendError(reply, status, error.code || 'review_dispatch_failed', error.message);
+      return sendErrorFrom(reply, error, { code: error.code || 'review_dispatch_failed' });
     }
   });
 }

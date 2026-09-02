@@ -1,5 +1,6 @@
 import { execFile as execFileCb } from 'node:child_process';
 import { emitLocalChange } from '../app-events.js';
+import { sendError, sendErrorFrom } from '../http-errors.js';
 import { formatPR } from '../pr-status.js';
 import { runTask } from '../tasks.js';
 import { destroyWorkspace } from '../workspace.js';
@@ -13,7 +14,7 @@ export function registerWorkspaceRoutes(app) {
   app.post('/api/workspaces', async (request, reply) => {
     const { pr_id, repo, branch } = request.body || {};
     if (!pr_id && (!repo || !branch)) {
-      return reply.code(400).send({ error: 'Either pr_id or both repo and branch are required' });
+      return sendError(reply, 'invalid_request', 'Either pr_id or both repo and branch are required');
     }
     try {
       const workItem = workItemService.create(
@@ -25,9 +26,7 @@ export function registerWorkspaceRoutes(app) {
       reply.header('Location', `/api/work-items/${workItem.id}`);
       return reply.code(202).send({ work_item: workItem });
     } catch (err) {
-      return reply
-        .code(['legacy_workspace_exists', 'pull_request_owned'].includes(err.code) ? 409 : 400)
-        .send({ error: err.message, code: err.code });
+      return sendErrorFrom(reply, err, { code: err.code ?? 'invalid_request' });
     }
   });
 
@@ -91,7 +90,7 @@ export function registerWorkspaceRoutes(app) {
   app.post('/api/workspaces/orphans/reconcile', async (request, reply) => {
     const dryRun = request.body?.dry_run ?? true;
     if (typeof dryRun !== 'boolean') {
-      return reply.code(400).send({ error: 'dry_run must be a boolean', code: 'invalid_dry_run' });
+      return sendError(reply, 'invalid_dry_run', 'dry_run must be a boolean');
     }
     try {
       const result = await app.appContext.reconcilePatrolWorkspaces(getConfig(), {
@@ -102,29 +101,23 @@ export function registerWorkspaceRoutes(app) {
       if (result.deleted.length > 0 || result.cleanedWorkspaces.length > 0) emitLocalChange();
       return { dry_run: dryRun, ...result };
     } catch (error) {
-      return reply
-        .code(error.code === 'reconciliation_busy' ? 409 : 500)
-        .send({ error: error.message, code: error.code ?? 'reconciliation_failed' });
+      return sendErrorFrom(reply, error, { code: error.code ?? 'reconciliation_failed' });
     }
   });
 
   app.get('/api/workspaces/:id', (request, reply) => {
     const db = getDb();
     const workspace = db.prepare('SELECT * FROM workspaces WHERE id = ?').get(request.params.id);
-    if (!workspace) {
-      return reply.code(404).send({ error: 'Workspace not found' });
-    }
+    if (!workspace) return sendError(reply, 'workspace_not_found', 'Workspace not found');
     if (workspace.work_item_id) {
-      return reply
-        .code(409)
-        .send({ error: 'Work-item child is managed by its work item', code: 'work_item_child_managed' });
+      return sendError(reply, 'work_item_child_managed', 'Work-item child is managed by its work item');
     }
     return workspace;
   });
 
   app.delete('/api/workspaces/:id', async (request, reply) => {
     const workspace = getDb().prepare('SELECT * FROM workspaces WHERE id = ?').get(request.params.id);
-    if (!workspace) return reply.code(404).send({ error: 'Workspace not found', code: 'workspace_not_found' });
+    if (!workspace) return sendError(reply, 'workspace_not_found', 'Workspace not found');
     const liveSession = getDb()
       .prepare(
         `SELECT id FROM sessions
@@ -134,10 +127,7 @@ export function registerWorkspaceRoutes(app) {
       )
       .get(workspace.id, workspace.work_item_id, workspace.work_item_id);
     if (liveSession) {
-      return reply.code(409).send({
-        error: 'Stop the active LLM session before deleting this workspace',
-        code: 'session_exists',
-      });
+      return sendError(reply, 'session_exists', 'Stop the active LLM session before deleting this workspace');
     }
     try {
       const result = workspace.work_item_id
@@ -146,26 +136,27 @@ export function registerWorkspaceRoutes(app) {
       emitLocalChange();
       return result;
     } catch (err) {
-      const status = ['session_exists', 'work_item_busy', 'invalid_state'].includes(err.code) ? 409 : 400;
-      return reply.code(status).send({ error: err.message, code: err.code });
+      return sendErrorFrom(reply, err, { code: err.code ?? 'workspace_destroy_failed' });
     }
   });
 
   app.post('/api/workspaces/:id/retry-cleanup', async (request, reply) => {
     const workspace = getDb().prepare('SELECT * FROM workspaces WHERE id = ?').get(request.params.id);
-    if (!workspace) return reply.code(404).send({ error: 'Workspace not found' });
+    if (!workspace) return sendError(reply, 'workspace_not_found', 'Workspace not found');
     if (workspace.work_item_id) {
-      return reply
-        .code(409)
-        .send({ error: 'Work-item child is managed by its work item', code: 'work_item_child_managed' });
+      return sendError(reply, 'work_item_child_managed', 'Work-item child is managed by its work item');
     }
     if (['ready', 'destroyed'].includes(workspace.operation_state)) {
-      return reply.code(409).send({ error: 'Workspace does not have an interrupted operation to clean up' });
+      return sendError(
+        reply,
+        'no_interrupted_operation',
+        'Workspace does not have an interrupted operation to clean up',
+      );
     }
     try {
       return await destroyWorkspace(request.params.id, getConfig());
     } catch (error) {
-      return reply.code(400).send({ error: error.message });
+      return sendErrorFrom(reply, error, { code: error.code ?? 'workspace_destroy_failed' });
     }
   });
 
@@ -173,14 +164,10 @@ export function registerWorkspaceRoutes(app) {
     const db = getDb();
     const candidate = db.prepare('SELECT * FROM workspaces WHERE id = ?').get(request.params.id);
     if (candidate?.work_item_id) {
-      return reply
-        .code(409)
-        .send({ error: 'Work-item child is managed by its work item', code: 'work_item_child_managed' });
+      return sendError(reply, 'work_item_child_managed', 'Work-item child is managed by its work item');
     }
     const workspace = candidate?.status === 'active' && candidate.operation_state === 'ready' ? candidate : null;
-    if (!workspace) {
-      return reply.code(404).send({ error: 'Workspace not found or not active' });
-    }
+    if (!workspace) return sendError(reply, 'workspace_not_found', 'Workspace not found or not active');
     execFileCb('open', ['-na', 'Ghostty.app', '--args', '--working-directory', workspace.path], (err) => {
       if (err) console.warn(`[workspaces] Failed to open Ghostty: ${err.message}`);
     });

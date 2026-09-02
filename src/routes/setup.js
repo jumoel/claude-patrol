@@ -1,3 +1,4 @@
+import { sendError } from '../http-errors.js';
 import { execFile } from '../utils.js';
 
 /**
@@ -45,7 +46,7 @@ export function registerSetupRoutes(app) {
 
       return { repos: [...allRepos].sort() };
     } catch (err) {
-      return reply.code(500).send({ error: `Failed to list repos: ${err.message}` });
+      return sendError(reply, 'upstream_failed', `Failed to list repos: ${err.message}`);
     }
   });
   // List the authenticated user's personal account and orgs
@@ -66,10 +67,15 @@ export function registerSetupRoutes(app) {
         ],
       };
     } catch (err) {
-      const msg = err.stderr?.includes('auth login')
-        ? 'GitHub CLI is not authenticated. Run `gh auth login` in your terminal first.'
-        : `Failed to list accounts: ${err.message}`;
-      return reply.code(500).send({ error: msg });
+      const unauthenticated = err.stderr?.includes('auth login');
+      return sendError(
+        reply,
+        unauthenticated ? 'gh_unauthenticated' : 'upstream_failed',
+        unauthenticated
+          ? 'GitHub CLI is not authenticated. Run `gh auth login` in your terminal first.'
+          : `Failed to list accounts: ${err.message}`,
+        { status: unauthenticated ? 503 : 502 },
+      );
     }
   });
 
@@ -77,7 +83,7 @@ export function registerSetupRoutes(app) {
   app.get('/api/setup/repos', async (request, reply) => {
     const { account } = request.query;
     if (!account) {
-      return reply.code(400).send({ error: 'account query parameter is required' });
+      return sendError(reply, 'invalid_request', 'account query parameter is required');
     }
 
     try {
@@ -96,7 +102,7 @@ export function registerSetupRoutes(app) {
       const repos = JSON.parse(stdout.trim() || '[]');
       return { repos };
     } catch (err) {
-      return reply.code(500).send({ error: `Failed to list repos for ${account}: ${err.message}` });
+      return sendError(reply, 'upstream_failed', `Failed to list repos for ${account}: ${err.message}`);
     }
   });
 }

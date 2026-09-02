@@ -1,3 +1,4 @@
+import { sendError } from '../http-errors.js';
 import { execFile } from '../utils.js';
 
 /**
@@ -166,7 +167,7 @@ export function registerCommentRoutes(app) {
     const db = getDb();
     const pr = db.prepare('SELECT org, repo, number, updated_at FROM prs WHERE id = ?').get(request.params.id);
     if (!pr) {
-      return reply.code(404).send({ error: 'PR not found' });
+      return sendError(reply, 'pr_not_found', 'PR not found');
     }
 
     const cacheId = request.params.id;

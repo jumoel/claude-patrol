@@ -6,6 +6,7 @@ import { AutomationQueue } from './automation-queue.js';
 import { configEvents } from './config.js';
 import { getDb } from './db.js';
 import { ensureSessionAndSend } from './dispatcher.js';
+import { taggedError } from './errors.js';
 import { pollerEvents } from './poller.js';
 import { formatPR } from './pr-status.js';
 
@@ -505,7 +506,7 @@ function cooldownOk(rule, cooldownKey) {
  * @param {object} ctx - { trigger, pr_id, workspace_id, session_id, cooldown_key, tmplCtx }
  */
 export function fireRule(rule, ctx, { force = false } = {}) {
-  if (!automationQueue) throw new Error('rules engine is not running');
+  if (!automationQueue) throw taggedError('rules_engine_stopped', 'rules engine is not running');
   // Caller may pre-assign an id (e.g. bulk run-all wants to return ids before
   // the fire completes). Fall back to a fresh UUID otherwise.
   const id = ctx._id ?? randomUUID();
@@ -633,17 +634,17 @@ async function dispatchClaude(ctx, prompt, runRow) {
  */
 export async function manualRunRule(ruleId, options = {}) {
   const rule = rules.get(ruleId);
-  if (!rule) throw new Error(`unknown rule: ${ruleId}`);
+  if (!rule) throw taggedError('rule_not_found', `unknown rule: ${ruleId}`);
 
   const db = getDb();
   if (PR_TRIGGERS.has(rule.on)) {
-    if (!options.pr_id) throw new Error(`pr_id required for ${rule.on} rules`);
+    if (!options.pr_id) throw taggedError('invalid_request', `pr_id required for ${rule.on} rules`);
     const row = db.prepare('SELECT * FROM prs WHERE id = ?').get(options.pr_id);
-    if (!row) throw new Error(`pr not found: ${options.pr_id}`);
+    if (!row) throw taggedError('pr_not_found', `pr not found: ${options.pr_id}`);
     const pr = formatPR(row);
     const cooldownKey = pr.id;
     if (!options.force && !cooldownOk(rule, cooldownKey)) {
-      throw new Error('cooldown active (pass force=true to bypass)');
+      throw taggedError('cooldown', 'cooldown active (pass force=true to bypass)');
     }
     // Manual run is a hard trigger: mirror the natural-trigger path's
     // subscription consumption so a Run Now leaves the same state behind as
@@ -670,7 +671,7 @@ export async function manualRunRule(ruleId, options = {}) {
   }
 
   if (rule.on === 'session.idle') {
-    if (!options.session_id) throw new Error('session_id required for session.idle rules');
+    if (!options.session_id) throw taggedError('invalid_request', 'session_id required for session.idle rules');
     const sess = db
       .prepare(
         `SELECT s.id, s.workspace_id, s.work_item_id, w.work_item_id AS workspace_work_item_id
@@ -679,14 +680,14 @@ export async function manualRunRule(ruleId, options = {}) {
          WHERE s.id = ?`,
       )
       .get(options.session_id);
-    if (!sess) throw new Error(`session not found: ${options.session_id}`);
+    if (!sess) throw taggedError('session_not_found', `session not found: ${options.session_id}`);
     if (sess.work_item_id || sess.workspace_work_item_id) {
-      throw new Error('work-item sessions do not participate in rules');
+      throw taggedError('invalid_request', 'work-item sessions do not participate in rules');
     }
     const { prId, workspaceRepo } = resolveWorkspaceContext(sess.workspace_id);
     const cooldownKey = sess.id;
     if (!options.force && !cooldownOk(rule, cooldownKey)) {
-      throw new Error('cooldown active (pass force=true to bypass)');
+      throw taggedError('cooldown', 'cooldown active (pass force=true to bypass)');
     }
     return fireRule(
       rule,
@@ -705,7 +706,7 @@ export async function manualRunRule(ruleId, options = {}) {
     );
   }
 
-  throw new Error(`unknown trigger: ${rule.on}`);
+  throw taggedError('invalid_request', `unknown trigger: ${rule.on}`);
 }
 
 /**
@@ -730,11 +731,13 @@ function isSubscribed(ruleId, prId) {
  */
 export function subscribeRule(ruleId, prId) {
   const rule = rules.get(ruleId);
-  if (!rule) throw new Error(`unknown rule: ${ruleId}`);
-  if (!rule.requires_subscription) throw new Error(`rule '${ruleId}' does not require subscription`);
+  if (!rule) throw taggedError('rule_not_found', `unknown rule: ${ruleId}`);
+  if (!rule.requires_subscription) {
+    throw taggedError('invalid_request', `rule '${ruleId}' does not require subscription`);
+  }
   const db = getDb();
   const pr = db.prepare('SELECT 1 FROM prs WHERE id = ?').get(prId);
-  if (!pr) throw new Error(`pr not found: ${prId}`);
+  if (!pr) throw taggedError('pr_not_found', `pr not found: ${prId}`);
   const info = db
     .prepare('INSERT INTO rule_subscriptions (rule_id, pr_id, created_at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING')
     .run(ruleId, prId, new Date().toISOString());
@@ -783,9 +786,9 @@ export function listSubscriptions(opts = {}) {
  */
 export function runRuleForAll(ruleId, options = {}) {
   const rule = rules.get(ruleId);
-  if (!rule) throw new Error(`unknown rule: ${ruleId}`);
+  if (!rule) throw taggedError('rule_not_found', `unknown rule: ${ruleId}`);
   if (!PR_TRIGGERS.has(rule.on)) {
-    throw new Error(`run-all is only supported on PR triggers (got '${rule.on}')`);
+    throw taggedError('invalid_request', `run-all is only supported on PR triggers (got '${rule.on}')`);
   }
 
   const db = getDb();
@@ -866,9 +869,9 @@ export function runRuleForAll(ruleId, options = {}) {
  */
 export function subscribeRuleForAll(ruleId) {
   const rule = rules.get(ruleId);
-  if (!rule) throw new Error(`unknown rule: ${ruleId}`);
+  if (!rule) throw taggedError('rule_not_found', `unknown rule: ${ruleId}`);
   if (!rule.requires_subscription) {
-    throw new Error(`rule '${ruleId}' does not require subscription`);
+    throw taggedError('invalid_request', `rule '${ruleId}' does not require subscription`);
   }
 
   const db = getDb();

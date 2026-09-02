@@ -1,3 +1,4 @@
+import { sendError, sendErrorFrom } from '../http-errors.js';
 import {
   getRuleLoadErrors,
   getRules,
@@ -45,8 +46,7 @@ export function registerRuleRoutes(app) {
       });
       return run;
     } catch (err) {
-      reply.code(400);
-      return { error: err.message };
+      return sendErrorFrom(reply, err);
     }
   });
 
@@ -58,25 +58,18 @@ export function registerRuleRoutes(app) {
   app.post('/api/rules/:id/subscribe', async (request, reply) => {
     const { id } = request.params;
     const body = request.body ?? {};
-    if (!body.pr_id) {
-      reply.code(400);
-      return { error: 'pr_id is required' };
-    }
+    if (!body.pr_id) return sendError(reply, 'invalid_request', 'pr_id is required');
     try {
       return subscribeRule(id, body.pr_id);
     } catch (err) {
-      reply.code(400);
-      return { error: err.message };
+      return sendErrorFrom(reply, err);
     }
   });
 
   app.delete('/api/rules/:id/subscribe', async (request, reply) => {
     const { id } = request.params;
     const body = request.body ?? {};
-    if (!body.pr_id) {
-      reply.code(400);
-      return { error: 'pr_id is required' };
-    }
+    if (!body.pr_id) return sendError(reply, 'invalid_request', 'pr_id is required');
     return unsubscribeRule(id, body.pr_id);
   });
 
@@ -94,8 +87,7 @@ export function registerRuleRoutes(app) {
         subscribe: body.subscribe === true,
       });
     } catch (err) {
-      reply.code(400);
-      return { error: err.message };
+      return sendErrorFrom(reply, err);
     }
   });
 
@@ -104,8 +96,7 @@ export function registerRuleRoutes(app) {
     try {
       return subscribeRuleForAll(id);
     } catch (err) {
-      reply.code(400);
-      return { error: err.message };
+      return sendErrorFrom(reply, err);
     }
   });
 }

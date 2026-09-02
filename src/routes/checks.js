@@ -1,3 +1,4 @@
+import { sendError } from '../http-errors.js';
 import { execFile, isFailedCheck } from '../utils.js';
 
 const RUN_ID_RE = /\/actions\/runs\/(\d+)/;
@@ -103,16 +104,16 @@ export function registerCheckRoutes(app) {
     const body = request.body && typeof request.body === 'object' ? request.body : {};
     const { pr_id, check_name } = body;
     if (typeof pr_id !== 'string' || pr_id.length === 0) {
-      return reply.code(400).send({ error: 'pr_id is required' });
+      return sendError(reply, 'invalid_request', 'pr_id is required');
     }
     if (check_name !== undefined && check_name !== null && typeof check_name !== 'string') {
-      return reply.code(400).send({ error: 'check_name must be a string' });
+      return sendError(reply, 'invalid_request', 'check_name must be a string');
     }
 
     const db = getDb();
     const row = db.prepare('SELECT * FROM prs WHERE id = ?').get(pr_id);
     if (!row) {
-      return reply.code(404).send({ error: 'PR not found' });
+      return sendError(reply, 'pr_not_found', 'PR not found');
     }
 
     // DB check names come from GraphQL with a workflow prefix ("workflow / job"),
@@ -221,7 +222,7 @@ export function registerCheckRoutes(app) {
     const db = getDb();
     const row = db.prepare('SELECT * FROM prs WHERE id = ?').get(request.params.id);
     if (!row) {
-      return reply.code(404).send({ error: 'PR not found' });
+      return sendError(reply, 'pr_not_found', 'PR not found');
     }
 
     // Fetch fresh check data from GitHub to avoid stale DB results.
@@ -244,7 +245,7 @@ export function registerCheckRoutes(app) {
     // path, so accept only a numeric GitHub run id.
     const filterRunId = request.query?.run_id;
     if (filterRunId !== undefined && !/^\d{1,20}$/.test(String(filterRunId))) {
-      return reply.code(400).send({ error: 'run_id must be a numeric GitHub run id' });
+      return sendError(reply, 'invalid_request', 'run_id must be a numeric GitHub run id');
     }
     const targetRunIds = filterRunId ? [String(filterRunId)] : [...runIds];
 

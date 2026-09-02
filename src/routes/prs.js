@@ -1,4 +1,5 @@
 import { emitLocalChange } from '../app-events.js';
+import { sendError } from '../http-errors.js';
 import { enrichWithStackInfo, formatPR } from '../pr-status.js';
 import { execFile } from '../utils.js';
 import { enrichPullRequestsWithOwners } from '../work-item-prs.js';
@@ -132,7 +133,7 @@ export function registerPRRoutes(app) {
     const db = getDb();
     const row = db.prepare('SELECT * FROM prs WHERE id = ?').get(request.params.id);
     if (!row) {
-      return reply.code(404).send({ error: 'Not found' });
+      return sendError(reply, 'pr_not_found', 'PR not found');
     }
 
     // body_html isn't fetched in the poll cycle (heavy, only used here). Fetch
@@ -161,13 +162,13 @@ export function registerPRRoutes(app) {
     const db = getDb();
     const exists = db.prepare('SELECT 1 FROM prs WHERE id = ?').get(request.params.id);
     if (!exists) {
-      return reply.code(404).send({ error: 'PR not found' });
+      return sendError(reply, 'pr_not_found', 'PR not found');
     }
     let result;
     try {
       result = await refreshSinglePR(request.params.id, getConfig());
     } catch (err) {
-      return reply.code(502).send({ error: `Failed to refresh PR: ${err.message}` });
+      return sendError(reply, 'upstream_failed', `Failed to refresh PR: ${err.message}`);
     }
     // PR was merged/closed - row is gone, workspaces are torn down. Tell the
     // caller so the UI can navigate away and MCP callers see the final state.
@@ -175,7 +176,7 @@ export function registerPRRoutes(app) {
       return { removed: true, state: result.state };
     }
     const row = db.prepare('SELECT * FROM prs WHERE id = ?').get(request.params.id);
-    if (!row) return reply.code(404).send({ error: 'PR not found after refresh' });
+    if (!row) return sendError(reply, 'pr_not_found', 'PR not found after refresh');
     const siblingRows = db.prepare('SELECT * FROM prs WHERE org = ? AND repo = ?').all(row.org, row.repo);
     const siblings = siblingRows.map(formatPR);
     enrichWithStackInfo(siblings);
@@ -188,11 +189,11 @@ export function registerPRRoutes(app) {
     const db = getDb();
     const pr = db.prepare('SELECT org, repo, number, draft FROM prs WHERE id = ?').get(request.params.id);
     if (!pr) {
-      return reply.code(404).send({ error: 'PR not found' });
+      return sendError(reply, 'pr_not_found', 'PR not found');
     }
     const { draft } = request.body || {};
     if (typeof draft !== 'boolean') {
-      return reply.code(400).send({ error: 'draft must be a boolean' });
+      return sendError(reply, 'invalid_request', 'draft must be a boolean');
     }
     try {
       const args = ['pr', 'ready', String(pr.number), '-R', `${pr.org}/${pr.repo}`];
@@ -203,7 +204,7 @@ export function registerPRRoutes(app) {
       emitLocalChange();
       return { ok: true, draft };
     } catch (err) {
-      return reply.code(500).send({ error: `Failed to update draft status: ${err.stderr || err.message}` });
+      return sendError(reply, 'upstream_failed', `Failed to update draft status: ${err.stderr || err.message}`);
     }
   });
 
@@ -211,7 +212,7 @@ export function registerPRRoutes(app) {
     const db = getDb();
     const pr = db.prepare('SELECT org, repo, number, updated_at FROM prs WHERE id = ?').get(request.params.id);
     if (!pr) {
-      return reply.code(404).send({ error: 'PR not found' });
+      return sendError(reply, 'pr_not_found', 'PR not found');
     }
 
     const nameOnly = request.query.name_only === 'true';
@@ -248,7 +249,7 @@ export function registerPRRoutes(app) {
       storeDiffCache(cacheMap, request.params.id, cacheKey, payload);
       return payload;
     } catch (err) {
-      return reply.code(500).send({ error: `Failed to fetch diff: ${err.message}` });
+      return sendError(reply, 'upstream_failed', `Failed to fetch diff: ${err.message}`);
     }
   });
 }

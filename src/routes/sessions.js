@@ -1,6 +1,7 @@
 import { copyFileSync, cpSync, existsSync, mkdirSync } from 'node:fs';
 import { basename, resolve } from 'node:path';
 import { emitLocalChange } from '../app-events.js';
+import { sendError, sendErrorFrom } from '../http-errors.js';
 import {
   attachSession,
   createResumedSession,
@@ -9,7 +10,6 @@ import {
   normalizeGlobalSessionName,
   reattachSession,
 } from '../pty-manager.js';
-import { sanitizePublicText } from '../public-errors.js';
 import { normalizeSessionProvider } from '../session-launch.js';
 import { sessionTargetFromRow } from '../session-target.js';
 import { runTask } from '../tasks.js';
@@ -61,24 +61,13 @@ export function registerSessionRoutes(app) {
     const stateBySessionId = new Map(getSessionStates().map((entry) => [entry.sessionId, entry]));
     return rows.map((row) => formatSession(row, stateBySessionId));
   };
-  const targetError = (reply, code, message, status = 400) =>
-    reply.code(status).send({
-      error: {
-        code,
-        message: sanitizePublicText(message, { maxBytes: 4096 }),
-        detail: null,
-        failed_provider: null,
-        retry_action: null,
-        recovery_actions: [],
-      },
-    });
 
   app.post('/api/sessions/:id/activity/:provider', (request, reply) => {
     const authorization = request.headers.authorization;
     const token = authorization?.startsWith('Bearer ') ? authorization.slice('Bearer '.length) : null;
     const result = recordProviderActivity(request.params.id, request.params.provider, token, request.body);
     if (!result.accepted) {
-      return reply.code(result.status).send({ error: result.reason });
+      return sendError(reply, result.reason, `Activity rejected: ${result.reason}`, { status: result.status });
     }
     return reply.code(result.status).send({ accepted: true, duplicate: result.duplicate });
   });
@@ -89,14 +78,14 @@ export function registerSessionRoutes(app) {
     try {
       provider = request.body?.provider === undefined ? null : normalizeSessionProvider(request.body.provider);
     } catch (error) {
-      return targetError(reply, 'invalid_provider', error.message);
+      return sendError(reply, 'invalid_provider', error.message);
     }
     const db = getDb();
 
     const keys = request.body && typeof request.body === 'object' ? Object.keys(request.body) : [];
     const targetCount = (workspace_id ? 1 : 0) + (work_item_id ? 1 : 0) + (isGlobal === true ? 1 : 0);
     if (targetCount !== 1) {
-      return targetError(reply, 'invalid_request', 'Exactly one session target is required');
+      return sendError(reply, 'invalid_request', 'Exactly one session target is required');
     }
 
     let cwd;
@@ -104,20 +93,20 @@ export function registerSessionRoutes(app) {
     let sessionOptions = {};
     if (isGlobal === true) {
       if (keys.some((key) => !['global', 'provider', 'name'].includes(key)) || provider === null) {
-        return targetError(reply, 'invalid_request', 'Global sessions require global: true and provider');
+        return sendError(reply, 'invalid_request', 'Global sessions require global: true and provider');
       }
       let name;
       try {
         name = normalizeGlobalSessionName(rawName);
       } catch (error) {
-        return targetError(reply, 'invalid_session_name', error.message);
+        return sendError(reply, 'invalid_session_name', error.message);
       }
       cwd = getConfig().global_terminal_cwd || process.cwd();
       target = { type: 'global' };
       sessionOptions = { name, reuseExisting: false };
     } else if (workspace_id) {
       if (keys.some((key) => !['workspace_id', 'provider'].includes(key)) || provider === null) {
-        return targetError(reply, 'invalid_request', 'Workspace sessions require workspace_id and provider');
+        return sendError(reply, 'invalid_request', 'Workspace sessions require workspace_id and provider');
       }
       const workspace = db
         .prepare(
@@ -127,35 +116,36 @@ export function registerSessionRoutes(app) {
       if (!workspace) {
         const child = db.prepare('SELECT work_item_id FROM workspaces WHERE id = ?').get(workspace_id);
         if (child?.work_item_id) {
-          return targetError(
+          return sendError(
             reply,
             'work_item_child_managed',
             'Work-item child workspaces do not have independent sessions',
-            409,
+            { status: 409 },
           );
         }
-        return targetError(reply, 'invalid_state', 'Workspace not found or not active', 409);
+        return sendError(reply, 'invalid_state', 'Workspace not found or not active', { status: 409 });
       }
       cwd = workspace.path;
       target = { type: 'workspace', id: workspace_id };
     } else if (work_item_id) {
       if (keys.some((key) => !['work_item_id', 'provider'].includes(key)) || provider === null) {
-        return targetError(reply, 'invalid_request', 'Work-item sessions require work_item_id and provider');
+        return sendError(reply, 'invalid_request', 'Work-item sessions require work_item_id and provider');
       }
       const workItem = db.prepare('SELECT * FROM work_items WHERE id = ?').get(work_item_id);
-      if (!workItem) return targetError(reply, 'work_item_not_found', 'Work item not found', 404);
-      if (workItem.state !== 'ready') return targetError(reply, 'invalid_state', 'Work item is not ready', 409);
+      if (!workItem) return sendError(reply, 'work_item_not_found', 'Work item not found', { status: 404 });
+      if (workItem.state !== 'ready')
+        return sendError(reply, 'invalid_state', 'Work item is not ready', { status: 409 });
       const live = db
         .prepare("SELECT id FROM sessions WHERE work_item_id = ? AND status IN ('active', 'detached')")
         .get(work_item_id);
-      if (live) return targetError(reply, 'session_exists', 'A work-item session is already running', 409);
+      if (live) return sendError(reply, 'session_exists', 'A work-item session is already running', { status: 409 });
       cwd = workItem.path;
       target = { type: 'work_item', id: work_item_id };
       sessionOptions = {
         enablePatrolMcp: true,
       };
     } else {
-      return targetError(reply, 'invalid_request', 'Session target is required');
+      return sendError(reply, 'invalid_request', 'Session target is required');
     }
 
     try {
@@ -168,12 +158,9 @@ export function registerSessionRoutes(app) {
       });
     } catch (err) {
       const status = ['provider_conflict', 'global_session_limit'].includes(err.code) ? 409 : 500;
-      return targetError(
-        reply,
-        err.code ?? 'session_launch_failed',
-        `Failed to create session: ${err.message}`,
-        status,
-      );
+      return sendError(reply, err.code ?? 'session_launch_failed', `Failed to create session: ${err.message}`, {
+        status: status,
+      });
     }
   });
 
@@ -181,15 +168,15 @@ export function registerSessionRoutes(app) {
     const db = getDb();
     const { workspace_id, work_item_id, global: isGlobal } = request.query;
     const filterCount = (workspace_id ? 1 : 0) + (work_item_id ? 1 : 0) + (isGlobal === 'true' ? 1 : 0);
-    if (filterCount > 1) return targetError(reply, 'invalid_request', 'Session filters are mutually exclusive');
+    if (filterCount > 1) return sendError(reply, 'invalid_request', 'Session filters are mutually exclusive');
     if (workspace_id) {
       const child = db.prepare('SELECT work_item_id FROM workspaces WHERE id = ?').get(workspace_id);
       if (child?.work_item_id) {
-        return targetError(
+        return sendError(
           reply,
           'work_item_child_managed',
           'Work-item child workspaces do not have independent sessions',
-          409,
+          { status: 409 },
         );
       }
       const rows = db
@@ -230,16 +217,16 @@ export function registerSessionRoutes(app) {
   app.patch('/api/sessions/:id', (request, reply) => {
     const keys = request.body && typeof request.body === 'object' ? Object.keys(request.body) : [];
     if (keys.length !== 1 || keys[0] !== 'name') {
-      return targetError(reply, 'invalid_request', 'Session rename requires only name');
+      return sendError(reply, 'invalid_request', 'Session rename requires only name');
     }
 
     let name;
     try {
       name = normalizeGlobalSessionName(request.body.name);
     } catch (error) {
-      return targetError(reply, 'invalid_session_name', error.message);
+      return sendError(reply, 'invalid_session_name', error.message);
     }
-    if (name === null) return targetError(reply, 'invalid_session_name', 'Session name is required');
+    if (name === null) return sendError(reply, 'invalid_session_name', 'Session name is required');
 
     const db = getDb();
     const session = db
@@ -251,7 +238,7 @@ export function registerSessionRoutes(app) {
             AND status IN ('active', 'detached')`,
       )
       .get(request.params.id);
-    if (!session) return targetError(reply, 'session_not_found', 'Live global session not found', 404);
+    if (!session) return sendError(reply, 'session_not_found', 'Live global session not found', { status: 404 });
 
     db.prepare('UPDATE sessions SET name = ? WHERE id = ?').run(name, session.id);
     emitLocalChange();
@@ -262,7 +249,7 @@ export function registerSessionRoutes(app) {
     try {
       await killSessionAndWait(request.params.id);
     } catch (error) {
-      return targetError(reply, error.code ?? 'session_stop_failed', error.message, 500);
+      return sendError(reply, error.code ?? 'session_stop_failed', error.message, { status: 500 });
     }
     return { ok: true };
   });
@@ -274,7 +261,7 @@ export function registerSessionRoutes(app) {
       return formatSession(session);
     } catch (err) {
       const status = { session_not_found: 404, session_not_detached: 409, session_dead: 410 }[err.code] ?? 500;
-      return targetError(reply, err.code ?? 'session_reattach_failed', err.message, status);
+      return sendError(reply, err.code ?? 'session_reattach_failed', err.message, { status: status });
     }
   });
 
@@ -283,15 +270,15 @@ export function registerSessionRoutes(app) {
     const db = getDb();
     const { workspace_id, work_item_id, global: isGlobal } = request.query;
     const filterCount = (workspace_id ? 1 : 0) + (work_item_id ? 1 : 0) + (isGlobal === 'true' ? 1 : 0);
-    if (filterCount > 1) return targetError(reply, 'invalid_request', 'Session filters are mutually exclusive');
+    if (filterCount > 1) return sendError(reply, 'invalid_request', 'Session filters are mutually exclusive');
     if (workspace_id) {
       const child = db.prepare('SELECT work_item_id FROM workspaces WHERE id = ?').get(workspace_id);
       if (child?.work_item_id) {
-        return targetError(
+        return sendError(
           reply,
           'work_item_child_managed',
           'Work-item child workspaces do not have independent history',
-          409,
+          { status: 409 },
         );
       }
       return db
@@ -328,11 +315,9 @@ export function registerSessionRoutes(app) {
   app.get('/api/sessions/:id/transcript', (request, reply) => {
     const db = getDb();
     const session = db.prepare('SELECT * FROM sessions WHERE id = ?').get(request.params.id);
-    if (!session) {
-      return reply.code(404).send({ error: 'Session not found' });
-    }
+    if (!session) return sendError(reply, 'session_not_found', 'Session not found');
     if (session.provider !== 'claude') {
-      return reply.code(409).send({ error: 'Transcripts are only available for Claude sessions' });
+      return sendError(reply, 'provider_unsupported', 'Transcripts are only available for Claude sessions');
     }
 
     // Derive claude_project_dir from workspace path if not stored (pre-migration sessions)
@@ -357,9 +342,7 @@ export function registerSessionRoutes(app) {
       jsonlPath = findSessionJsonl(claudeProjectDir, session.started_at, session.ended_at);
     }
 
-    if (!jsonlPath) {
-      return reply.code(404).send({ error: 'No transcript available' });
-    }
+    if (!jsonlPath) return sendError(reply, 'transcript_not_found', 'No transcript available');
 
     if (request.query.path_only) {
       if (request.query.summary) {
@@ -372,27 +355,23 @@ export function registerSessionRoutes(app) {
     try {
       return parseTranscript(jsonlPath);
     } catch (err) {
-      return reply.code(500).send({ error: `Failed to read transcript: ${err.message}` });
+      return sendError(reply, 'transcript_read_failed', `Failed to read transcript: ${err.message}`);
     }
   });
 
   // Promote a global session to a one-repository manual work item.
   app.post('/api/sessions/:id/promote', async (request, reply) => {
     const { repo, branch } = request.body || {};
-    if (!repo || !branch) {
-      return reply.code(400).send({ error: 'repo and branch are required' });
-    }
+    if (!repo || !branch) return sendError(reply, 'invalid_request', 'repo and branch are required');
 
     const db = getDb();
     const session = db.prepare("SELECT * FROM sessions WHERE id = ? AND status = 'active'").get(request.params.id);
-    if (!session) {
-      return reply.code(404).send({ error: 'Session not found or not active' });
-    }
+    if (!session) return sendError(reply, 'session_not_found', 'Session not found or not active');
     if (session.workspace_id || session.work_item_id) {
-      return reply.code(400).send({ error: 'Session is already in a workspace' });
+      return sendError(reply, 'session_in_workspace', 'Session is already in a workspace');
     }
     if (session.provider !== 'claude') {
-      return reply.code(409).send({ error: 'Only Claude sessions can be promoted' });
+      return sendError(reply, 'provider_unsupported', 'Only Claude sessions can be promoted');
     }
 
     const config = getConfig();
@@ -474,7 +453,10 @@ export function registerSessionRoutes(app) {
       emitLocalChange();
       return reply.code(201).send({ work_item: workItem, session: newSession });
     } catch (err) {
-      return reply.code(500).send({ error: `Promote failed: ${err.message}` });
+      return sendErrorFrom(reply, err, {
+        code: err.code ?? 'promote_failed',
+        message: `Promote failed: ${err.message}`,
+      });
     }
   });
 

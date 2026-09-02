@@ -610,7 +610,7 @@ test('workspace deletion delegates managed children after the work-item session 
   try {
     const blocked = await server.inject({ method: 'DELETE', url: '/api/workspaces/child-1' });
     assert.equal(blocked.statusCode, 409);
-    assert.equal(blocked.json().code, 'session_exists');
+    assert.equal(blocked.json().error.code, 'session_exists');
     assert.deepEqual(removals, []);
 
     getDb().prepare("UPDATE sessions SET status = 'killed', ended_at = ? WHERE id = 'root-session'").run(now);
