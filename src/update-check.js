@@ -12,10 +12,32 @@ export const RESTART_EXIT_CODE = 42;
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_DIR = dirname(__dirname);
 
-/** Git SHA captured at process startup - never changes. */
-const startupSha = execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: REPO_DIR, timeout: 5_000 })
-  .toString()
-  .trim();
+/**
+ * Short SHA of HEAD as reported by git, or null when git is unavailable or
+ * REPO_DIR is not a checkout (an installed package, a tarball).
+ * @returns {string | null}
+ */
+function readHeadSha() {
+  try {
+    return execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: REPO_DIR, timeout: 5_000 }).toString().trim();
+  } catch {
+    return null;
+  }
+}
+
+/** @type {string | null | undefined} undefined until first read */
+let startupShaCache;
+
+/**
+ * Git SHA captured the first time it is asked for, which startUpdateChecks
+ * does at server start. Resolved lazily so importing this module never shells
+ * out; a missing git simply reports null.
+ * @returns {string | null}
+ */
+function startupSha() {
+  if (startupShaCache === undefined) startupShaCache = readHeadSha();
+  return startupShaCache;
+}
 
 let updateAvailable = false;
 let remoteCommitCount = 0;
@@ -59,6 +81,7 @@ function checkForUpdates() {
  */
 export function startUpdateChecks(intervalMs = 600_000) {
   stopUpdateChecks();
+  startupSha();
   checkForUpdates();
   checkInterval = setInterval(checkForUpdates, intervalMs);
 }
@@ -78,21 +101,18 @@ export function stopUpdateChecks() {
  * @returns {string}
  */
 function currentSha() {
-  try {
-    return execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: REPO_DIR, timeout: 5_000 }).toString().trim();
-  } catch {
-    return startupSha; // fallback if git fails
-  }
+  return readHeadSha() ?? startupSha();
 }
 
 export function getUpdateStatus() {
+  const startup = startupSha();
   const onDisk = currentSha();
   return {
     update_available: updateAvailable,
     commits_behind: remoteCommitCount,
-    startup_sha: startupSha,
+    startup_sha: startup,
     current_sha: onDisk,
-    restart_needed: onDisk !== startupSha,
+    restart_needed: startup !== null && onDisk !== startup,
   };
 }
 

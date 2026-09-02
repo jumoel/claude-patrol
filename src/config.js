@@ -5,7 +5,14 @@ import { z } from 'zod';
 import { configPath, dataDir, defaultDbPath } from './paths.js';
 import { expandPath } from './utils.js';
 
-const CONFIG_PATH = configPath();
+/**
+ * Resolve the config file path at call time. paths.js creates the config
+ * directory, so this must not run at import: importing config.js from a test
+ * or a tool would otherwise write into the real home directory.
+ */
+function defaultConfigPath() {
+  return configPath();
+}
 
 const PATH_FIELDS = ['db_path', 'workspace_base_path', 'work_dir', 'global_terminal_cwd'];
 
@@ -127,7 +134,7 @@ export const configSchema = z
  * Ensure a config file exists. If not, write a starter template and return false.
  * @returns {boolean} true if config exists, false if template was written
  */
-export function ensureConfig(path = CONFIG_PATH) {
+export function ensureConfig(path = defaultConfigPath()) {
   if (existsSync(path)) return true;
 
   const template = {
@@ -161,14 +168,6 @@ export function isConfigured(cfg) {
   return isPollConfigured(cfg) || isWorkItemsConfigured(cfg) || Object.keys(cfg?.repos ?? {}).length > 0;
 }
 
-/**
- * Get the resolved config file path.
- * @returns {string}
- */
-export function getConfigPath() {
-  return CONFIG_PATH;
-}
-
 /** Read and validate configuration data and expand filesystem paths. */
 export function parseConfig(parsed) {
   const result = configSchema.safeParse(parsed);
@@ -197,7 +196,7 @@ export function parseConfig(parsed) {
   return Object.freeze(cfg);
 }
 
-export function loadConfig(path = CONFIG_PATH) {
+export function loadConfig(path = defaultConfigPath()) {
   const raw = readFileSync(path, 'utf8');
   return parseConfig(JSON.parse(raw));
 }
@@ -218,7 +217,7 @@ function writeConfigAtomic(path, value) {
  * The raw on-disk object is merged so normalized absolute paths are never
  * written back over the user's portable path values.
  */
-export function updateConfig(patch, path = CONFIG_PATH) {
+export function updateConfig(patch, path = defaultConfigPath()) {
   const raw = JSON.parse(readFileSync(path, 'utf8'));
   const mergeSection = (key) => {
     if (!Object.hasOwn(patch, key)) return raw[key];
@@ -264,11 +263,14 @@ export function setCurrentConfig(cfg) {
 /**
  * Watch config file for changes. Emits 'change' on configEvents with the new config.
  */
-export function watchConfig() {
+let watchedPath = null;
+
+export function watchConfig(path = defaultConfigPath()) {
   unwatchConfig();
-  watchFile(CONFIG_PATH, { interval: 1000 }, () => {
+  watchedPath = path;
+  watchFile(path, { interval: 1000 }, () => {
     try {
-      const cfg = loadConfig();
+      const cfg = loadConfig(path);
       if (currentConfig && JSON.stringify(cfg) === JSON.stringify(currentConfig)) return;
       configEvents.emit('change', cfg);
       console.log('[config] Reloaded config');
@@ -282,5 +284,7 @@ export function watchConfig() {
  * Stop watching the config file.
  */
 export function unwatchConfig() {
-  unwatchFile(CONFIG_PATH);
+  if (watchedPath === null) return;
+  unwatchFile(watchedPath);
+  watchedPath = null;
 }
