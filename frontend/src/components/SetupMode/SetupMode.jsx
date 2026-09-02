@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useCopyFeedback } from '../../hooks/useCopyFeedback.js';
 import {
   fetchConfig,
   fetchProviderCapabilities,
@@ -33,8 +34,17 @@ const INTERVAL_PRESETS = [
  * @param {{ onConfigured: () => void, isFirstRun: boolean, section?: 'poll' | 'work_items' }} props
  */
 export function SetupMode({ onConfigured, isFirstRun, section = 'poll' }) {
+  // Retry remounts the poll setup so discovery starts over with clean state.
+  const [attempt, setAttempt] = useState(0);
   if (section === 'work_items') return <WorkItemsSettings />;
-  return <PollSetupMode onConfigured={onConfigured} isFirstRun={isFirstRun} />;
+  return (
+    <PollSetupMode
+      key={attempt}
+      onConfigured={onConfigured}
+      isFirstRun={isFirstRun}
+      onRetry={() => setAttempt((current) => current + 1)}
+    />
+  );
 }
 
 /**
@@ -69,8 +79,8 @@ function SettingsSection({ title, meta, children }) {
   );
 }
 
-/** @param {{ onConfigured: () => void, isFirstRun: boolean }} props */
-function PollSetupMode({ onConfigured, isFirstRun }) {
+/** @param {{ onConfigured: () => void, isFirstRun: boolean, onRetry: () => void }} props */
+function PollSetupMode({ onConfigured, isFirstRun, onRetry }) {
   const [step, setStep] = useState(/** @type {SetupStep} */ ('accounts'));
   const [accounts, setAccounts] = useState(/** @type {import('../../types').SetupAccount[]} */ ([]));
   const [loading, setLoading] = useState(true);
@@ -82,8 +92,23 @@ function PollSetupMode({ onConfigured, isFirstRun }) {
   const [selectedRepos, setSelectedRepos] = useState(/** @type {Record<string, Set<string>>} */ ({}));
   const [repoQueries, setRepoQueries] = useState(/** @type {Record<string, string>} */ ({}));
   const [interval, setInterval_] = useState(30);
-  const [_existingConfig, setExistingConfig] = useState(
-    /** @type {import('../../types').PublicConfig['poll'] | null} */ (null),
+  /** Per-account repository list failures, shown in place of an empty list. */
+  const [repoErrors, setRepoErrors] = useState(/** @type {Record<string, string>} */ ({}));
+  const applyRepoList = useCallback(
+    (/** @type {string} */ account, /** @type {Promise<{repos: import('../../types').SetupRepo[]}>} */ request) => {
+      setRepoLoading((prev) => ({ ...prev, [account]: true }));
+      setRepoErrors((prev) => {
+        const { [account]: _removed, ...rest } = prev;
+        return rest;
+      });
+      return request
+        .then((data) => setRepoLists((prev) => ({ ...prev, [account]: data.repos })))
+        .catch((/** @type {unknown} */ nextError) =>
+          setRepoErrors((prev) => ({ ...prev, [account]: getErrorMessage(nextError, 'Could not load repositories') })),
+        )
+        .finally(() => setRepoLoading((prev) => ({ ...prev, [account]: false })));
+    },
+    [],
   );
 
   useEffect(() => {
@@ -95,7 +120,6 @@ function PollSetupMode({ onConfigured, isFirstRun }) {
         const [accountsData, configData] = await Promise.all([fetchSetupAccounts(), fetchConfig()]);
         if (cancelled) return;
         setAccounts(accountsData.accounts);
-        setExistingConfig(configData.poll);
 
         /** @type {Record<string, AccountMode>} */
         const modes = {};
@@ -116,32 +140,13 @@ function PollSetupMode({ onConfigured, isFirstRun }) {
           setInterval_(configData.poll.interval_seconds);
         }
         setAccountModes(modes);
-        /** @type {Record<string, Set<string>>} */
-        const repoMap = {};
-        for (const [k, v] of Object.entries(repos)) {
-          repoMap[k] = v;
-        }
-        setSelectedRepos(repoMap);
+        setSelectedRepos(repos);
 
         const pickAccounts = Object.entries(modes)
           .filter(([, m]) => m === 'pick')
           .map(([k]) => k);
-        if (pickAccounts.length > 0) {
-          setRepoLoading((prev) => {
-            const next = { ...prev };
-            for (const a of pickAccounts) next[a] = true;
-            return next;
-          });
-        }
         for (const account of pickAccounts) {
-          fetchSetupRepos(account)
-            .then((data) => {
-              if (!cancelled) setRepoLists((prev) => ({ ...prev, [account]: data.repos }));
-            })
-            .catch(() => {})
-            .finally(() => {
-              if (!cancelled) setRepoLoading((prev) => ({ ...prev, [account]: false }));
-            });
+          void applyRepoList(account, fetchSetupRepos(account));
         }
       } catch (err) {
         if (!cancelled) setError(getErrorMessage(err));
@@ -152,7 +157,7 @@ function PollSetupMode({ onConfigured, isFirstRun }) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [applyRepoList]);
 
   const toggleAccount = useCallback(
     /** @param {string} login */ (login) => {
@@ -173,19 +178,9 @@ function PollSetupMode({ onConfigured, isFirstRun }) {
     /** @param {string} login @param {AccountMode} mode */
     (login, mode) => {
       setAccountModes((prev) => ({ ...prev, [login]: mode }));
-      if (mode === 'pick' && !repoLists[login]) {
-        setRepoLoading((prev) => ({ ...prev, [login]: true }));
-        fetchSetupRepos(login)
-          .then((data) => {
-            setRepoLists((prev) => ({ ...prev, [login]: data.repos }));
-          })
-          .catch(() => {})
-          .finally(() => {
-            setRepoLoading((prev) => ({ ...prev, [login]: false }));
-          });
-      }
+      if (mode === 'pick' && !repoLists[login]) void applyRepoList(login, fetchSetupRepos(login));
     },
-    [repoLists],
+    [applyRepoList, repoLists],
   );
 
   const toggleRepo = useCallback(
@@ -250,7 +245,7 @@ function PollSetupMode({ onConfigured, isFirstRun }) {
       <Stack direction="col" gap={4} className={styles.setupShell}>
         <div className={styles.errorCard}>
           <p className={styles.errorText}>{error}</p>
-          <Button variant="primary" size="sm" filled onClick={() => window.location.reload()}>
+          <Button variant="primary" size="sm" filled onClick={onRetry}>
             Retry
           </Button>
         </div>
@@ -418,7 +413,12 @@ function PollSetupMode({ onConfigured, isFirstRun }) {
                             {isLoadingRepos && (
                               <LoadingIndicator className={styles.loadingText}>Loading repos...</LoadingIndicator>
                             )}
-                            {!isLoadingRepos && repos.length === 0 && (
+                            {!isLoadingRepos && repoErrors[login] && (
+                              <p className={styles.errorText} role="alert">
+                                {repoErrors[login]}
+                              </p>
+                            )}
+                            {!isLoadingRepos && !repoErrors[login] && repos.length === 0 && (
                               <p className={styles.emptyText}>No repos found</p>
                             )}
                             {!isLoadingRepos && repos.length > 0 && visibleRepos.length === 0 && (
@@ -539,7 +539,7 @@ function WorkItemsSettings() {
     /** @type {Record<import('../../types').AgentProvider, import('../../types').ProviderCapability> | null} */ (null),
   );
   const [error, setError] = useState('');
-  const [copied, setCopied] = useState('');
+  const { marker: copied, copy } = useCopyFeedback();
 
   const load = useCallback(() => {
     setError('');
@@ -552,14 +552,6 @@ function WorkItemsSettings() {
   }, []);
 
   useEffect(load, [load]);
-
-  /** @param {string} command */
-  const copy = (command) => {
-    navigator.clipboard.writeText(command).then(() => {
-      setCopied(command);
-      setTimeout(() => setCopied(''), 1500);
-    });
-  };
 
   return (
     <div className={styles.setupShell}>

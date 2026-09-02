@@ -21,6 +21,7 @@ import { SessionStateBadge } from '../ui/SessionStateBadge/SessionStateBadge.jsx
 import { Spinner } from '../ui/Spinner/Spinner.jsx';
 import { Stack } from '../ui/Stack/Stack.jsx';
 import { WORK_ITEM_STATE_LABELS } from '../WorkItemStatusBadge/WorkItemStatusBadge.jsx';
+import workPage from '../WorkPage/WorkPage.module.css';
 import styles from './WorkItemDetail.module.css';
 
 const RETRY_LABELS = {
@@ -452,9 +453,9 @@ export function WorkItemDetail({
           : /** @type {const} */ ('blue');
 
   return (
-    <div className={styles.page}>
-      <header className={styles.pageHeader}>
-        <div className={styles.headerActions}>
+    <div className={`${workPage.page} ${styles.pageEmbedded}`}>
+      <header className={`${workPage.header} ${styles.header}`}>
+        <div className={workPage.headerActions}>
           <Stack gap={2} wrap>
             {retryAction && (
               <Button
@@ -480,14 +481,14 @@ export function WorkItemDetail({
             )}
           </Stack>
         </div>
-        <div className={styles.referenceLine}>
+        <div className={workPage.kicker}>
           <span>Work item</span>
           {attentionState ? (
-            <SessionStateBadge attentionState={attentionState} className={styles.headerStatus} />
+            <SessionStateBadge attentionState={attentionState} className={workPage.detailStatus} />
           ) : (
-            <Badge color={headerStatusColor} className={styles.headerStatus}>
+            <Badge color={headerStatusColor} className={workPage.detailStatus}>
               <span
-                className={styles.headerStatusDot}
+                className={workPage.detailStatusDot}
                 data-state-marker={headerStatusLabel.toLowerCase()}
                 aria-hidden="true"
               />
@@ -495,15 +496,20 @@ export function WorkItemDetail({
             </Badge>
           )}
         </div>
-        <h1 className={styles.title}>{displayTitle}</h1>
-        <div className={styles.identity}>
+        <h1 className={workPage.title}>{displayTitle}</h1>
+        <div className={workPage.identity}>
           {referenceDisplay &&
             (workItem.reference_url ? (
-              <a href={workItem.reference_url} target="_blank" rel="noopener noreferrer" className={styles.reference}>
+              <a
+                href={workItem.reference_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={styles.identityReference}
+              >
                 {referenceDisplay}
               </a>
             ) : (
-              <span className={styles.reference}>{referenceDisplay}</span>
+              <span className={styles.identityReference}>{referenceDisplay}</span>
             ))}
           {repositorySummary && (
             <>
@@ -558,10 +564,8 @@ export function WorkItemDetail({
         ))}
 
       {workItem.error && (
-        <section className={`${styles.contentSection} ${styles.failure}`} aria-labelledby="work-item-failure-heading">
-          <h2 id="work-item-failure-heading" className={styles.sectionTitle}>
-            Failure
-          </h2>
+        <section className={`${workPage.section} ${styles.failure}`} aria-labelledby="work-item-failure-heading">
+          <h2 id="work-item-failure-heading">Failure</h2>
           <dl className={styles.errorFacts}>
             <div>
               <dt>Code</dt>
@@ -592,10 +596,8 @@ export function WorkItemDetail({
       )}
 
       {workItem.summary && (
-        <section className={styles.contentSection} aria-labelledby="work-item-overview-heading">
-          <h2 id="work-item-overview-heading" className={styles.sectionTitle}>
-            Overview
-          </h2>
+        <section className={workPage.section} aria-labelledby="work-item-overview-heading">
+          <h2 id="work-item-overview-heading">Overview</h2>
           <p className={styles.summary}>{workItem.summary}</p>
         </section>
       )}
@@ -632,17 +634,17 @@ export function WorkItemDetail({
       </CollapsiblePane>
 
       {actionError && (
-        <p className={styles.requestError} role="alert">
+        <p className={workPage.error} role="alert">
           {actionError}
         </p>
       )}
       {sessionError && (
-        <p className={styles.requestError} role="alert">
+        <p className={workPage.error} role="alert">
           {sessionError}
         </p>
       )}
       {error ? (
-        <p className={styles.requestError} role="alert">
+        <p className={workPage.error} role="alert">
           {getErrorMessage(error, 'Failed to refresh work item')}
         </p>
       ) : null}

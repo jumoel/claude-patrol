@@ -1,109 +1,39 @@
-.page {
-  --line: #d7dce3;
-  --line-strong: #9fa8b5;
-  --ink: #1c2430;
-  --text: #35404d;
-  --muted: #606b78;
-  --blue: #2764b0;
-  --blue-soft: #e7f0fb;
+/*
+ * Layout, header, identity, title and error styles come from
+ * WorkPage.module.css (shared with PRDetail and WorkspaceDetail). This file
+ * keeps the work-item specific pieces plus two small overrides.
+ */
+.pageEmbedded {
   --amber: #a26900;
   --amber-soft: #fff0c2;
   overflow: visible;
-  padding-bottom: 18px;
-  color: var(--text);
-  background: #fff;
   border: 0;
   border-radius: 0;
-  font-size: 14px;
 }
 
-.pageHeader {
-  position: relative;
-  min-height: 100px;
-  padding: 14px 260px 12px 20px;
-  background: #fff;
+.header {
+  padding-right: 260px;
   border-bottom: 0;
 }
 
-.headerActions {
-  position: absolute;
-  top: 34px;
-  right: 20px;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 7px;
-}
 
-.referenceLine,
-.identity {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-}
-
-.referenceLine {
-  gap: 8px;
-  margin-bottom: 5px;
-  color: var(--muted);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 12px;
-  font-weight: 400;
-  line-height: 17.4px;
-}
-
-.referenceLine > span:not(:first-child) {
-  min-height: 0;
-  padding: 2px 7px 2px 5px;
-  line-height: 1.2;
-}
-
-.headerStatus {
-  font-weight: 500;
-}
-
-.headerStatusDot {
-  width: 6px;
-  height: 6px;
-  flex: 0 0 auto;
-  background: currentColor;
-  border-radius: 50%;
-}
-
-.identity {
-  gap: 5px;
-  margin-top: 5px;
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.title {
-  max-width: 820px;
-  margin: 0;
-  color: var(--ink);
-  font-size: 21px;
-  font-weight: 600;
-  line-height: 1.25;
-  letter-spacing: -0.02em;
-  overflow-wrap: anywhere;
-}
-
-.reference,
+.identityReference,
 .repositoryName,
 .repositoryFacts dd,
 .rootPath {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
-.reference {
+.identityReference {
   color: var(--blue);
   font-size: 12px;
-  font-weight: 500;
   text-decoration: none;
 }
 
-.identity .reference {
-  font-weight: 400;
+.collapsiblePane {
+  margin: 0 20px;
+  background: transparent;
+  border-top: 1px solid var(--line);
 }
 
 .providerBadge,
@@ -167,24 +97,6 @@
   padding: 12px 0 14px;
 }
 
-.contentSection,
-.collapsiblePane {
-  margin: 0 20px;
-  background: transparent;
-  border-top: 1px solid var(--line);
-}
-
-.contentSection {
-  padding: 11px 0;
-}
-
-.sectionTitle {
-  margin: 0 0 7px;
-  color: var(--ink);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 12px;
-  font-weight: 500;
-}
 
 .summary,
 .errorDetail {
@@ -293,16 +205,6 @@
   font-size: 13px;
 }
 
-.requestError {
-  margin: 10px 20px 0;
-  padding: 8px 10px;
-  color: #a13d38;
-  background: #fbe5e2;
-  border: 1px solid var(--line);
-  border-radius: 2px;
-  font-size: 13px;
-}
-
 .retainedRoot {
   margin: 0 20px;
   padding: 10px 0;
@@ -325,32 +227,16 @@
 }
 
 @media (max-width: 56rem) {
-  .pageHeader { padding-right: 20px; }
-
-  .headerActions {
-    position: static;
-    justify-content: flex-start;
-    margin-top: 10px;
-  }
+  .header { padding-right: 20px; }
 }
 
 @media (max-width: 40rem) {
-  .page {
-    border-right: 0;
-    border-left: 0;
-    border-radius: 0;
-  }
-
-  .pageHeader { padding: 14px 12px 12px; }
-
   .sessionLauncher {
     margin-right: 12px;
     margin-left: 12px;
   }
 
-  .contentSection,
   .collapsiblePane,
-  .requestError,
   .retainedRoot {
     margin-right: 12px;
     margin-left: 12px;

@@ -118,7 +118,22 @@ export function AppShell({
     }
   };
 
+  /** Restart poller handles, so a second click cannot stack a poller and unmount stops both. */
+  const restartTimers = useRef(
+    /** @type {{ poll: ReturnType<typeof setInterval> | null, deadline: ReturnType<typeof setTimeout> | null }} */ ({
+      poll: null,
+      deadline: null,
+    }),
+  );
+  const clearRestartTimers = useCallback(() => {
+    if (restartTimers.current.poll) clearInterval(restartTimers.current.poll);
+    if (restartTimers.current.deadline) clearTimeout(restartTimers.current.deadline);
+    restartTimers.current = { poll: null, deadline: null };
+  }, []);
+  useEffect(() => clearRestartTimers, [clearRestartTimers]);
+
   const handleRestart = useCallback(async () => {
+    if (restartTimers.current.poll) return;
     setRestarting(true);
     setRestartPhase('starting');
     try {
@@ -128,7 +143,7 @@ export function AppShell({
     }
     // Poll restart status for phased progress, then detect server down/up for reload.
     let sawDown = false;
-    const poll = setInterval(async () => {
+    restartTimers.current.poll = setInterval(async () => {
       try {
         const data = await fetchRestartStatus();
         if (data.phase) setRestartPhase(data.phase);
@@ -140,7 +155,7 @@ export function AppShell({
       if (sawDown) {
         try {
           await fetchConfig();
-          clearInterval(poll);
+          clearRestartTimers();
           window.location.reload();
         } catch {
           /* still down */
@@ -148,11 +163,11 @@ export function AppShell({
       }
     }, 500);
     // Safety timeout - reload after 15s regardless
-    setTimeout(() => {
-      clearInterval(poll);
+    restartTimers.current.deadline = setTimeout(() => {
+      clearRestartTimers();
       window.location.reload();
     }, 15_000);
-  }, []);
+  }, [clearRestartTimers]);
 
   return (
     <div className={styles.shell}>

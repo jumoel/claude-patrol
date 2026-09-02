@@ -1,4 +1,7 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
+import { useClickOutside } from '../../hooks/useClickOutside.js';
+import { useCopyFeedback } from '../../hooks/useCopyFeedback.js';
+import { useEscapeKey } from '../../hooks/useEscapeKey.js';
 import { pullRequestIdPath, workItemPath, workspacePath } from '../../lib/routes.js';
 import { getRelativeTime } from '../../lib/time.js';
 import {
@@ -11,6 +14,8 @@ import {
   serializeDashboardRowsMarkdown,
   sortDashboardRows,
 } from '../../lib/work-dashboard.js';
+import { PullRequestStatusBadges } from '../PullRequestStatusBadges/PullRequestStatusBadges.jsx';
+import { FloatingPanel } from '../ui/FloatingPanel/FloatingPanel.jsx';
 import { Spinner } from '../ui/Spinner/Spinner.jsx';
 import { WORKING_LABEL, WorkingBadge } from '../ui/WorkingBadge/WorkingBadge.jsx';
 import styles from './WorkDashboard.module.css';
@@ -67,35 +72,6 @@ function readColumns() {
   } catch {
     return new Set(DEFAULT_COLUMNS);
   }
-}
-
-/** @param {{pr: import('../../types').DashboardPullRequestSummary}} props */
-function PullRequestBadges({ pr }) {
-  if (!pr.tracked) return <span className={`${styles.badge} ${styles.neutral}`}>Waiting for sync</span>;
-  return (
-    <span className={styles.badges}>
-      <span className={`${styles.badge} ${styles[pr.ci_status || 'neutral']}`}>CI {labelize(pr.ci_status || '')}</span>
-      <span
-        className={`${styles.badge} ${
-          pr.review_status === 'approved'
-            ? styles.pass
-            : pr.review_status === 'changes_requested'
-              ? styles.fail
-              : styles.neutral
-        }`}
-      >
-        {pr.review_status === 'changes_requested' ? 'Changes' : labelize(pr.review_status || '')}
-      </span>
-      <span
-        className={`${styles.badge} ${
-          pr.mergeable === 'MERGEABLE' ? styles.pass : pr.mergeable === 'CONFLICTING' ? styles.fail : styles.neutral
-        }`}
-      >
-        {pr.mergeable === 'MERGEABLE' ? 'Clean' : pr.mergeable === 'CONFLICTING' ? 'Conflict' : 'Unknown'}
-      </span>
-      {pr.draft && <span className={`${styles.badge} ${styles.neutral}`}>Draft</span>}
-    </span>
-  );
 }
 
 /**
@@ -279,8 +255,12 @@ function SessionActivitySection({
 function MultiSelect({ label, options, selected, onChange }) {
   const display = selected.length === 0 ? label : selected.length === 1 ? selected[0] : `${selected.length} selected`;
   return (
-    <details className={styles.filterMenu}>
-      <summary className={selected.length > 0 ? styles.filterActive : undefined}>{display}</summary>
+    <PopoverMenu
+      label={display}
+      active={selected.length > 0}
+      className={styles.filterMenu}
+      menuLabel={`${label} filter`}
+    >
       <div className={styles.filterPopover}>
         {options.map((option) => (
           <label key={option.value}>
@@ -299,7 +279,48 @@ function MultiSelect({ label, options, selected, onChange }) {
           </label>
         ))}
       </div>
-    </details>
+    </PopoverMenu>
+  );
+}
+
+/**
+ * A button that opens a small checklist in a portaled FloatingPanel, closing
+ * on outside click or Escape. Replaces the native <details> popovers, which
+ * did neither and were clipped by the table wrapper.
+ * @param {{label: string, active?: boolean, className: string, menuLabel: string, children: React.ReactNode}} props
+ */
+function PopoverMenu({ label, active = false, className, menuLabel, children }) {
+  const [open, setOpen] = useState(false);
+  const anchorRef = useRef(/** @type {HTMLButtonElement | null} */ (null));
+  const layerRef = useRef(/** @type {HTMLDivElement | null} */ (null));
+  const close = useCallback(() => setOpen(false), []);
+  useClickOutside([anchorRef, layerRef], close);
+  useEscapeKey(open, close);
+  return (
+    <div className={className}>
+      <button
+        type="button"
+        ref={anchorRef}
+        className={active ? styles.filterActive : undefined}
+        aria-haspopup="true"
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+      >
+        {label}
+      </button>
+      {open && (
+        <FloatingPanel
+          anchorRef={anchorRef}
+          layerRef={layerRef}
+          align="end"
+          gap={5}
+          role="group"
+          aria-label={menuLabel}
+        >
+          {children}
+        </FloatingPanel>
+      )}
+    </div>
   );
 }
 
@@ -338,7 +359,7 @@ export function WorkDashboard({
   onAcknowledgeSession,
 }) {
   const [visibleColumns, setVisibleColumns] = useState(readColumns);
-  const [copyState, setCopyState] = useState(/** @type {'idle' | 'copied' | 'error'} */ ('idle'));
+  const markdownCopy = useCopyFeedback({ resetMs: 2000 });
   const waiting = useMemo(
     () => buildWaitingSessions(dashboard.sessionSource.allSessions, acknowledgedIdle),
     [acknowledgedIdle, dashboard.sessionSource.allSessions],
@@ -410,15 +431,8 @@ export function WorkDashboard({
     localStorage.setItem(COLUMN_STORAGE_KEY, JSON.stringify([...next]));
   };
 
-  const copyMarkdown = async () => {
-    try {
-      await navigator.clipboard.writeText(serializeDashboardRowsMarkdown(rows));
-      setCopyState('copied');
-      window.setTimeout(() => setCopyState('idle'), 2000);
-    } catch {
-      setCopyState('error');
-    }
-  };
+  const copyMarkdown = () => markdownCopy.copy(serializeDashboardRowsMarkdown(rows));
+  const copyState = markdownCopy.status;
 
   const delegateRowClick = (/** @type {React.MouseEvent<HTMLTableRowElement>} */ event) => {
     if (
@@ -502,8 +516,7 @@ export function WorkDashboard({
             <button type="button" onClick={copyMarkdown} disabled={rows.length === 0}>
               {copyState === 'copied' ? 'Copied' : copyState === 'error' ? 'Copy failed' : 'Copy as Markdown'}
             </button>
-            <details className={styles.columnsMenu}>
-              <summary>Columns</summary>
+            <PopoverMenu label="Columns" className={styles.columnsMenu} menuLabel="Visible columns">
               <div className={styles.columnsPopover}>
                 {COLUMNS.map((column) => (
                   <label key={column.id}>
@@ -517,7 +530,7 @@ export function WorkDashboard({
                   </label>
                 ))}
               </div>
-            </details>
+            </PopoverMenu>
           </div>
         </div>
 
@@ -697,7 +710,7 @@ export function WorkDashboard({
                                   </a>
                                 )}
                               </span>
-                              <PullRequestBadges pr={pr} />
+                              <PullRequestStatusBadges pullRequest={pr} compact />
                             </span>
                           ))}
                         </span>

@@ -1,19 +1,5 @@
+import { PULL_REQUEST_STATUS_LABELS as LABELS } from '../PullRequestStatusBadges/PullRequestStatusBadges.jsx';
 import { Badge } from '../ui/Badge/Badge.jsx';
-
-/** @type {Record<string, string>} */
-const LABELS = {
-  pass: 'Pass',
-  fail: 'Fail',
-  pending: 'Pending',
-  approved: 'Approved',
-  changes_requested: 'Changes',
-  unknown: 'Unknown',
-  MERGEABLE: 'Clean',
-  CONFLICTING: 'Conflict',
-  UNKNOWN: 'Unknown',
-  draft: 'Draft',
-  open: 'Open',
-};
 
 /** Maps type-status to a Badge color. */
 /** @type {Record<string, 'green' | 'red' | 'yellow' | 'gray'>} */
