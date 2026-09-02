@@ -167,6 +167,64 @@ it('rolls back tmux and database state when PTY attachment fails', () => {
   assert.equal(getDb().prepare('SELECT COUNT(*) AS count FROM sessions WHERE id = ?').get(sessionId).count, 0);
 });
 
+it('trusts the working directory for the provider before starting tmux', () => {
+  initDb(':memory:');
+  const events = [];
+  const runtime = {
+    randomUUID: () => 'trust-session',
+    execFileSync(command, args) {
+      events.push([command, ...args]);
+    },
+    trustDirectory(provider, cwd) {
+      events.push(['trust', provider, cwd]);
+    },
+    spawnPty() {
+      throw new Error('stop after command capture');
+    },
+  };
+
+  assert.throws(
+    () => createSessionWithRuntime({ type: 'global' }, '/tmp/patrol-workspace', { provider: 'codex', runtime }),
+    /stop after command capture/,
+  );
+  const trustIndex = events.findIndex(([kind]) => kind === 'trust');
+  const tmuxIndex = events.findIndex(([command, subcommand]) => command === 'tmux' && subcommand === 'new-session');
+  assert.deepEqual(events[trustIndex], ['trust', 'codex', '/tmp/patrol-workspace']);
+  assert.ok(trustIndex !== -1 && trustIndex < tmuxIndex);
+});
+
+it('still launches the session when pre-trusting the directory fails', () => {
+  initDb(':memory:');
+  const commands = [];
+  const warnings = [];
+  const originalWarn = console.warn;
+  console.warn = (message) => warnings.push(message);
+  const runtime = {
+    randomUUID: () => 'trust-failure-session',
+    execFileSync(command, args) {
+      commands.push([command, ...args]);
+    },
+    trustDirectory() {
+      throw new Error('config.toml is read-only');
+    },
+    spawnPty() {
+      throw new Error('stop after command capture');
+    },
+  };
+
+  try {
+    assert.throws(
+      () => createSessionWithRuntime({ type: 'global' }, process.cwd(), { runtime }),
+      /stop after command capture/,
+    );
+  } finally {
+    console.warn = originalWarn;
+  }
+  assert.ok(commands.some(([command, subcommand]) => command === 'tmux' && subcommand === 'new-session'));
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0], /Could not pre-trust .* for claude.*config\.toml is read-only/);
+});
+
 it('removes an inherited NO_COLOR setting from the Claude process', () => {
   initDb(':memory:');
   const commands = [];

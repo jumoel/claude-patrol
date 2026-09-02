@@ -7,6 +7,7 @@ import pty from 'node-pty';
 import { appEvents, emitLocalChange, emitSessionState } from './app-events.js';
 import { getDb } from './db.js';
 import { pollProviderSessionStatuses } from './provider-status-poller.js';
+import { trustSessionDirectory } from './provider-trust.js';
 import { normalizeProviderActivity, SessionActivityTracker } from './session-activity.js';
 import {
   activityCredentialPathForSession,
@@ -35,6 +36,7 @@ const DEFAULT_SESSION_RUNTIME = {
   randomUUID,
   execFileSync,
   isTmuxAlive: isTmuxSessionAlive,
+  trustDirectory: trustSessionDirectory,
   spawnPty(file, args, options) {
     if (process.platform === 'darwin') {
       const nodePtyEntry = fileURLToPath(import.meta.resolve('node-pty'));
@@ -798,6 +800,20 @@ export function createSessionWithRuntime(target, cwd, options = {}) {
       activityToken,
     });
     tempPaths.push(...launch.tempPaths);
+
+    // Mark cwd as trusted in the provider's user config so the CLI opens on
+    // the prompt instead of its trust dialog. A failure here only brings the
+    // dialog back, so it must not abort the launch. Tests inject runtimes
+    // without this hook so they never touch the real user config.
+    if (typeof runtime.trustDirectory === 'function') {
+      try {
+        runtime.trustDirectory(provider, cwd);
+      } catch (error) {
+        console.warn(
+          `[pty-manager] Could not pre-trust ${cwd} for ${provider}; the CLI may show its trust prompt: ${error.message}`,
+        );
+      }
+    }
 
     // Patrol owns a color terminal, so a NO_COLOR value inherited by the
     // server must not silently disable the agent's ANSI palette. tmux new-session

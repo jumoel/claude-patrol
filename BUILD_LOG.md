@@ -1,5 +1,15 @@
 # Build Log
 
+## 2026-09-02 - Pre-trust the working directory before launching Claude or Codex
+
+Every Claude or Codex session Patrol opened in a workspace stopped at the CLI's "do you trust this folder" dialog before anything else happened. Each workspace is a fresh directory, so the prompt fired on every PR, work item and scratch workspace, and `~/.codex/config.toml` had collected a long tail of per-workspace `trust_level = "trusted"` entries from clicking through it.
+
+Both CLIs keep trust in a user-level config keyed by the absolute, symlink-resolved directory. Claude Code reads `projects[<path>].hasTrustDialogAccepted` from `~/.claude.json` and Codex reads `[projects."<path>"] trust_level = "trusted"` from `~/.codex/config.toml`. The new `provider-trust.js` writes exactly those entries. `createSessionWithRuntime` calls it through a `trustDirectory` runtime hook right before `tmux new-session`, so the CLI opens on its prompt. The hook honours `CLAUDE_CONFIG_DIR` and `CODEX_HOME`.
+
+The edits are read-modify-write with an atomic rename, and a file that doesn't parse is left alone. A trust failure logs a warning and the launch still goes ahead, since the only consequence is the dialog we had before. The Codex writer only ever touches `[projects."<path>"]` tables and never appends when the path already appears in another spelling, because a duplicate table makes the whole TOML file unreadable to Codex. Tests inject runtimes without the hook, so the suite never writes to the real config files.
+
+Verified live in tmux: an untrusted temp directory showed the trust dialog for both CLIs, and a directory that went through the module opened straight on the prompt for both.
+
 ## 2026-06-02 - Cleanup of merged/closed PRs runs every cycle again
 
 The 2026-05-27 incremental-polling rewrite reintroduced the exact bug the 2026-05-13 changes had fixed: merged/closed PRs and their workspaces only got torn down on the 30-minute full sweep, and the manual "Sync now" button had quietly lost its forced full sweep, so it ran an ordinary incremental cycle that couldn't clean up at all. An `updated:>=` search can't distinguish "merged" from "not updated lately", which is why orphan cleanup was gated behind the full sweep.
