@@ -338,6 +338,21 @@ export interface ApiErrorEnvelope {
   recovery_actions: RecoveryAction[];
 }
 
+export interface RetriggerChecksResult {
+  run_id: string;
+  job_name?: string;
+  status: 'retriggered' | 'error';
+  message?: string;
+}
+
+export interface RetriggerChecksResponse {
+  ok: boolean;
+  retriggered: number;
+  matched_checks: string[];
+  available_failed_checks?: string[];
+  results?: RetriggerChecksResult[];
+}
+
 export interface CheckLog {
   run_id: string;
   job_name: string;

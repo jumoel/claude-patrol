@@ -5,6 +5,7 @@ import {
   fetchPRComments,
   linkWorkItemPullRequest,
   refreshPR,
+  retriggerChecks,
   setPRDraft,
   unlinkWorkItemPullRequest,
 } from '../../lib/api.js';
@@ -171,12 +172,7 @@ export function LinkedPullRequests({ workItem, selectedPrId, onWorkItemReload, e
     setRetriggering(true);
     setActionError('');
     try {
-      const response = await fetch('/api/checks/retrigger', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pr_id: pr.id }),
-      });
-      if (!response.ok) throw new Error('Retrigger request failed');
+      await retriggerChecks(pr.id);
     } catch (error) {
       setActionError(getErrorMessage(error, 'Failed to retrigger checks'));
     } finally {

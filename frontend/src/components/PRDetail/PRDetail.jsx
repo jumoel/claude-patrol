@@ -12,6 +12,7 @@ import {
   fetchSessions,
   fetchWorkspaces,
   refreshPR,
+  retriggerChecks,
   setPRDraft,
 } from '../../lib/api.js';
 import {
@@ -218,12 +219,7 @@ export function PRDetail({ prId, onBack, workspaceStates, acknowledgedSessionIds
     setRetriggering(true);
     setActionError('');
     try {
-      const res = await fetch('/api/checks/retrigger', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pr_id: prId }),
-      });
-      if (!res.ok) throw new Error('Retrigger failed');
+      await retriggerChecks(prId);
     } catch (err) {
       setActionError(getErrorMessage(err, 'Failed to retrigger checks'));
     } finally {

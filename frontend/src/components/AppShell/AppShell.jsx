@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import logoB from '../../assets/logo-b.png';
-import { fetchRestartStatus, triggerRestart, triggerUpdate } from '../../lib/api.js';
+import { fetchConfig, fetchRestartStatus, triggerRestart, triggerUpdate } from '../../lib/api.js';
 import { getErrorMessage } from '../../lib/errors.js';
 import { Button } from '../ui/Button/Button.jsx';
 import { Spinner } from '../ui/Spinner/Spinner.jsx';
@@ -139,11 +139,9 @@ export function AppShell({
       // Also check if server is back up after going down
       if (sawDown) {
         try {
-          const configRes = await fetch('/api/config');
-          if (configRes.ok) {
-            clearInterval(poll);
-            window.location.reload();
-          }
+          await fetchConfig();
+          clearInterval(poll);
+          window.location.reload();
         } catch {
           /* still down */
         }
