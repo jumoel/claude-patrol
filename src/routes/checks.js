@@ -7,7 +7,7 @@ const RUN_ID_RE = /\/actions\/runs\/(\d+)/;
 const FAILED_JOB_CONCLUSIONS = new Set(['failure', 'error', 'timed_out']);
 
 /**
- * Process-lifetime cache of failed-job log content. Logs for completed/failed
+ * Cache of failed-job log content, one per server instance. Logs for completed/failed
  * jobs are immutable - once a job has a terminal conclusion the log doesn't
  * change. Re-opening a PR detail view used to re-fetch megabytes per click;
  * this turns repeats into pure DB lookups.
@@ -16,19 +16,14 @@ const FAILED_JOB_CONCLUSIONS = new Set(['failure', 'error', 'timed_out']);
  * lived process can't accumulate logs forever.
  * @type {Map<string, {extracted: string, truncated: boolean}>}
  */
-const jobLogCache = new Map();
 const JOB_LOG_CACHE_MAX_ENTRIES = 200;
 
-function getCachedJobLog(key) {
-  return jobLogCache.get(key) ?? null;
-}
-
-function setCachedJobLog(key, value) {
-  if (jobLogCache.size >= JOB_LOG_CACHE_MAX_ENTRIES) {
-    const oldest = jobLogCache.keys().next().value;
-    if (oldest !== undefined) jobLogCache.delete(oldest);
+function setCachedJobLog(cache, key, value) {
+  if (cache.size >= JOB_LOG_CACHE_MAX_ENTRIES) {
+    const oldest = cache.keys().next().value;
+    if (oldest !== undefined) cache.delete(oldest);
   }
-  jobLogCache.set(key, value);
+  cache.set(key, value);
 }
 
 /**
@@ -100,6 +95,8 @@ function extractRunIds(checks) {
  */
 export function registerCheckRoutes(app) {
   const { getDb } = app.appContext;
+  /** @type {Map<string, {extracted: string, truncated: boolean}>} */
+  const jobLogCache = new Map();
   app.post('/api/checks/retrigger', async (request, reply) => {
     const body = request.body && typeof request.body === 'object' ? request.body : {};
     const { pr_id, check_name } = body;
@@ -271,7 +268,7 @@ export function registerCheckRoutes(app) {
             const failedSteps = (job.steps || []).filter((s) => s.conclusion === 'failure').map((s) => s.name);
             const cacheKey = `${row.org}/${row.repo}/${job.id}`;
 
-            let cached = getCachedJobLog(cacheKey);
+            let cached = jobLogCache.get(cacheKey) ?? null;
             if (!cached) {
               const { stdout: logText } = await execFile(
                 'gh',
@@ -281,7 +278,7 @@ export function registerCheckRoutes(app) {
               const extracted = extractErrorContext(logText);
               const truncated = extracted.length > 20_000;
               cached = { extracted: truncated ? extracted.slice(0, 20_000) : extracted, truncated };
-              setCachedJobLog(cacheKey, cached);
+              setCachedJobLog(jobLogCache, cacheKey, cached);
             }
 
             return {

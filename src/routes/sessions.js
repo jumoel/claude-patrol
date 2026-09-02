@@ -2,14 +2,7 @@ import { copyFileSync, cpSync, existsSync, mkdirSync } from 'node:fs';
 import { basename, resolve } from 'node:path';
 import { emitLocalChange } from '../app-events.js';
 import { sendError, sendErrorFrom } from '../http-errors.js';
-import {
-  attachSession,
-  createResumedSession,
-  createSession,
-  killSessionAndWait,
-  normalizeGlobalSessionName,
-  reattachSession,
-} from '../pty-manager.js';
+import { normalizeGlobalSessionName } from '../pty-manager.js';
 import { normalizeSessionProvider } from '../session-launch.js';
 import { sessionTargetFromRow } from '../session-target.js';
 import { runTask } from '../tasks.js';
@@ -27,19 +20,36 @@ import { execFile, expandPath, toClaudeProjectKey } from '../utils.js';
  * @param {import('fastify').FastifyInstance} app
  */
 export function registerSessionRoutes(app) {
-  const { getConfig, getDb, getSessionStates, recordProviderActivity, workItemService } = app.appContext;
-  const launchSession = app.appContext.createSession ?? createSession;
-  const formatSession = (row, stateBySessionId = null) => {
-    const workItem = row.work_item_id
-      ? getDb()
-          .prepare(
-            `SELECT wi.title, wi.path, wr.reference
-               FROM work_items wi
-               LEFT JOIN work_item_references wr ON wr.work_item_id = wi.id
-              WHERE wi.id = ?`,
-          )
-          .get(row.work_item_id)
-      : null;
+  const {
+    attachSession,
+    createResumedSession,
+    createSession: launchSession,
+    getConfig,
+    getDb,
+    getSessionStates,
+    killSessionAndWait,
+    reattachSession,
+    recordProviderActivity,
+    workItemService,
+  } = app.appContext;
+
+  /** Work-item title, path and reference for a set of ids, one query. */
+  const workItemSummaries = (ids) => {
+    if (ids.length === 0) return new Map();
+    const rows = getDb()
+      .prepare(
+        `SELECT wi.id, wi.title, wi.path, wr.reference
+           FROM work_items wi
+           LEFT JOIN work_item_references wr ON wr.work_item_id = wi.id
+          WHERE wi.id IN (${ids.map(() => '?').join(', ')})`,
+      )
+      .all(...ids);
+    return new Map(rows.map((row) => [row.id, row]));
+  };
+
+  const formatSession = (row, stateBySessionId = null, workItemsById = null) => {
+    const workItems = workItemsById ?? workItemSummaries(row.work_item_id ? [row.work_item_id] : []);
+    const workItem = row.work_item_id ? (workItems.get(row.work_item_id) ?? null) : null;
     const activity =
       stateBySessionId === null
         ? (getSessionStates().find((entry) => entry.sessionId === row.id) ?? null)
@@ -58,9 +68,11 @@ export function registerSessionRoutes(app) {
       root_path: workItem?.path ?? null,
     };
   };
+  /** Format a batch with one state lookup and one work-item query for all rows. */
   const formatSessions = (rows) => {
     const stateBySessionId = new Map(getSessionStates().map((entry) => [entry.sessionId, entry]));
-    return rows.map((row) => formatSession(row, stateBySessionId));
+    const workItems = workItemSummaries([...new Set(rows.map((row) => row.work_item_id).filter(Boolean))]);
+    return rows.map((row) => formatSession(row, stateBySessionId, workItems));
   };
 
   app.post('/api/sessions/:id/activity/:provider', (request, reply) => {
@@ -282,34 +294,36 @@ export function registerSessionRoutes(app) {
           { status: 409 },
         );
       }
-      return db
-        .prepare('SELECT * FROM sessions WHERE workspace_id = ? ORDER BY started_at DESC')
-        .all(workspace_id)
-        .map(formatSession);
+      return formatSessions(
+        db.prepare('SELECT * FROM sessions WHERE workspace_id = ? ORDER BY started_at DESC').all(workspace_id),
+      );
     }
     if (work_item_id) {
-      return db
-        .prepare('SELECT * FROM sessions WHERE work_item_id = ? ORDER BY started_at DESC')
-        .all(work_item_id)
-        .map(formatSession);
+      return formatSessions(
+        db.prepare('SELECT * FROM sessions WHERE work_item_id = ? ORDER BY started_at DESC').all(work_item_id),
+      );
     }
     if (isGlobal === 'true') {
-      return db
-        .prepare('SELECT * FROM sessions WHERE workspace_id IS NULL AND work_item_id IS NULL ORDER BY started_at DESC')
-        .all()
-        .map(formatSession);
+      return formatSessions(
+        db
+          .prepare(
+            'SELECT * FROM sessions WHERE workspace_id IS NULL AND work_item_id IS NULL ORDER BY started_at DESC',
+          )
+          .all(),
+      );
     }
-    return db
-      .prepare(
-        `SELECT s.*
+    return formatSessions(
+      db
+        .prepare(
+          `SELECT s.*
          FROM sessions s
          LEFT JOIN workspaces w ON w.id = s.workspace_id
          WHERE s.status = 'killed'
            AND (s.workspace_id IS NULL OR w.work_item_id IS NULL)
          ORDER BY s.started_at DESC LIMIT 100`,
-      )
-      .all()
-      .map(formatSession);
+        )
+        .all(),
+    );
   });
 
   // Session transcript

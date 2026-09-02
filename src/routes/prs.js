@@ -5,14 +5,12 @@ import { execFile } from '../utils.js';
 import { enrichPullRequestsWithOwners } from '../work-item-prs.js';
 
 /**
- * In-memory cache for /api/prs/:id/diff. Same shape as the comments cache:
- * keyed by pr_id, invalidated when updated_at changes or after the TTL,
- * whichever comes first. Separate maps for full vs name-only because the
- * frontend asks for both for the same PR.
- * @type {Map<string, {key: string, ts: number, data: object}>}
+ * In-memory cache for /api/prs/:id/diff, created per server instance in
+ * registerPRRoutes. Same shape as the comments cache: keyed by pr_id,
+ * invalidated when updated_at changes or after the TTL, whichever comes
+ * first. Separate maps for full vs name-only because the frontend asks for
+ * both for the same PR.
  */
-const diffCache = new Map();
-const diffNamesCache = new Map();
 const DIFF_CACHE_TTL_MS = 60_000;
 const DIFF_CACHE_MAX_ENTRIES = 100;
 
@@ -38,6 +36,10 @@ function storeDiffCache(map, prId, key, data) {
  */
 export function registerPRRoutes(app) {
   const { fetchPRBodyHtml, getConfig, getDb, getPollerStatus, refreshSinglePR } = app.appContext;
+  /** @type {Map<string, {key: string, ts: number, data: object}>} */
+  const diffCache = new Map();
+  /** @type {Map<string, {key: string, ts: number, data: object}>} */
+  const diffNamesCache = new Map();
   app.get('/api/prs', (request) => {
     const db = getDb();
     const { org, repo, draft, ci, review, mergeable } = request.query;

@@ -147,13 +147,12 @@ export function buildCommentsPayload(reviews, inlineComments, conversationCommen
 }
 
 /**
- * In-memory response cache for the comments endpoint. Clicking between PRs
- * normally re-fires three paginated REST calls and one GraphQL call per open;
- * cache hits avoid all four. Entries are invalidated when the PR's updated_at
+ * In-memory response cache for the comments endpoint, one per server
+ * instance (created in registerCommentRoutes). Clicking between PRs normally
+ * re-fires three paginated REST calls and one GraphQL call per open; cache
+ * hits avoid all four. Entries are invalidated when the PR's updated_at
  * advances or after the TTL, whichever comes first.
- * @type {Map<string, {key: string, ts: number, data: object}>}
  */
-const commentsCache = new Map();
 const COMMENTS_CACHE_TTL_MS = 60_000;
 const COMMENTS_CACHE_MAX_ENTRIES = 200;
 
@@ -163,6 +162,8 @@ const COMMENTS_CACHE_MAX_ENTRIES = 200;
  */
 export function registerCommentRoutes(app) {
   const { getDb } = app.appContext;
+  /** @type {Map<string, {key: string, ts: number, data: object}>} */
+  const commentsCache = new Map();
   app.get('/api/prs/:id/comments', async (request, reply) => {
     const db = getDb();
     const pr = db.prepare('SELECT org, repo, number, updated_at FROM prs WHERE id = ?').get(request.params.id);

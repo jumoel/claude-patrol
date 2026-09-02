@@ -41,6 +41,9 @@ import { insertTestWorkItem } from './test-support/work-items.js';
 
 afterEach(() => closeDb());
 
+/** The slice of the app context wait_for_idle reads. */
+const waitForIdleApp = () => ({ appContext: { getDb, getSessionSnapshot, appEvents } });
+
 it('keeps the outer MCP timeout above either nested peer review timeout', () => {
   assert.ok(PATROL_MCP_TIMEOUT_MS > CODEX_REVIEW_TIMEOUT_MS);
   assert.ok(PATROL_MCP_TIMEOUT_MS > CLAUDE_REVIEW_TIMEOUT_MS);
@@ -636,7 +639,7 @@ it('wait_for_idle ignores candidate stops and reports provider failures', async 
     prompt_id: 'prompt-1',
   });
   const since = getSessionSnapshot('wait-provider-session').lastWorkingAt;
-  const waiting = actionRegistry.wait_for_idle.mcpHandler(null, {
+  const waiting = actionRegistry.wait_for_idle.mcpHandler(waitForIdleApp(), {
     session_id: 'wait-provider-session',
     since,
     timeout_minutes: 1,
@@ -657,7 +660,7 @@ it('wait_for_idle ignores candidate stops and reports provider failures', async 
     prompt_id: 'prompt-2',
   });
   const failedSince = getSessionSnapshot('wait-provider-session').lastWorkingAt;
-  const failure = actionRegistry.wait_for_idle.mcpHandler(null, {
+  const failure = actionRegistry.wait_for_idle.mcpHandler(waitForIdleApp(), {
     session_id: 'wait-provider-session',
     since: failedSince,
     timeout_minutes: 1,

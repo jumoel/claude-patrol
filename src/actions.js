@@ -1,9 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { z } from 'zod';
-import { appEvents } from './app-events.js';
-import { getDb } from './db.js';
 import { ensureSessionAndSend } from './dispatcher.js';
-import { getSessionSnapshot } from './pty-manager.js';
 
 /**
  * Strip verbose fields from a PR for compact list responses.
@@ -753,7 +750,8 @@ export const actionRegistry = {
       timeout_minutes: z.number().optional().describe('Give up after this many minutes (default 30, min 1, max 120)'),
     }),
     ruleFireable: false,
-    mcpHandler: async (_app, args) => {
+    mcpHandler: async (app, args) => {
+      const { getDb, getSessionSnapshot, appEvents } = app.appContext;
       const sessionId = args.session_id;
       const since = typeof args.since === 'number' ? args.since : Date.now();
       const timeoutMs = Math.max(1, Math.min(120, args.timeout_minutes ?? 30)) * 60 * 1000;
