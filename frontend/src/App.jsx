@@ -15,7 +15,7 @@ import { useWaitingAcknowledgements } from './hooks/useWaitingAcknowledgements.j
 import { useWorkDashboard } from './hooks/useWorkDashboard.js';
 import { fetchConfig } from './lib/api.js';
 import { getErrorMessage } from './lib/errors.js';
-import { parseAppRoute, pullRequestPath, workItemPath } from './lib/routes.js';
+import { parseAppRoute, pullRequestIdPath, pullRequestPath, workItemPath, workspacePath } from './lib/routes.js';
 import { sessionTargetKey } from './lib/session-target.js';
 
 /** @typedef {import('./types').FilterState} FilterState */
@@ -231,14 +231,14 @@ export default function App() {
   const navigateToPR = useCallback(
     /** @param {string} prId */ (prId) => {
       const pr = allPRs.find((item) => item.id === prId);
-      window.location.hash = pr ? pullRequestPath(pr) : `/pr/${encodeURIComponent(prId)}`;
+      window.location.hash = pr ? pullRequestPath(pr) : pullRequestIdPath(prId);
     },
     [allPRs],
   );
 
   /** @param {string} wsId */
   const navigateToWorkspace = (wsId) => {
-    window.location.hash = `/workspace/${wsId}`;
+    window.location.hash = workspacePath(wsId);
   };
 
   /** @param {string} workItemId */

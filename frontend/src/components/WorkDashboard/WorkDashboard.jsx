@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { pullRequestIdPath, workItemPath, workspacePath } from '../../lib/routes.js';
 import { getRelativeTime } from '../../lib/time.js';
 import {
   buildWaitingSessions,
@@ -170,23 +171,20 @@ function LocalSummary({ row }) {
 
 /** @param {import('../../types').DashboardWorkRow} row */
 function rowHref(row) {
-  if (row.kind === 'work_item') return `#/work-item/${encodeURIComponent(row.id)}`;
-  if (row.kind === 'pull_request') return `#/pr/${encodeURIComponent(row.id)}`;
-  return `#/workspace/${encodeURIComponent(row.id)}`;
+  if (row.kind === 'work_item') return `#${workItemPath(row.id)}`;
+  if (row.kind === 'pull_request') return `#${pullRequestIdPath(row.id)}`;
+  return `#${workspacePath(row.id)}`;
 }
 
 /** @param {import('../../types').DashboardWorkRow} row @param {string} prId */
 function pullRequestHref(row, prId) {
-  if (row.kind === 'work_item') {
-    return `#/work-item/${encodeURIComponent(row.id)}?pr=${encodeURIComponent(prId)}`;
-  }
-  return `#/pr/${encodeURIComponent(prId)}`;
+  return `#${row.kind === 'work_item' ? workItemPath(row.id, prId) : pullRequestIdPath(prId)}`;
 }
 
 /** @param {import('../../types').DashboardSessionSummary} session */
 function sessionHref(session) {
-  if (session.target.type === 'work_item') return `#/work-item/${encodeURIComponent(session.target.id)}`;
-  if (session.target.type === 'workspace') return `#/workspace/${encodeURIComponent(session.target.id)}`;
+  if (session.target.type === 'work_item') return `#${workItemPath(session.target.id)}`;
+  if (session.target.type === 'workspace') return `#${workspacePath(session.target.id)}`;
   return null;
 }
 

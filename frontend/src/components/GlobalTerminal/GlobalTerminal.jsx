@@ -8,6 +8,7 @@ import {
   promoteSession,
 } from '../../lib/api.js';
 import { getErrorMessage } from '../../lib/errors.js';
+import { workItemPath } from '../../lib/routes.js';
 import { sessionAttentionState } from '../../lib/session-attention.js';
 import { clearMaximizedTerminal, maximizedTerminalId, replaceMaximizedTerminal } from '../../lib/terminal-url.js';
 import { AgentProviderButton } from '../AgentProviderButton/AgentProviderButton.jsx';
@@ -192,7 +193,7 @@ export function GlobalTerminal({
       setPromoteBranch('');
       if (maximizedTerminalId() === activeSession.id) clearMaximizedTerminal(activeSession.id);
       onToggle();
-      window.location.hash = `#/work-item/${result.work_item.id}`;
+      window.location.hash = workItemPath(result.work_item.id);
     } catch (error) {
       setActionError(actionFailure(activeSession.id, error, 'Failed to promote session'));
     } finally {

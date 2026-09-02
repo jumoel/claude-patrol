@@ -4,6 +4,7 @@ import { useSyncEvents } from '../../hooks/useSyncEvents.js';
 import { useTargetSession } from '../../hooks/useTargetSession.js';
 import { destroyWorkspace as apiDestroyWorkspace, fetchWorkspace } from '../../lib/api.js';
 import { getErrorMessage } from '../../lib/errors.js';
+import { pullRequestIdPath, workItemPath } from '../../lib/routes.js';
 import { sessionAttentionState } from '../../lib/session-attention.js';
 import { getRelativeTime } from '../../lib/time.js';
 import shared from '../../styles/shared.module.css';
@@ -116,7 +117,7 @@ export function WorkspaceDetail({
   // Auto-redirect to PR detail when a scratch workspace gets adopted
   useEffect(() => {
     if (workspace?.pr_id) {
-      window.location.hash = `/pr/${encodeURIComponent(workspace.pr_id)}`;
+      window.location.hash = pullRequestIdPath(workspace.pr_id);
     }
   }, [workspace?.pr_id]);
 
@@ -180,7 +181,7 @@ export function WorkspaceDetail({
         {adopted && (
           <div className={styles.adoptedNotice}>
             Adopted by PR -{' '}
-            <a href={`#/pr/${encodeURIComponent(workspace.pr_id || '')}`} className={styles.prLink}>
+            <a href={`#${pullRequestIdPath(workspace.pr_id || '')}`} className={styles.prLink}>
               View PR
             </a>
           </div>
@@ -249,11 +250,11 @@ export function WorkspaceDetail({
       <section className={workPage.section} aria-labelledby="scratch-related-work-heading">
         <h2 id="scratch-related-work-heading">Related work</h2>
         {workspace.work_item_id ? (
-          <a className={styles.relatedLink} href={`#/work-item/${workspace.work_item_id}`}>
+          <a className={styles.relatedLink} href={`#${workItemPath(workspace.work_item_id)}`}>
             View parent work item
           </a>
         ) : workspace.pr_id ? (
-          <a className={styles.relatedLink} href={`#/pr/${encodeURIComponent(workspace.pr_id)}`}>
+          <a className={styles.relatedLink} href={`#${pullRequestIdPath(workspace.pr_id)}`}>
             View pull request
           </a>
         ) : (

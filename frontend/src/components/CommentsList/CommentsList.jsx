@@ -69,8 +69,11 @@ function ReviewContent({ review }) {
       {review.body_html && <RenderedHtml html={review.body_html} className={styles.commentBody} collapsible />}
       {review.comments.length > 0 && (
         <div className={styles.inlineList}>
-          {review.comments.map((comment, index) => (
-            <InlineComment key={index} comment={comment} />
+          {review.comments.map((comment) => (
+            <InlineComment
+              key={`${comment.path}:${comment.diff_position ?? ''}:${comment.created_at}`}
+              comment={comment}
+            />
           ))}
         </div>
       )}
@@ -148,8 +151,8 @@ export function CommentsList({ reviews, conversation, loading }) {
       {hasConversation && (
         <Stack direction="col" gap={3}>
           <h4 className={styles.sectionTitle}>Conversation</h4>
-          {conversation.map((c, i) => (
-            <ConversationComment key={i} comment={c} />
+          {conversation.map((c) => (
+            <ConversationComment key={`${c.author}:${c.created_at}`} comment={c} />
           ))}
         </Stack>
       )}

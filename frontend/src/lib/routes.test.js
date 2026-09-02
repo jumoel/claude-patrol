@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
-import { parseAppRoute, pullRequestPath, workItemPath } from './routes.js';
+import { parseAppRoute, pullRequestIdPath, pullRequestPath, workItemPath, workspacePath } from './routes.js';
 
 test('parses and round trips work-item detail routes', () => {
   const route = parseAppRoute('#/work-item/123e4567-e89b-12d3-a456-426614174000');
@@ -52,4 +52,16 @@ test('rejects missing and malformed route identifiers', () => {
   assert.deepEqual(parseAppRoute('#/work-item/'), { type: 'not_found' });
   assert.deepEqual(parseAppRoute('#/workspace/a/b'), { type: 'not_found' });
   assert.deepEqual(parseAppRoute('#/unknown'), { type: 'not_found' });
+});
+
+test('path helpers encode ids and round-trip through parseAppRoute', () => {
+  assert.equal(workspacePath('ws/1'), '/workspace/ws%2F1');
+  assert.equal(pullRequestIdPath('acme/widgets#42'), '/pr/acme%2Fwidgets%2342');
+  assert.deepEqual(parseAppRoute(`#${pullRequestIdPath('acme/widgets#42')}`), { type: 'pr', id: 'acme/widgets#42' });
+  assert.deepEqual(parseAppRoute(`#${workspacePath('ws-1')}`), { type: 'workspace', id: 'ws-1' });
+  assert.deepEqual(parseAppRoute(`#${workItemPath('item', 'acme/widgets#42')}`), {
+    type: 'work_item',
+    id: 'item',
+    selectedPrId: 'acme/widgets#42',
+  });
 });

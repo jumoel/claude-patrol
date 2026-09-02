@@ -23,7 +23,7 @@ import {
   statusColorGroup,
 } from '../../lib/checks.js';
 import { getErrorMessage } from '../../lib/errors.js';
-import { workItemPath } from '../../lib/routes.js';
+import { pullRequestIdPath, workItemPath } from '../../lib/routes.js';
 import { sessionAttentionState } from '../../lib/session-attention.js';
 import { sendTerminalCommand, whenWsOpen } from '../../lib/terminal.js';
 import { getRelativeTime } from '../../lib/time.js';
@@ -68,6 +68,16 @@ const CHECK_STATUS_LABELS = {
   REQUESTED: 'requested',
   EXPECTED: 'expected',
 };
+
+/**
+ * Stable key for a check row. Names repeat across workflows and a check may
+ * lack a URL, so both go in; CheckRow keeps fetched log state, so an index
+ * key would show one check's log under another after a re-sort.
+ * @param {import('../../types').Check} check
+ */
+function checkKey(check) {
+  return `${check.name}|${check.url ?? ''}|${check.status}`;
+}
 
 /** @param {import('../../types').PullRequest} pr */
 function getHeadlineStatus(pr) {
@@ -495,7 +505,7 @@ export function PRDetail({ prId, onBack, workspaceStates, acknowledgedSessionIds
       <section className={workPage.section} aria-labelledby="pr-related-work-heading">
         <h2 id="pr-related-work-heading">Related work</h2>
         {pr.work_item ? (
-          <a className={styles.parentWork} href={`#/work-item/${pr.work_item.id}?pr=${encodeURIComponent(pr.id)}`}>
+          <a className={styles.parentWork} href={`#${workItemPath(pr.work_item.id, pr.id)}`}>
             {pr.work_item.reference && <span>{pr.work_item.reference}</span>}
             <strong>{pr.work_item.title || pr.work_item.reference || 'Untitled work item'}</strong>
           </a>
@@ -584,22 +594,22 @@ export function PullRequestChecks({ pr, retriggering, onRetriggerFailed, onInves
         <Stack direction="col" gap={3}>
           {failedChecks.length > 0 && (
             <div className={styles.checkGroup}>
-              {failedChecks.map((check, index) => (
-                <CheckRow key={`fail-${index}`} check={check} prId={pr.id} />
+              {failedChecks.map((check) => (
+                <CheckRow key={checkKey(check)} check={check} prId={pr.id} />
               ))}
             </div>
           )}
           {runningChecks.length > 0 && (
             <div className={styles.checkGroup}>
-              {runningChecks.map((check, index) => (
-                <CheckRow key={`running-${index}`} check={check} />
+              {runningChecks.map((check) => (
+                <CheckRow key={checkKey(check)} check={check} />
               ))}
             </div>
           )}
           {scheduledChecks.length > 0 && (
             <div className={styles.checkGroup}>
-              {scheduledChecks.map((check, index) => (
-                <CheckRow key={`scheduled-${index}`} check={check} />
+              {scheduledChecks.map((check) => (
+                <CheckRow key={checkKey(check)} check={check} />
               ))}
             </div>
           )}
@@ -718,7 +728,7 @@ function CheckRow({ check, prId }) {
       </div>
       {showLog &&
         jobLogs?.map((job, i) => (
-          <div key={i}>
+          <div key={`${job.run_id}:${job.job_name ?? i}`}>
             {jobLogs.length > 1 && <div className={styles.jobLogLabel}>{job.job_name || `Job ${i + 1}`}</div>}
             <CheckLogViewer log={job.log ?? null} truncated={job.truncated ?? false} loading={false} error={null} />
           </div>
@@ -737,7 +747,7 @@ function PassedChecksGroup({ checks }) {
       <button className={styles.toggleButton} onClick={() => setExpanded(!expanded)}>
         {expanded ? 'Hide' : 'Show'} {checks.length} passed checks
       </button>
-      {expanded && checks.map((c, i) => <CheckRow key={`pass-${i}`} check={c} />)}
+      {expanded && checks.map((check) => <CheckRow key={checkKey(check)} check={check} />)}
     </div>
   );
 }
@@ -757,7 +767,7 @@ function StackInfo({ pr }) {
 
   /** @param {string} id */
   const navigateTo = (id) => {
-    window.location.hash = `/pr/${encodeURIComponent(id)}`;
+    window.location.hash = pullRequestIdPath(id);
   };
 
   return (

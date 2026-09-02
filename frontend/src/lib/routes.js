@@ -48,7 +48,17 @@ export function workItemPath(workItemId, selectedPrId) {
   return selectedPrId ? `${path}?pr=${encodeURIComponent(selectedPrId)}` : path;
 }
 
+/** Route to a pull request by id, when its work-item ownership is unknown. @param {string} prId */
+export function pullRequestIdPath(prId) {
+  return `/pr/${encodeURIComponent(prId)}`;
+}
+
 /** @param {Pick<import('../types').PullRequest, 'id' | 'work_item_id'>} pr */
 export function pullRequestPath(pr) {
-  return pr.work_item_id ? workItemPath(pr.work_item_id, pr.id) : `/pr/${encodeURIComponent(pr.id)}`;
+  return pr.work_item_id ? workItemPath(pr.work_item_id, pr.id) : pullRequestIdPath(pr.id);
+}
+
+/** @param {string} workspaceId */
+export function workspacePath(workspaceId) {
+  return `/workspace/${encodeURIComponent(workspaceId)}`;
 }

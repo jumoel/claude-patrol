@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAgentProvider } from '../../context/AgentProviderContext.jsx';
 import { createManualWorkItem, createWorkItem } from '../../lib/api.js';
 import { getErrorMessage } from '../../lib/errors.js';
+import { workItemPath } from '../../lib/routes.js';
 import { AgentProviderButton } from '../AgentProviderButton/AgentProviderButton.jsx';
 import { Box } from '../ui/Box/Box.jsx';
 import { Button } from '../ui/Button/Button.jsx';
@@ -71,7 +72,7 @@ export function StartWorkLauncher({ workItemsConfigured, manualWorkConfigured })
       const { work_item: item } = await createWorkItem(reference, provider);
       setOpen(false);
       setPending(false);
-      window.location.hash = `/work-item/${item.id}`;
+      window.location.hash = workItemPath(item.id);
     } catch (error) {
       setReferenceError(getErrorMessage(error, 'Failed to start work item'));
       setPending(false);
@@ -98,7 +99,7 @@ export function StartWorkLauncher({ workItemsConfigured, manualWorkConfigured })
       const { work_item: item } = await createManualWorkItem(trimmedTitle, repositories, bookmark);
       setOpen(false);
       setPending(false);
-      window.location.hash = `/work-item/${item.id}`;
+      window.location.hash = workItemPath(item.id);
     } catch (error) {
       setManualError(getErrorMessage(error, 'Failed to create work item'));
       setPending(false);
