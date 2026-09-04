@@ -208,6 +208,11 @@ function SessionActivitySection({
         <ul className={styles.waitingList}>
           {sessions.map((session) => {
             const href = sessionHref(session);
+            const context = contextForSession(session);
+            const activityMeta =
+              working && session.activity_message
+                ? [session.activity_message, context].filter(Boolean).join(' · ')
+                : context;
             const content = (
               <>
                 {working ? (
@@ -217,7 +222,9 @@ function SessionActivitySection({
                 )}
                 <span className={styles.waitingCopy}>
                   <span className={styles.waitingTitle}>{labelForSession(session)}</span>
-                  <span className={styles.waitingMeta}>{contextForSession(session)}</span>
+                  <span className={styles.waitingMeta} title={activityMeta}>
+                    {activityMeta}
+                  </span>
                 </span>
                 <time dateTime={session.activity_changed_at || session.started_at}>
                   {getRelativeTime(session.activity_changed_at || session.started_at)}

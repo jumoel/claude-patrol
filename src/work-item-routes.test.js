@@ -298,6 +298,92 @@ test('work-item session creation accepts a selected provider and persists it', a
   }
 });
 
+test('global session promotion returns the new session activity message', async () => {
+  const promotedAt = '2026-08-27T13:44:49.723Z';
+  const workItem = {
+    id: 'promoted-item',
+    title: 'feature/activity',
+    state: 'ready',
+    root_path: '/tmp/promoted-item',
+    error: null,
+  };
+  const service = {
+    create: () => workItem,
+    list: () => [],
+    detail: () => workItem,
+    retry() {},
+    destroy() {},
+    waitForIdle: async () => {},
+  };
+  const newSession = {
+    id: 'promoted-session',
+    workspace_id: null,
+    work_item_id: workItem.id,
+    name: null,
+    pid: 2,
+    provider: 'claude',
+    status: 'active',
+    started_at: promotedAt,
+    ended_at: null,
+    claude_project_dir: null,
+    transcript_path: null,
+  };
+  const server = await serverFixture(service, {
+    createSession: () => newSession,
+    killSessionAndWait: async () => {},
+    getSessionStates: () => [
+      {
+        sessionId: newSession.id,
+        target: { type: 'work_item', id: workItem.id },
+        workspaceId: null,
+        workItemId: workItem.id,
+        state: 'working',
+        activity_changed_at: promotedAt,
+        activity_message: 'Resuming work',
+      },
+    ],
+  });
+  insertTestWorkItem(getDb(), {
+    id: workItem.id,
+    reference: null,
+    title: workItem.title,
+    repositories: ['acme/widgets'],
+    path: workItem.root_path,
+    createdAt: promotedAt,
+  });
+  getDb()
+    .prepare(
+      `INSERT INTO workspaces (
+        id, work_item_id, name, path, bookmark, repo, status, created_at,
+        operation_state, operation_updated_at
+      ) VALUES ('promoted-workspace', ?, 'feature/activity', '/tmp/promoted-workspace',
+        'feature/activity', 'acme/widgets', 'active', ?, 'ready', ?)`,
+    )
+    .run(workItem.id, promotedAt, promotedAt);
+  getDb()
+    .prepare(
+      `INSERT INTO sessions (id, pid, provider, status, started_at)
+       VALUES ('global-session', 1, 'claude', 'active', ?)`,
+    )
+    .run(promotedAt);
+
+  try {
+    const response = await server.inject({
+      method: 'POST',
+      url: '/api/sessions/global-session/promote',
+      payload: { repo: 'acme/widgets', branch: 'feature/activity' },
+    });
+    assert.equal(response.statusCode, 201);
+    assert.deepEqual(response.json().session.target, { type: 'work_item', id: workItem.id });
+    assert.equal(response.json().session.activity_state, 'working');
+    assert.equal(response.json().session.activity_changed_at, promotedAt);
+    assert.equal(response.json().session.activity_message, 'Resuming work');
+    assert.equal(response.json().session.work_item_title, workItem.title);
+  } finally {
+    await server.close();
+  }
+});
+
 test('global session routes create distinct named sessions and reject ambiguous dispatch', async () => {
   const service = {
     create() {},
@@ -466,6 +552,16 @@ test('session filters distinguish global, work-item, and managed child targets',
         workItemId: 'item-1',
         state: 'idle',
         activity_changed_at: activityChangedAt,
+        activity_message: null,
+      },
+      {
+        sessionId: 'global-session',
+        target: { type: 'global' },
+        workspaceId: null,
+        workItemId: null,
+        state: 'working',
+        activity_changed_at: activityChangedAt,
+        activity_message: 'Watching CI',
       },
     ],
   });
@@ -515,6 +611,8 @@ test('session filters distinguish global, work-item, and managed child targets',
       ['global-session'],
     );
     assert.deepEqual(global.json()[0].target, { type: 'global' });
+    assert.equal(global.json()[0].activity_state, 'working');
+    assert.equal(global.json()[0].activity_message, 'Watching CI');
 
     const all = await server.inject({ method: 'GET', url: '/api/sessions' });
     assert.deepEqual(
@@ -533,6 +631,7 @@ test('session filters distinguish global, work-item, and managed child targets',
     assert.deepEqual(workItem.json()[0].target, { type: 'work_item', id: 'item-1' });
     assert.equal(workItem.json()[0].activity_state, 'idle');
     assert.equal(workItem.json()[0].activity_changed_at, persistedIdleAt);
+    assert.equal(workItem.json()[0].activity_message, null);
     assert.equal(workItem.json()[0].last_idle_at, persistedIdleAt);
 
     const child = await server.inject({ method: 'GET', url: '/api/sessions?workspace_id=child-1' });

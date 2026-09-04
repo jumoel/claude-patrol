@@ -110,6 +110,7 @@ function session() {
     target: { type: 'workspace', id: 'workspace-1' },
     activity_state: null,
     activity_changed_at: null,
+    activity_message: null,
     pid: 123,
     provider: 'codex',
     status: 'active',

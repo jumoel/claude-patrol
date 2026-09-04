@@ -22,6 +22,7 @@ afterEach(() => {
 
 function fixture({
   resolver,
+  getSessionStates = () => [],
   sessionAlive = true,
   stopSession,
   addedRepositoryError = null,
@@ -67,7 +68,7 @@ function fixture({
       claude: { refresh: async () => ({ available: true }) },
       codex: { refresh: async () => ({ available: true }) },
     },
-    getSessionStates: () => [],
+    getSessionStates,
     resolver: resolver ?? {
       resolve: async () => ({
         title: 'Cross-repository repair',
@@ -848,4 +849,34 @@ test('startup accepts a reattached root session as a completed terminal launch',
   recoverInterruptedWorkItems();
   const row = getDb().prepare('SELECT state, stage, error_code FROM work_items WHERE id = ?').get('reattached');
   assert.deepEqual({ ...row }, { state: 'ready', stage: 'complete', error_code: null });
+});
+
+test('work-item detail includes the live session activity message', () => {
+  const activityChangedAt = '2026-09-04T08:00:00.000Z';
+  const { service } = fixture({
+    getSessionStates: () => [
+      {
+        sessionId: 'activity-session',
+        state: 'working',
+        activity_changed_at: activityChangedAt,
+        activity_message: 'Coding',
+      },
+    ],
+  });
+  insertTestWorkItem(getDb(), { id: 'activity-item' });
+  getDb()
+    .prepare(
+      `INSERT INTO sessions (id, work_item_id, pid, provider, status, started_at)
+       VALUES ('activity-session', 'activity-item', 123, 'codex', 'active', ?)`,
+    )
+    .run(activityChangedAt);
+
+  assert.deepEqual(service.detail('activity-item').session, {
+    id: 'activity-session',
+    provider: 'codex',
+    status: 'active',
+    activity_state: 'working',
+    activity_changed_at: activityChangedAt,
+    activity_message: 'Coding',
+  });
 });

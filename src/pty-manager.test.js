@@ -28,12 +28,14 @@ import {
   reattachSession,
   recordProviderActivity,
   setMcpPort,
+  setSessionActivityMessage,
   TerminalOutputBatcher,
 } from './pty-manager.js';
 import {
   activityCredentialPathForSession,
   activitySettingsPathForSession,
   buildSessionLaunch,
+  promptPathForSession,
   readActivityCredential,
   sessionTempPaths,
 } from './session-launch.js';
@@ -372,6 +374,7 @@ it('launches Codex with the session-scoped Patrol MCP server and instructions', 
   assert.match(shellCommand, /mcp_servers\.patrol\.url=/);
   assert.match(shellCommand, /mcp_servers\.patrol\.required=true/);
   assert.match(shellCommand, /developer_instructions=/);
+  assert.match(shellCommand, /set_session_activity/);
 });
 
 it('writes protected Claude hooks and Codex notifier credentials', () => {
@@ -501,6 +504,78 @@ it('authenticates provider events and rejects stale or mismatched runs', () => {
 
   killSession('provider-event-session', { killTmux() {}, isTmuxAlive: () => false });
   assert.equal(activeSessionCount(), 0);
+});
+
+it('publishes caller activity messages without moving the working transition', () => {
+  initDb(':memory:');
+  setMcpPort(4242);
+  let exitHandler = null;
+  const runtime = {
+    randomUUID: () => 'message-session',
+    execFileSync() {},
+    spawnPty() {
+      return {
+        pid: 42,
+        onData() {},
+        onExit(handler) {
+          exitHandler = handler;
+        },
+        kill() {
+          exitHandler?.({ exitCode: 0 });
+        },
+        write() {},
+        resize() {},
+      };
+    },
+  };
+  createSessionWithRuntime({ type: 'global' }, process.cwd(), {
+    provider: 'claude',
+    enablePatrolMcp: false,
+    runtime,
+  });
+  const { token } = readActivityCredential('message-session');
+  recordProviderActivity('message-session', 'claude', token, {
+    hook_event_name: 'UserPromptSubmit',
+    prompt_id: 'prompt-1',
+  });
+  const workingAt = getSessionSnapshot('message-session').lastWorkingAt;
+  const events = [];
+  const onState = (event) => {
+    if (event.sessionId === 'message-session') events.push(event);
+  };
+  appEvents.on('session-state', onState);
+
+  try {
+    assert.deepEqual(setSessionActivityMessage('message-session', '  Running\n tests '), {
+      activityMessage: 'Running tests',
+      duplicate: false,
+    });
+    assert.equal(getSessionSnapshot('message-session').activityMessage, 'Running tests');
+    assert.equal(getSessionSnapshot('message-session').lastWorkingAt, workingAt);
+    assert.equal(getSessionStates()[0].activity_message, 'Running tests');
+    assert.equal(events.at(-1).activity_message, 'Running tests');
+    assert.equal(events.at(-1).activity_changed_at, new Date(workingAt).toISOString());
+
+    assert.deepEqual(setSessionActivityMessage('message-session', 'Running tests'), {
+      activityMessage: 'Running tests',
+      duplicate: true,
+    });
+    assert.equal(events.length, 1);
+
+    recordProviderActivity('message-session', 'claude', token, {
+      hook_event_name: 'Stop',
+      prompt_id: 'prompt-1',
+    });
+    assert.equal(getSessionSnapshot('message-session').activityMessage, null);
+    assert.equal(events.at(-1).activity_message, null);
+    assert.throws(
+      () => setSessionActivityMessage('message-session', 'Still running'),
+      (error) => error.code === 'session_not_working',
+    );
+  } finally {
+    appEvents.removeListener('session-state', onState);
+    killSession('message-session', { killTmux() {}, isTmuxAlive: () => false });
+  }
 });
 
 it('does not infer provider activity from terminal output', () => {
@@ -682,16 +757,18 @@ it('wait_for_idle ignores candidate stops and reports provider failures', async 
   killSession('wait-provider-session', { killTmux() {}, isTmuxAlive: () => false });
 });
 
-it('writes per-session MCP config with the explicitly recorded port', () => {
+it('writes the Claude MCP config and Patrol instructions with the explicitly recorded port', () => {
   initDb(':memory:');
   setMcpPort(4242);
   let mcpConfig;
+  let patrolPrompt;
   const runtime = {
     randomUUID: () => 'port-session',
     execFileSync(command, args) {
       if (command === 'tmux' && args[0] === 'new-session') {
         const path = resolve(tmpdir(), 'patrol-mcp-port-session.json');
         mcpConfig = JSON.parse(readFileSync(path, 'utf8'));
+        patrolPrompt = readFileSync(promptPathForSession('port-session'), 'utf8');
       }
     },
     spawnPty() {
@@ -704,6 +781,7 @@ it('writes per-session MCP config with the explicitly recorded port', () => {
     /stop after config capture/,
   );
   assert.equal(mcpConfig.mcpServers.patrol.url, 'http://127.0.0.1:4242/mcp/port-session');
+  assert.match(patrolPrompt, /set_session_activity/);
   assert.throws(() => setMcpPort({ port: 3000 }), /Invalid MCP port/);
 });
 

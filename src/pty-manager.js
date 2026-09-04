@@ -9,6 +9,7 @@ import { getDb } from './db.js';
 import { taggedError } from './errors.js';
 import { trustSessionDirectory } from './provider-trust.js';
 import { normalizeProviderActivity, SessionActivityTracker } from './session-activity.js';
+import { normalizeSessionActivityMessage } from './session-activity-message.js';
 import { submitPromptToEntry } from './session-input.js';
 import {
   buildSessionLaunch,
@@ -172,7 +173,7 @@ function attachPtyToTmux(sessionId, meta = {}, runtime = DEFAULT_SESSION_RUNTIME
   };
   const activity = new SessionActivityTracker({
     idleThresholdMs: runtime.activityIdleThresholdMs,
-    onState: ({ state, changedAt, confirmed, outcome, source }) => {
+    onChange: ({ state, changedAt, confirmed, outcome, source, message }) => {
       const snapshot = activity.snapshot();
       const transitionChangedAt = new Date(changedAt).toISOString();
       entry.activityState = snapshot.activityState;
@@ -191,6 +192,7 @@ function attachPtyToTmux(sessionId, meta = {}, runtime = DEFAULT_SESSION_RUNTIME
         confirmed,
         outcome,
         source,
+        message,
       });
     },
   });
@@ -800,10 +802,23 @@ export function getSessionSnapshot(sessionId) {
   return entry.activity.snapshot();
 }
 
+/** Set the short, agent-reported message for the caller's current working turn. */
+export function setSessionActivityMessage(sessionId, rawMessage) {
+  const entry = sessions.get(sessionId);
+  if (!entry) throw taggedError('session_detached', 'The calling session is not attached to Patrol');
+
+  const message = normalizeSessionActivityMessage(rawMessage);
+  const result = entry.activity.setActivityMessage(message);
+  if (!result.accepted) {
+    throw taggedError('session_not_working', 'Activity can only be reported while the session is working');
+  }
+  return { activityMessage: message, duplicate: result.duplicate };
+}
+
 /**
  * Get the current activity state for all tracked sessions.
  * Used to seed new SSE clients with the current state.
- * @returns {Array<{ sessionId: string, target: object, workspaceId: string | null, workItemId: string | null, state: 'working' | 'idle', activity_changed_at: string | null }>}
+ * @returns {Array<{ sessionId: string, target: object, workspaceId: string | null, workItemId: string | null, state: 'working' | 'idle', activity_changed_at: string | null, activity_message: string | null }>}
  */
 export function getSessionStates() {
   const results = [];
@@ -820,6 +835,7 @@ export function getSessionStates() {
         confirmed: snapshot.completionConfirmed,
         completion_outcome: snapshot.completionOutcome,
         activity_source: snapshot.activitySource,
+        activity_message: snapshot.activityMessage,
       });
     }
   }

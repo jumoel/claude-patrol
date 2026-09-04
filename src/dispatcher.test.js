@@ -207,7 +207,7 @@ test('list_sessions exposes work-item identity and only marks targetless session
     )
     .run(now);
   const { app, appContext } = dispatcherFixture();
-  appContext.getSessionStates = () => [{ sessionId: 'global', state: 'working' }];
+  appContext.getSessionStates = () => [{ sessionId: 'global', state: 'working', activity_message: 'Planning changes' }];
 
   const sessions = await actionRegistry.list_sessions.mcpHandler(app, {});
   const workItem = sessions.find((session) => session.session_id === 'work-root');
@@ -226,11 +226,13 @@ test('list_sessions exposes work-item identity and only marks targetless session
     work_item_reference: 'PROJECT-ready',
     work_item_path: '/tmp/ready',
     activity_state: null,
+    activity_message: null,
     started_at: now,
     is_global: false,
   });
   assert.equal(sessions.find((session) => session.session_id === 'global').is_global, true);
   assert.equal(sessions.find((session) => session.session_id === 'global').activity_state, 'working');
+  assert.equal(sessions.find((session) => session.session_id === 'global').activity_message, 'Planning changes');
 });
 
 function insertPr(id) {

@@ -45,6 +45,7 @@ function session(status) {
     transcript_path: null,
     activity_state: null,
     activity_changed_at: null,
+    activity_message: null,
   };
 }
 

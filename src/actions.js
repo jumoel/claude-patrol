@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { z } from 'zod';
 import { ensureSessionAndSend } from './dispatcher.js';
+import { MAX_SESSION_ACTIVITY_MESSAGE_LENGTH } from './session-activity-message.js';
 
 /**
  * Strip verbose fields from a PR for compact list responses.
@@ -892,9 +893,38 @@ export const actionRegistry = {
 
   review_with_claude: createPeerReviewAction('claude'),
 
+  set_session_activity: {
+    description: `Set the short present-progress message shown for your current working turn, such as "Running tests" or "Watching CI". The message applies only to the calling session, must be ${MAX_SESSION_ACTIVITY_MESSAGE_LENGTH} characters or fewer, and is cleared automatically when the session becomes idle.`,
+    schema: z.object({
+      message: z
+        .string()
+        .min(1)
+        .max(MAX_SESSION_ACTIVITY_MESSAGE_LENGTH)
+        .describe('Short present-progress phrase for the current working turn'),
+    }),
+    ruleFireable: false,
+    mcpHandler: async (app, { message }, ctx) => {
+      const callerSessionId = ctx?.callerSessionId;
+      if (!callerSessionId) {
+        return { ok: false, error: 'unknown_session', message: 'The calling agent session is unknown' };
+      }
+      try {
+        const result = app.appContext.setSessionActivityMessage(callerSessionId, message);
+        return {
+          ok: true,
+          activity_message: result.activityMessage,
+          duplicate: result.duplicate,
+        };
+      } catch (error) {
+        if (error.code) return { ok: false, error: error.code, message: error.message };
+        throw error;
+      }
+    },
+  },
+
   list_sessions: {
     description:
-      'List dispatchable Claude and Codex sessions known to Patrol. Returns each provider, session id, status, global session name, workspace context, work-item context, activity state (working, idle, or null when untracked), and started_at. Active sessions and reusable detached work-item root sessions are listed. Use this before send_prompt_to_session to pick a target.',
+      'List dispatchable Claude and Codex sessions known to Patrol. Returns each provider, session id, status, global session name, workspace context, work-item context, activity state and message, and started_at. Active sessions and reusable detached work-item root sessions are listed. Use this before send_prompt_to_session to pick a target.',
     schema: z.object({}),
     ruleFireable: false,
     mcpHandler: async (app) => {
@@ -924,7 +954,7 @@ export const actionRegistry = {
             ORDER BY s.started_at DESC`,
         )
         .all();
-      const states = new Map(app.appContext.getSessionStates().map((s) => [s.sessionId, s.state]));
+      const states = new Map(app.appContext.getSessionStates().map((state) => [state.sessionId, state]));
       return rows.map((r) => ({
         session_id: r.session_id,
         name: r.name,
@@ -939,7 +969,8 @@ export const actionRegistry = {
         work_item_title: r.work_item_title,
         work_item_reference: r.work_item_reference,
         work_item_path: r.work_item_path,
-        activity_state: states.get(r.session_id) ?? null,
+        activity_state: states.get(r.session_id)?.state ?? null,
+        activity_message: states.get(r.session_id)?.activity_message ?? null,
         started_at: r.started_at,
         is_global: r.workspace_id === null && r.work_item_id === null,
       }));

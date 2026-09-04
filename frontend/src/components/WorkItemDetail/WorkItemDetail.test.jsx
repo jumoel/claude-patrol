@@ -149,7 +149,14 @@ test('ready detail renders one root terminal and blocks repository deletion whil
   hook.workItem = {
     ...detail(),
     has_session_history: true,
-    session: { id: 'session-1', provider: 'codex', status: 'active', activity_state: null, activity_changed_at: null },
+    session: {
+      id: 'session-1',
+      provider: 'codex',
+      status: 'active',
+      activity_state: null,
+      activity_changed_at: null,
+      activity_message: null,
+    },
   };
   api.fetchSessions.mockResolvedValue([liveSession]);
 
@@ -207,6 +214,7 @@ test('acknowledges the visible idle session and renders it as idle once acknowle
       status: idleSession.status,
       activity_state: idleSession.activity_state,
       activity_changed_at: idleSession.activity_changed_at,
+      activity_message: null,
     },
   };
   api.fetchSessions.mockResolvedValue([idleSession]);
@@ -251,7 +259,14 @@ test('overview stays visible while the repository pane remembers collapsed state
 test('terminal is the first work surface after the header', async () => {
   hook.workItem = {
     ...detail(),
-    session: { id: 'session-1', provider: 'codex', status: 'active', activity_state: null, activity_changed_at: null },
+    session: {
+      id: 'session-1',
+      provider: 'codex',
+      status: 'active',
+      activity_state: null,
+      activity_changed_at: null,
+      activity_message: null,
+    },
   };
   api.fetchSessions.mockResolvedValue([
     {

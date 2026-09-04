@@ -134,6 +134,7 @@ test('places a spinner beside working LLM state and a dot beside waiting state',
     status: 'active',
     activity_state: 'working',
     activity_changed_at: '2026-08-26T10:30:00.000Z',
+    activity_message: null,
     started_at: '2026-08-26T09:00:00.000Z',
   });
   const { container } = render(
@@ -154,6 +155,7 @@ test('labels an untracked session idle instead of live', () => {
     status: 'active',
     activity_state: null,
     activity_changed_at: null,
+    activity_message: null,
     started_at: '2026-08-26T09:00:00.000Z',
   });
   const { container } = render(
@@ -176,6 +178,7 @@ test('returns an acknowledged waiting session to idle', () => {
     status: 'active',
     activity_state: 'idle',
     activity_changed_at: '2026-08-26T10:30:00.000Z',
+    activity_message: 'Must not be shown',
     started_at: '2026-08-26T09:00:00.000Z',
     ended_at: null,
     pid: 123,
@@ -194,6 +197,7 @@ test('returns an acknowledged waiting session to idle', () => {
   );
 
   assert.ok(screen.getByText('Waiting'));
+  assert.equal(screen.queryByText('Must not be shown'), null);
   fireEvent.click(screen.getByRole('link', { name: /Resume/u }));
   assert.ok(screen.getByText('Idle'));
   assert.equal(screen.queryByText('Waiting'), null);
@@ -288,6 +292,7 @@ test('shows currently working sessions with shared work and global navigation', 
       target: { type: 'work_item', id: row.id },
       activity_state: 'working',
       activity_changed_at: '2026-08-26T10:30:00.000Z',
+      activity_message: 'Running tests',
       provider: 'codex',
       status: 'active',
       started_at: '2026-08-26T09:00:00.000Z',
@@ -304,6 +309,7 @@ test('shows currently working sessions with shared work and global navigation', 
       target: { type: 'global' },
       activity_state: 'working',
       activity_changed_at: '2026-08-26T10:25:00.000Z',
+      activity_message: null,
       provider: 'claude',
       status: 'active',
       started_at: '2026-08-26T09:00:00.000Z',
@@ -323,6 +329,9 @@ test('shows currently working sessions with shared work and global navigation', 
   const section = screen.getByRole('region', { name: 'Currently working 2' });
   assert.equal(section.querySelectorAll('[data-spinner="true"]').length, 2);
   assert.equal(section.querySelector('a')?.getAttribute('href'), '#/work-item/work-1');
+  assert.ok(section.textContent?.includes('Running tests'));
+  assert.ok(section.querySelector('[title="Running tests · ONE-1 · Codex · work item"]'));
+  assert.equal(section.textContent?.includes('Must not be shown'), false);
   fireEvent.click(screen.getByRole('button', { name: /release build/u }));
   assert.deepEqual(defaultProps.onOpenGlobalTerminal.mock.calls, [['global-session']]);
 });

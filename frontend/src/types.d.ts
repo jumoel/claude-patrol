@@ -127,6 +127,7 @@ export interface Session {
   target: SessionTarget;
   activity_state: 'working' | 'idle' | null;
   activity_changed_at: string | null;
+  activity_message: string | null;
   pid: number | null;
   provider: AgentProvider;
   status: 'active' | 'detached' | 'killed';
@@ -184,6 +185,7 @@ export interface WorkItemListItem {
     status: 'active' | 'detached';
     activity_state: 'working' | 'idle' | null;
     activity_changed_at: string | null;
+    activity_message: string | null;
   };
   error: null | {
     code: string;
@@ -282,6 +284,7 @@ export interface DashboardSessionSummary {
   status: 'active' | 'detached';
   activity_state: 'working' | 'idle' | null;
   activity_changed_at: string | null;
+  activity_message: string | null;
   started_at: string;
 }
 

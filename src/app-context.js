@@ -25,6 +25,7 @@ import {
   killSessionAndWait,
   reattachSession,
   recordProviderActivity,
+  setSessionActivityMessage,
   waitForFirstIdle,
 } from './pty-manager.js';
 import { createWorkItemService } from './work-items.js';
@@ -76,6 +77,7 @@ export function createAppContext(overrides = {}) {
     getSessionStates: sessionStates,
     getSessionSnapshot,
     recordProviderActivity,
+    setSessionActivityMessage,
     createSession,
     createResumedSession,
     reattachSession,

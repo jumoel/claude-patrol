@@ -47,6 +47,7 @@ function summarizeSession(session) {
     status: /** @type {'active' | 'detached'} */ (session.status),
     activity_state: session.activity_state,
     activity_changed_at: session.activity_changed_at,
+    activity_message: session.activity_message,
     started_at: session.started_at,
   };
 }

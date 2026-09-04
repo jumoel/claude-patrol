@@ -122,6 +122,7 @@ const sessions = /** @type {import('../types').Session[]} */ ([
     target: { type: 'work_item', id: workItem.id },
     activity_state: 'idle',
     activity_changed_at: '2026-08-26T12:30:00.000Z',
+    activity_message: null,
     provider: 'codex',
     status: 'active',
     started_at: '2026-08-26T08:00:00.000Z',
@@ -132,6 +133,7 @@ const sessions = /** @type {import('../types').Session[]} */ ([
     target: { type: 'workspace', id: 'child-1' },
     activity_state: 'working',
     activity_changed_at: '2026-08-26T12:20:00.000Z',
+    activity_message: 'Running tests',
     provider: 'claude',
     status: 'active',
     started_at: '2026-08-26T08:00:00.000Z',
@@ -142,6 +144,7 @@ const sessions = /** @type {import('../types').Session[]} */ ([
     target: { type: 'global' },
     activity_state: 'idle',
     activity_changed_at: '2026-08-26T12:10:00.000Z',
+    activity_message: null,
     provider: 'codex',
     status: 'detached',
     started_at: '2026-08-26T08:00:00.000Z',
@@ -246,6 +249,7 @@ describe('buildWorkingSessions', () => {
       'session-global-working',
       'session-child',
     ]);
+    expect(buildWorkingSessions(candidates)[1].activity_message).toBe('Running tests');
   });
 });
 

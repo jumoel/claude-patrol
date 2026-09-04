@@ -253,6 +253,7 @@ export function workItemListItem(
           status: session.status,
           activity_state: activity?.state ?? null,
           activity_changed_at: activityChangedAt,
+          activity_message: activity?.activity_message ?? null,
         }
       : null,
     error: row.error_code

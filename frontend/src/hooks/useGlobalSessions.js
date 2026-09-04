@@ -30,21 +30,31 @@ export function useGlobalSessions(enabled, changeToken) {
   const [loading, setLoading] = useState(true);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState(/** @type {unknown} */ (null));
-  const request = useRef(/** @type {AbortController | null} */ (null));
+  const request = useRef(
+    /** @type {{controller: AbortController, activityUpdates: Map<string, Pick<import('../types').Session, 'activity_state' | 'activity_changed_at' | 'activity_message'>>} | null} */ (
+      null
+    ),
+  );
 
   const reload = useCallback(() => {
     if (!enabled) return;
-    request.current?.abort();
+    request.current?.controller.abort();
     const controller = new AbortController();
-    request.current = controller;
+    const pending = { controller, activityUpdates: new Map() };
+    request.current = pending;
     setLoading(true);
     setError(null);
     fetchSessions(undefined, controller.signal)
       .then((allSessions) => {
+        if (controller.signal.aborted) return;
+        const reconciledSessions = allSessions.map((session) => {
+          const activityUpdate = pending.activityUpdates.get(session.id);
+          return activityUpdate ? { ...session, ...activityUpdate } : session;
+        });
         setLoaded(true);
-        const globalSessions = globalSessionsFrom(allSessions);
+        const globalSessions = globalSessionsFrom(reconciledSessions);
         setSessionState((current) => ({
-          allSessions,
+          allSessions: reconciledSessions,
           activeSessionId:
             current.activeSessionId && globalSessions.some((session) => session.id === current.activeSessionId)
               ? current.activeSessionId
@@ -52,10 +62,13 @@ export function useGlobalSessions(enabled, changeToken) {
         }));
       })
       .catch((nextError) => {
-        if (!isAbort(nextError)) setError(nextError);
+        if (request.current === pending && !controller.signal.aborted && !isAbort(nextError)) setError(nextError);
       })
       .finally(() => {
-        if (request.current === controller) setLoading(false);
+        if (request.current === pending) {
+          request.current = null;
+          setLoading(false);
+        }
       });
   }, [enabled]);
 
@@ -68,13 +81,13 @@ export function useGlobalSessions(enabled, changeToken) {
     }
     setLoading(true);
     reload();
-    return () => request.current?.abort();
+    return () => request.current?.controller.abort();
   }, [enabled, changeToken, reload]);
 
   useEffect(() => {
     if (!enabled) return undefined;
     return subscribeAppEvent('session-state', (event) => {
-      /** @type {{sessionId?: unknown, state?: unknown, activity_changed_at?: unknown}} */
+      /** @type {{sessionId?: unknown, state?: unknown, activity_changed_at?: unknown, activity_message?: unknown}} */
       let payload;
       try {
         payload = JSON.parse(event.data);
@@ -87,18 +100,29 @@ export function useGlobalSessions(enabled, changeToken) {
 
       const activityState = payload.state;
       const activityChangedAt = typeof payload.activity_changed_at === 'string' ? payload.activity_changed_at : null;
+      const activityMessage = typeof payload.activity_message === 'string' ? payload.activity_message : null;
+      /** @type {Pick<import('../types').Session, 'activity_state' | 'activity_changed_at' | 'activity_message'>} */
+      const activityUpdate = {
+        activity_state: activityState,
+        activity_changed_at: activityChangedAt,
+        activity_message: activityMessage,
+      };
+      request.current?.activityUpdates.set(payload.sessionId, activityUpdate);
       setSessionState((current) => {
         const index = current.allSessions.findIndex((session) => session.id === payload.sessionId);
         if (index === -1) return current;
         const session = current.allSessions[index];
-        if (session.activity_state === activityState && session.activity_changed_at === activityChangedAt) {
+        if (
+          session.activity_state === activityState &&
+          session.activity_changed_at === activityChangedAt &&
+          session.activity_message === activityMessage
+        ) {
           return current;
         }
         const allSessions = [...current.allSessions];
         allSessions[index] = {
           ...session,
-          activity_state: activityState,
-          activity_changed_at: activityChangedAt,
+          ...activityUpdate,
         };
         return { ...current, allSessions };
       });

@@ -26,6 +26,9 @@ test('every registry action is exposed as an MCP tool with its description', asy
     const listPrs = tools.find((tool) => tool.name === 'list_prs');
     assert.equal(listPrs.description, actionRegistry.list_prs.description);
     assert.equal(typeof listPrs.inputSchema, 'object');
+    const setActivity = tools.find((tool) => tool.name === 'set_session_activity');
+    assert.deepEqual(Object.keys(setActivity.inputSchema.properties), ['message']);
+    assert.equal(setActivity.inputSchema.properties.message.maxLength, 64);
   } finally {
     await close();
   }
@@ -83,5 +86,85 @@ test('handler tools receive the caller session id and can answer with plain text
     });
   } finally {
     await close();
+  }
+});
+
+test('set_session_activity updates only the caller session', async () => {
+  const calls = [];
+  const app = {
+    appContext: {
+      setSessionActivityMessage(sessionId, message) {
+        calls.push({ sessionId, message });
+        return { activityMessage: message, duplicate: false };
+      },
+    },
+  };
+  const { client, close } = await connect(app, { callerSessionId: 'caller-1' });
+  try {
+    const response = await client.callTool({
+      name: 'set_session_activity',
+      arguments: { message: 'Running tests' },
+    });
+    assert.deepEqual(calls, [{ sessionId: 'caller-1', message: 'Running tests' }]);
+    assert.deepEqual(JSON.parse(response.content[0].text), {
+      ok: true,
+      activity_message: 'Running tests',
+      duplicate: false,
+    });
+
+    const invalid = await client.callTool({
+      name: 'set_session_activity',
+      arguments: { message: 'x'.repeat(65) },
+    });
+    assert.equal(invalid.isError, true);
+    assert.deepEqual(calls, [{ sessionId: 'caller-1', message: 'Running tests' }]);
+  } finally {
+    await close();
+  }
+});
+
+test('set_session_activity returns caller and tracker state errors without changing their codes', async () => {
+  const app = {
+    appContext: {
+      setSessionActivityMessage(_sessionId, message) {
+        const error = new Error(`Cannot report ${message}`);
+        error.code = message === 'Detached' ? 'session_detached' : 'session_not_working';
+        throw error;
+      },
+    },
+  };
+  const connected = await connect(app, { callerSessionId: 'caller-1' });
+  try {
+    for (const [message, code] of [
+      ['Detached', 'session_detached'],
+      ['Idle', 'session_not_working'],
+    ]) {
+      const response = await connected.client.callTool({
+        name: 'set_session_activity',
+        arguments: { message },
+      });
+      assert.deepEqual(JSON.parse(response.content[0].text), {
+        ok: false,
+        error: code,
+        message: `Cannot report ${message}`,
+      });
+    }
+  } finally {
+    await connected.close();
+  }
+
+  const unknown = await connect(app);
+  try {
+    const response = await unknown.client.callTool({
+      name: 'set_session_activity',
+      arguments: { message: 'Running tests' },
+    });
+    assert.deepEqual(JSON.parse(response.content[0].text), {
+      ok: false,
+      error: 'unknown_session',
+      message: 'The calling agent session is unknown',
+    });
+  } finally {
+    await unknown.close();
   }
 });

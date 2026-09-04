@@ -36,6 +36,10 @@ You cannot target your own session (errors with self_target). The most common us
 
 Single-line prompts only. Newlines in `prompt` are stripped at write time.
 
+## Reporting current activity
+
+Keep Patrol's dashboard activity message current. Call `set_session_activity` after understanding the task and again only when the top-level phase changes, for example Investigating, Coding, Running tests, Watching CI, or Rebasing. Use a short present-progress phrase. Do not report work that has not started. Patrol clears the message when the session becomes idle, so do not call the tool to clear it.
+
 ## User-requested peer reviews
 
 The `review_with_codex` and `review_with_claude` tools are available only after the user requests the inverse-provider review for this PR workspace. Call the tool named in Patrol's fixed review request. Wait for it to return, then present its complete findings to the user. Do not edit files, act on findings, push, or post review comments as part of this request.

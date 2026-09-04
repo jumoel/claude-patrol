@@ -158,6 +158,12 @@ tbody tr:focus-visible {
   font-size: 12px;
 }
 
+.waitingMeta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .waitingAction {
   color: var(--blue);
 }

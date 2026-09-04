@@ -17,7 +17,7 @@ function activityHarness() {
     cancel(timer) {
       timer.cancelled = true;
     },
-    onState: (event) => events.push(event),
+    onChange: (event) => events.push(event),
   });
   return {
     tracker,
@@ -74,6 +74,32 @@ describe('SessionActivityTracker', () => {
     harness.advance(1_000);
     assert.equal(harness.tracker.snapshot().activityState, 'working');
     assert.equal(harness.tracker.snapshot().nativeTracking, true);
+  });
+
+  it('reports a message without moving the turn anchor and clears it with the lifecycle', () => {
+    const harness = activityHarness();
+    assert.deepEqual(harness.tracker.setActivityMessage('Investigating'), {
+      accepted: false,
+      reason: 'session_not_working',
+    });
+
+    harness.tracker.markWorking();
+    const workingAt = harness.tracker.snapshot().lastWorkingAt;
+    assert.deepEqual(harness.tracker.setActivityMessage('Running tests'), { accepted: true, duplicate: false });
+    assert.equal(harness.tracker.snapshot().activityMessage, 'Running tests');
+    assert.equal(harness.tracker.snapshot().lastWorkingAt, workingAt);
+    assert.equal(harness.events.at(-1).changedAt, workingAt);
+    assert.equal(harness.events.at(-1).message, 'Running tests');
+    assert.deepEqual(harness.tracker.setActivityMessage('Running tests'), { accepted: true, duplicate: true });
+
+    harness.advance(10);
+    harness.tracker.handleStatusPoll({ state: 'idle', source: 'status_poll' });
+    assert.equal(harness.tracker.snapshot().activityMessage, null);
+    assert.equal(harness.events.at(-1).message, null);
+
+    harness.advance(10);
+    harness.tracker.markWorking();
+    assert.equal(harness.tracker.snapshot().activityMessage, null);
   });
 
   it('restores working and terminal states from provider status polls', () => {

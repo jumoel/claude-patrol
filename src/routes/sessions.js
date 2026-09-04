@@ -64,6 +64,7 @@ export function registerSessionRoutes(app) {
       target: sessionTargetFromRow(row),
       activity_state: activity?.state ?? null,
       activity_changed_at: activityChangedAt,
+      activity_message: activity?.activity_message ?? null,
       work_item_title: workItem?.title ?? null,
       work_item_reference: workItem?.reference ?? null,
       root_path: workItem?.path ?? null,
@@ -451,7 +452,7 @@ export function registerSessionRoutes(app) {
           // Resume from the common work-item root so later repositories are visible.
           const newSession = claudeSessionUuid
             ? createResumedSession({ type: 'work_item', id: workItem.id }, workItem.root_path, claudeSessionUuid)
-            : createSession({ type: 'work_item', id: workItem.id }, workItem.root_path, session.provider, {
+            : launchSession({ type: 'work_item', id: workItem.id }, workItem.root_path, session.provider, {
                 enablePatrolMcp: true,
               });
 
@@ -460,7 +461,7 @@ export function registerSessionRoutes(app) {
       );
 
       emitLocalChange();
-      return reply.code(201).send({ work_item: workItem, session: newSession });
+      return reply.code(201).send({ work_item: workItem, session: formatSession(newSession) });
     } catch (err) {
       return sendErrorFrom(reply, err, {
         code: err.code ?? 'promote_failed',

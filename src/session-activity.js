@@ -55,13 +55,13 @@ export function normalizeProviderActivity(provider, payload) {
  */
 export class SessionActivityTracker {
   constructor({
-    onState,
+    onChange,
     idleThresholdMs = ACTIVITY_IDLE_THRESHOLD_MS,
     now = () => Date.now(),
     schedule = setTimeout,
     cancel = clearTimeout,
   }) {
-    this.onState = onState;
+    this.onChange = onChange;
     this.idleThresholdMs = idleThresholdMs;
     this.now = now;
     this.schedule = schedule;
@@ -74,6 +74,7 @@ export class SessionActivityTracker {
     this.completionConfirmed = false;
     this.completionOutcome = null;
     this.activitySource = null;
+    this.activityMessage = null;
     this.candidateTimer = null;
   }
 
@@ -87,6 +88,7 @@ export class SessionActivityTracker {
       completionConfirmed: this.completionConfirmed,
       completionOutcome: this.completionOutcome,
       activitySource: this.activitySource,
+      activityMessage: this.activityMessage,
     };
   }
 
@@ -100,13 +102,23 @@ export class SessionActivityTracker {
   }
 
   emit(changedAt) {
-    this.onState?.({
+    this.onChange?.({
       state: this.state,
       changedAt,
       confirmed: this.completionConfirmed,
       outcome: this.completionOutcome,
       source: this.activitySource,
+      message: this.activityMessage,
     });
+  }
+
+  setActivityMessage(message) {
+    if (this.state !== 'working') return { accepted: false, reason: 'session_not_working' };
+    if (message === this.activityMessage) return { accepted: true, duplicate: true };
+
+    this.activityMessage = message;
+    this.emit(this.lastWorkingAt);
+    return { accepted: true, duplicate: false };
   }
 
   transitionToWorking({ source, runId = null }) {
@@ -126,6 +138,7 @@ export class SessionActivityTracker {
     this.completionConfirmed = false;
     this.completionOutcome = null;
     this.activitySource = source;
+    this.activityMessage = null;
     this.emit(changedAt);
     return true;
   }
@@ -149,6 +162,7 @@ export class SessionActivityTracker {
     this.completionConfirmed = confirmed;
     this.completionOutcome = outcome;
     this.activitySource = source;
+    this.activityMessage = null;
     this.emit(changedAt);
     return true;
   }

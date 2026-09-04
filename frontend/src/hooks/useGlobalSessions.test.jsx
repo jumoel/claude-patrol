@@ -22,6 +22,7 @@ const first = /** @type {import('../types').Session} */ ({
   target: /** @type {const} */ ({ type: 'global' }),
   activity_state: null,
   activity_changed_at: null,
+  activity_message: null,
   pid: 1,
   provider: 'claude',
   status: 'active',
@@ -110,11 +111,120 @@ test('applies live activity changes to dashboard sessions without refetching', a
       sessionId: workItem.id,
       state: 'working',
       activity_changed_at: '2026-08-27T13:44:49.723Z',
+      activity_message: 'Investigating',
     });
   });
 
   const updated = result.current.allSessions.find((session) => session.id === workItem.id);
   assert.equal(updated?.activity_state, 'working');
   assert.equal(updated?.activity_changed_at, '2026-08-27T13:44:49.723Z');
+  assert.equal(updated?.activity_message, 'Investigating');
   assert.equal(api.fetchSessions.mock.calls.length, 1);
+});
+
+test('applies message-only updates and clears without refetching', async () => {
+  const working = {
+    ...workItem,
+    activity_state: /** @type {const} */ ('working'),
+    activity_changed_at: '2026-08-27T13:44:49.723Z',
+    activity_message: null,
+  };
+  api.fetchSessions.mockResolvedValue([working]);
+  const { result } = renderHook(() => useGlobalSessions(true, 0));
+  await waitFor(() => assert.equal(result.current.allSessions.length, 1));
+
+  act(() => {
+    emitSessionState({
+      sessionId: working.id,
+      state: 'working',
+      activity_changed_at: working.activity_changed_at,
+      activity_message: 'Watching CI',
+    });
+  });
+  assert.equal(result.current.allSessions[0].activity_message, 'Watching CI');
+
+  act(() => {
+    emitSessionState({
+      sessionId: working.id,
+      state: 'working',
+      activity_changed_at: working.activity_changed_at,
+      activity_message: null,
+    });
+  });
+  assert.equal(result.current.allSessions[0].activity_message, null);
+  assert.equal(api.fetchSessions.mock.calls.length, 1);
+});
+
+test('keeps an activity event that arrives during an older refresh', async () => {
+  const working = {
+    ...workItem,
+    activity_state: /** @type {const} */ ('working'),
+    activity_changed_at: '2026-08-27T13:44:49.723Z',
+    activity_message: null,
+  };
+  /** @type {(sessions: import('../types').Session[]) => void} */
+  let resolveRefresh = () => {};
+  api.fetchSessions.mockResolvedValueOnce([working]).mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        resolveRefresh = resolve;
+      }),
+  );
+  const { result, rerender } = renderHook(({ changeToken }) => useGlobalSessions(true, changeToken), {
+    initialProps: { changeToken: 0 },
+  });
+  await waitFor(() => assert.equal(result.current.allSessions.length, 1));
+
+  rerender({ changeToken: 1 });
+  await waitFor(() => assert.equal(api.fetchSessions.mock.calls.length, 2));
+  act(() => {
+    emitSessionState({
+      sessionId: working.id,
+      state: 'working',
+      activity_changed_at: working.activity_changed_at,
+      activity_message: 'Watching CI',
+    });
+  });
+  assert.equal(result.current.allSessions[0].activity_message, 'Watching CI');
+
+  await act(async () => {
+    resolveRefresh([working]);
+    await Promise.resolve();
+  });
+  assert.equal(result.current.allSessions[0].activity_message, 'Watching CI');
+});
+
+test('keeps an activity event received before the initial session response', async () => {
+  const working = {
+    ...workItem,
+    activity_state: /** @type {const} */ ('working'),
+    activity_changed_at: '2026-08-27T13:44:49.723Z',
+    activity_message: null,
+  };
+  /** @type {(sessions: import('../types').Session[]) => void} */
+  let resolveFetch = () => {};
+  api.fetchSessions.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        resolveFetch = resolve;
+      }),
+  );
+  const { result } = renderHook(() => useGlobalSessions(true, 0));
+  await waitFor(() => assert.equal(eventStream.sessionStateHandlers.size, 1));
+
+  act(() => {
+    emitSessionState({
+      sessionId: working.id,
+      state: 'working',
+      activity_changed_at: working.activity_changed_at,
+      activity_message: 'Running tests',
+    });
+  });
+  assert.equal(result.current.allSessions.length, 0);
+
+  await act(async () => {
+    resolveFetch([working]);
+    await Promise.resolve();
+  });
+  assert.equal(result.current.allSessions[0].activity_message, 'Running tests');
 });
