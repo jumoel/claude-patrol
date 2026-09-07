@@ -57,14 +57,14 @@ function findWorkItemSession(db, workItemId, prId = null) {
          LEFT JOIN sessions s
            ON s.work_item_id = wi.id AND s.status = 'active'
          LEFT JOIN work_item_pull_requests l
-           ON l.work_item_id = wi.id AND l.pr_id = ?
+           ON l.work_item_id = wi.id AND l.pr_id = ? AND l.ownership_state = 'active'
          LEFT JOIN prs p ON p.id = l.pr_id
          LEFT JOIN workspaces child
            ON child.rowid = (
              SELECT candidate.rowid
                FROM workspaces candidate
               WHERE candidate.work_item_id = wi.id
-                AND candidate.repo = p.org || '/' || p.repo
+                AND candidate.repo = l.local_repository
               ORDER BY candidate.created_at DESC, candidate.rowid DESC
               LIMIT 1
            )

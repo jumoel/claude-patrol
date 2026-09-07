@@ -12,14 +12,14 @@ import { destroyWorkspace } from '../workspace.js';
 export function registerWorkspaceRoutes(app) {
   const { getConfig, getDb, workItemService } = app.appContext;
   app.post('/api/workspaces', async (request, reply) => {
-    const { pr_id, repo, branch } = request.body || {};
+    const { pr_id, repo, branch, expected_head_oid } = request.body || {};
     if (!pr_id && (!repo || !branch)) {
       return sendError(reply, 'invalid_request', 'Either pr_id or both repo and branch are required');
     }
     try {
-      const workItem = workItemService.create(
+      const workItem = await workItemService.create(
         pr_id
-          ? { source: 'pull_request', pr_id }
+          ? { source: 'pull_request', pr_id, expected_head_oid }
           : { source: 'manual', title: branch, bookmark: branch, repositories: [repo] },
       );
       emitLocalChange();
@@ -64,7 +64,15 @@ export function registerWorkspaceRoutes(app) {
       params.push(repo, repo);
     }
 
-    return db.prepare(sql).all(...params);
+    const rows = db.prepare(sql).all(...params);
+    const ids = rows.map((row) => row.pr_id).filter(Boolean);
+    const summaries = new Map(
+      db
+        .prepare('SELECT * FROM prs WHERE id IN (SELECT value FROM json_each(?))')
+        .all(JSON.stringify(ids))
+        .map((row) => [row.id, formatPR(row)]),
+    );
+    return rows.map((row) => ({ ...row, pull_request_summary: summaries.get(row.pr_id) ?? null }));
   });
 
   app.get('/api/workspaces/operations', () => {
@@ -195,7 +203,7 @@ export function registerWorkspaceRoutes(app) {
       .prepare(`
       SELECT w.id AS workspace_id, p.id, p.number, p.title, p.repo, p.org, p.author, p.url, p.branch, p.draft, p.mergeable, p.checks, p.reviews, p.labels, p.created_at, p.updated_at, p.synced_at
       FROM workspaces w
-      JOIN prs p ON w.pr_id = p.id
+      JOIN authored_prs p ON w.pr_id = p.id
       WHERE w.work_item_id IS NULL AND w.status = 'active' AND w.operation_state = 'ready'
     `)
       .all();

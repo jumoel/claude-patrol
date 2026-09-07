@@ -65,6 +65,8 @@ export const ERROR_STATUS = Object.freeze({
   session_dead: 410,
   // Upstream and availability
   upstream_failed: 502,
+  review_verification_failed: 502,
+  github_rate_limited: 503,
   claude_unavailable: 503,
   codex_unavailable: 503,
   rules_engine_stopped: 503,

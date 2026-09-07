@@ -16,6 +16,18 @@ export function emitLocalChange() {
   appEvents.emit('local-change');
 }
 
+/** Review updates do not invalidate session activity. */
+export function emitReviewRequestChange(change) {
+  appEvents.emit(
+    'review-request-change',
+    change.ids?.length > 100 ? { ...change, ids: undefined, invalidate_all: true } : change,
+  );
+}
+
+export function emitConfigChange(change) {
+  appEvents.emit('config-change', change);
+}
+
 /**
  * Notify clients of a session activity snapshot change.
  * @param {string} sessionId

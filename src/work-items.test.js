@@ -63,6 +63,8 @@ function fixture({
   const sessionOptions = [];
   let sessionNumber = 0;
   const service = createWorkItemService({
+    preflightPR: async (id) => getDb().prepare('SELECT * FROM prs WHERE id = ?').get(id),
+    createPrChild: (input, { createChild }) => createChild(input),
     getConfig: () => config,
     providerCapabilities: {
       claude: { refresh: async () => ({ available: true }) },
@@ -158,7 +160,7 @@ test('a two-repository item creates sibling children and waits for the root sess
       warn: (message) => messages.push(message),
     },
   });
-  const created = service.create({ reference: '  ECO-3632  ', workProvider: 'codex' });
+  const created = await service.create({ reference: '  ECO-3632  ', workProvider: 'codex' });
   assert.equal(created.reference, 'ECO-3632');
   assert.equal(created.state, 'resolving');
   await service.waitForIdle(created.id);
@@ -201,7 +203,7 @@ test('a two-repository item creates sibling children and waits for the root sess
 
 test('manual work creates one aggregate for multiple configured repositories without a reference', async () => {
   const { service } = fixture();
-  const created = service.create({
+  const created = await service.create({
     source: 'manual',
     title: 'Coordinate the release',
     repositories: ['acme/alpha', 'acme/beta'],
@@ -232,7 +234,7 @@ test('manual work prepares a discovered repository before creating its workspace
       return { sourcePath, startRevision: 'trunk@origin' };
     },
   });
-  const created = service.create({
+  const created = await service.create({
     source: 'manual',
     title: 'Work in a discovered repository',
     repositories: ['acme/discovered'],
@@ -247,9 +249,9 @@ test('manual work prepares a discovered repository before creating its workspace
   assert.equal(detail.repository_workspaces[0].start_revision, 'trunk@origin');
 });
 
-test('manual work rejects repositories outside configured GitHub discovery', () => {
+test('manual work rejects repositories outside configured GitHub discovery', async () => {
   const { service } = fixture();
-  assert.throws(
+  await assert.rejects(
     () =>
       service.create({
         source: 'manual',
@@ -273,7 +275,7 @@ test('pull-request local work creates a one-repository aggregate and owns the PR
     )
     .run('a'.repeat(64), now, now, now);
 
-  const created = service.create({ source: 'pull_request', pr_id: 'acme/alpha#42' });
+  const created = await service.create({ source: 'pull_request', pr_id: 'acme/alpha#42' });
   assert.equal(created.creation_source, 'pull_request');
   assert.equal(created.reference, null);
   await service.waitForIdle(created.id);
@@ -304,7 +306,7 @@ test('provider-native work-reference metadata is persisted without UI-specific n
       }),
     },
   });
-  const created = service.create({ reference: 'eco-3351', workProvider: 'codex' });
+  const created = await service.create({ reference: 'eco-3351', workProvider: 'codex' });
   await service.waitForIdle(created.id);
 
   const listed = service.list()[0];
@@ -324,7 +326,7 @@ test('a repository can be added to a ready work item and duplicate additions are
       }),
     },
   });
-  const created = service.create({ reference: 'PROJECT-ADD', workProvider: 'codex' });
+  const created = await service.create({ reference: 'PROJECT-ADD', workProvider: 'codex' });
   await service.waitForIdle(created.id);
 
   const result = await service.addRepository(created.id, 'acme/beta');
@@ -347,7 +349,7 @@ test('a repository can be added to a ready work item and duplicate additions are
 
 test('repository workspaces can be removed individually only after the root session stops', async () => {
   const { service, childPolicies } = fixture();
-  const created = service.create({ reference: 'PROJECT-REMOVE', workProvider: 'codex' });
+  const created = await service.create({ reference: 'PROJECT-REMOVE', workProvider: 'codex' });
   await service.waitForIdle(created.id);
   const ready = service.detail(created.id);
   const [alpha, beta] = ready.repository_workspaces;
@@ -395,7 +397,11 @@ test('repository discovery reflects additions immediately in the running work it
       }),
     },
   });
-  const created = service.create({ source: 'reference', reference: 'PROJECT-DISCOVERY', resolver_provider: 'codex' });
+  const created = await service.create({
+    source: 'reference',
+    reference: 'PROJECT-DISCOVERY',
+    resolver_provider: 'codex',
+  });
   await service.waitForIdle(created.id);
 
   let available = service.availableRepositories(created.id);
@@ -420,7 +426,7 @@ test('repository additions reject repositories outside configured repos and GitH
       }),
     },
   });
-  const created = service.create({ reference: 'PROJECT-SCOPE', workProvider: 'claude' });
+  const created = await service.create({ reference: 'PROJECT-SCOPE', workProvider: 'claude' });
   await service.waitForIdle(created.id);
 
   await assert.rejects(
@@ -445,7 +451,7 @@ test('a discovered repository is cloned into work_dir before its workspace is ad
     },
   });
   config.poll.repos = ['acme/listed'];
-  const created = service.create({ reference: 'PROJECT-DISCOVERED', workProvider: 'claude' });
+  const created = await service.create({ reference: 'PROJECT-DISCOVERED', workProvider: 'claude' });
   await service.waitForIdle(created.id);
 
   const listed = service.availableRepositories(created.id).find((entry) => entry.repository === 'acme/listed');
@@ -485,7 +491,7 @@ test('a configured repository without a default revision is added from trunk() u
       }),
     },
   });
-  const created = service.create({ reference: 'PROJECT-REVISION', workProvider: 'codex' });
+  const created = await service.create({ reference: 'PROJECT-REVISION', workProvider: 'codex' });
   await service.waitForIdle(created.id);
 
   const result = await service.addRepository(created.id, 'acme/gamma', 'feature@git');
@@ -496,7 +502,7 @@ test('a configured repository without a default revision is added from trunk() u
 
 test('a manual work item on a configured repository without defaultRevision starts from trunk()', async () => {
   const { service } = fixture();
-  const created = service.create({ source: 'manual', title: 'Trunk default', repositories: ['acme/gamma'] });
+  const created = await service.create({ source: 'manual', title: 'Trunk default', repositories: ['acme/gamma'] });
   await service.waitForIdle(created.id);
   const detail = service.detail(created.id);
   assert.equal(detail.state, 'ready');
@@ -515,7 +521,7 @@ test('a failed repository addition restores the ready work item and its root fil
       }),
     },
   });
-  const created = service.create({ reference: 'PROJECT-ROLLBACK', workProvider: 'codex' });
+  const created = await service.create({ reference: 'PROJECT-ROLLBACK', workProvider: 'codex' });
   await service.waitForIdle(created.id);
 
   await assert.rejects(service.addRepository(created.id, 'acme/beta'), failure);
@@ -533,7 +539,7 @@ test('a failed repository addition restores the ready work item and its root fil
 
 test('destruction removes owned checkouts, preserves bookmark policy, and retains detail and history', async () => {
   const { service, childPolicies } = fixture();
-  const created = service.create({ reference: 'PROJECT-1', workProvider: 'claude' });
+  const created = await service.create({ reference: 'PROJECT-1', workProvider: 'claude' });
   await service.waitForIdle(created.id);
   const ready = service.detail(created.id);
   const dirtyDirectory = join(ready.root_path, 'repos', 'unmanaged-checkout');
@@ -637,7 +643,7 @@ test('resolver failure creates no child rows and is retryable as resolution', as
     },
     logger: { log() {}, warn: (message) => warnings.push(message) },
   });
-  const created = service.create({ reference: 'PROJECT-2', workProvider: 'claude' });
+  const created = await service.create({ reference: 'PROJECT-2', workProvider: 'claude' });
   await service.waitForIdle(created.id);
 
   const detail = service.detail(created.id);
@@ -657,7 +663,7 @@ test('resolver failure creates no child rows and is retryable as resolution', as
 
 test('detail DTO sanitizes persisted warnings and lifecycle errors at the API boundary', async () => {
   const { service } = fixture();
-  const created = service.create({ reference: 'PROJECT-REDACTION', workProvider: 'codex' });
+  const created = await service.create({ reference: 'PROJECT-REDACTION', workProvider: 'codex' });
   await service.waitForIdle(created.id);
   const child = getDb().prepare('SELECT id FROM workspaces WHERE work_item_id = ? LIMIT 1').get(created.id);
   getDb()
@@ -686,7 +692,7 @@ test('terminal retry cleans a stale failed launch and starts its replacement onc
         .run(new Date().toISOString(), id);
     },
   });
-  const created = service.create({ reference: 'PROJECT-TERMINAL', workProvider: 'codex' });
+  const created = await service.create({ reference: 'PROJECT-TERMINAL', workProvider: 'codex' });
   await service.waitForIdle(created.id);
   const now = new Date().toISOString();
   getDb()
@@ -725,17 +731,17 @@ test('terminal retry cleans a stale failed launch and starts its replacement onc
   );
 });
 
-test('invalid references fail synchronously without inserting a work item', () => {
+test('invalid references reject without inserting a work item', async () => {
   const { service } = fixture();
-  assert.throws(
+  await assert.rejects(
     () => service.create({ reference: '', workProvider: 'claude' }),
     (error) => error.code === 'invalid_reference',
   );
-  assert.throws(
+  await assert.rejects(
     () => service.create({ reference: 'bad\nreference', workProvider: 'claude' }),
     (error) => error.code === 'invalid_reference',
   );
-  assert.throws(
+  await assert.rejects(
     () => service.create({ reference: '\u00e9'.repeat(257), workProvider: 'claude' }),
     (error) => error.code === 'invalid_reference',
   );

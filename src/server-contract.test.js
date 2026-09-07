@@ -7,6 +7,7 @@ import { parseConfig } from './config.js';
 import { closeDb, initDb } from './db.js';
 import { migrateDb } from './migrations.js';
 import { createServer } from './server.js';
+import { markTestPrAuthored } from './test-support/authored-prs.js';
 
 function insertPr(db, { id, number, syncedAt }) {
   db.prepare(
@@ -15,6 +16,7 @@ function insertPr(db, { id, number, syncedAt }) {
        synced_at)
      VALUES (?, ?, ?, 'widgets', 'acme', 'octocat', ?, 'feature', ?, ?, ?)`,
   ).run(id, number, `PR ${number}`, `https://example.test/${number}`, syncedAt, syncedAt, syncedAt);
+  markTestPrAuthored(db, id);
 }
 
 test('PR API uses injected dependencies and reports authored freshness', async () => {

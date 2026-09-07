@@ -3,6 +3,8 @@ import { renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, test, vi } from 'vitest';
 import { useWorkDashboard } from './useWorkDashboard.js';
 
+vi.mock('../lib/event-stream.js', () => ({ subscribeAppEvent: () => () => {} }));
+
 const state = vi.hoisted(() => ({
   fetchWorkspaces: vi.fn(),
   prSource: {},
@@ -88,7 +90,7 @@ test.each([
 
   await waitFor(() => assert.equal(result.current.sources.workspaces.status, 'ready'));
   assert.equal(state.fetchWorkspaces.mock.calls.length, 1);
-  assert.deepEqual(result.current.configured, { pull_requests: poll, work_items: workItems });
+  assert.deepEqual(result.current.configured, { pull_requests: poll, work_items: workItems, review_requests: false });
   assert.equal(result.current.sources.pull_requests.status, poll ? 'ready' : 'disabled');
   assert.equal(result.current.counts.open_pull_requests, poll ? 0 : null);
   assert.equal(result.current.rows[0]?.id, workItem.id);

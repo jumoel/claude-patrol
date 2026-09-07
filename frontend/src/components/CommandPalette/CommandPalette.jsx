@@ -360,8 +360,8 @@ function PRResult({ pr, sessionState, dismissed }) {
         <span className={styles.resultBranch}>{pr.branch}</span>
       </Stack>
       <Stack gap={1} className={styles.resultBadges}>
-        <StatusBadge status={pr.ci_status} type="ci" />
-        <StatusBadge status={pr.review_status} type="review" />
+        {pr.ci_status && <StatusBadge status={pr.ci_status} type="ci" />}
+        {pr.review_status && <StatusBadge status={pr.review_status} type="review" />}
         {pr.mergeable === 'CONFLICTING' && <StatusBadge status={pr.mergeable} type="merge" />}
         {pr.draft && <Badge color="yellow">Draft</Badge>}
         <SessionStateBadge state={sessionState} dismissed={dismissed} />

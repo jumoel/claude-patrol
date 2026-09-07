@@ -1,5 +1,6 @@
 import { execFile as execFileCb } from 'node:child_process';
-import { emitLocalChange } from './app-events.js';
+import { isDeepStrictEqual } from 'node:util';
+import { emitConfigChange, emitLocalChange } from './app-events.js';
 import { parseCliOptions } from './cli-args.js';
 import {
   configEvents,
@@ -235,6 +236,9 @@ export async function startServer(options = {}) {
   if (!cli.noOpen && cli.open) openBrowser(serverUrl);
 
   configEvents.on('change', (newConfig) => {
+    const previous = getCurrentConfig();
+    const withoutReviews = (config) => ({ ...config, poll: { ...config.poll, review_requests: undefined } });
+    const reviewOnly = isDeepStrictEqual(withoutReviews(previous), withoutReviews(newConfig));
     setCurrentConfig(newConfig);
     if (isPollConfigured(newConfig)) {
       console.log(`Config changed, ${pollerRunning ? 'restarting' : 'starting'} poller`);
@@ -248,7 +252,8 @@ export async function startServer(options = {}) {
         console.error(`[poller] Target reconciliation failed: ${error.message}`),
       );
     }
-    emitLocalChange();
+    emitConfigChange({});
+    if (!reviewOnly) emitLocalChange();
     if (isTTY) setHeader(statusHeader(serverUrl, newConfig));
   });
 

@@ -639,7 +639,7 @@ export async function manualRunRule(ruleId, options = {}) {
   const db = getDb();
   if (PR_TRIGGERS.has(rule.on)) {
     if (!options.pr_id) throw taggedError('invalid_request', `pr_id required for ${rule.on} rules`);
-    const row = db.prepare('SELECT * FROM prs WHERE id = ?').get(options.pr_id);
+    const row = db.prepare('SELECT * FROM authored_prs WHERE id = ?').get(options.pr_id);
     if (!row) throw taggedError('pr_not_found', `pr not found: ${options.pr_id}`);
     const pr = formatPR(row);
     const cooldownKey = pr.id;
@@ -736,7 +736,7 @@ export function subscribeRule(ruleId, prId) {
     throw taggedError('invalid_request', `rule '${ruleId}' does not require subscription`);
   }
   const db = getDb();
-  const pr = db.prepare('SELECT 1 FROM prs WHERE id = ?').get(prId);
+  const pr = db.prepare('SELECT 1 FROM authored_prs WHERE id = ?').get(prId);
   if (!pr) throw taggedError('pr_not_found', `pr not found: ${prId}`);
   const info = db
     .prepare('INSERT INTO rule_subscriptions (rule_id, pr_id, created_at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING')
@@ -792,7 +792,7 @@ export function runRuleForAll(ruleId, options = {}) {
   }
 
   const db = getDb();
-  const allRows = db.prepare('SELECT * FROM prs').all();
+  const allRows = db.prepare('SELECT * FROM authored_prs').all();
   const fired = [];
   const skipped = [];
 
@@ -875,7 +875,7 @@ export function subscribeRuleForAll(ruleId) {
   }
 
   const db = getDb();
-  const allRows = db.prepare('SELECT * FROM prs').all();
+  const allRows = db.prepare('SELECT * FROM authored_prs').all();
   const subscribed = [];
   const already = [];
   const skipped = [];

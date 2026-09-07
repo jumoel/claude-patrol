@@ -430,29 +430,38 @@ export function sourceRepositoryPath(repo, config) {
  * @param {{runExec?: typeof execFile}} [options]
  * @returns {Promise<{sourcePath: string, startRevision: string}>}
  */
-export async function ensureManualSourceRepository(repo, config, { runExec = execFile } = {}) {
-  const operation = async () => {
-    const [scope, name, extra] = String(repo).split('/');
-    const validSegment = (value) =>
-      Boolean(value) && value !== '.' && value !== '..' && !/[\s/\\\u0000-\u001f\u007f-\u009f]/u.test(value);
-    if (!validSegment(scope) || !validSegment(name) || extra) {
-      throw taggedError('invalid_repository', `Invalid repository identifier: ${repo}`);
-    }
+/** Caller holds the source-repository lock across clone/import/child creation. */
+async function ensureSourceRepositoryUnlocked(repo, config, runExec) {
+  const [owner, name, extra] = String(repo).split('/');
+  const valid = (value) =>
+    value && value !== '.' && value !== '..' && !/[\s/\\\u0000-\u001f\u007f-\u009f]/u.test(value);
+  if (!valid(owner) || !valid(name) || extra) throw taggedError('invalid_repository', 'Invalid repository identifier');
+  const workDir = expandPath(config.work_dir);
+  mkdirSync(workDir, { recursive: true });
+  const realWorkDir = realpathSync(workDir);
+  const destination = resolve(realWorkDir, owner, name);
+  mkdirSync(dirname(destination), { recursive: true });
+  if (!relationInside(realWorkDir, realpathSync(dirname(destination))))
+    throw taggedError('unsafe_repository_path', 'Repository parent escapes work_dir');
+  if (!existsSync(destination)) {
+    await runExec('gh', ['repo', 'clone', repo, destination], { encoding: 'utf8', timeout: 120_000 });
+  } else if (!existsSync(resolve(destination, '.git')) && !existsSync(resolve(destination, '.jj'))) {
+    throw taggedError('repository_path_conflict', 'Repository destination exists but is not a repository');
+  }
+  if (!relationInside(realWorkDir, realpathSync(destination)))
+    throw taggedError('unsafe_repository_path', 'Repository escapes work_dir');
+  if (!existsSync(resolve(destination, '.jj'))) await ensureJjInit(destination, { runExec });
+  return sourceRepositoryPath(repo, config);
+}
 
-    let defaultBranch;
-    try {
-      const { stdout } = await runExec(
-        'gh',
-        ['repo', 'view', repo, '--json', 'defaultBranchRef', '--jq', '.defaultBranchRef.name'],
-        { encoding: 'utf8' },
-      );
-      defaultBranch = String(stdout).trim();
-    } catch (error) {
-      throw taggedError(
-        'repository_discovery_failed',
-        `Could not inspect GitHub repository ${repo}: ${sanitizePublicText(error.message)}`,
-      );
-    }
+export async function ensureManualSourceRepository(repo, config, { runExec = execFile } = {}) {
+  return withSourceRepositoryLock(repo, async () => {
+    const { stdout } = await runExec(
+      'gh',
+      ['repo', 'view', repo, '--json', 'defaultBranchRef', '--jq', '.defaultBranchRef.name'],
+      { encoding: 'utf8', timeout: 30_000 },
+    );
+    const defaultBranch = String(stdout).trim();
     if (
       !defaultBranch ||
       Buffer.byteLength(defaultBranch, 'utf8') > 255 ||
@@ -460,44 +469,89 @@ export async function ensureManualSourceRepository(repo, config, { runExec = exe
     ) {
       throw taggedError('repository_default_branch_missing', `GitHub repository ${repo} has no default branch`);
     }
+    return {
+      sourcePath: await ensureSourceRepositoryUnlocked(repo, config, runExec),
+      startRevision: `${defaultBranch}@origin`,
+    };
+  });
+}
 
-    const workDir = expandPath(config.work_dir);
-    mkdirSync(workDir, { recursive: true });
-    const realWorkDir = realpathSync(workDir);
-    const destination = resolve(realWorkDir, scope, name);
-    if (!relationInside(realWorkDir, destination)) {
-      throw taggedError('unsafe_repository_path', `Repository path escapes work_dir: ${repo}`);
-    }
-
-    let cloned = false;
+/** Keep an exact PR commit reachable until the new workspace owns it. */
+export async function createPullRequestChild(input, { runExec = execFile, createChild = createWorkItemChild } = {}) {
+  const { repo, config, sourcePrNumber, startRevision, workItemId } = input;
+  if (!Number.isSafeInteger(sourcePrNumber) || sourcePrNumber < 1 || !/^[0-9a-f]{40,64}$/i.test(startRevision)) {
+    throw taggedError('invalid_revision', 'PR workspace preparation requires an immutable PR number and commit');
+  }
+  return withSourceRepositoryLock(repo, async () => {
+    const source = await ensureSourceRepositoryUnlocked(repo, config, runExec);
+    const jj = (args) =>
+      runExec('jj', [...args, '--ignore-working-copy', '-R', source], { encoding: 'utf8', timeout: 30_000 });
+    const { stdout } = await jj(['git', 'root']);
+    const gitDir = String(stdout).trim();
+    if (!gitDir) throw taggedError('repository_unavailable', 'jj did not identify its Git store');
+    const git = (args) => runExec('git', ['--git-dir', gitDir, ...args], { encoding: 'utf8', timeout: 60_000 });
+    const namespace = `patrol-pr-${workItemId}-${sourcePrNumber}`;
+    if (!/^[a-zA-Z0-9-]+$/.test(namespace))
+      throw taggedError('invalid_request', 'Invalid work-item preparation identity');
+    const ref = `refs/heads/${namespace}`;
+    let operationError;
+    let result;
     try {
-      if (!existsSync(destination)) {
-        mkdirSync(dirname(destination), { recursive: true });
-        cloned = true;
-        await runExec('gh', ['repo', 'clone', repo, destination], { encoding: 'utf8' });
-      } else if (!existsSync(resolve(destination, '.git')) && !existsSync(resolve(destination, '.jj'))) {
-        throw taggedError(
-          'repository_path_conflict',
-          `Repository destination exists but is not a Git or jj repository: ${destination}`,
-        );
+      let available = false;
+      try {
+        await git(['cat-file', '-e', `${startRevision}^{commit}`]);
+        available = true;
+      } catch {
+        /* A missing immutable commit must be fetched and verified. */
       }
-
-      await ensureJjInit(destination, { runExec });
-      return {
-        sourcePath: sourceRepositoryPath(repo, config),
-        startRevision: `${defaultBranch}@origin`,
-      };
+      if (!available) {
+        const protocol = String(
+          (
+            await runExec('gh', ['config', 'get', 'git_protocol', '--host', 'github.com'], {
+              encoding: 'utf8',
+              timeout: 10_000,
+            })
+          ).stdout,
+        ).trim();
+        if (!['ssh', 'https'].includes(protocol))
+          throw taggedError('repository_unavailable', 'GitHub Git protocol must be ssh or https');
+        const metadata = JSON.parse(
+          String((await runExec('gh', ['api', `repos/${repo}`], { encoding: 'utf8', timeout: 30_000 })).stdout),
+        );
+        const url = protocol === 'ssh' ? metadata.ssh_url : metadata.clone_url;
+        if (
+          typeof url !== 'string' ||
+          !(protocol === 'ssh' ? /^git@github\.com:[^\s]+\.git$/ : /^https:\/\/github\.com\/[^\s]+\.git$/).test(url)
+        ) {
+          throw taggedError('repository_unavailable', 'GitHub did not return a canonical base-repository Git URL');
+        }
+        await git(['fetch', '--no-tags', '--no-write-fetch-head', url, `+refs/pull/${sourcePrNumber}/head:${ref}`]);
+        const fetched = String((await git(['rev-parse', `${ref}^{commit}`])).stdout).trim();
+        if (fetched !== startRevision)
+          throw taggedError('invalid_state', 'PR head changed before checkout; the stored revision was not replaced');
+      } else await git(['update-ref', ref, startRevision]);
+      await jj(['git', 'import']);
+      const imported = String((await jj(['log', '--no-graph', '-r', startRevision, '-T', 'commit_id'])).stdout).trim();
+      if (imported !== startRevision)
+        throw taggedError('revision_unresolved', 'Imported PR commit did not match the stored revision');
+      result = await createChild(input);
     } catch (error) {
-      if (cloned) await rm(destination, { recursive: true, force: true });
-      if (error.code) throw error;
+      operationError = error;
+    }
+    try {
+      // Deterministic app-owned names also remove leftovers from an interrupted attempt.
+      await git(['update-ref', '-d', ref]);
+      await jj(['bookmark', 'forget', namespace]);
+      await jj(['git', 'import']);
+    } catch (cleanupError) {
       throw taggedError(
-        'repository_clone_failed',
-        `Could not prepare GitHub repository ${repo}: ${sanitizePublicText(error.message)}`,
+        'pr_ref_cleanup_failed',
+        `Could not clean up ${ref} and bookmark ${namespace}: ${sanitizePublicText(cleanupError.message)}${operationError ? `; preparation also failed: ${sanitizePublicText(operationError.message)}` : ''}`,
       );
     }
-  };
-
-  return withSourceRepositoryLock(repo, operation);
+    if (operationError) throw operationError;
+    return result;
+  });
 }
 
 export async function resolveWorkspaceRevision(repo, revision, config) {
@@ -506,7 +560,7 @@ export async function resolveWorkspaceRevision(repo, revision, config) {
   try {
     ({ stdout } = await execFile(
       'jj',
-      ['log', '--no-graph', '-r', revision, '-T', 'commit_id ++ "\\n"', '-R', sourcePath],
+      ['log', '--no-graph', '-r', revision, '-T', 'commit_id ++ "\\n"', '--ignore-working-copy', '-R', sourcePath],
       {
         encoding: 'utf8',
       },
@@ -555,17 +609,35 @@ export async function createWorkItemChild({
     let bookmarkCreated = false;
     try {
       updateWorkspaceOperation(id, 'creating', 'create:check_bookmark');
-      const { stdout } = await execFile('jj', ['bookmark', 'list', bookmark, '-T', 'name ++ "\\n"', '-R', sourcePath], {
-        encoding: 'utf8',
-      });
+      const { stdout } = await execFile(
+        'jj',
+        ['bookmark', 'list', bookmark, '-T', 'name ++ "\\n"', '--ignore-working-copy', '-R', sourcePath],
+        {
+          encoding: 'utf8',
+        },
+      );
       if (String(stdout).trim()) {
         throw taggedError('bookmark_exists', `Bookmark already exists in ${repo}: ${bookmark}`);
       }
 
       mkdirSync(dirname(workspacePath), { recursive: true });
       updateWorkspaceOperation(id, 'creating', 'create:add_workspace');
-      await execFile('jj', ['workspace', 'add', workspacePath, '--name', name, '-r', commitId, '-R', sourcePath]);
+      await execFile('jj', [
+        'workspace',
+        'add',
+        workspacePath,
+        '--name',
+        name,
+        '-r',
+        commitId,
+        '--sparse-patterns',
+        'full',
+        '--ignore-working-copy',
+        '-R',
+        sourcePath,
+      ]);
       writePatrolWorkspaceMarker(workspacePath, { id, repo, name, kind: 'work_item' });
+      await execFile('jj', ['workspace', 'update-stale', '-R', workspacePath]);
       updateWorkspaceOperation(id, 'creating', 'create:bookmark');
       await execFile('jj', ['bookmark', 'create', bookmark, '-r', '@', '-R', workspacePath]);
       bookmarkCreated = true;
@@ -745,7 +817,7 @@ async function compensateWorkspaceCreation({
       'create:compensation_forget',
       async () => {
         try {
-          await execFile('jj', ['workspace', 'forget', name, '-R', mainRepoPath]);
+          await execFile('jj', ['workspace', 'forget', name, '--ignore-working-copy', '-R', mainRepoPath]);
         } catch (caught) {
           if (!isAlreadyForgotten(caught)) throw caught;
         }
@@ -757,7 +829,7 @@ async function compensateWorkspaceCreation({
   if (deleteBookmark) {
     steps.push([
       'create:compensation_bookmark',
-      () => execFile('jj', ['bookmark', 'delete', deleteBookmark, '-R', mainRepoPath]),
+      () => execFile('jj', ['bookmark', 'delete', deleteBookmark, '--ignore-working-copy', '-R', mainRepoPath]),
     ]);
   }
 

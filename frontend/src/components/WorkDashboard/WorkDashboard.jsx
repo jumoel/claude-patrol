@@ -15,6 +15,7 @@ import {
   sortDashboardRows,
 } from '../../lib/work-dashboard.js';
 import { PullRequestStatusBadges } from '../PullRequestStatusBadges/PullRequestStatusBadges.jsx';
+import { ReviewRequests } from '../ReviewRequests/ReviewRequests.jsx';
 import { FloatingPanel } from '../ui/FloatingPanel/FloatingPanel.jsx';
 import { Spinner } from '../ui/Spinner/Spinner.jsx';
 import { WORKING_LABEL, WorkingBadge } from '../ui/WorkingBadge/WorkingBadge.jsx';
@@ -26,6 +27,7 @@ const SOURCE_LABELS = {
   work_items: 'Work items',
   workspaces: 'Workspaces',
   sessions: 'Sessions',
+  review_requests: 'Review requests',
 };
 const COLUMN_STORAGE_KEY = 'claude-patrol-work-columns-v1';
 const COLUMNS = [
@@ -341,6 +343,8 @@ function PopoverMenu({ label, active = false, className, menuLabel, children }) 
  *     workItemSource: {reload: () => void},
  *     workspaceSource: {reload: () => void},
  *     sessionSource: {allSessions: import('../../types').Session[], reload: () => void},
+ *     configured?: {review_requests?: boolean},
+ *     reviewSource?: ReturnType<typeof import('../../hooks/useReviewRequests.js').useReviewRequests>,
  *   },
  *   filters: import('../../types').FilterState,
  *   onFilterChange: (filters: import('../../types').FilterState) => void,
@@ -386,6 +390,9 @@ export function WorkDashboard({
     work_items: dashboard.workItemSource.reload,
     workspaces: dashboard.workspaceSource.reload,
     sessions: dashboard.sessionSource.reload,
+    review_requests: () => {
+      void dashboard.reviewSource?.retry();
+    },
   });
   const pullRequests = dashboard.rows.flatMap((row) => row.pull_requests);
   const orgOptions = [...new Set(pullRequests.map((pr) => pr.org))].sort().map((value) => ({ value, label: value }));
@@ -513,6 +520,10 @@ export function WorkDashboard({
         onAcknowledge={onAcknowledgeSession}
         onOpenGlobalTerminal={onOpenGlobalTerminal}
       />
+
+      {dashboard.configured?.review_requests && dashboard.reviewSource && (
+        <ReviewRequests source={dashboard.reviewSource} />
+      )}
 
       <section className={styles.work} aria-labelledby="work-heading">
         <div className={styles.sectionHeader}>
@@ -740,9 +751,10 @@ export function WorkDashboard({
               ))}
             </tbody>
           </table>
-          {rows.length === 0 && !Object.values(dashboard.sources).some((source) => source.status === 'loading') && (
-            <p className={styles.emptyState}>No work matches these filters.</p>
-          )}
+          {rows.length === 0 &&
+            ![dashboard.sources.pull_requests, dashboard.sources.work_items, dashboard.sources.workspaces].some(
+              (source) => source.status === 'loading',
+            ) && <p className={styles.emptyState}>No work matches these filters.</p>}
         </div>
       </section>
     </div>

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
 import { closeDb, getDb, initDb } from './db.js';
 import { adoptScratchWorkspaces } from './poller.js';
+import { markTestPrAuthored } from './test-support/authored-prs.js';
 
 afterEach(() => closeDb());
 
@@ -14,6 +15,7 @@ function insertPr(id, branch) {
       ) VALUES (?, ?, ?, 'mono', 'chainguard-dev', 'jumoel', ?, ?, ?, ?, ?)`,
     )
     .run(id, Number(id.split('#').at(-1)), `PR ${id}`, `https://example.test/${id}`, branch, now, now, now);
+  markTestPrAuthored(getDb(), id);
 }
 
 function insertScratch(id, bookmark) {

@@ -1,0 +1,11 @@
+.section { display: grid; gap: 0.75rem; padding: 1rem; margin-bottom: 12px; background: #fff; border: 1px solid var(--line); border-radius: 2px; }
+.header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.header h2 { font-size: 1rem; margin: 0; }
+.header h2 span { opacity: 0.6; margin-left: 0.5rem; }
+.card { border: 1px solid var(--line); border-radius: 2px; padding: 0.75rem; }
+.summary { display: flex; align-items: flex-start; gap: 0.75rem; }
+.toggle { min-width: 2rem; min-height: 2rem; }
+.metadata { opacity: 0.7; font-size: 0.85rem; margin-top: 0.25rem; }
+.targets { display: flex; flex-wrap: wrap; gap: 0.5rem; font-size: 0.85rem; margin-top: 0.25rem; }
+.details { display: flex; flex-wrap: wrap; gap: 1rem; padding-top: 0.75rem; font-size: 0.85rem; }
+.warning { font-size: 0.85rem; margin: 0.5rem 0 0; }

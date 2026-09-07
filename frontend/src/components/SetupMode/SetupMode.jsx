@@ -79,6 +79,35 @@ function SettingsSection({ title, meta, children }) {
   );
 }
 
+/** @param {{label: string, values: string[], onChange: (values: string[]) => void, placeholder: string}} props */
+function ReviewTargetFields({ label, values, onChange, placeholder }) {
+  return (
+    <fieldset>
+      <legend>{label}</legend>
+      {values.map((value, index) => (
+        <div key={`${label}-${index}`}>
+          <input
+            aria-label={`${label} ${index + 1}`}
+            value={value}
+            placeholder={placeholder}
+            onChange={(event) => onChange(values.map((item, i) => (i === index ? event.target.value : item)))}
+          />
+          <Button
+            type="button"
+            aria-label={`Remove ${label.toLowerCase()} ${index + 1}`}
+            onClick={() => onChange(values.filter((_, i) => i !== index))}
+          >
+            Remove
+          </Button>
+        </div>
+      ))}
+      <Button type="button" onClick={() => onChange([...values, ''])}>
+        Add {label.toLowerCase() === 'users' ? 'user' : 'team'}
+      </Button>
+    </fieldset>
+  );
+}
+
 /** @param {{ onConfigured: () => void, isFirstRun: boolean, onRetry: () => void }} props */
 function PollSetupMode({ onConfigured, isFirstRun, onRetry }) {
   const [step, setStep] = useState(/** @type {SetupStep} */ ('accounts'));
@@ -92,6 +121,8 @@ function PollSetupMode({ onConfigured, isFirstRun, onRetry }) {
   const [selectedRepos, setSelectedRepos] = useState(/** @type {Record<string, Set<string>>} */ ({}));
   const [repoQueries, setRepoQueries] = useState(/** @type {Record<string, string>} */ ({}));
   const [interval, setInterval_] = useState(30);
+  const [reviewUsers, setReviewUsers] = useState(['@me']);
+  const [reviewTeams, setReviewTeams] = useState(/** @type {string[]} */ ([]));
   /** Per-account repository list failures, shown in place of an empty list. */
   const [repoErrors, setRepoErrors] = useState(/** @type {Record<string, string>} */ ({}));
   const applyRepoList = useCallback(
@@ -139,6 +170,8 @@ function PollSetupMode({ onConfigured, isFirstRun, onRetry }) {
         if (configData.poll.interval_seconds) {
           setInterval_(configData.poll.interval_seconds);
         }
+        setReviewUsers(configData.poll.review_requests?.users ?? ['@me']);
+        setReviewTeams(configData.poll.review_requests?.teams ?? []);
         setAccountModes(modes);
         setSelectedRepos(repos);
 
@@ -223,6 +256,10 @@ function PollSetupMode({ onConfigured, isFirstRun, onRetry }) {
           orgs,
           repos,
           interval_seconds: interval,
+          review_requests: {
+            users: reviewUsers.map((value) => value.trim()).filter(Boolean),
+            teams: reviewTeams.map((value) => value.trim()).filter(Boolean),
+          },
         },
       });
       onConfigured();
@@ -230,7 +267,7 @@ function PollSetupMode({ onConfigured, isFirstRun, onRetry }) {
       setError(getErrorMessage(err));
       setStep('settings');
     }
-  }, [accountModes, selectedRepos, interval, onConfigured]);
+  }, [accountModes, selectedRepos, interval, onConfigured, reviewUsers, reviewTeams]);
 
   if (loading) {
     return (
@@ -453,6 +490,26 @@ function PollSetupMode({ onConfigured, isFirstRun, onRetry }) {
 
         {step === 'settings' && (
           <div className={`${styles.wizardBody} ${styles.settingsPanel}`}>
+            <div className={styles.settingsContent}>
+              <h3>Review requests</h3>
+              <p className={styles.settingsHint}>
+                Watch direct requests for these users and exact teams. @me means the signed-in user. Team membership is
+                never expanded. Remove all targets to disable review watching.
+              </p>
+              <ReviewTargetFields
+                label="Users"
+                values={reviewUsers}
+                onChange={setReviewUsers}
+                placeholder="@me or login"
+              />
+              <ReviewTargetFields
+                label="Teams"
+                values={reviewTeams}
+                onChange={setReviewTeams}
+                placeholder="organization/team-slug"
+              />
+              {error?.includes('review_requests') && <p role="alert">{error}</p>}
+            </div>
             <div className={styles.settingsContent}>
               <div className={styles.settingsHeader}>
                 <label className={styles.settingsLabel}>Poll interval</label>

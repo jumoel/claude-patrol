@@ -37,6 +37,12 @@ export interface PullRequest {
   title: string;
   body: string;
   body_html: string;
+  body_known?: boolean;
+  details_known?: boolean;
+  body_stale?: boolean;
+  details_stale?: boolean;
+  hydration_error?: string | null;
+  authored?: boolean;
   repo: string;
   org: string;
   author: string;
@@ -53,8 +59,8 @@ export interface PullRequest {
   created_at: string;
   updated_at: string;
   synced_at: string;
-  ci_status: CiStatus;
-  review_status: ReviewStatus;
+  ci_status: CiStatus | null;
+  review_status: ReviewStatus | null;
   stack_parent: string | null;
   stack_children: string[];
   stack_depth: number;
@@ -81,6 +87,35 @@ export interface PullRequestFreshness {
   refreshing: boolean;
 }
 
+export interface ReviewRequestRow {
+  id: string;
+  number: number;
+  title: string;
+  org: string;
+  repo: string;
+  author: string;
+  url: string;
+  head_oid: string | null;
+  updated_at: string;
+  collapsed: boolean;
+  state_version: string;
+  review_revision: string | null;
+  verification_pending: boolean;
+  targets: Array<{ id: string; kind: 'user' | 'team'; label: string; active: boolean;
+    requested_at: string | null; verified_at: string | null; error: string | null }>;
+}
+
+export interface ReviewRequestPage {
+  rows: ReviewRequestRow[];
+  total_count: number;
+  list_version: string;
+  next_cursor: string | null;
+  missing_ids?: string[];
+  source: { enabled: boolean; plan_id: string; identity_verified: boolean;
+    synced_at: string | null; stale: boolean; incomplete: boolean;
+    errors: Array<{target: string; message: string}> };
+}
+
 export interface PullRequestListResponse {
   prs: PullRequest[];
   synced_at: string | null;
@@ -95,6 +130,7 @@ export interface RemovedPullRequest {
 export type RefreshPullRequestResponse = PullRequest | RemovedPullRequest;
 
 export interface Workspace {
+  pull_request_summary?: PullRequest | null;
   id: string;
   pr_id: string | null;
   name: string;
@@ -206,8 +242,14 @@ export interface WorkItemPullRequest {
   base_branch: string | null;
   draft: boolean;
   mergeable: MergeableStatus;
-  ci_status: CiStatus;
-  review_status: ReviewStatus;
+  ci_status: CiStatus | null;
+  review_status: ReviewStatus | null;
+  body_known?: boolean;
+  details_known?: boolean;
+  details_stale?: boolean;
+  head_oid?: string | null;
+  ownership_state?: 'active' | 'historical';
+  local_repository?: string | null;
   updated_at: string | null;
   tracked: boolean;
   linked_at: string;
@@ -488,10 +530,13 @@ export interface PublicConfig {
     orgs: string[];
     repos: string[];
     interval_seconds: number;
+    review_requests?: { users: string[]; teams: string[] };
   };
   default_session_provider: AgentProvider;
   needs_setup: boolean;
   poll_configured: boolean;
+  review_requests_configured?: boolean;
+  review_requests_plan_id?: string;
   work_items: {
     configured: boolean;
     resolver: null | {

@@ -131,13 +131,13 @@ function createPeerReviewAction(reviewerProvider) {
                      SELECT candidate.rowid
                        FROM workspaces candidate
                       WHERE candidate.work_item_id = l.work_item_id
-                        AND candidate.repo = p.org || '/' || p.repo
+                        AND candidate.repo = l.local_repository
                         AND candidate.status = 'active'
                         AND candidate.operation_state = 'ready'
                       ORDER BY candidate.created_at DESC, candidate.rowid DESC
                       LIMIT 1
                    )
-                WHERE l.work_item_id = ? AND l.pr_id = ?`,
+                WHERE l.work_item_id = ? AND l.pr_id = ? AND l.ownership_state = 'active'`,
             )
             .get(session.work_item_id, review.prId);
         } else {

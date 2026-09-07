@@ -51,6 +51,7 @@ export function createWorkItemLifecycle({
   createChild,
   destroyChild,
   prepareSourceRepository,
+  createPrChild,
   launchSession,
   sessionAlive,
   stopSession,
@@ -256,6 +257,7 @@ export function createWorkItemLifecycle({
       logStage(id, 'root_generation', `generating files for ${repositories.length} repos`);
       const config = getConfig();
       for (const membership of memberships) {
+        if (membership.source_pr_number) continue;
         if (config.repos?.[membership.repo]) continue;
         logStage(id, 'root_generation', `preparing source repository ${membership.repo}`);
         const prepared = await prepareSourceRepository(membership.repo, config);
@@ -267,6 +269,7 @@ export function createWorkItemLifecycle({
       const children = memberships.map((membership) => ({
         ...childDescriptor(item, membership.repo),
         startRevision: membership.start_revision ?? config.repos?.[membership.repo]?.defaultRevision,
+        sourcePrNumber: membership.source_pr_number,
       }));
       await mkdir(resolve(rootPath, 'repos'), { recursive: true });
       writeTemporaryRootFiles(rootPath, children, rootTask(item));
@@ -282,16 +285,21 @@ export function createWorkItemLifecycle({
       let current = 0;
       for (const child of children) {
         logStage(id, 'child_creation', `creating ${current + 1}/${repositories.length} ${child.repo}`);
-        await createChild({
-          id: child.id,
-          workItemId: id,
-          repo: child.repo,
-          name: child.name,
-          workspacePath: resolve(rootPath, 'repos', child.directory),
-          bookmark: item.bookmark,
-          config: getConfig(),
-          startRevision: child.startRevision,
-        });
+        const create = child.sourcePrNumber ? createPrChild : createChild;
+        await create(
+          {
+            id: child.id,
+            workItemId: id,
+            repo: child.repo,
+            name: child.name,
+            workspacePath: resolve(rootPath, 'repos', child.directory),
+            bookmark: item.bookmark,
+            config: getConfig(),
+            startRevision: child.startRevision,
+            sourcePrNumber: child.sourcePrNumber,
+          },
+          { createChild },
+        );
         setMembershipState(id, 'ready', child.repo);
         current += 1;
         mutateWorkItem(id, { progress_current: current, progress_total: repositories.length });

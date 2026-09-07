@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSyncEvents } from '../../hooks/useSyncEvents.js';
 import {
   fetchPR,
@@ -50,8 +50,14 @@ export function LinkedPullRequests({ workItem, selectedPrId, onWorkItemReload, e
   const [actionError, setActionError] = useState('');
   const [attachValue, setAttachValue] = useState('');
   const [attaching, setAttaching] = useState(false);
+  const contentRequest = useRef(0);
+  const contentPending = useRef(false);
+  const selectedWorkspace = workItem.repository_workspaces.find(
+    (workspace) => workspace.identifier === selectedLink?.local_repository,
+  );
 
   const loadSelected = useCallback(() => {
+    const requestId = ++contentRequest.current;
     if (!selectedLink?.tracked) {
       setPR(null);
       setLoading(false);
@@ -67,7 +73,7 @@ export function LinkedPullRequests({ workItem, selectedPrId, onWorkItemReload, e
     setComments(null);
     fetchPR(selectedLink.id)
       .then((next) => {
-        if (active) setPR(next);
+        if (active && requestId === contentRequest.current) setPR(next);
       })
       .catch((error) => {
         if (active) setLoadError(getErrorMessage(error, 'Failed to load pull request'));
@@ -89,11 +95,28 @@ export function LinkedPullRequests({ workItem, selectedPrId, onWorkItemReload, e
       });
     return () => {
       active = false;
+      contentRequest.current++;
     };
   }, [selectedLink?.id, selectedLink?.tracked]);
 
   useEffect(() => loadSelected(), [loadSelected]);
-  useSyncEvents(loadSelected);
+  const loadContent = useCallback(async () => {
+    if (!selectedLink?.tracked || contentPending.current) return;
+    contentPending.current = true;
+    const requestId = ++contentRequest.current;
+    try {
+      const next = await fetchPR(selectedLink.id);
+      if (requestId === contentRequest.current) {
+        setPR(next);
+        setLoadError('');
+      }
+    } catch (error) {
+      if (requestId === contentRequest.current) setLoadError(getErrorMessage(error));
+    } finally {
+      contentPending.current = false;
+    }
+  }, [selectedLink?.id, selectedLink?.tracked]);
+  useSyncEvents(loadSelected, selectedLink?.id, loadContent);
 
   const handleAttach = useCallback(
     async (/** @type {React.FormEvent<HTMLElement>} */ event) => {
@@ -289,6 +312,17 @@ export function LinkedPullRequests({ workItem, selectedPrId, onWorkItemReload, e
       {loadError && <p className={styles.error}>{loadError}</p>}
       {pr && (
         <div className={styles.selectedDetails}>
+          {selectedLink?.ownership_state === 'historical' && (
+            <p role="status">Historical PR link. This work item no longer owns the PR.</p>
+          )}
+          {selectedWorkspace?.base_commit && pr.head_oid && selectedWorkspace.base_commit !== pr.head_oid && (
+            <p role="status">
+              This workspace starts at an older PR revision. The existing checkout has not been changed.
+            </p>
+          )}
+          {(pr.body_stale || pr.details_stale || pr.hydration_error) && (
+            <p role="status">Cached PR data may be outdated. {pr.hydration_error}</p>
+          )}
           <section className={styles.selectedInspector} aria-labelledby="selected-pr-heading">
             <div className={styles.inspectorHeader}>
               <div>
@@ -340,7 +374,11 @@ export function LinkedPullRequests({ workItem, selectedPrId, onWorkItemReload, e
             <div className={styles.inspectorStatuses}>
               <PullRequestStatusBadges pullRequest={pr} />
             </div>
-            {pr.body_html && <PullRequestDescription bodyHtml={pr.body_html} />}
+            {pr.body_known === false ? (
+              <p>Description unavailable.</p>
+            ) : (
+              pr.body_html && <PullRequestDescription bodyHtml={pr.body_html} />
+            )}
           </section>
           <PullRequestChecks
             pr={pr}
@@ -349,9 +387,9 @@ export function LinkedPullRequests({ workItem, selectedPrId, onWorkItemReload, e
             onInvestigateFailures={handleInvestigateFailures}
           />
           <section className={styles.ruleControls} aria-label="Rules">
-            <RuleControls prId={pr.id} />
+            {pr.authored !== false && <RuleControls prId={pr.id} />}
           </section>
-          <PullRequestReviews reviews={pr.reviews} />
+          <PullRequestReviews reviews={pr.reviews} known={pr.details_known} />
           <PullRequestComments comments={comments} loading={commentsLoading} />
           {commentsError && <p className={styles.error}>{commentsError}</p>}
         </div>

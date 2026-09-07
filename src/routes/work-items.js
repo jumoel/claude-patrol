@@ -24,6 +24,7 @@ function recoveryActions(error, config) {
  */
 function sendError(reply, error, config) {
   return sendErrorFrom(reply, error, {
+    detail: error.detail ?? null,
     failed_provider: error.failedProvider ?? null,
     recovery_actions: recoveryActions(error, config),
   });
@@ -36,7 +37,7 @@ const field = z.unknown().optional();
 const createWorkItemBody = z.union([
   z.object({ source: z.literal('manual'), title: field, repositories: field, bookmark: field }).strict(),
   z.object({ source: z.literal('reference'), reference: field, resolver_provider: field }).strict(),
-  z.object({ source: z.literal('pull_request'), pr_id: field }).strict(),
+  z.object({ source: z.literal('pull_request'), pr_id: field, expected_head_oid: field }).strict(),
   // Legacy shape without `source`.
   z.object({ reference: field, work_provider: field }).strict(),
 ]);
@@ -47,7 +48,7 @@ const emptyBody = z.object({}).strict().nullish();
 export function registerWorkItemRoutes(app) {
   const { getConfig, workItemService } = app.appContext;
 
-  app.post('/api/work-items', (request, reply) => {
+  app.post('/api/work-items', async (request, reply) => {
     const parsed = parseBody(createWorkItemBody, request.body);
     if (parsed.error) {
       return sendError(
@@ -58,7 +59,7 @@ export function registerWorkItemRoutes(app) {
     }
     const body = parsed.data;
     try {
-      const workItem = workItemService.create(
+      const workItem = await workItemService.create(
         body.source === undefined
           ? { reference: body.reference, workProvider: body.work_provider }
           : {
@@ -69,6 +70,7 @@ export function registerWorkItemRoutes(app) {
               ...(Object.hasOwn(body, 'reference') ? { reference: body.reference } : {}),
               ...(Object.hasOwn(body, 'resolver_provider') ? { resolver_provider: body.resolver_provider } : {}),
               ...(Object.hasOwn(body, 'pr_id') ? { pr_id: body.pr_id } : {}),
+              ...(Object.hasOwn(body, 'expected_head_oid') ? { expected_head_oid: body.expected_head_oid } : {}),
             },
       );
       reply.header('Location', `/api/work-items/${workItem.id}`);

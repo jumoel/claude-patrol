@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 import { emitLocalChange } from './app-events.js';
 import { getDb, withTransaction } from './db.js';
+import { preflightPullRequest } from './pr-preflight.js';
 import { createSession, isSessionAlive, killSessionAndWait } from './pty-manager.js';
 import { runTask } from './tasks.js';
 import { expandPath } from './utils.js';
@@ -31,6 +32,7 @@ import {
   workItemListItem,
 } from './work-item-store.js';
 import {
+  createPullRequestChild,
   createWorkItemChild,
   destroyWorkItemChild,
   ensureManualSourceRepository,
@@ -53,6 +55,8 @@ export function createWorkItemService({
   createChild = createWorkItemChild,
   destroyChild = destroyWorkItemChild,
   prepareSourceRepository = ensureManualSourceRepository,
+  preflightPR = preflightPullRequest,
+  createPrChild = createPullRequestChild,
   launchSession = createSession,
   sessionAlive = isSessionAlive,
   stopSession = killSessionAndWait,
@@ -68,6 +72,7 @@ export function createWorkItemService({
     createChild,
     destroyChild,
     prepareSourceRepository,
+    createPrChild,
     launchSession,
     sessionAlive,
     stopSession,
@@ -90,7 +95,7 @@ export function createWorkItemService({
   } = lifecycle;
 
   return {
-    create(input) {
+    async create(input) {
       const config = getConfig();
       const request =
         input?.source === undefined && Object.hasOwn(input ?? {}, 'reference')
@@ -144,7 +149,7 @@ export function createWorkItemService({
         pullRequest = getDb().prepare('SELECT * FROM prs WHERE id = ?').get(request.pr_id.trim());
         if (!pullRequest) throw workItemError('pull_request_not_found', 'Pull request not found');
         const existingOwner = getDb()
-          .prepare('SELECT work_item_id FROM work_item_pull_requests WHERE pr_id = ?')
+          .prepare("SELECT work_item_id FROM work_item_pull_requests WHERE pr_id = ? AND ownership_state = 'active'")
           .get(pullRequest.id);
         if (existingOwner) {
           return workItemListItem(getWorkItem(existingOwner.work_item_id), { getSessionStates });
@@ -155,10 +160,16 @@ export function createWorkItemService({
         if (legacyWorkspace) {
           throw workItemError('legacy_workspace_exists', 'Pull request already has a legacy workspace');
         }
+        pullRequest = await preflightPR(pullRequest.id, request.expected_head_oid ?? pullRequest.head_oid, config);
+        // Another creation can finish its preflight while this request is awaiting GitHub.
+        const ownerAfterPreflight = getDb()
+          .prepare("SELECT work_item_id FROM work_item_pull_requests WHERE pr_id = ? AND ownership_state = 'active'")
+          .get(pullRequest.id);
+        if (ownerAfterPreflight)
+          return workItemListItem(getWorkItem(ownerAfterPreflight.work_item_id), { getSessionStates });
         const repo = `${pullRequest.org}/${pullRequest.repo}`;
-        sourceRepositoryPath(repo, config);
         title = validateTitle(pullRequest.title);
-        repositories = [{ repo, startRevision: pullRequest.head_oid ?? pullRequest.branch }];
+        repositories = [{ repo, startRevision: pullRequest.head_oid, sourcePrNumber: pullRequest.number }];
       }
 
       withTransaction(getDb(), () => {
@@ -180,19 +191,27 @@ export function createWorkItemService({
         }
         const insertRepository = getDb().prepare(
           `INSERT INTO work_item_repositories (
-             work_item_id, repo, start_revision, position, membership_source, state, created_at, updated_at
-           ) VALUES (?, ?, ?, ?, 'initial', 'adding', ?, ?)`,
+             work_item_id, repo, start_revision, position, membership_source, state, created_at, updated_at, source_pr_number
+           ) VALUES (?, ?, ?, ?, 'initial', 'adding', ?, ?, ?)`,
         );
         repositories.forEach((repository, position) => {
-          insertRepository.run(id, repository.repo, repository.startRevision, position, now, now);
+          insertRepository.run(
+            id,
+            repository.repo,
+            repository.startRevision,
+            position,
+            now,
+            now,
+            repository.sourcePrNumber ?? null,
+          );
         });
         if (pullRequest) {
           getDb()
             .prepare(
-              `INSERT INTO work_item_pull_requests (pr_id, work_item_id, source, linked_at)
-               VALUES (?, ?, 'explicit', ?)`,
+              `INSERT INTO work_item_pull_requests (pr_id, work_item_id, source, linked_at, local_repository)
+               VALUES (?, ?, 'explicit', ?, ?)`,
             )
-            .run(pullRequest.id, id, now);
+            .run(pullRequest.id, id, now, `${pullRequest.org}/${pullRequest.repo}`);
         }
       });
       emitLocalChange();

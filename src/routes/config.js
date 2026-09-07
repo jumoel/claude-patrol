@@ -1,6 +1,7 @@
-import { isConfigured, isPollConfigured, isWorkItemsConfigured } from '../config.js';
+import { isConfigured, isPollConfigured, isReviewRequestsConfigured, isWorkItemsConfigured } from '../config.js';
 import { sendError } from '../http-errors.js';
 import { providerSetup } from '../provider-setup.js';
+import { reviewPlanId } from '../review-request-query.js';
 import { getRestartStatus, getUpdateStatus, pullUpdate, restartServer } from '../update-check.js';
 
 /**
@@ -17,6 +18,8 @@ export function registerConfigRoutes(app) {
     return {
       poll: cfg.poll,
       poll_configured: isPollConfigured(cfg),
+      review_requests_configured: isReviewRequestsConfigured(cfg),
+      review_requests_plan_id: reviewPlanId(cfg.poll),
       default_session_provider: cfg.default_session_provider,
       needs_setup: !isConfigured(cfg),
       work_items: {

@@ -16,6 +16,7 @@ import {
   subscribeRuleForAll,
   unsubscribeRule,
 } from './rules.js';
+import { markTestPrAuthored } from './test-support/authored-prs.js';
 
 const NOW = '2026-08-27T12:00:00.000Z';
 let nowMs = Date.parse(NOW);
@@ -54,6 +55,7 @@ function insertPr(id, { org = 'acme', repo = 'widgets', branch = 'feature', labe
       NOW,
       NOW,
     );
+  markTestPrAuthored(getDb(), id);
 }
 
 function formattedPr(id, overrides = {}) {

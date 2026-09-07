@@ -81,6 +81,8 @@ function checkKey(check) {
 
 /** @param {import('../../types').PullRequest} pr */
 function getHeadlineStatus(pr) {
+  if (pr.details_known === false)
+    return { color: /** @type {const} */ ('gray'), label: 'Status unknown', marker: 'unknown' };
   if (pr.review_status === 'changes_requested') {
     return { color: /** @type {const} */ ('red'), label: 'Changes requested', marker: 'changes' };
   }
@@ -145,15 +147,20 @@ export function PRDetail({ prId, onBack, workspaceStates, acknowledgedSessionIds
   const workspacePromiseRef = useRef(/** @type {Promise<import('../../types').Workspace | null> | null} */ (null));
   /** Incremented per load so a response for a superseded load (older sync, previous prId) is dropped. */
   const loadRequest = useRef(0);
+  const contentRequest = useRef(0);
+  const loadedPrId = useRef(/** @type {string | null} */ (null));
+  const contentPending = useRef(false);
 
   const loadData = useCallback(async () => {
     const requestId = ++loadRequest.current;
+    const contentId = ++contentRequest.current;
     const stale = () => loadRequest.current !== requestId;
     setLoadError('');
     try {
       const [prData, workspaces] = await Promise.all([fetchPR(prId), fetchWorkspaces(prId)]);
       if (stale()) return;
-      setPR(prData);
+      if (contentId === contentRequest.current) setPR(prData);
+      loadedPrId.current = prId;
       const active = workspaces[0] || null;
       setWorkspace(active);
       if (active) {
@@ -192,9 +199,27 @@ export function PRDetail({ prId, onBack, workspaceStates, acknowledgedSessionIds
     loadData();
     return () => {
       loadRequest.current += 1;
+      contentRequest.current += 1;
+      loadedPrId.current = null;
     };
   }, [loadData]);
-  useSyncEvents(loadData);
+  const loadContent = useCallback(async () => {
+    if (loadedPrId.current !== prId || contentPending.current) return;
+    contentPending.current = true;
+    const requestId = ++contentRequest.current;
+    try {
+      const next = await fetchPR(prId);
+      if (requestId === contentRequest.current) {
+        setPR(next);
+        setLoadError('');
+      }
+    } catch (error) {
+      if (requestId === contentRequest.current) setLoadError(getErrorMessage(error));
+    } finally {
+      contentPending.current = false;
+    }
+  }, [prId]);
+  useSyncEvents(loadData, prId, loadContent);
 
   /**
    * Use a legacy workspace or create a work item, deduping concurrent requests.
@@ -204,7 +229,7 @@ export function PRDetail({ prId, onBack, workspaceStates, acknowledgedSessionIds
   const getOrCreateWorkspace = useCallback(async () => {
     if (workspace) return workspace;
     if (workspacePromiseRef.current) return workspacePromiseRef.current;
-    const promise = apiCreateWorkspace(prId)
+    const promise = apiCreateWorkspace(prId, pr?.head_oid)
       .then(({ work_item: workItem }) => {
         workspacePromiseRef.current = null;
         window.location.hash = workItemPath(workItem.id, prId);
@@ -216,7 +241,7 @@ export function PRDetail({ prId, onBack, workspaceStates, acknowledgedSessionIds
       });
     workspacePromiseRef.current = promise;
     return promise;
-  }, [prId, workspace]);
+  }, [prId, workspace, pr?.head_oid]);
 
   /** Ensure a legacy workspace and session exist, or route new local work to its work item. */
   const ensureWorkspaceAndSession = useCallback(async () => {
@@ -471,7 +496,11 @@ export function PRDetail({ prId, onBack, workspaceStates, acknowledgedSessionIds
             disabled={openingSession}
             busy={openingSession}
           >
-            {openingSession ? openingStep : `Open in ${provider === 'codex' ? 'Codex' : 'Claude'}`}
+            {openingSession
+              ? openingStep
+              : workspace
+                ? `Open in ${provider === 'codex' ? 'Codex' : 'Claude'}`
+                : 'Prepare workspace'}
           </AgentProviderButton>
         </div>
       )}
@@ -524,18 +553,24 @@ export function PRDetail({ prId, onBack, workspaceStates, acknowledgedSessionIds
         onInvestigateFailures={handleInvestigateFailures}
       />
 
-      <section className={styles.ruleControls} aria-label="Rules">
-        <RuleControls prId={prId} />
-      </section>
+      {pr.authored !== false && (
+        <section className={styles.ruleControls} aria-label="Rules">
+          <RuleControls prId={prId} />
+        </section>
+      )}
 
       {pr.body_html && (
         <section className={workPage.section} aria-label="Pull request description">
           <PullRequestDescription bodyHtml={pr.body_html} />
         </section>
       )}
+      {pr.body_known === false && <p role="status">Pull request description is unavailable.</p>}
+      {(pr.body_stale || pr.details_stale || pr.hydration_error) && (
+        <p role="status">Cached PR data may be outdated. {pr.hydration_error}</p>
+      )}
 
       {workspace && <SessionHistory key={workspace.id} target={{ type: 'workspace', id: workspace.id }} />}
-      <PullRequestReviews reviews={pr.reviews} />
+      <PullRequestReviews reviews={pr.reviews} known={pr.details_known} />
       <PullRequestComments comments={comments} loading={commentsLoading} />
       {commentsError && (
         <p className={workPage.error} role="alert">
@@ -550,6 +585,7 @@ export function PRDetail({ prId, onBack, workspaceStates, acknowledgedSessionIds
  * @param {{pr: import('../../types').PullRequest, retriggering?: boolean, onRetriggerFailed?: () => void, onInvestigateFailures?: () => void}} props
  */
 export function PullRequestChecks({ pr, retriggering, onRetriggerFailed, onInvestigateFailures }) {
+  if (pr.details_known === false) return <p role="status">Checks have not been fetched.</p>;
   const failedChecks = pr.checks.filter(isFailedCheck);
   const passedChecks = pr.checks.filter(isPassedCheck);
   const runningChecks = pr.checks.filter(isRunningCheck);
@@ -620,8 +656,9 @@ export function PullRequestChecks({ pr, retriggering, onRetriggerFailed, onInves
   );
 }
 
-/** @param {{reviews: import('../../types').PullRequestReview[]}} props */
-export function PullRequestReviews({ reviews }) {
+/** @param {{reviews: import('../../types').PullRequestReview[], known?: boolean}} props */
+export function PullRequestReviews({ reviews, known = true }) {
+  if (!known) return <p role="status">Reviews have not been fetched.</p>;
   if (reviews.length === 0) return null;
   return (
     <section className={shared.sectionCard} aria-label="Reviews">

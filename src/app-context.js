@@ -6,14 +6,7 @@ import { createCodexReviewService } from './codex-review.js';
 import { getCurrentConfig, updateConfig } from './config.js';
 import { getDb } from './db.js';
 import { PeerReviewCoordinator } from './peer-review-coordinator.js';
-import {
-  fetchPRBodyHtml,
-  getGhRateLimitState,
-  getPollerStatus,
-  pollerEvents,
-  refreshSinglePR,
-  triggerPoll,
-} from './poller.js';
+import { getGhRateLimitState, getPollerStatus, pollerEvents, refreshSinglePR, triggerPoll } from './poller.js';
 import {
   attachSession,
   createResumedSession,
@@ -69,8 +62,7 @@ export function createAppContext(overrides = {}) {
     updateConfig,
     triggerPoll,
     refreshSinglePR,
-    fetchPRBodyHtml,
-    getPollerStatus,
+    getPollerStatus: () => getPollerStatus((overrides.getDb ?? getDb)()),
     appEvents: events,
     pollerEvents,
     getGhRateLimitState,

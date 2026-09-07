@@ -72,6 +72,16 @@ function latestTimestamp(values) {
  * @returns {import('../types').DashboardWorkRow[]}
  */
 export function buildDashboardRows({ pullRequests, workItems, workspaces, sessions }) {
+  const visibleIds = new Set(pullRequests.map((pr) => pr.id));
+  pullRequests = [
+    ...pullRequests,
+    ...workspaces.flatMap((workspace) => {
+      const pr = workspace.pull_request_summary;
+      if (!pr || visibleIds.has(pr.id)) return [];
+      visibleIds.add(pr.id);
+      return [pr];
+    }),
+  ];
   const pullRequestById = new Map(pullRequests.map((pr) => [pr.id, pr]));
   /** @type {Map<string, import('../types').PullRequest[]>} */
   const pullRequestsByWorkItem = new Map();

@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { fetchWorkspaces } from '../lib/api.js';
+import { subscribeAppEvent } from '../lib/event-stream.js';
 import { buildDashboardRows, dashboardSourceState } from '../lib/work-dashboard.js';
 import { useGlobalSessions } from './useGlobalSessions.js';
 import { usePRs } from './usePRs.js';
+import { useReviewRequests } from './useReviewRequests.js';
 import { useWorkItems } from './useWorkItems.js';
 
 const DASHBOARD_FILTERS = Object.freeze({});
@@ -46,6 +48,17 @@ function useDashboardWorkspaces(enabled, changeToken) {
     return () => request.current?.abort();
   }, [changeToken, enabled, reload]);
 
+  useEffect(() => {
+    if (!enabled) return undefined;
+    return subscribeAppEvent('review-request-change', (event) => {
+      try {
+        if (['detail', 'summary'].includes(JSON.parse(event.data).kind)) reload();
+      } catch {
+        /* Ignore malformed events. */
+      }
+    });
+  }, [enabled, reload]);
+
   return { workspaces, loading, loaded, error, reload };
 }
 
@@ -53,13 +66,21 @@ function useDashboardWorkspaces(enabled, changeToken) {
  * Owns all data needed by the dashboard. Detail routes can keep using their
  * focused hooks without causing a second dashboard request graph.
  *
- * @param {{enabled: boolean, pollConfigured: boolean, workItemsConfigured: boolean, changeToken: number}} input
+ * @param {{enabled: boolean, pollConfigured: boolean, workItemsConfigured: boolean, changeToken: number, reviewRequestsConfigured?: boolean, reviewPlanId?: string}} input
  */
-export function useWorkDashboard({ enabled, pollConfigured, workItemsConfigured, changeToken }) {
+export function useWorkDashboard({
+  enabled,
+  pollConfigured,
+  workItemsConfigured,
+  changeToken,
+  reviewRequestsConfigured = false,
+  reviewPlanId = '',
+}) {
   const prSource = usePRs(DASHBOARD_FILTERS, enabled && pollConfigured);
   const workItemSource = useWorkItems(enabled);
   const sessionSource = useGlobalSessions(enabled, changeToken);
   const workspaceSource = useDashboardWorkspaces(enabled, changeToken);
+  const reviewSource = useReviewRequests(enabled && reviewRequestsConfigured, reviewPlanId);
 
   const rows = useMemo(
     () =>
@@ -76,10 +97,20 @@ export function useWorkDashboard({ enabled, pollConfigured, workItemsConfigured,
     work_items: dashboardSourceState(workItemSource.error, workItemSource.loading, workItemSource.loaded),
     workspaces: dashboardSourceState(workspaceSource.error, workspaceSource.loading, workspaceSource.loaded),
     sessions: dashboardSourceState(sessionSource.error, sessionSource.loading, sessionSource.loaded),
+    review_requests: dashboardSourceState(
+      reviewSource.error,
+      reviewSource.loading,
+      reviewSource.loaded,
+      reviewRequestsConfigured,
+    ),
   };
 
   return {
-    configured: { pull_requests: pollConfigured, work_items: workItemsConfigured },
+    configured: {
+      pull_requests: pollConfigured,
+      work_items: workItemsConfigured,
+      review_requests: reviewRequestsConfigured,
+    },
     rows,
     sources,
     counts: {
@@ -102,5 +133,6 @@ export function useWorkDashboard({ enabled, pollConfigured, workItemsConfigured,
     workItemSource,
     workspaceSource,
     sessionSource,
+    reviewSource,
   };
 }

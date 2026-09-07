@@ -35,7 +35,7 @@ function storeDiffCache(map, prId, key, data) {
  * @param {import('fastify').FastifyInstance} app
  */
 export function registerPRRoutes(app) {
-  const { fetchPRBodyHtml, getConfig, getDb, getPollerStatus, refreshSinglePR } = app.appContext;
+  const { getConfig, getDb, getPollerStatus, refreshSinglePR } = app.appContext;
   /** @type {Map<string, {key: string, ts: number, data: object}>} */
   const diffCache = new Map();
   /** @type {Map<string, {key: string, ts: number, data: object}>} */
@@ -44,7 +44,7 @@ export function registerPRRoutes(app) {
     const db = getDb();
     const { org, repo, draft, ci, review, mergeable } = request.query;
 
-    let sql = 'SELECT * FROM prs WHERE 1=1';
+    let sql = 'SELECT * FROM authored_prs WHERE 1=1';
     const params = [];
 
     if (org) {
@@ -115,7 +115,7 @@ export function registerPRRoutes(app) {
     }
 
     const state = db.prepare('SELECT * FROM sync_state WHERE id = 1').get();
-    const fallback = db.prepare('SELECT MAX(synced_at) AS synced_at FROM prs').get();
+    const fallback = db.prepare('SELECT MAX(synced_at) AS synced_at FROM authored_prs').get();
     const syncedAt = state?.synced_at ?? fallback?.synced_at ?? null;
     const config = getConfig();
     const stale = !syncedAt || Date.now() - Date.parse(syncedAt) > config.poll.interval_seconds * 2 * 1000;
@@ -133,30 +133,35 @@ export function registerPRRoutes(app) {
 
   app.get('/api/prs/:id', async (request, reply) => {
     const db = getDb();
-    const row = db.prepare('SELECT * FROM prs WHERE id = ?').get(request.params.id);
+    let row = db.prepare('SELECT * FROM prs WHERE id = ?').get(request.params.id);
     if (!row) {
       return sendError(reply, 'pr_not_found', 'PR not found');
     }
 
-    // body_html isn't fetched in the poll cycle (heavy, only used here). Fetch
-    // it on the first detail-view open for this PR (or after the body changed,
-    // which clears the cached html in the poller). Failures degrade silently.
-    if (!row.body_html) {
-      const html = await fetchPRBodyHtml(row.org, row.repo, row.number);
-      if (html != null) {
-        db.prepare('UPDATE prs SET body_html = ? WHERE id = ?').run(html, row.id);
-        row.body_html = html;
+    let hydrationError = null;
+    if (!row.body_synced_at || row.detail_source_updated_at !== row.updated_at || (!row.body_html && row.body !== '')) {
+      try {
+        await refreshSinglePR(row.id, getConfig());
+        row = db.prepare('SELECT * FROM prs WHERE id = ?').get(row.id);
+      } catch (error) {
+        if (!row.body_synced_at)
+          return sendError(reply, error.rateLimited ? 'github_rate_limited' : 'upstream_failed', error.message);
+        hydrationError = 'GitHub detail refresh failed; cached content is shown';
       }
     }
 
     // Format the target PR and all PRs in the same org/repo for stack computation
-    const siblingRows = db.prepare('SELECT * FROM prs WHERE org = ? AND repo = ?').all(row.org, row.repo);
+    const siblingRows = db
+      .prepare('SELECT * FROM authored_prs WHERE org = ? AND repo = ? UNION SELECT * FROM prs WHERE id = ?')
+      .all(row.org, row.repo, row.id);
     const siblings = siblingRows.map(formatPR);
     enrichWithStackInfo(siblings);
     enrichPullRequestsWithOwners(siblings, db);
     const target = siblings.find((p) => p.id === request.params.id);
-    // siblings re-read from DB above, so override with the freshly-fetched html
-    if (target && row.body_html) target.body_html = row.body_html;
+    if (target) {
+      target.hydration_error = hydrationError;
+      target.authored = !!db.prepare('SELECT 1 FROM authored_prs WHERE id = ?').get(row.id);
+    }
     return target;
   });
 
@@ -179,7 +184,9 @@ export function registerPRRoutes(app) {
     }
     const row = db.prepare('SELECT * FROM prs WHERE id = ?').get(request.params.id);
     if (!row) return sendError(reply, 'pr_not_found', 'PR not found after refresh');
-    const siblingRows = db.prepare('SELECT * FROM prs WHERE org = ? AND repo = ?').all(row.org, row.repo);
+    const siblingRows = db
+      .prepare('SELECT * FROM authored_prs WHERE org = ? AND repo = ? UNION SELECT * FROM prs WHERE id = ?')
+      .all(row.org, row.repo, row.id);
     const siblings = siblingRows.map(formatPR);
     enrichWithStackInfo(siblings);
     enrichPullRequestsWithOwners(siblings, db);

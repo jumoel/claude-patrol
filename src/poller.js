@@ -1,11 +1,16 @@
-import { spawn } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { unlinkSync } from 'node:fs';
-import { emitGhRateLimit, emitLocalChange } from './app-events.js';
+import { emitLocalChange, emitReviewRequestChange } from './app-events.js';
 import { getDb, withTransaction } from './db.js';
-import { deriveCIStatus, formatPR } from './pr-status.js';
+import { githubClient } from './github-client.js';
+import { requireGraphqlRoot } from './github-graphql.js';
+import { formatPR } from './pr-status.js';
+import { prStore } from './pr-store.js';
+import { createReviewPoller } from './review-request-poller.js';
+import { composeReviewSearch, normalizedScope } from './review-request-query.js';
+import { reviewStore } from './review-request-store.js';
 import { SingleFlight } from './single-flight.js';
-import { makePrId, parseJsonColumn } from './utils.js';
+import { makePrId } from './utils.js';
 import { reconcileWorkItemPullRequests } from './work-item-prs.js';
 import { destroyWorkspace } from './workspace.js';
 
@@ -24,13 +29,14 @@ const defaultPollerDeps = Object.freeze({
 // Page size 50 with 30 inline check contexts. Larger inline payloads
 // can 504 from GitHub's gateway. Pagination picks up the rest for PRs that
 // exceed 30 checks (see CHECKS_PAGE_QUERY).
-const GRAPHQL_QUERY = `
+export const GRAPHQL_QUERY = `
 query($q: String!, $cursor: String) {
   search(query: $q, type: ISSUE, first: 50, after: $cursor) {
     pageInfo { hasNextPage endCursor }
     nodes {
       ... on PullRequest {
         id
+        state
         number
         title
         body
@@ -64,16 +70,6 @@ query($q: String!, $cursor: String) {
           }
         }
       }
-    }
-  }
-}
-`;
-
-const PR_BODY_HTML_QUERY = `
-query($owner: String!, $name: String!, $number: Int!) {
-  repository(owner: $owner, name: $name) {
-    pullRequest(number: $number) {
-      bodyHTML
     }
   }
 }
@@ -130,6 +126,7 @@ const CHECKS_PAGE_QUERY = `
 query($id: ID!, $cursor: String!) {
   node(id: $id) {
     ... on PullRequest {
+      headRefOid
       commits(last: 1) {
         nodes {
           commit {
@@ -162,6 +159,7 @@ query($q: String!, $cursor: String) {
     pageInfo { hasNextPage endCursor }
     nodes {
       ... on PullRequest {
+        id
         number
         repository { name owner { login } }
       }
@@ -170,297 +168,80 @@ query($q: String!, $cursor: String) {
 }
 `;
 
-const MAX_RETRIES = 3;
-const RETRY_BASE_MS = 1000;
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-/**
- * Detect rate-limit signals in gh output.
- * Matches both REST (HTTP 403 stderr text) and GraphQL (response body) patterns.
- * @param {string} text
- */
-function isRateLimitMessage(text) {
-  if (!text) return false;
-  return (
-    /API rate limit exceeded/i.test(text) ||
-    /exceeded a secondary rate limit/i.test(text) ||
-    /\brate limit\b.*\bexceeded\b/i.test(text) ||
-    /"type"\s*:\s*"RATE_LIMITED"/.test(text)
-  );
-}
-
-class RateLimitedError extends Error {
-  constructor(message) {
-    super(message);
-    this.name = 'RateLimitedError';
-    this.rateLimited = true;
-  }
-}
-
-/** @type {{limited: boolean, message: string | null, detectedAt: string | null, resetAt: string | null}} */
-let rateLimitState = { limited: false, message: null, detectedAt: null, resetAt: null };
-let resetLookupInFlight = false;
-
-/** Snapshot of the current gh rate-limit state. */
+/** Shared quota and cooldown state for every GitHub operation. */
 export function getGhRateLimitState() {
-  return { ...rateLimitState };
+  return githubClient().rateLimit();
+}
+async function ghGraphql(query, variables, options) {
+  return githubClient().request(query, variables, options);
 }
 
-function setRateLimited(rawMessage) {
-  const message = (rawMessage || '').trim().slice(0, 500) || 'gh API rate limit exceeded';
-  const wasLimited = rateLimitState.limited;
-  rateLimitState = {
-    limited: true,
-    message,
-    detectedAt: wasLimited ? rateLimitState.detectedAt : new Date().toISOString(),
-    resetAt: rateLimitState.resetAt,
-  };
-  if (!wasLimited) {
-    console.warn(`[poller] gh rate limit detected: ${message.slice(0, 200)}`);
-    emitGhRateLimit(getGhRateLimitState());
-    fetchRateLimitReset();
-  }
+const detailRequests = new Map();
+
+/** Join concurrent detail requests for a PR; do not queue a second refresh. */
+export function refreshSinglePR(prId, config) {
+  const client = githubClient();
+  client.configure(config.poll);
+  const observation = client.capture();
+  const key = `${observation.generation}:${prId}`;
+  if (detailRequests.has(key)) return detailRequests.get(key);
+  const request = client
+    .withOptionalWork(() => refreshPRDetails(prId, config, observation))
+    .finally(() => {
+      if (detailRequests.get(key) === request) detailRequests.delete(key);
+    });
+  detailRequests.set(key, request);
+  return request;
 }
 
-function clearRateLimited() {
-  if (!rateLimitState.limited) return;
-  rateLimitState = { limited: false, message: null, detectedAt: null, resetAt: null };
-  console.log('[poller] gh rate limit cleared');
-  emitGhRateLimit(getGhRateLimitState());
-}
-
-/**
- * Best-effort fetch of `gh api rate_limit` to learn when the window resets.
- * The rate_limit endpoint is exempt from rate limiting per GitHub docs, so it
- * normally succeeds even while the user is throttled.
- */
-function fetchRateLimitReset() {
-  if (resetLookupInFlight) return;
-  resetLookupInFlight = true;
-  const child = spawn('gh', ['api', 'rate_limit'], { stdio: ['ignore', 'pipe', 'pipe'] });
-  const out = [];
-  child.stdout.on('data', (d) => out.push(d));
-  child.on('error', () => {
-    resetLookupInFlight = false;
-  });
-  child.on('close', (code) => {
-    resetLookupInFlight = false;
-    if (code !== 0) return;
-    try {
-      const parsed = JSON.parse(Buffer.concat(out).toString());
-      const buckets = parsed?.resources;
-      if (!buckets) return;
-      // Pick the soonest reset among buckets that are actually exhausted; fall
-      // back to the soonest reset overall.
-      let soonest = null;
-      for (const b of Object.values(buckets)) {
-        if (typeof b?.reset !== 'number') continue;
-        if (b.remaining === 0 && (soonest === null || b.reset < soonest)) {
-          soonest = b.reset;
-        }
-      }
-      if (soonest === null) {
-        for (const b of Object.values(buckets)) {
-          if (typeof b?.reset !== 'number') continue;
-          if (soonest === null || b.reset < soonest) soonest = b.reset;
-        }
-      }
-      if (soonest !== null && rateLimitState.limited) {
-        rateLimitState = { ...rateLimitState, resetAt: new Date(soonest * 1000).toISOString() };
-        emitGhRateLimit(getGhRateLimitState());
-      }
-    } catch {
-      /* ignore */
-    }
-  });
-}
-
-/**
- * Fetch a single PR's bodyHTML on demand. Returns the rendered HTML string,
- * or null if the call fails (e.g. rate-limited). Used by the detail route to
- * avoid pulling bodyHTML for every PR on every poll cycle.
- * @param {string} owner
- * @param {string} name
- * @param {number} number
- * @returns {Promise<string | null>}
- */
-export async function fetchPRBodyHtml(owner, name, number) {
-  try {
-    const result = await ghGraphql(PR_BODY_HTML_QUERY, { owner, name, number });
-    return result?.data?.repository?.pullRequest?.bodyHTML ?? null;
-  } catch (err) {
-    console.warn(`[poller] body_html fetch failed for ${owner}/${name}#${number}: ${err.message}`);
-    return null;
-  }
-}
-
-/**
- * Force-refresh a single PR from GitHub and upsert it into the DB. Bypasses
- * the incremental-polling cadence: the next time you ask for this PR, every
- * field reflects the live GitHub state.
- *
- * If the PR has been MERGED or CLOSED, this short-circuits to the same
- * cleanup the poller's orphan path runs: destroy active workspaces, delete
- * the row, and return `{ removed: true, state }` so the caller can react
- * (the dashboard navigates back, the MCP caller sees the terminal state).
- *
- * @param {string} prId - "org/repo#number"
- * @param {object} config - current app config, needed for workspace teardown
- * @returns {Promise<{ removed: boolean, state: 'OPEN' | 'CLOSED' | 'MERGED' }>}
- */
-export async function refreshSinglePR(prId, config) {
-  const match = /^(.+)\/(.+)#(\d+)$/.exec(prId);
-  if (!match) throw new Error(`Invalid PR id: ${prId}`);
-  const [, owner, name, numStr] = match;
-  const number = Number(numStr);
-
+async function refreshPRDetails(prId, config, observation) {
   const db = getDb();
-  const existing = db.prepare('SELECT id FROM prs WHERE id = ?').get(prId);
+  const client = githubClient(db);
+  observation.assertCurrent();
+  const store = prStore(db);
+  const existing = db.prepare('SELECT * FROM prs WHERE id = ?').get(prId);
   if (!existing) throw new Error(`PR not tracked: ${prId}`);
-
-  const result = await ghGraphql(SINGLE_PR_QUERY, { owner, name, number });
-  const pr = result?.data?.repository?.pullRequest;
-  if (!pr) throw new Error(`GitHub returned no pull request for ${prId}`);
-
-  const state = pr.state || 'OPEN';
-  if (state === 'MERGED' || state === 'CLOSED') {
-    await cleanupStalePR(prId, config);
-    db.prepare('DELETE FROM prs WHERE id = ?').run(prId);
-    emitLocalChange();
-    return { removed: true, state };
-  }
-
-  // Paginate the rest of the check contexts if there are more than the inline
-  // page covered. Same handling as the bulk search path.
-  const contextsConn = pr.commits?.nodes?.[0]?.commit?.statusCheckRollup?.contexts;
-  if (contextsConn?.pageInfo?.hasNextPage) {
-    const extra = await fetchRemainingChecks(pr.id, contextsConn.pageInfo.endCursor);
-    contextsConn.nodes.push(...extra);
-    contextsConn.pageInfo.hasNextPage = false;
-  }
-
-  upsertPRs([pr]);
-  await reconcileWorkItemPullRequests([prId]);
-
-  // Overwrite body_html unconditionally - upsertPRs blanks it only when the
-  // body text changes, but a force-refresh should also pick up rendering
-  // changes (autolink updates, embedded images, etc.).
-  if (pr.bodyHTML != null) {
-    db.prepare('UPDATE prs SET body_html = ? WHERE id = ?').run(pr.bodyHTML, prId);
-  }
-
-  emitLocalChange();
-  return { removed: false, state };
-}
-
-/**
- * Run a single gh api graphql call. Returns { stdout, stderr, code } or
- * rejects on spawn error.
- */
-function ghGraphqlOnce(query, variables) {
-  return new Promise((resolve, reject) => {
-    const child = spawn('gh', ['api', 'graphql', '--input', '-'], {
-      stdio: ['pipe', 'pipe', 'pipe'],
+  const context = store.begin();
+  try {
+    const graphql = (query, variables) => client.request(query, variables, { observation, optional: true });
+    const result = await graphql(SINGLE_PR_QUERY, {
+      owner: existing.org,
+      name: existing.repo,
+      number: existing.number,
     });
-
-    const chunks = [];
-    const errChunks = [];
-    child.stdout.on('data', (d) => chunks.push(d));
-    child.stderr.on('data', (d) => errChunks.push(d));
-
-    child.on('close', (code) => {
-      resolve({
-        stdout: Buffer.concat(chunks).toString(),
-        stderr: Buffer.concat(errChunks).toString(),
-        code,
-      });
-    });
-
-    child.on('error', reject);
-    child.stdin.end(JSON.stringify({ query, variables }));
-  });
-}
-
-/**
- * Run a gh api graphql command with retry and exponential backoff.
- * Retries on non-zero exit codes and spawn errors (transient failures).
- * Does not retry on JSON parse errors (bad response, not transient).
- * @param {string} query - GraphQL query string
- * @param {Record<string, string>} variables
- * @returns {Promise<object>}
- */
-async function ghGraphql(query, variables) {
-  let lastError;
-
-  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-    try {
-      const { stdout, stderr, code } = await ghGraphqlOnce(query, variables);
-
-      if (code !== 0) {
-        const errText = stderr || stdout;
-        if (isRateLimitMessage(errText)) {
-          setRateLimited(errText);
-          throw new RateLimitedError(`gh rate limit exceeded: ${errText.slice(0, 200)}`);
-        }
-        lastError = new Error(`gh graphql failed (exit ${code}): ${errText}`);
-        if (attempt < MAX_RETRIES) {
-          const delay = RETRY_BASE_MS * 2 ** (attempt - 1);
-          console.warn(
-            `[poller] gh graphql failed (attempt ${attempt}/${MAX_RETRIES}), retrying in ${delay}ms: ${errText.slice(0, 120)}`,
-          );
-          await sleep(delay);
-          continue;
-        }
-        throw lastError;
-      }
-
-      let parsed;
-      try {
-        parsed = JSON.parse(stdout);
-      } catch {
-        // JSON parse error - not transient, don't retry
-        throw new Error(`gh graphql returned non-JSON: ${stdout.slice(0, 200)}`);
-      }
-
-      // GraphQL primary rate limit returns HTTP 200 with errors[].type === 'RATE_LIMITED'.
-      const rateLimitErr = parsed.errors?.find(
-        (e) => e?.type === 'RATE_LIMITED' || isRateLimitMessage(e?.message || ''),
+    const pr = requireGraphqlRoot(result, 'repository').pullRequest;
+    if (!pr) throw new Error(`GitHub returned no pull request for ${prId}`);
+    const connection = pr.commits?.nodes?.[0]?.commit?.statusCheckRollup?.contexts;
+    if (connection?.pageInfo?.hasNextPage) {
+      connection.nodes.push(
+        ...(await fetchRemainingChecks(pr.id, connection.pageInfo.endCursor, graphql, pr.headRefOid)),
       );
-      if (rateLimitErr) {
-        setRateLimited(rateLimitErr.message || 'GraphQL rate limit exceeded');
-        throw new RateLimitedError(`gh graphql rate limited: ${rateLimitErr.message || ''}`);
-      }
-
-      clearRateLimited();
-      return parsed;
-    } catch (err) {
-      lastError = err;
-      if (err instanceof RateLimitedError) throw err;
-      // If it's a JSON parse error, don't retry
-      if (err.message.startsWith('gh graphql returned non-JSON')) throw err;
-      if (attempt < MAX_RETRIES) {
-        const delay = RETRY_BASE_MS * 2 ** (attempt - 1);
-        console.warn(
-          `[poller] gh graphql failed (attempt ${attempt}/${MAX_RETRIES}), retrying in ${delay}ms: ${err.message.slice(0, 120)}`,
-        );
-        await sleep(delay);
-      }
+      connection.pageInfo.hasNextPage = false;
     }
+    const row = withTransaction(db, () => {
+      observation.assertCurrent();
+      const row = store.write(store.prepare(pr, 'details', context));
+      if (pr.state !== 'OPEN') db.prepare('DELETE FROM pr_authored_state WHERE pr_id = ?').run(row.id);
+      return row;
+    });
+    store.fence.accept(context.read, [`pr:${row.id}`]);
+    if (pr.state !== 'OPEN') await cleanupStalePR(row.id, config);
+    emitReviewRequestChange({ kind: 'detail', ids: [row.id] });
+    return { removed: pr.state !== 'OPEN', state: pr.state };
+  } finally {
+    store.end(context);
   }
-
-  throw lastError;
 }
 
 /**
  * A search page without `data.search` is a failed fetch, never an empty set.
- * The open-PR enumeration drives stale cleanup, and cleanup treats what it is
- * given as the complete open set: returning a partial or empty list here
- * would delete every other tracked PR in scope and destroy their workspaces.
+ * Only a complete enumeration may mark unseen authored PRs for a direct probe.
+ * Search absence never proves closure or authorizes workspace deletion.
  * @param {object} result parsed GraphQL body
  * @param {string} qualifier for the error message
  */
 function requireSearchResult(result, qualifier) {
-  const search = result?.data?.search;
+  const search = requireGraphqlRoot(result, 'search');
   if (!search || !Array.isArray(search.nodes) || !search.pageInfo) {
     throw new Error(
       `gh graphql returned no search result for ${qualifier}: ${JSON.stringify(result ?? null).slice(0, 200)}`,
@@ -475,15 +256,17 @@ function requireSearchResult(result, qualifier) {
  * @param {string} startCursor - endCursor from the initial page
  * @returns {Promise<object[]>} additional context nodes
  */
-async function fetchRemainingChecks(nodeId, startCursor, graphql = ghGraphql) {
+async function fetchRemainingChecks(nodeId, startCursor, graphql = ghGraphql, expectedHead) {
   const extra = [];
   let cursor = startCursor;
   let hasNext = true;
 
   while (hasNext) {
     const result = await graphql(CHECKS_PAGE_QUERY, { id: nodeId, cursor });
-    const contexts = result.data?.node?.commits?.nodes?.[0]?.commit?.statusCheckRollup?.contexts;
-    if (!contexts) break;
+    const node = requireGraphqlRoot(result, 'node');
+    if (!expectedHead || node.headRefOid !== expectedHead) throw new Error('PR head changed during check pagination');
+    const contexts = node.commits?.nodes?.[0]?.commit?.statusCheckRollup?.contexts;
+    if (!Array.isArray(contexts?.nodes) || !contexts.pageInfo) throw new Error('Incomplete check page');
     extra.push(...contexts.nodes);
     hasNext = contexts.pageInfo.hasNextPage;
     cursor = contexts.pageInfo.endCursor;
@@ -524,7 +307,7 @@ async function fetchPRs(qualifier, sinceIso = null, graphql = ghGraphql) {
   for (const pr of allPRs) {
     const contextsConn = pr.commits?.nodes?.[0]?.commit?.statusCheckRollup?.contexts;
     if (contextsConn?.pageInfo?.hasNextPage) {
-      const extra = await fetchRemainingChecks(pr.id, contextsConn.pageInfo.endCursor, graphql);
+      const extra = await fetchRemainingChecks(pr.id, contextsConn.pageInfo.endCursor, graphql, pr.headRefOid);
       contextsConn.nodes.push(...extra);
       contextsConn.pageInfo.hasNextPage = false;
     }
@@ -551,69 +334,16 @@ async function fetchOpenPRIds(qualifier, graphql = ghGraphql) {
     const result = await graphql(OPEN_IDS_QUERY, vars);
     const search = requireSearchResult(result, qualifier);
     for (const n of search.nodes) {
-      if (n?.number == null) continue;
+      if (!n?.id || n.number == null || !n.repository?.owner?.login || !n.repository.name)
+        throw new Error('Incomplete authored ID page');
       const org = n.repository.owner.login;
       const repo = n.repository.name;
-      out.push({ id: makePrId(org, repo, n.number), org, repo });
+      out.push({ id: makePrId(org, repo, n.number), node_id: n.id, org, repo });
     }
     hasNext = search.pageInfo.hasNextPage;
     cursor = search.pageInfo.endCursor;
   }
   return out;
-}
-
-/**
- * Extract check runs from a PR node.
- * @param {object} pr
- * @returns {Array<{name: string, status: string, conclusion: string | null, url: string | null}>}
- */
-function extractChecks(pr) {
-  const commitNode = pr.commits?.nodes?.[0]?.commit;
-  const contexts = commitNode?.statusCheckRollup?.contexts?.nodes ?? [];
-  return contexts.map((ctx) => {
-    if ('name' in ctx) {
-      const workflow = ctx.checkSuite?.workflowRun?.workflow?.name;
-      const fullName = workflow ? `${workflow} / ${ctx.name}` : ctx.name;
-      return { name: fullName, status: ctx.status, conclusion: ctx.conclusion, url: ctx.detailsUrl };
-    }
-    return { name: ctx.context, status: ctx.state, conclusion: null, url: ctx.targetUrl };
-  });
-}
-
-/**
- * Extract reviews from a PR node.
- * @param {object} pr
- * @returns {Array<{reviewer: string, state: string, submitted_at: string}>}
- */
-function extractReviews(pr) {
-  return (pr.reviews?.nodes ?? []).map((r) => ({
-    reviewer: r.author?.login ?? 'unknown',
-    reviewer_type: r.author?.__typename ?? 'User',
-    state: r.state,
-    submitted_at: r.submittedAt,
-  }));
-}
-
-/**
- * Extract issue comments from a PR node.
- * @param {object} pr
- * @returns {Array<{author: string, author_type: string, created_at: string}>}
- */
-function extractComments(pr) {
-  return (pr.comments?.nodes ?? []).map((c) => ({
-    author: c.author?.login ?? 'unknown',
-    author_type: c.author?.__typename ?? 'User',
-    created_at: c.createdAt,
-  }));
-}
-
-/**
- * Extract labels from a PR node.
- * @param {object} pr
- * @returns {Array<{name: string, color: string}>}
- */
-function extractLabels(pr) {
-  return (pr.labels?.nodes ?? []).map((l) => ({ name: l.name, color: l.color }));
 }
 
 /**
@@ -629,58 +359,15 @@ function getStatements() {
   let statements = statementCache.get(db);
   if (!statements) {
     statements = {
-      upsert: db.prepare(`
-      INSERT OR REPLACE INTO prs (id, number, title, body, body_html, repo, org, author, url, branch, head_oid, base_branch, is_fork, draft, mergeable, checks, reviews, labels, comments, created_at, updated_at, synced_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `),
-      findStaleByOrg: db.prepare('SELECT id FROM prs WHERE org = ? AND id NOT IN (SELECT value FROM json_each(?))'),
-      findStaleByRepo: db.prepare(
-        'SELECT id FROM prs WHERE org = ? AND repo = ? AND id NOT IN (SELECT value FROM json_each(?))',
-      ),
-      deletePr: db.prepare('DELETE FROM prs WHERE id = ?'),
-      getExistingBody: db.prepare('SELECT body, body_html FROM prs WHERE id = ?'),
-      getExistingPrev: db.prepare('SELECT checks, mergeable, labels, draft FROM prs WHERE id = ?'),
-      getPrById: db.prepare('SELECT * FROM prs WHERE id = ?'),
       findScratches: db.prepare(
         "SELECT * FROM workspaces WHERE pr_id IS NULL AND work_item_id IS NULL AND status = 'active' AND operation_state = 'ready' ORDER BY created_at, id",
       ),
-      findPrByBranch: db.prepare('SELECT id FROM prs WHERE org = ? AND repo = ? AND branch = ? ORDER BY id'),
+      findPrByBranch: db.prepare('SELECT id FROM authored_prs WHERE org = ? AND repo = ? AND branch = ? ORDER BY id'),
       adoptWorkspace: db.prepare('UPDATE workspaces SET pr_id = ? WHERE id = ?'),
     };
     statementCache.set(db, statements);
   }
   return statements;
-}
-
-/**
- * Compute the diff between a previous DB row and the new GraphQL PR node for
- * the watched fields. Returns `null` if nothing in the watched set changed or
- * if there is no previous row (a brand-new PR is initial state, not a transition).
- * @param {object | undefined} prev - raw row from `prs` (with `checks`, `mergeable`, `labels`, `draft`) or undefined
- * @param {object} next - GraphQL PR node
- * @returns {object | null}
- */
-function computeChanges(prev, next) {
-  if (!prev) return null;
-  const changes = {};
-
-  const prevCi = deriveCIStatus(parseJsonColumn(prev.checks, []));
-  const nextCi = deriveCIStatus(extractChecks(next));
-  if (prevCi !== nextCi) changes.ci_status = { from: prevCi, to: nextCi };
-
-  const nextMergeable = next.mergeable || 'UNKNOWN';
-  if (prev.mergeable !== nextMergeable) changes.mergeable = { from: prev.mergeable, to: nextMergeable };
-
-  const nextDraft = next.isDraft ? 1 : 0;
-  if (prev.draft !== nextDraft) changes.draft = { from: !!prev.draft, to: !!next.isDraft };
-
-  const prevLabels = new Set(parseJsonColumn(prev.labels, []).map((l) => l.name));
-  const nextLabels = new Set(extractLabels(next).map((l) => l.name));
-  const added = [...nextLabels].filter((l) => !prevLabels.has(l));
-  const removed = [...prevLabels].filter((l) => !nextLabels.has(l));
-  if (added.length || removed.length) changes.labels = { added, removed };
-
-  return Object.keys(changes).length ? changes : null;
 }
 
 /**
@@ -690,7 +377,7 @@ function computeChanges(prev, next) {
  */
 async function cleanupStalePR(prId, config, deps = defaultPollerDeps) {
   const db = getDb();
-  const workspaces = db.prepare('SELECT id FROM workspaces WHERE pr_id = ?').all(prId);
+  const workspaces = db.prepare('SELECT id FROM workspaces WHERE pr_id = ? AND work_item_id IS NULL').all(prId);
   for (const ws of workspaces) {
     try {
       const result = await deps.destroyWorkspace(ws.id, config);
@@ -725,96 +412,29 @@ async function cleanupStalePR(prId, config, deps = defaultPollerDeps) {
   }
 }
 
-/**
- * Upsert authored PRs into the database.
- * @param {object[]} prs raw PR nodes from GraphQL
- */
-function upsertPRs(prs) {
+/** Authored automation has its own baseline, separate from the shared PR cache. */
+function upsertPRs(nodes, viewer, context, assertCurrent) {
   const db = getDb();
-  const now = new Date().toISOString();
-  const { upsert, getExistingBody, getExistingPrev, getPrById } = getStatements();
-  /** @type {Array<{id: string, prev: object, changes: object}>} */
-  const pendingDiffs = [];
-
-  withTransaction(db, () => {
-    for (const pr of prs) {
-      const prOrg = pr.repository.owner.login;
-      const repo = pr.repository.name;
-      const id = makePrId(prOrg, repo, pr.number);
-      const newBody = pr.body || '';
-
-      // Check if body changed (new PR or updated description)
-      const existing = getExistingBody.get(id);
-      const bodyChanged = !existing || existing.body !== newBody;
-
-      // Capture prev row for transition detection. SELECT inside the
-      // transaction to avoid any concurrent-write race (poller is
-      // single-threaded today, but the cost is negligible).
-      const prev = getExistingPrev.get(id);
-
-      // body_html isn't fetched in the poll cycle (it's heavy and only used on
-      // the detail view). Reuse any cached html as long as the body hasn't
-      // changed; otherwise blank it so the detail route refetches it lazily.
-      const newBodyHtml = bodyChanged ? '' : (existing?.body_html ?? '');
-
-      upsert.run(
-        id,
-        pr.number,
-        pr.title,
-        newBody,
-        newBodyHtml,
-        repo,
-        prOrg,
-        pr.author?.login ?? 'unknown',
-        pr.url,
-        pr.headRefName,
-        pr.headRefOid ?? null,
-        pr.baseRefName || 'main',
-        pr.isCrossRepository ? 1 : 0,
-        pr.isDraft ? 1 : 0,
-        pr.mergeable || 'UNKNOWN',
-        JSON.stringify(extractChecks(pr)),
-        JSON.stringify(extractReviews(pr)),
-        JSON.stringify(extractLabels(pr)),
-        JSON.stringify(extractComments(pr)),
-        pr.createdAt,
-        pr.updatedAt,
-        now,
-      );
-
-      const changes = computeChanges(prev, pr);
-      if (changes) pendingDiffs.push({ id, prev, changes });
+  const store = prStore(db);
+  const keys = [];
+  const changes = withTransaction(db, () => {
+    assertCurrent();
+    const accepted = [];
+    for (const node of nodes) {
+      if (node.author?.login?.toLowerCase() !== viewer.login.toLowerCase()) continue;
+      const prepared = store.prepare(node, 'details', context);
+      const row = store.write(prepared);
+      keys.push(`pr:${row.id}`);
+      accepted.push(store.authored(row, viewer, new Date().toISOString()));
     }
+    assertCurrent();
+    return accepted;
   });
-
-  // Emit pr-changed events only after the transaction has committed - if the
-  // upsert rolled back, downstream consumers must not see transitions for
-  // changes that didn't persist. Re-read each changed row and run it through
-  // formatPR so consumers (notably the rules engine) get derived fields and
-  // a flat label-name array directly.
-  for (const { id, prev, changes } of pendingDiffs) {
-    const row = getPrById.get(id);
-    if (!row) continue;
-    pollerEvents.emit('pr-changed', { pr: formatPR(row), prev, changes });
+  store.fence.accept(context.read, keys);
+  for (const change of changes) {
+    if (change.changes) pollerEvents.emit('pr-changed', { ...change, pr: formatPR(change.pr) });
   }
-}
-
-/**
- * Destroy workspaces and delete PRs in a configured scope that are no longer
- * present in GitHub's complete authored-open set.
- * @param {'org' | 'repo'} scope
- * @param {string} org
- * @param {string | null} repo
- * @param {string[]} seenIds
- */
-async function cleanupStaleScope(scope, org, repo, seenIds, config, deps = defaultPollerDeps) {
-  const { findStaleByOrg, findStaleByRepo, deletePr } = getStatements();
-  const seenJson = JSON.stringify(seenIds);
-  const stale = scope === 'org' ? findStaleByOrg.all(org, seenJson) : findStaleByRepo.all(org, repo, seenJson);
-  for (const row of stale) {
-    await cleanupStalePR(row.id, config, deps);
-    deletePr.run(row.id);
-  }
+  return changes.map((change) => change.pr.id);
 }
 
 // The heavy data fetch (`updated:>=<since>`, with reviews/comments/checks)
@@ -902,119 +522,141 @@ function recordSync({ syncedAt, sweepStartedAt, fullSweep }) {
  *   fully cleaned-up state.
  */
 export async function pollOnce(config, { force = false, deps = defaultPollerDeps } = {}) {
+  const db = getDb();
+  const client = githubClient(db);
+  const configured = client.configure(config.poll);
+  if (configured.scopeChanged) resetSweepCursors({ hydrateFromDb: true });
   hydrateSweepCursors();
-  // Skip the cycle entirely if gh is rate-limited and we know when it resets.
-  // Without a known reset time we still try, so we can detect recovery and
-  // re-fetch the reset window. The first failed call will re-flag us as limited.
-  const rl = getGhRateLimitState();
-  if (rl.limited && rl.resetAt && Date.parse(rl.resetAt) > Date.now()) {
-    console.log(`[poller] Skipping poll - gh rate-limited until ${rl.resetAt}`);
-    return;
-  }
-
-  const orgs = config.poll.orgs;
-  const orgSet = new Set(orgs);
-  // Drop repos already covered by an org-level scan
-  const repos = config.poll.repos.filter((r) => !orgSet.has(r.split('/')[0]));
-
-  if (orgs.length === 0 && repos.length === 0) {
-    pollerEvents.emit('sync', { synced_at: new Date().toISOString(), pr_count: 0 });
-    return;
-  }
-
-  // Combine all configured targets into a single search. GitHub search OR's
-  // multiple `org:` / `repo:` qualifiers, so one call covers everything.
-  const qualifier = [...orgs.map((o) => `org:${o}`), ...repos.map((r) => `repo:${r}`)].join(' ');
-
-  const fullSweep = force || shouldFullSweep();
+  const rl = client.rateLimit();
+  if (rl.limited && Date.parse(rl.resetAt) > Date.now()) return;
+  const { orgs, repos } = normalizedScope(config.poll);
+  if (!orgs.length && !repos.length) return;
+  const qualifier = [...orgs.map((org) => `org:${org}`), ...repos.map((repo) => `repo:${repo}`)].join(' ');
+  const observation = client.capture();
+  // Account changes can be detected outside this poller. Persisted coverage is
+  // authoritative even when the process still has the previous account's cursors.
+  const coverage = db.prepare('SELECT last_full_sweep_at FROM sync_state WHERE id = 1').get();
+  const fullSweep = force || !client.identity() || !coverage?.last_full_sweep_at || shouldFullSweep();
   const since = buildSinceFilter(fullSweep);
-  // On incremental cycles the heavy fetch only sees recently-updated PRs, so
-  // we need a separate complete open-set to clean up against. On full cycles
-  // the heavy fetch already enumerates everything, so we reuse it and skip
-  // the extra request.
-  const needLightSweep = !fullSweep;
   const sweepStartedAt = Date.now();
-  let result;
-  let lightIds;
-  try {
-    [result, lightIds] = await Promise.all([
-      fetchPRs(qualifier, since, deps.graphql),
-      needLightSweep ? fetchOpenPRIds(qualifier, deps.graphql) : Promise.resolve(null),
-    ]);
-  } catch (err) {
-    throw new Error(`GitHub refresh failed: ${err.message}`, { cause: err });
-  }
-
-  // Record sweep timestamps only after the fetches succeed. A failed fetch
-  // doesn't advance the incremental cursor, so the next cycle replays the
-  // same window rather than silently dropping the PRs from this one.
-  lastSweepAt = sweepStartedAt;
-  if (fullSweep) lastFullSweepAt = sweepStartedAt;
-
-  upsertPRs(result.prs);
-  await deps.reconcileWorkItemPullRequests(
-    result.prs.map((pr) => makePrId(pr.repository.owner.login, pr.repository.name, pr.number)),
-  );
-
-  // Build the complete open set for stale cleanup. On full
-  // cycles the heavy result already lists every open PR; on incremental
-  // cycles we use the cheap id-only enumeration fetched above. Either way
-  // these sets are authoritative, so cleanup can run every cycle.
-  const openPrs = fullSweep
-    ? result.prs.map((pr) => ({
-        id: makePrId(pr.repository.owner.login, pr.repository.name, pr.number),
-        org: pr.repository.owner.login,
-        repo: pr.repository.name,
-      }))
-    : lightIds;
-  if (!Array.isArray(openPrs)) {
-    // Both fetchers throw on a bad page, so this cannot happen; keep the
-    // guard because cleanup below deletes everything not in this list.
-    throw new Error('open PR enumeration is unavailable; skipping stale cleanup');
-  }
-
-  const bucketize = (openList) => {
-    const byOrg = new Map();
-    const byRepo = new Map();
-    for (const { id, org, repo } of openList) {
-      if (orgSet.has(org)) {
-        if (!byOrg.has(org)) byOrg.set(org, []);
-        byOrg.get(org).push(id);
-      } else {
-        const key = `${org}/${repo}`;
-        if (!byRepo.has(key)) byRepo.set(key, []);
-        byRepo.get(key).push(id);
+  const cost = { total: 0, known: true };
+  const reviewContext = reviewStore(db).begin();
+  const context = reviewContext;
+  let reviews;
+  const reviewService = () =>
+    (reviews ??= createReviewPoller({
+      db,
+      poll: config.poll,
+      viewer: client.identity(),
+      assertCurrent: observation.assertCurrent,
+      emit: emitReviewRequestChange,
+    }));
+  const optional = (prediction) => client.budget().admits(config.poll.interval_seconds, prediction);
+  const raw = (query, variables, options = {}) =>
+    client.request(query, variables, {
+      ...options,
+      observation,
+      optional: !options.authoredCost,
+      ...(deps === defaultPollerDeps ? {} : { run: deps.graphql }),
+    });
+  let firstHeavy = true;
+  let firstLight = true;
+  const closed = new Set();
+  const authored = async (query, variables) => {
+    let operation = { query, variables };
+    let scopes = [];
+    let retained = [];
+    const heavy = query === GRAPHQL_QUERY && firstHeavy;
+    const light = query === OPEN_IDS_QUERY && firstLight;
+    if (heavy) firstHeavy = false;
+    if (light) firstLight = false;
+    if (client.identity()?.verified && optional(3)) {
+      if (heavy) {
+        scopes = reviewService().firstPages();
+        reviewService().markFirstAttempts(scopes);
+      }
+      if (light || (heavy && fullSweep)) {
+        retained = reviewService().retained();
+        reviewService().markRetainedAttempts(retained);
+      }
+      if (scopes.length || retained.length) operation = composeReviewSearch(query, variables, scopes, retained);
+    }
+    const result = await raw(operation.query, operation.variables, {
+      authoredCost: cost,
+      predictedCost: heavy ? 3 : 1,
+    });
+    observation.assertCurrent();
+    if (scopes.length) reviewService().settleSearch(result, scopes, reviewContext);
+    if (retained.length) {
+      try {
+        for (const id of reviewService().settleRetained(result, reviewContext, retained)) closed.add(id);
+      } catch (error) {
+        reviewService().verificationError(
+          retained.map((row) => row.id),
+          error,
+        );
       }
     }
-    return { byOrg, byRepo };
+    return result;
   };
-  const seen = bucketize(openPrs);
-
   try {
-    for (const org of orgs) {
-      await cleanupStaleScope('org', org, null, seen.byOrg.get(org) || [], config, deps);
+    const [heavy, light] = await Promise.all([
+      fetchPRs(qualifier, since, authored),
+      fullSweep ? Promise.resolve(null) : fetchOpenPRIds(qualifier, authored),
+    ]);
+    observation.assertCurrent();
+    const viewer = client.identity();
+    if (!viewer?.verified) throw new Error('GitHub identity is not verified');
+    const ids = upsertPRs(heavy.prs, viewer, context, observation.assertCurrent);
+    if (ids.length) emitReviewRequestChange({ kind: 'summary', ids });
+    const open = fullSweep
+      ? heavy.prs.map((node) => prStore(db).resolve(node).id)
+      : light.map((node) => {
+          const found = node.node_id
+            ? db.prepare('SELECT id FROM prs WHERE github_node_id = ?').get(node.node_id)
+            : null;
+          return found?.id ?? node.id;
+        });
+    withTransaction(db, () => {
+      observation.assertCurrent();
+      const now = new Date().toISOString();
+      db.prepare(`UPDATE pr_authored_state SET missing_since = COALESCE(missing_since, ?)
+        WHERE viewer_id = ? AND pr_id NOT IN (SELECT value FROM json_each(?))`).run(
+        now,
+        viewer.id,
+        JSON.stringify(open),
+      );
+      db.prepare(`UPDATE pr_authored_state SET complete_cycle_at = ?, missing_since = NULL
+        WHERE viewer_id = ? AND pr_id IN (SELECT value FROM json_each(?))`).run(now, viewer.id, JSON.stringify(open));
+      recordSync({ syncedAt: now, sweepStartedAt, fullSweep });
+    });
+    lastSweepAt = sweepStartedAt;
+    if (fullSweep) lastFullSweepAt = sweepStartedAt;
+    if (cost.known) client.budget().cycle(fullSweep, cost.total);
+    await deps.reconcileWorkItemPullRequests(ids);
+    observation.assertCurrent();
+    adoptScratchWorkspaces();
+    pollerEvents.emit('sync', { synced_at: new Date().toISOString(), pr_count: ids.length });
+    await client.withOptionalWork(async () => {
+      observation.assertCurrent();
+      if (optional(1)) await reviewService().overflow(raw, optional);
+      if (optional(5)) await reviewService().verify(raw, { fullSweep });
+      else emitReviewRequestChange({ kind: 'status', deferred: 'quota' });
+    });
+    for (const row of db
+      .prepare(`SELECT DISTINCT p.id FROM prs p JOIN workspaces w ON w.pr_id = p.id
+      WHERE p.github_state IN ('CLOSED', 'MERGED') AND w.work_item_id IS NULL LIMIT 20`)
+      .all())
+      closed.add(row.id);
+    for (const id of closed) {
+      observation.assertCurrent();
+      await cleanupStalePR(id, config, deps);
     }
-    for (const ownerRepo of repos) {
-      const [owner, repo] = ownerRepo.split('/');
-      await cleanupStaleScope('repo', owner, repo, seen.byRepo.get(ownerRepo) || [], config, deps);
-    }
-  } catch (err) {
-    console.error(`[poller] Stale PR cleanup failed: ${err.message}`);
+    observation.assertCurrent();
+    prStore(db).collect();
+  } finally {
+    prStore(db).end(context);
   }
-
-  const mode = fullSweep ? 'full' : 'incremental';
-  console.log(`[poller] Sync complete - ${result.prs.length} authored PRs [${mode}] across ${qualifier}`);
-
-  // Adopt scratch workspaces whose branch matches a newly-synced PR
-  adoptScratchWorkspaces();
-
-  const syncedAt = new Date().toISOString();
-  recordSync({ syncedAt, sweepStartedAt, fullSweep });
-
-  pollerEvents.emit('sync', {
-    synced_at: syncedAt,
-    pr_count: result.prs.length,
-  });
 }
 
 /**
@@ -1078,26 +720,8 @@ export function adoptScratchWorkspaces() {
  * Runs when targets change to avoid stale data from removed targets.
  * @param {object} config
  */
-async function cleanupRemovedTargets(config, deps = defaultPollerDeps) {
-  const db = getDb();
-  const orgSet = new Set(config.poll.orgs);
-  const repoSet = new Set(config.poll.repos);
-
-  // Find all distinct org/repo combos in the DB
-  const dbEntries = db.prepare('SELECT DISTINCT org, repo FROM prs').all();
-  for (const { org, repo } of dbEntries) {
-    const fullRepo = `${org}/${repo}`;
-    // Keep if the org is polled, or the specific repo is polled
-    if (orgSet.has(org) || repoSet.has(fullRepo)) continue;
-
-    // This org/repo combo is no longer monitored - clean it up
-    const staleRows = db.prepare('SELECT id FROM prs WHERE org = ? AND repo = ?').all(org, repo);
-    for (const row of staleRows) {
-      await cleanupStalePR(row.id, config, deps);
-    }
-    db.prepare('DELETE FROM prs WHERE org = ? AND repo = ?').run(org, repo);
-    console.log(`[poller] Cleaned up ${staleRows.length} stale PR(s) from ${fullRepo} (no longer monitored)`);
-  }
+async function cleanupRemovedTargets(config) {
+  githubClient().configure(config.poll);
 }
 
 /** @type {ReturnType<typeof setInterval> | null} */
@@ -1132,7 +756,8 @@ function schedulePoll(config, options = {}) {
  * @param {object} config
  */
 export function startPoller(config) {
-  stopPoller();
+  if (intervalHandle) clearInterval(intervalHandle);
+  const change = githubClient().configure(config.poll);
   const targetsKey = [...config.poll.orgs.map((o) => `org:${o}`), ...config.poll.repos.map((r) => `repo:${r}`)]
     .sort()
     .join(',');
@@ -1143,10 +768,11 @@ export function startPoller(config) {
   // Force the next cycle to be a full sweep so a newly-added org/repo
   // pulls in all its open PRs instead of just the last few minutes of
   // updates.
-  const targetsChanged = targetsKey !== lastTargetsKey;
+  const firstStart = lastTargetsKey === null;
+  const targetsChanged = !firstStart && targetsKey !== lastTargetsKey;
   lastTargetsKey = targetsKey;
-  if (targetsChanged) {
-    schedulePoll(config, { resetSweeps: true, cleanupTargets: true }).catch((err) =>
+  if (firstStart || targetsChanged || change.changed) {
+    schedulePoll(config, { resetSweeps: targetsChanged, cleanupTargets: targetsChanged }).catch((err) =>
       console.error(`[poller] Poll failed: ${err.message}`),
     );
   }
@@ -1164,6 +790,7 @@ export function stopPoller({ drain = false } = {}) {
     clearInterval(intervalHandle);
     intervalHandle = null;
   }
+  githubClient().stop();
   return drain ? pollFlight.whenIdle() : undefined;
 }
 
@@ -1180,9 +807,14 @@ export function triggerPoll(config) {
 
 /** Remove rows for targets that are no longer configured without starting an interval. */
 export function reconcilePollTargets(config) {
+  githubClient().configure(config.poll);
   return schedulePoll(config, { resetSweeps: true, cleanupTargets: true });
 }
 
-export function getPollerStatus() {
-  return { active: pollFlight.active, pending: pollFlight.pending };
+export function triggerReviewPoll(config) {
+  return schedulePoll(config);
+}
+
+export function getPollerStatus(db = getDb()) {
+  return { active: pollFlight.active, pending: pollFlight.pending, quota: githubClient(db).diagnostics() };
 }

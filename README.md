@@ -49,7 +49,11 @@ complete setup in the browser:
   "poll": {
     "orgs": ["your-org"],
     "repos": ["owner/repo"],
-    "interval_seconds": 600
+    "interval_seconds": 600,
+    "review_requests": {
+      "users": ["@me"],
+      "teams": []
+    }
   },
   "port": 3000,
   "host": "127.0.0.1",
@@ -91,6 +95,18 @@ Running without a subcommand defaults to `start`.
 
 ## Configuration
 
+### Review requests
+
+`poll.review_requests.users` watches direct requests for GitHub logins. `@me` resolves to the authenticated account. `poll.review_requests.teams` accepts exact `organization/team-slug` targets. Patrol never expands team membership or watches your teams implicitly. Both lists default to `users: ["@me"]` and `teams: []`; empty lists disable the section. Targets are restricted to the configured polling organizations and repositories, normalized, deduplicated, and limited to 32.
+
+Collapse a review card when you've dealt with it. This is a local acknowledgement, not a submitted GitHub review. It persists in SQLite and reopens after a verified commit, title, description, or matching review re-request change. Removed requests remain collapsed if you acknowledged them. Expanding a retained, inactive request removes it. An unavailable or incomplete verification keeps the cached state and shows a warning.
+
+**View PR** opens the shared description page. **Prepare workspace** verifies the displayed head and creates a work item at that exact commit. Its work-item page provides the normal terminal controls. Existing checkouts are preserved and labeled when their starting commit differs from the PR head. Missing source repositories can be cloned beneath `work_dir`.
+
+Review polling shares the authored poller's GitHub quota handling. The first authored operation can carry at most 32 scalar-only review searches; background overflow is capped at four attempts per cycle. Reviewer confirmation is bounded to 100 PRs, and body/event verification to 20 PRs. Optional work waits when quota telemetry is unknown or the calculated authored-poll reserve would be consumed. Pagination in the UI reads SQLite and never calls GitHub. Updates are polling-delayed, and large queues can take several cycles.
+
+Schema v19 preserves PR snapshots and local work, including historical PR ownership. Upgrading from v18 adds a separate event-verification attempt clock without replacing review state. Startup uses the existing pre-migration backup. To roll back, stop the new process and restore that backup before running the old version; there is no automatic downgrade.
+
 | Field | Description |
 |---|---|
 | `poll.orgs` | GitHub organizations to monitor |
@@ -129,7 +145,7 @@ Work Items are independent of any issue tracker. Patrol passes the reference to 
 
 Patrol prepares the selected repository workspaces without starting an agent. When the work item is ready, choose Claude or Codex on its detail page and open a terminal explicitly. The agent starts idle and waits for your first prompt.
 
-Every candidate source repository must already exist as a jj repository below `work_dir`. Patrol does not clone repositories. A minimal configuration using Linear as the instance-specific resolver looks like this:
+Reference-work repositories must exist as jj repositories below `work_dir`. Manual and PR-derived work can prepare missing source repositories. A minimal configuration using Linear as the instance-specific resolver looks like this:
 
 ```json
 {

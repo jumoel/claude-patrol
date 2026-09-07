@@ -149,8 +149,8 @@ test('a work-item root session reviews the selected linked PR from its repositor
        'https://example.test/2', 'feature', 'main', ?, ?, ?)`,
   ).run(now, now, now);
   db.prepare(
-    `INSERT INTO work_item_pull_requests (pr_id, work_item_id, source, linked_at)
-     VALUES ('acme/app#2', 'work-item-1', 'explicit', ?)`,
+    `INSERT INTO work_item_pull_requests (pr_id, work_item_id, source, linked_at, local_repository)
+     VALUES ('acme/app#2', 'work-item-1', 'explicit', ?, 'acme/app')`,
   ).run(now);
   db.prepare(
     `INSERT INTO workspaces

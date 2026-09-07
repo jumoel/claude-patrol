@@ -166,7 +166,9 @@ export async function ensureSessionAndSend(
     let workspace = null;
     let workItem = null;
     if (pr_id) {
-      const owner = db.prepare('SELECT work_item_id FROM work_item_pull_requests WHERE pr_id = ?').get(pr_id);
+      const owner = db
+        .prepare("SELECT work_item_id FROM work_item_pull_requests WHERE pr_id = ? AND ownership_state = 'active'")
+        .get(pr_id);
       if (owner) {
         workItem = findReadyWorkItem(owner.work_item_id);
         resolvedWorkItemId = workItem.id;
@@ -179,7 +181,7 @@ export async function ensureSessionAndSend(
         if (!workspace) {
           if (!autoCreate) throw taggedError('no_workspace', `no active workspace for pr ${pr_id}`);
           if (workItemService) {
-            const created = workItemService.create({ source: 'pull_request', pr_id });
+            const created = await workItemService.create({ source: 'pull_request', pr_id });
             await workItemService.waitForIdle(created.id);
             workItem = findReadyWorkItem(created.id);
             resolvedWorkItemId = workItem.id;

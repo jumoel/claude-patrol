@@ -107,7 +107,16 @@ test('discovery preselects configured accounts, loads picked repos, and round-tr
   await user.click(screen.getByRole('button', { name: 'Save and start monitoring' }));
   await waitFor(() => assert.equal(onConfigured.mock.calls.length, 1));
   assert.deepEqual(api.saveConfig.mock.calls, [
-    [{ poll: { orgs: ['acme'], repos: ['beta/tool'], interval_seconds: 300 } }],
+    [
+      {
+        poll: {
+          orgs: ['acme'],
+          repos: ['beta/tool'],
+          interval_seconds: 300,
+          review_requests: { users: ['@me'], teams: [] },
+        },
+      },
+    ],
   ]);
 });
 
@@ -141,7 +150,9 @@ test('picking repos loads them on demand, filters by search, and a failed save k
 
   await user.click(screen.getByRole('button', { name: 'Save and start monitoring' }));
   await waitFor(() => assert.equal(onConfigured.mock.calls.length, 1));
-  const expected = { poll: { orgs: [], repos: ['acme/widgets'], interval_seconds: 60 } };
+  const expected = {
+    poll: { orgs: [], repos: ['acme/widgets'], interval_seconds: 60, review_requests: { users: ['@me'], teams: [] } },
+  };
   assert.deepEqual(api.saveConfig.mock.calls, [[expected], [expected]]);
 });
 

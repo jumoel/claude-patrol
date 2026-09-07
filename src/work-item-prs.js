@@ -59,12 +59,16 @@ function linkedPullRequest(link, row = null) {
       base_branch: null,
       draft: false,
       mergeable: 'UNKNOWN',
-      ci_status: 'pending',
-      review_status: 'pending',
+      ci_status: null,
+      review_status: null,
+      body_known: false,
+      details_known: false,
       updated_at: null,
       tracked: false,
       linked_at: link.linked_at,
       link_source: link.source,
+      ownership_state: link.ownership_state,
+      local_repository: link.local_repository,
     };
   }
   const pr = formatPR(row);
@@ -82,10 +86,16 @@ function linkedPullRequest(link, row = null) {
     mergeable: pr.mergeable,
     ci_status: pr.ci_status,
     review_status: pr.review_status,
+    body_known: pr.body_known,
+    details_known: pr.details_known,
+    details_stale: pr.details_stale,
+    head_oid: pr.head_oid,
     updated_at: pr.updated_at,
     tracked: true,
     linked_at: link.linked_at,
     link_source: link.source,
+    ownership_state: link.ownership_state,
+    local_repository: link.local_repository,
   };
 }
 
@@ -94,7 +104,7 @@ export function listWorkItemPullRequests(workItemId) {
   const db = getDb();
   const links = db
     .prepare(
-      `SELECT l.pr_id, l.work_item_id, l.source, l.linked_at
+      `SELECT l.pr_id, l.work_item_id, l.source, l.linked_at, l.ownership_state, l.local_repository
          FROM work_item_pull_requests l
         WHERE l.work_item_id = ?
         ORDER BY l.linked_at DESC, l.pr_id`,
@@ -119,6 +129,8 @@ export function listWorkItemPullRequestsBatch(workItemIds) {
          l.work_item_id AS linked_work_item_id,
          l.source AS linked_source,
          l.linked_at AS linked_at,
+         l.ownership_state AS linked_ownership_state,
+         l.local_repository AS linked_local_repository,
          p.*
        FROM work_item_pull_requests l
        LEFT JOIN prs p ON p.id = l.pr_id
@@ -132,6 +144,8 @@ export function listWorkItemPullRequestsBatch(workItemIds) {
       work_item_id: row.linked_work_item_id,
       source: row.linked_source,
       linked_at: row.linked_at,
+      ownership_state: row.linked_ownership_state,
+      local_repository: row.linked_local_repository,
     };
     const item = linkedPullRequest(link, row.id ? row : null);
     grouped.get(row.linked_work_item_id)?.push(item);
@@ -151,7 +165,7 @@ export function getPullRequestOwner(prId) {
            FROM work_item_pull_requests l
            JOIN work_items wi ON wi.id = l.work_item_id
            LEFT JOIN work_item_references wr ON wr.work_item_id = wi.id
-          WHERE l.pr_id = ?`,
+          WHERE l.pr_id = ? AND l.ownership_state = 'active'`,
       )
       .get(prId) ?? null
   );
@@ -165,7 +179,8 @@ export function enrichPullRequestsWithOwners(prs, db = getDb()) {
         `SELECT l.pr_id, wi.id, wr.reference, wi.title, wi.state, l.source, l.linked_at
            FROM work_item_pull_requests l
            JOIN work_items wi ON wi.id = l.work_item_id
-           LEFT JOIN work_item_references wr ON wr.work_item_id = wi.id`,
+           LEFT JOIN work_item_references wr ON wr.work_item_id = wi.id
+          WHERE l.ownership_state = 'active'`,
       )
       .all()
       .map((row) => [row.pr_id, row]),
@@ -192,7 +207,13 @@ export function linkWorkItemPullRequest(workItemId, pullRequest, { source = 'exp
       `Pull request repository is not part of this work item: ${parsed.repository}`,
     );
   }
-  const current = db.prepare('SELECT * FROM work_item_pull_requests WHERE pr_id = ?').get(parsed.id);
+  const cached = db
+    .prepare('SELECT id FROM prs WHERE lower(org) = ? AND lower(repo) = ? AND number = ?')
+    .get(parsed.org.toLowerCase(), parsed.repo.toLowerCase(), parsed.number);
+  if (cached) parsed.id = cached.id;
+  const current = db
+    .prepare("SELECT * FROM work_item_pull_requests WHERE pr_id = ? AND ownership_state = 'active'")
+    .get(parsed.id);
   if (current?.work_item_id === workItemId)
     return linkedPullRequest(current, db.prepare('SELECT * FROM prs WHERE id = ?').get(parsed.id));
   if (current) {
@@ -201,13 +222,17 @@ export function linkWorkItemPullRequest(workItemId, pullRequest, { source = 'exp
       `Pull request ${parsed.id} already belongs to work item ${current.work_item_id}`,
     );
   }
-  const link = { pr_id: parsed.id, work_item_id: workItemId, source, linked_at: new Date().toISOString() };
-  db.prepare('INSERT INTO work_item_pull_requests (pr_id, work_item_id, source, linked_at) VALUES (?, ?, ?, ?)').run(
-    link.pr_id,
-    link.work_item_id,
-    link.source,
-    link.linked_at,
-  );
+  const link = {
+    pr_id: parsed.id,
+    work_item_id: workItemId,
+    source,
+    linked_at: new Date().toISOString(),
+    ownership_state: 'active',
+    local_repository: parsed.repository,
+  };
+  db.prepare(
+    'INSERT INTO work_item_pull_requests (pr_id, work_item_id, source, linked_at, local_repository) VALUES (?, ?, ?, ?, ?)',
+  ).run(link.pr_id, link.work_item_id, link.source, link.linked_at, link.local_repository);
   if (emit) emitLocalChange();
   return linkedPullRequest(link, db.prepare('SELECT * FROM prs WHERE id = ?').get(parsed.id));
 }
@@ -215,12 +240,20 @@ export function linkWorkItemPullRequest(workItemId, pullRequest, { source = 'exp
 export function unlinkWorkItemPullRequest(workItemId, pullRequest) {
   const parsed = parsePullRequestReference(pullRequest);
   const db = getDb();
-  const current = db.prepare('SELECT work_item_id FROM work_item_pull_requests WHERE pr_id = ?').get(parsed.id);
+  const cached = db
+    .prepare('SELECT id FROM prs WHERE lower(org) = ? AND lower(repo) = ? AND number = ?')
+    .get(parsed.org.toLowerCase(), parsed.repo.toLowerCase(), parsed.number);
+  if (cached) parsed.id = cached.id;
+  const current = db
+    .prepare("SELECT work_item_id FROM work_item_pull_requests WHERE pr_id = ? AND ownership_state = 'active'")
+    .get(parsed.id);
   if (!current) return { removed: false, pr_id: parsed.id, work_item_id: workItemId };
   if (current.work_item_id !== workItemId) {
     throw taggedError('pull_request_owned', `Pull request ${parsed.id} belongs to another work item`);
   }
-  db.prepare('DELETE FROM work_item_pull_requests WHERE pr_id = ?').run(parsed.id);
+  db.prepare(
+    "DELETE FROM work_item_pull_requests WHERE pr_id = ? AND work_item_id = ? AND ownership_state = 'active'",
+  ).run(parsed.id, workItemId);
   emitLocalChange();
   return { removed: true, pr_id: parsed.id, work_item_id: workItemId };
 }
@@ -261,8 +294,8 @@ export async function reconcileWorkItemPullRequests(
   const prs = db
     .prepare(
       `SELECT p.id, p.org, p.repo, p.head_oid, p.created_at
-         FROM prs p
-         LEFT JOIN work_item_pull_requests l ON l.pr_id = p.id
+         FROM authored_prs p
+         LEFT JOIN work_item_pull_requests l ON l.pr_id = p.id AND l.ownership_state = 'active'
         WHERE p.id IN (${placeholders})
           AND l.pr_id IS NULL
           AND p.head_oid IS NOT NULL`,

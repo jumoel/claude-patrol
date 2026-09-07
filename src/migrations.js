@@ -1,6 +1,7 @@
 /** Schema v7 intentionally resets every pre-v7 database. */
+import { migrateReviewRequests } from './review-request-migration.js';
 
-export const CURRENT_SCHEMA_VERSION = 17;
+export const CURRENT_SCHEMA_VERSION = 19;
 
 function createWorkspaceOrphansTable(db) {
   db.exec(`
@@ -702,37 +703,43 @@ export function migrateDb(db) {
   db.exec('BEGIN IMMEDIATE');
   try {
     db.exec('PRAGMA defer_foreign_keys = ON');
-    const resetWorkspaceOwnership = version < 7 ? captureResetWorkspaceOwnership(db) : [];
-    if (version < 7) {
-      resetSchema(db);
-    } else if (version === 7) {
-      db.exec(
-        "ALTER TABLE sessions ADD COLUMN provider TEXT NOT NULL DEFAULT 'claude' CHECK(provider IN ('claude', 'codex'))",
-      );
-      migrateV8ToV9(db);
-    } else if (version === 8) {
-      migrateV8ToV9(db);
+    if (version < 18) {
+      const resetWorkspaceOwnership = version < 7 ? captureResetWorkspaceOwnership(db) : [];
+      if (version < 7) {
+        resetSchema(db);
+      } else if (version === 7) {
+        db.exec(
+          "ALTER TABLE sessions ADD COLUMN provider TEXT NOT NULL DEFAULT 'claude' CHECK(provider IN ('claude', 'codex'))",
+        );
+        migrateV8ToV9(db);
+      } else if (version === 8) {
+        migrateV8ToV9(db);
+      }
+      if (version >= 9) {
+        addWorkItemReferenceMetadata(db);
+        const legacyWorkItems = new Set(
+          db
+            .prepare("PRAGMA table_info('work_items')")
+            .all()
+            .map((column) => column.name),
+        ).has('reference');
+        if (legacyWorkItems) createWorkItemRepositoryAdditionTable(db);
+        createWorkItemPullRequestTable(db);
+        migrateWorkItemsToV15(db);
+      }
+      addSessionNames(db);
+      addSessionLastIdleAt(db);
+      addPrHeadOid(db);
+      // The v>=9 branch above already created this table before migrating work items.
+      if (version < 9) createWorkItemPullRequestTable(db);
+      addWorkItemCreationSource(db);
+      createWorkspaceOrphansTable(db);
+      restoreResetWorkspaceOwnership(db, resetWorkspaceOwnership);
+      migrateReviewRequests(db);
     }
-    if (version >= 9) {
-      addWorkItemReferenceMetadata(db);
-      const legacyWorkItems = new Set(
-        db
-          .prepare("PRAGMA table_info('work_items')")
-          .all()
-          .map((column) => column.name),
-      ).has('reference');
-      if (legacyWorkItems) createWorkItemRepositoryAdditionTable(db);
-      createWorkItemPullRequestTable(db);
-      migrateWorkItemsToV15(db);
-    }
-    addSessionNames(db);
-    addSessionLastIdleAt(db);
-    addPrHeadOid(db);
-    // The v>=9 branch above already created this table before migrating work items.
-    if (version < 9) createWorkItemPullRequestTable(db);
-    addWorkItemCreationSource(db);
-    createWorkspaceOrphansTable(db);
-    restoreResetWorkspaceOwnership(db, resetWorkspaceOwnership);
+    // Confirmation attempts do not prove that body/event verification was tried.
+    // Existing rows start unattempted so previously starved PRs get a turn.
+    db.exec('ALTER TABLE pr_review_request_state ADD COLUMN last_probe_attempt_at TEXT');
     db.exec(`PRAGMA user_version = ${CURRENT_SCHEMA_VERSION}`);
     db.exec('COMMIT');
     const kind = version === 0 ? 'Schema initialized' : version < 7 ? 'Destructive schema reset' : 'Schema migration';

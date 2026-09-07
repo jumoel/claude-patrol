@@ -108,6 +108,26 @@ export function fetchPR(id) {
   return request(path`/api/prs/${id}`);
 }
 
+/** @param {Record<string, string>} [options] @param {AbortSignal} [signal]
+ * @returns {Promise<import('../types').ReviewRequestPage>} */
+export function fetchReviewRequests(options = {}, signal) {
+  return request(`/api/review-requests?${new URLSearchParams(options)}`, { signal });
+}
+
+/** @param {import('../types').ReviewRequestRow} row @param {boolean} collapsed
+ * @returns {Promise<{ row?: import('../types').ReviewRequestRow, id?: string, removed?: boolean }>} */
+export function acknowledgeReviewRequest(row, collapsed) {
+  return request(path`/api/review-requests/${row.id}/acknowledgement`, {
+    method: 'POST',
+    body: { expected_version: row.state_version, collapsed },
+  });
+}
+
+/** @returns {Promise<{ok: boolean}>} */
+export function refreshReviewRequests() {
+  return request('/api/review-requests/refresh', { method: 'POST' });
+}
+
 /**
  * Force-refresh a single PR from GitHub right now. Returns the updated PR row.
  * @param {string} id
@@ -150,10 +170,14 @@ export function fetchWorkspaces(prId) {
 /**
  * Create a workspace for a PR.
  * @param {string} prId
+ * @param {string | null} [expectedHead]
  * @returns {Promise<{work_item: import('../types').WorkItemListItem}>}
  */
-export function createWorkspace(prId) {
-  return request('/api/work-items', { method: 'POST', body: { source: 'pull_request', pr_id: prId } });
+export function createWorkspace(prId, expectedHead) {
+  return request('/api/work-items', {
+    method: 'POST',
+    body: { source: 'pull_request', pr_id: prId, expected_head_oid: expectedHead },
+  });
 }
 
 /**
@@ -413,7 +437,7 @@ export function fetchSessionTranscript(sessionId) {
 
 /**
  * Save config (poll targets).
- * @param {{ poll: { orgs: string[], repos: string[], interval_seconds: number } }} config
+ * @param {{ poll: { orgs: string[], repos: string[], interval_seconds: number, review_requests?: {users: string[], teams: string[]} } }} config
  * @returns {Promise<{ok: boolean}>}
  */
 export function saveConfig(config) {

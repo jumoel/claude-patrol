@@ -15,6 +15,7 @@ import { useWaitingAcknowledgements } from './hooks/useWaitingAcknowledgements.j
 import { useWorkDashboard } from './hooks/useWorkDashboard.js';
 import { fetchConfig } from './lib/api.js';
 import { getErrorMessage } from './lib/errors.js';
+import { subscribeAppEvent } from './lib/event-stream.js';
 import { parseAppRoute, pullRequestIdPath, pullRequestPath, workItemPath, workspacePath } from './lib/routes.js';
 import { sessionTargetKey } from './lib/session-target.js';
 
@@ -108,6 +109,8 @@ export default function App() {
     pollConfigured,
     workItemsConfigured,
     changeToken: localChangeCount,
+    reviewRequestsConfigured: publicConfig?.review_requests_configured ?? false,
+    reviewPlanId: publicConfig?.review_requests_plan_id ?? '',
   });
   const { prSource, workItemSource, sessionSource: globalSessionState } = dashboard;
   const sessionsReconciled = ['ready', 'stale'].includes(dashboard.sources.sessions.status);
@@ -178,6 +181,7 @@ export default function App() {
   }, [applyInstanceDefault]);
 
   useEffect(loadPublicConfig, [loadPublicConfig]);
+  useEffect(() => subscribeAppEvent('config-change', loadPublicConfig), [loadPublicConfig]);
 
   // Sync filters + sorting to URL hash
   /** @type {(newFilters: FilterState) => void} */

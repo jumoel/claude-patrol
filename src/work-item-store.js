@@ -81,9 +81,19 @@ export function mutateWorkItem(id, patch, expectedStates = null) {
     stateClause = ` AND state IN (${expectedStates.map(() => '?').join(', ')})`;
     values.push(...expectedStates);
   }
-  const result = withTransaction(db, () =>
-    db.prepare(`UPDATE work_items SET ${assignments.join(', ')} WHERE id = ?${stateClause}`).run(...values),
-  );
+  const result = withTransaction(db, () => {
+    const result = db
+      .prepare(`UPDATE work_items SET ${assignments.join(', ')} WHERE id = ?${stateClause}`)
+      .run(...values);
+    if (patch.state === 'destroyed' && result.changes === 1) {
+      db.prepare(`UPDATE work_item_pull_requests SET ownership_state = 'historical',
+        ended_at = ?, end_reason = 'work_item_destroyed' WHERE work_item_id = ? AND ownership_state = 'active'`).run(
+        now,
+        id,
+      );
+    }
+    return result;
+  });
   if (expectedStates?.length && result.changes !== 1) {
     throw workItemError('invalid_state', 'Work item state changed before this operation could start');
   }

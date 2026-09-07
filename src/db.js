@@ -33,6 +33,8 @@ export function initDb(dbPath) {
       }
     }
     migrateDb(nextDb);
+    // Credentials must be verified in this process before exposing remote sources.
+    nextDb.prepare('UPDATE sync_state SET viewer_verified = 0 WHERE id = 1').run();
     const violations = nextDb.prepare('PRAGMA foreign_key_check').all();
     if (violations.length > 0) {
       throw new Error(`foreign key validation failed (${violations.length} violation(s))`);

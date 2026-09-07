@@ -23,6 +23,7 @@ const api = vi.hoisted(() => ({
 
 vi.mock('../../lib/api.js', () => api);
 vi.mock('../../hooks/useSyncEvents.js', () => ({ useSyncEvents: () => {} }));
+vi.mock('../../lib/event-stream.js', () => ({ subscribeAppEvent: () => () => {} }));
 vi.mock('../RuleControls/RuleControls.jsx', () => ({ RuleControls: () => <div>Rules</div> }));
 vi.mock('../SessionHistory/SessionHistory.jsx', () => ({ SessionHistory: () => <div>Past sessions</div> }));
 vi.mock('../CommentsList/CommentsList.jsx', () => ({ CommentsList: () => null }));
@@ -168,10 +169,10 @@ test('creates PR local work as a work item and routes to its page', async () => 
   assert.equal(document.querySelector('[data-state-marker="inactive"]'), null);
   assert.equal(screen.queryByText('No LLM session is attached to this pull request.'), null);
   assert.equal(screen.queryByRole('button', { name: 'Create workspace only' }), null);
-  await user.click(screen.getByRole('button', { name: 'Open in Codex' }));
+  await user.click(screen.getByRole('button', { name: 'Prepare workspace' }));
 
   await waitFor(() => {
-    assert.deepEqual(api.createWorkspace.mock.calls, [['acme/widgets#42']]);
+    assert.deepEqual(api.createWorkspace.mock.calls, [['acme/widgets#42', undefined]]);
     assert.equal(window.location.hash, '#/work-item/work-item-42?pr=acme%2Fwidgets%2342');
   });
   assert.equal(api.createSession.mock.calls.length, 0);

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
 import { closeDb, getDb, initDb } from './db.js';
 import { ensureSessionAndSend } from './dispatcher.js';
+import { markTestPrAuthored } from './test-support/authored-prs.js';
 import { insertTestWorkItem } from './test-support/work-items.js';
 import {
   getPullRequestOwner,
@@ -43,6 +44,7 @@ function insertPullRequest(id, headOid = null, createdAt = '2026-08-22T00:00:00.
       createdAt,
       createdAt,
     );
+  markTestPrAuthored(getDb(), id);
 }
 
 function insertChildWorkspace(id, workItemId, path) {

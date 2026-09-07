@@ -13,6 +13,7 @@ import { registerCommentRoutes } from './routes/comments.js';
 import { registerConfigRoutes } from './routes/config.js';
 import { registerPeerReviewRoutes } from './routes/peer-reviews.js';
 import { registerPRRoutes } from './routes/prs.js';
+import { registerReviewRequestRoutes } from './routes/review-requests.js';
 import { registerRuleRoutes } from './routes/rules.js';
 import { registerSessionRoutes } from './routes/sessions.js';
 import { registerSetupRoutes } from './routes/setup.js';
@@ -37,6 +38,8 @@ function sseEvents(context) {
     { name: 'gh-rate-limit', emitter: context.appEvents },
     { name: 'rule-run', emitter: context.appEvents },
     { name: 'peer-review-state', emitter: context.appEvents },
+    { name: 'review-request-change', emitter: context.appEvents },
+    { name: 'config-change', emitter: context.appEvents },
   ];
 }
 
@@ -96,6 +99,7 @@ export async function createServer(options = {}) {
   });
 
   registerPRRoutes(app);
+  registerReviewRequestRoutes(app);
   registerSyncRoutes(app);
   registerConfigRoutes(app);
   registerWorkspaceRoutes(app);

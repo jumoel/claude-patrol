@@ -47,8 +47,16 @@ export function formatPR(row) {
     reviews,
     labels: parseJsonColumn(row.labels, []),
     comments: parseJsonColumn(row.comments, []),
-    ci_status: deriveCIStatus(checks),
-    review_status: deriveReviewStatus(reviews),
+    body_known: !!row.body_synced_at,
+    details_known: !!row.details_synced_at,
+    body_stale:
+      !row.body_synced_at ||
+      row.body_source_updated_at !== row.updated_at ||
+      row.body_head_oid !== row.head_oid ||
+      row.body_title !== row.title,
+    details_stale: !row.details_synced_at || row.detail_source_updated_at !== row.updated_at,
+    ci_status: row.details_synced_at ? deriveCIStatus(checks) : null,
+    review_status: row.details_synced_at ? deriveReviewStatus(reviews) : null,
     base_branch: row.base_branch || 'main',
   };
 }

@@ -3,6 +3,7 @@ import { existsSync, readFileSync, renameSync, rmSync, unwatchFile, watchFile, w
 import { dirname, isAbsolute, resolve } from 'node:path';
 import { z } from 'zod';
 import { configPath, dataDir, defaultDbPath } from './paths.js';
+import { REVIEW_LIMITS } from './review-request-query.js';
 import { expandPath } from './utils.js';
 
 /**
@@ -21,6 +22,31 @@ const OWNER_REPO_RE =
 const OWNER_RE = /^(?!-)[^\s/\\\u0000-\u001f\u007f-\u009f]+$/u;
 const MCP_NAME_RE = /^[A-Za-z0-9_-]+$/;
 const MCP_TOOL_RE = /^[A-Za-z0-9_.-]+$/;
+const reviewValue = z
+  .string()
+  .refine((value) => !/[\u0000-\u001f\u007f-\u009f]/u.test(value), 'must not contain control characters')
+  .transform((value) => value.trim().toLowerCase());
+const reviewUsers = z
+  .array(
+    reviewValue.pipe(
+      z.string().regex(/^(?:@me|[a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?)$/, 'must be @me or a GitHub login'),
+    ),
+  )
+  .transform((values) => [...new Set(values)]);
+const reviewTeams = z
+  .array(
+    reviewValue.pipe(
+      z.string().regex(/^[a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?\/[a-z0-9][a-z0-9_-]*$/, 'must be owner/team-slug'),
+    ),
+  )
+  .transform((values) => [...new Set(values)]);
+const reviewRequestsSchema = z
+  .object({ users: reviewUsers.default(['@me']), teams: reviewTeams.default([]) })
+  .strict()
+  .refine(
+    (value) => value.users.length + value.teams.length <= REVIEW_LIMITS.targets,
+    `at most ${REVIEW_LIMITS.targets} normalized review targets are allowed`,
+  );
 
 function hasAllowedResolverUrl(value) {
   try {
@@ -94,8 +120,9 @@ export const configSchema = z
         interval_seconds: z.number().int().min(5).default(30),
         orgs: z.array(z.string().regex(OWNER_RE, 'must be a GitHub owner name')).default([]),
         repos: z.array(z.string().regex(OWNER_REPO_RE, 'must be "owner/repo" format')).default([]),
+        review_requests: reviewRequestsSchema.default({ users: ['@me'], teams: [] }),
       })
-      .default({ interval_seconds: 30, orgs: [], repos: [] }),
+      .default({ interval_seconds: 30, orgs: [], repos: [], review_requests: { users: ['@me'], teams: [] } }),
     security: z
       .object({
         auth_token: z.string().min(16).optional(),
@@ -120,6 +147,17 @@ export const configSchema = z
   })
   .passthrough()
   .superRefine((config, ctx) => {
+    const owners = new Set(
+      [...config.poll.orgs, ...config.poll.repos.map((repo) => repo.split('/')[0])].map((owner) => owner.toLowerCase()),
+    );
+    config.poll.review_requests.teams.forEach((team, index) => {
+      if (!owners.has(team.split('/')[0]))
+        ctx.addIssue({
+          code: 'custom',
+          path: ['poll', 'review_requests', 'teams', index],
+          message: 'team owner must be included in poll.orgs or poll.repos',
+        });
+    });
     // Work-item repositories need a repos entry so their source checkout is
     // known. defaultRevision stays optional: the work item falls back to jj's
     // trunk() alias (see work-items.js DEFAULT_START_REVISION).
@@ -145,6 +183,7 @@ export function ensureConfig(path = defaultConfigPath()) {
       interval_seconds: 30,
       orgs: [],
       repos: [],
+      review_requests: { users: ['@me'], teams: [] },
     },
   };
   writeConfigAtomic(path, template);
@@ -158,6 +197,11 @@ export function ensureConfig(path = defaultConfigPath()) {
  */
 export function isPollConfigured(cfg) {
   return (cfg?.poll?.orgs?.length ?? 0) > 0 || (cfg?.poll?.repos?.length ?? 0) > 0;
+}
+
+export function isReviewRequestsConfigured(cfg) {
+  const watch = cfg?.poll?.review_requests ?? { users: ['@me'], teams: [] };
+  return isPollConfigured(cfg) && watch.users.length + watch.teams.length > 0;
 }
 
 export function isWorkItemsConfigured(cfg) {
@@ -226,6 +270,9 @@ export function updateConfig(patch, path = defaultConfigPath()) {
   const merged = { ...raw };
   for (const [key, value] of Object.entries(patch)) {
     merged[key] = isSection(value) && isSection(raw[key]) ? { ...raw[key], ...value } : value;
+  }
+  if (isSection(patch.poll?.review_requests)) {
+    merged.poll.review_requests = { ...raw.poll?.review_requests, ...patch.poll.review_requests };
   }
   const normalized = parseConfig(merged);
   writeConfigAtomic(path, merged);

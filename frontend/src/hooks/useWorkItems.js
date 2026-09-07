@@ -7,6 +7,17 @@ function isAbort(error) {
   return error instanceof DOMException && error.name === 'AbortError';
 }
 
+/** @param {() => void} reload */
+function subscribePRSummary(reload) {
+  return subscribeAppEvent('review-request-change', (event) => {
+    try {
+      if (['detail', 'summary'].includes(JSON.parse(event.data).kind)) reload();
+    } catch {
+      /* Ignore malformed events. */
+    }
+  });
+}
+
 /**
  * @returns {{workItems: import('../types').WorkItemListItem[], loading: boolean, loaded: boolean, error: unknown, reload: () => void}}
  */
@@ -25,11 +36,12 @@ export function useWorkItems(enabled = true) {
     setError(null);
     fetchWorkItems(controller.signal)
       .then(({ work_items: items }) => {
+        if (request.current !== controller || controller.signal.aborted) return;
         setWorkItems(items);
         setLoaded(true);
       })
       .catch((nextError) => {
-        if (!isAbort(nextError)) setError(nextError);
+        if (request.current === controller && !controller.signal.aborted && !isAbort(nextError)) setError(nextError);
       })
       .finally(() => {
         if (request.current === controller) setLoading(false);
@@ -54,10 +66,12 @@ export function useWorkItems(enabled = true) {
     };
     const unsubscribeLocal = subscribeAppEvent('local-change', reload);
     const unsubscribeTask = subscribeAppEvent('task-update', onTask);
+    const unsubscribePR = subscribePRSummary(reload);
     return () => {
       request.current?.abort();
       unsubscribeLocal();
       unsubscribeTask();
+      unsubscribePR();
     };
   }, [enabled, reload]);
 
@@ -80,9 +94,11 @@ export function useWorkItem(id) {
     request.current = controller;
     setError(null);
     fetchWorkItem(id, controller.signal)
-      .then(({ work_item: item }) => setWorkItem(item))
+      .then(({ work_item: item }) => {
+        if (request.current === controller && !controller.signal.aborted) setWorkItem(item);
+      })
       .catch((nextError) => {
-        if (!isAbort(nextError)) setError(nextError);
+        if (request.current === controller && !controller.signal.aborted && !isAbort(nextError)) setError(nextError);
       })
       .finally(() => {
         if (request.current === controller) setLoading(false);
@@ -104,10 +120,12 @@ export function useWorkItem(id) {
     };
     const unsubscribeLocal = subscribeAppEvent('local-change', reload);
     const unsubscribeTask = subscribeAppEvent('task-update', onTask);
+    const unsubscribePR = subscribePRSummary(reload);
     return () => {
       request.current?.abort();
       unsubscribeLocal();
       unsubscribeTask();
+      unsubscribePR();
     };
   }, [id, reload]);
 

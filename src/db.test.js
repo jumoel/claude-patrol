@@ -7,9 +7,58 @@ import { afterEach, test } from 'node:test';
 import { parseConfig, updateConfig } from './config.js';
 import { closeDb, initDb } from './db.js';
 import { CURRENT_SCHEMA_VERSION } from './migrations.js';
+import { migrateReviewRequests } from './review-request-migration.js';
 import { insertTestWorkItem } from './test-support/work-items.js';
 
 const temporaryDirectories = [];
+const schemaV17 = readFileSync(new URL('./test-support/schema-v17.sql', import.meta.url), 'utf8');
+
+test('v18 upgrade preserves review rows and adds an independent unattempted event clock', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'claude-patrol-test-'));
+  temporaryDirectories.push(directory);
+  const path = join(directory, 'v18.db');
+  const old = createV17Database(path);
+  migrateReviewRequests(old);
+  old.exec(`PRAGMA user_version = 18;
+    INSERT INTO prs (id, number, title, repo, org, author, url, branch, created_at, updated_at, synced_at)
+      VALUES ('org/repo#1', 1, 'Preserved', 'repo', 'org', 'alice', 'url', 'branch', 'now', 'now', 'now');
+    INSERT INTO review_watch_targets (id, kind, name, configured_values, generation, list_version, created_at)
+      VALUES ('user:alice', 'user', 'alice', '["@me"]', 'generation', 'version', 'now');
+    INSERT INTO pr_review_request_state (pr_id, target_id, match_state, state_version, last_attempt_at, acknowledged_revision)
+      VALUES ('org/repo#1', 'user:alice', 'active', 'saved-version', 'saved-attempt', 'saved-ack');`);
+  old.close();
+  const db = initDb(path);
+  const row = db.prepare('SELECT * FROM pr_review_request_state').get();
+  assert.equal(row.state_version, 'saved-version');
+  assert.equal(row.acknowledged_revision, 'saved-ack');
+  assert.equal(row.last_attempt_at, 'saved-attempt');
+  assert.equal(row.last_probe_attempt_at, null);
+  assert.equal(db.prepare('PRAGMA user_version').get().user_version, 19);
+  const backup = new DatabaseSync(`${path}.backup-v18-to-v19`, { readOnly: true });
+  assert.equal(backup.prepare('PRAGMA user_version').get().user_version, 18);
+  backup.close();
+});
+
+function createV17Database(path) {
+  const db = new DatabaseSync(path);
+  db.exec(schemaV17);
+  db.exec('INSERT INTO sync_state (id) VALUES (1)');
+  return db;
+}
+
+// Older tests focus on work-item/session migrations. Supply the unrelated PR
+// tables from the captured schema rather than pretending those tables were
+// absent in a real Patrol database.
+function completeLegacyPrFixture(db) {
+  for (const table of ['prs', 'sync_state']) {
+    if (!db.prepare('SELECT 1 FROM sqlite_master WHERE type = ? AND name = ?').get('table', table)) {
+      const sql = schemaV17.match(new RegExp(`CREATE TABLE ${table} \\([\\s\\S]*?\\);`))?.[0];
+      assert.ok(sql);
+      db.exec(sql);
+    }
+  }
+  db.exec('INSERT OR IGNORE INTO sync_state (id) VALUES (1)');
+}
 
 afterEach(() => {
   closeDb();
@@ -78,9 +127,77 @@ test('a new database is migrated to the current schema', () => {
   assert.equal(workItemColumns.has('reference'), false);
 });
 
+test('v17 migration preserves PRs, missing snapshots and historical local-work ownership', () => {
+  const path = join(temporaryDirectory(), 'v17.db');
+  const legacy = createV17Database(path);
+  insertTestWorkItem(legacy, { id: 'live', repositories: ['org/repo'] });
+  insertTestWorkItem(legacy, { id: 'old', state: 'destroyed', repositories: ['org/repo'] });
+  const now = '2026-09-01T00:00:00Z';
+  legacy
+    .prepare(`INSERT INTO prs (id, number, title, body, org, repo, author, url, branch, head_oid,
+    created_at, updated_at, synced_at) VALUES ('org/repo#1', 1, 'Title', '', 'org', 'repo', 'alice',
+    'https://github.com/org/repo/pull/1', 'feature', ?, ?, ?, ?)`)
+    .run('a'.repeat(40), now, now, now);
+  legacy
+    .prepare(`INSERT INTO work_item_pull_requests (pr_id, work_item_id, source, linked_at)
+    VALUES ('org/repo#1', 'live', 'explicit', ?), ('org/repo#2', 'old', 'explicit', ?)`)
+    .run(now, now);
+  legacy.close();
+  const db = initDb(path);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM prs').get().n, 1);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM work_item_pull_requests').get().n, 2);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM work_item_repositories').get().n, 2);
+  const links = db
+    .prepare('SELECT pr_id, ownership_state, local_repository FROM work_item_pull_requests ORDER BY pr_id')
+    .all();
+  assert.deepEqual(
+    links.map((row) => ({ ...row })),
+    [
+      { pr_id: 'org/repo#1', ownership_state: 'active', local_repository: 'org/repo' },
+      { pr_id: 'org/repo#2', ownership_state: 'historical', local_repository: 'org/repo' },
+    ],
+  );
+  assert.equal(db.prepare('SELECT viewer_id FROM pr_authored_state').get().viewer_id, null);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM authored_prs').get().n, 0);
+  const pr = db.prepare('SELECT * FROM prs').get();
+  assert.ok(pr.snapshot_version);
+  assert.ok(pr.review_revision, 'a known empty body still has a revision');
+  assert.equal(pr.github_node_id, null);
+  assert.deepEqual(db.prepare('PRAGMA foreign_key_check').all(), []);
+  const backup = new DatabaseSync(`${path}.backup-v17-to-v19`, { readOnly: true });
+  assert.equal(backup.prepare('PRAGMA user_version').get().user_version, 17);
+  assert.equal(backup.prepare('SELECT COUNT(*) AS n FROM work_item_pull_requests').get().n, 2);
+  backup.close();
+});
+
+test('review watch configuration normalizes exact targets and rejects ambiguous input', () => {
+  const parsed = parseConfig({
+    poll: {
+      orgs: ['org'],
+      review_requests: {
+        users: [' @ME ', 'Alice', 'alice'],
+        teams: ['ORG/Reviewers', 'org/reviewers'],
+      },
+    },
+  });
+  assert.deepEqual(parsed.poll.review_requests, { users: ['@me', 'alice'], teams: ['org/reviewers'] });
+  assert.deepEqual(parseConfig({ poll: { review_requests: { users: [], teams: [] } } }).poll.review_requests, {
+    users: [],
+    teams: [],
+  });
+  for (const review_requests of [
+    { users: ['team:org/name'] },
+    { users: ['alice\n'] },
+    { teams: ['org'] },
+    { teams: ['outside/reviewers'] },
+    { users: Array.from({ length: 33 }, (_, n) => `user${n}`) },
+  ])
+    assert.throws(() => parseConfig({ poll: { orgs: ['org'], review_requests } }));
+});
+
 test('the v16 migration restores creation sources without misclassifying later pull request links', () => {
   const path = join(temporaryDirectory(), 'v16.db');
-  let db = initDb(path);
+  let db = createV17Database(path);
   const createdAt = '2026-08-27T12:00:00.000Z';
   const linkedLaterAt = '2026-08-27T13:00:00.000Z';
   insertTestWorkItem(db, { id: 'reference-item', reference: 'ECO-3764', createdAt });
@@ -95,7 +212,7 @@ test('the v16 migration restores creation sources without misclassifying later p
      VALUES (?, ?, 'explicit', ?)`,
   ).run('acme/widgets#2', 'manual-item', linkedLaterAt);
   db.exec('ALTER TABLE work_items DROP COLUMN creation_source; PRAGMA user_version = 16');
-  closeDb();
+  db.close();
 
   db = initDb(path);
 
@@ -120,7 +237,7 @@ test('the v16 migration restores creation sources without misclassifying later p
 
 test('the v15 migration adds durable idle timestamps without replacing sessions', () => {
   const path = join(temporaryDirectory(), 'v15.db');
-  let db = initDb(path);
+  let db = createV17Database(path);
   const now = '2026-08-27T12:00:00.000Z';
   insertTestWorkItem(db, { id: 'item-1', path: '/tmp/item-1', createdAt: now });
   db.prepare(
@@ -128,7 +245,7 @@ test('the v15 migration adds durable idle timestamps without replacing sessions'
      VALUES ('session-1', 'item-1', 'codex', 'active', ?)`,
   ).run(now);
   db.exec('ALTER TABLE sessions DROP COLUMN last_idle_at; PRAGMA user_version = 15');
-  closeDb();
+  db.close();
 
   db = initDb(path);
 
@@ -142,11 +259,11 @@ test('the v15 migration adds durable idle timestamps without replacing sessions'
 
 test('the v13 migration creates workspace orphan storage for existing databases', () => {
   const path = join(temporaryDirectory(), 'v13.db');
-  let db = initDb(path);
+  let db = createV17Database(path);
   const now = '2026-08-27T12:00:00.000Z';
   insertTestWorkItem(db, { id: 'item-1', reference: 'ECO-2364', path: '/tmp/item-1', createdAt: now });
   db.exec('DROP TABLE workspace_orphans; PRAGMA user_version = 13');
-  closeDb();
+  db.close();
 
   db = initDb(path);
 
@@ -214,6 +331,7 @@ test('the v12 migration preserves work items and adds provider-native reference 
     );
     PRAGMA user_version = 12;
   `);
+  completeLegacyPrFixture(legacy);
   legacy.close();
 
   const db = initDb(path);
@@ -313,6 +431,7 @@ test('the v7 to current migration preserves workspaces and sessions', () => {
     VALUES ('session-1', 'workspace-1', 'active', '2026-01-01T00:00:00.000Z');
     PRAGMA user_version = 7;
   `);
+  completeLegacyPrFixture(legacy);
   legacy.close();
 
   const db = initDb(path);
@@ -406,6 +525,7 @@ test('the v10 migration preserves live global sessions and adds names', () => {
       ('global-codex', 202, 'codex', 'detached', '2026-08-20T11:00:00.000Z', NULL, NULL);
     PRAGMA user_version = 10;
   `);
+  completeLegacyPrFixture(legacy);
   legacy.close();
 
   const db = initDb(path);

@@ -396,7 +396,7 @@ export function registerSessionRoutes(app) {
           context: { sessionId: session.id, repo, branch },
         },
         async () => {
-          const created = workItemService.create({
+          const created = await workItemService.create({
             source: 'manual',
             title: branch,
             bookmark: branch,
