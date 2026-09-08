@@ -42,3 +42,13 @@
   color: #2764b0;
   background: #e7f0fb;
 }
+
+.merged {
+  color: #8250df;
+  background: #f0e7fc;
+}
+
+.closed {
+  color: #c94b45;
+  background: #fbe5e2;
+}

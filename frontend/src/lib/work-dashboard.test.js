@@ -34,6 +34,18 @@ const standalonePR = /** @type {import('../types').PullRequest} */ ({
   work_item_id: null,
 });
 
+it('keeps a merged linked PR and its final state after it leaves the authored list', () => {
+  const merged = { ...workItem.pull_requests[0], github_state: /** @type {const} */ ('MERGED') };
+  const rows = buildDashboardRows({
+    pullRequests: [],
+    workItems: [{ ...workItem, pull_requests: [merged] }],
+    workspaces: [],
+    sessions: [],
+  });
+  expect(rows).toHaveLength(1);
+  expect(rows[0].pull_requests[0]).toMatchObject({ id: merged.id, github_state: 'MERGED', tracked: true });
+});
+
 const workItem = /** @type {import('../types').WorkItemListItem} */ ({
   id: 'work-1',
   creation_source: 'reference',

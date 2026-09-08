@@ -29,7 +29,14 @@ export function isScheduledCheck(check) {
 
 /** @param {import('../types').PullRequest} pr */
 export function isMergeReady(pr) {
-  return pr.ci_status === 'pass' && pr.mergeable === 'MERGEABLE' && pr.review_status === 'approved' && !pr.draft;
+  return (
+    pr.github_state !== 'MERGED' &&
+    pr.github_state !== 'CLOSED' &&
+    pr.ci_status === 'pass' &&
+    pr.mergeable === 'MERGEABLE' &&
+    pr.review_status === 'approved' &&
+    !pr.draft
+  );
 }
 
 /**

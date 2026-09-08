@@ -5,6 +5,7 @@ export interface ExtensiblePayload {
 export type CiStatus = 'pass' | 'fail' | 'pending';
 export type ReviewStatus = 'approved' | 'changes_requested' | 'pending';
 export type MergeableStatus = 'MERGEABLE' | 'CONFLICTING' | 'UNKNOWN';
+export type PullRequestState = 'OPEN' | 'CLOSED' | 'MERGED';
 
 export interface Check {
   name: string;
@@ -51,6 +52,7 @@ export interface PullRequest {
   base_branch: string;
   is_fork: boolean;
   draft: boolean;
+  github_state?: PullRequestState | null;
   mergeable: MergeableStatus;
   checks: Check[];
   reviews: PullRequestReview[];
@@ -241,6 +243,7 @@ export interface WorkItemPullRequest {
   branch: string | null;
   base_branch: string | null;
   draft: boolean;
+  github_state?: PullRequestState | null;
   mergeable: MergeableStatus;
   ci_status: CiStatus | null;
   review_status: ReviewStatus | null;
@@ -308,6 +311,7 @@ export interface DashboardPullRequestSummary {
   org: string;
   repo: string;
   draft: boolean;
+  github_state?: PullRequestState | null;
   mergeable: MergeableStatus;
   ci_status: CiStatus | null;
   review_status: ReviewStatus | null;

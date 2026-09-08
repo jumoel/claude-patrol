@@ -37,6 +37,7 @@ export function LinkedPullRequests({ workItem, selectedPrId, onWorkItemReload, e
     [links, selectedPrId],
   );
   const [pr, setPR] = useState(/** @type {import('../../types').PullRequest | null} */ (null));
+  const inactive = pr?.github_state === 'MERGED' || pr?.github_state === 'CLOSED';
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState('');
   const [comments, setComments] = useState(
@@ -161,16 +162,16 @@ export function LinkedPullRequests({ workItem, selectedPrId, onWorkItemReload, e
     if (!pr) return;
     setRefreshing(true);
     setActionError('');
+    const requestId = ++contentRequest.current;
     try {
       const next = await refreshPR(pr.id);
-      if ('removed' in next) {
-        setPR(null);
-        onWorkItemReload();
-      } else {
-        setPR(next);
-      }
+      // Removal from the authored list keeps the linked PR's cached record.
+      const refreshed = 'removed' in next ? await fetchPR(pr.id) : next;
+      if (requestId === contentRequest.current) setPR(refreshed);
+      onWorkItemReload();
     } catch (error) {
-      setActionError(getErrorMessage(error, 'Failed to refresh pull request'));
+      if (requestId === contentRequest.current)
+        setActionError(getErrorMessage(error, 'Failed to refresh pull request'));
     } finally {
       setRefreshing(false);
     }
@@ -315,11 +316,14 @@ export function LinkedPullRequests({ workItem, selectedPrId, onWorkItemReload, e
           {selectedLink?.ownership_state === 'historical' && (
             <p role="status">Historical PR link. This work item no longer owns the PR.</p>
           )}
-          {selectedWorkspace?.base_commit && pr.head_oid && selectedWorkspace.base_commit !== pr.head_oid && (
-            <p role="status">
-              This workspace starts at an older PR revision. The existing checkout has not been changed.
-            </p>
-          )}
+          {!inactive &&
+            selectedWorkspace?.base_commit &&
+            pr.head_oid &&
+            selectedWorkspace.base_commit !== pr.head_oid && (
+              <p role="status">
+                This workspace starts at an older PR revision. The existing checkout has not been changed.
+              </p>
+            )}
           {(pr.body_stale || pr.details_stale || pr.hydration_error) && (
             <p role="status">Cached PR data may be outdated. {pr.hydration_error}</p>
           )}
@@ -354,9 +358,11 @@ export function LinkedPullRequests({ workItem, selectedPrId, onWorkItemReload, e
                     Merge on GitHub
                   </Button>
                 )}
-                <Button size="sm" onClick={handleToggleDraft} disabled={togglingDraft} busy={togglingDraft}>
-                  {togglingDraft ? 'Updating...' : pr.draft ? 'Mark ready' : 'Mark draft'}
-                </Button>
+                {!inactive && (
+                  <Button size="sm" onClick={handleToggleDraft} disabled={togglingDraft} busy={togglingDraft}>
+                    {togglingDraft ? 'Updating...' : pr.draft ? 'Mark ready' : 'Mark draft'}
+                  </Button>
+                )}
                 <Button size="sm" onClick={handleRefresh} disabled={refreshing} busy={refreshing}>
                   {refreshing ? 'Refreshing...' : 'Refresh'}
                 </Button>
@@ -383,12 +389,14 @@ export function LinkedPullRequests({ workItem, selectedPrId, onWorkItemReload, e
           <PullRequestChecks
             pr={pr}
             retriggering={retriggering}
-            onRetriggerFailed={handleRetriggerFailed}
-            onInvestigateFailures={handleInvestigateFailures}
+            onRetriggerFailed={inactive ? undefined : handleRetriggerFailed}
+            onInvestigateFailures={inactive ? undefined : handleInvestigateFailures}
           />
-          <section className={styles.ruleControls} aria-label="Rules">
-            {pr.authored !== false && <RuleControls prId={pr.id} />}
-          </section>
+          {!inactive && pr.authored !== false && (
+            <section className={styles.ruleControls} aria-label="Rules">
+              <RuleControls prId={pr.id} />
+            </section>
+          )}
           <PullRequestReviews reviews={pr.reviews} known={pr.details_known} />
           <PullRequestComments comments={comments} loading={commentsLoading} />
           {commentsError && <p className={styles.error}>{commentsError}</p>}

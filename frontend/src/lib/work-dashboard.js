@@ -26,6 +26,7 @@ function summarizePullRequest(pr) {
     org: pr.org,
     repo: pr.repo,
     draft: pr.draft,
+    github_state: pr.github_state,
     mergeable: pr.mergeable,
     ci_status: tracked ? pr.ci_status : null,
     review_status: tracked ? pr.review_status : null,

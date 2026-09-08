@@ -8,6 +8,7 @@ import {
   getPullRequestOwner,
   linkWorkItemPullRequest,
   listWorkItemPullRequests,
+  listWorkItemPullRequestsBatch,
   parsePullRequestReference,
   reconcileWorkItemPullRequests,
   unlinkWorkItemPullRequest,
@@ -77,6 +78,7 @@ test('a work item owns multiple pull requests without requiring poller rows', as
   const beforePoll = linkWorkItemPullRequest('one', 'acme/widgets#11');
   const tracked = linkWorkItemPullRequest('one', 'https://github.com/acme/tools/pull/12');
   assert.equal(beforePoll.tracked, false);
+  assert.equal(beforePoll.github_state, null);
   assert.equal(tracked.tracked, true);
   assert.equal(listWorkItemPullRequests('one').length, 2);
   assert.equal(getPullRequestOwner('acme/widgets#11').id, 'one');
@@ -98,6 +100,31 @@ test('a work item owns multiple pull requests without requiring poller rows', as
     work_item_id: 'one',
   });
   assert.ok(getDb().prepare("SELECT 1 FROM prs WHERE id = 'acme/tools#12'").get());
+});
+
+test('linked PR summaries preserve merged and closed states after authored tracking ends', () => {
+  initDb(':memory:');
+  insertWorkItem('one', ['acme/widgets']);
+  for (const [number, state] of [
+    [41, 'MERGED'],
+    [42, 'CLOSED'],
+  ]) {
+    const id = `acme/widgets#${number}`;
+    insertPullRequest(id);
+    linkWorkItemPullRequest('one', id);
+    getDb().prepare('UPDATE prs SET github_state = ? WHERE id = ?').run(state, id);
+    getDb().prepare('DELETE FROM pr_authored_state WHERE pr_id = ?').run(id);
+  }
+  const links = listWorkItemPullRequests('one');
+  assert.deepEqual(
+    links.map((link) => [link.id, link.github_state, link.tracked]),
+    [
+      ['acme/widgets#41', 'MERGED', true],
+      ['acme/widgets#42', 'CLOSED', true],
+    ],
+  );
+  assert.deepEqual(listWorkItemPullRequestsBatch(['one']).get('one'), links);
+  assert.equal(getDb().prepare("SELECT state FROM work_items WHERE id = 'one'").get().state, 'ready');
 });
 
 test('provenance reconciliation links only a unique immutable-history match', async () => {

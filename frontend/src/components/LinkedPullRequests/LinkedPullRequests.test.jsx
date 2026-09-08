@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
-import { render, screen, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, test, vi } from 'vitest';
+import { useSyncEvents } from '../../hooks/useSyncEvents.js';
 import { LinkedPullRequests } from './LinkedPullRequests.jsx';
 
 const api = vi.hoisted(() => ({
@@ -14,21 +15,8 @@ const api = vi.hoisted(() => ({
 }));
 
 vi.mock('../../lib/api.js', () => api);
-vi.mock('../../hooks/useSyncEvents.js', () => ({ useSyncEvents: () => {} }));
+vi.mock('../../hooks/useSyncEvents.js', () => ({ useSyncEvents: vi.fn() }));
 vi.mock('../RuleControls/RuleControls.jsx', () => ({ RuleControls: () => null }));
-vi.mock('../PRDetail/PRDetail.jsx', () => ({
-  /** @param {{pr: import('../../types').PullRequest}} props */
-  PullRequestChecks: ({ pr }) => (
-    <section aria-label="CI checks">
-      {pr.checks.map((check) => (
-        <span key={check.name}>{check.name}</span>
-      ))}
-    </section>
-  ),
-  PullRequestComments: () => null,
-  PullRequestDescription: () => null,
-  PullRequestReviews: () => null,
-}));
 
 /** @param {string} id @param {string} repository @param {number} number */
 function pullRequest(id, repository, number) {
@@ -44,6 +32,7 @@ function pullRequest(id, repository, number) {
     branch: null,
     base_branch: null,
     draft: false,
+    github_state: null,
     mergeable: /** @type {'UNKNOWN'} */ ('UNKNOWN'),
     ci_status: /** @type {'pending'} */ ('pending'),
     review_status: /** @type {'pending'} */ ('pending'),
@@ -103,6 +92,7 @@ function trackedPullRequest() {
     base_branch: 'main',
     is_fork: false,
     draft: false,
+    github_state: 'OPEN',
     mergeable: 'MERGEABLE',
     checks: [{ name: 'unit-tests', status: 'COMPLETED', conclusion: 'SUCCESS', url: 'https://example.test/check' }],
     reviews: [],
@@ -127,6 +117,7 @@ function trackedPullRequest() {
 
 beforeEach(() => {
   for (const fn of Object.values(api)) fn.mockReset();
+  vi.mocked(useSyncEvents).mockClear();
   api.fetchPRComments.mockResolvedValue({ reviews: [], conversation: [] });
 });
 
@@ -206,8 +197,104 @@ test('shows PR health in the list and all four statuses in the selected inspecto
   assert.equal(pullRequestList.queryByLabelText('PR Open'), null);
   assert.ok(await screen.findByRole('heading', { name: '#12 Harden remediation parsing' }));
   assert.equal(screen.getAllByLabelText('PR Open').length, 1);
-  assert.ok(screen.getByRole('region', { name: 'CI checks' }));
+  assert.ok(screen.getByRole('region', { name: 'Checks' }));
+  await userEvent.setup().click(screen.getByRole('button', { name: 'Show 1 passed checks' }));
   assert.ok(screen.getByText('unit-tests'));
   assert.deepEqual(api.fetchPR.mock.calls, [['acme/tools#12']]);
   assert.deepEqual(api.fetchPRComments.mock.calls, [['acme/tools#12']]);
+});
+
+for (const state of /** @type {const} */ (['MERGED', 'CLOSED'])) {
+  const label = state === 'MERGED' ? 'Merged' : 'Closed';
+
+  test(`${label} PRs retain their history and hide open-PR actions`, async () => {
+    const item = workItem();
+    item.pull_requests = item.pull_requests.map((link) => ({ ...link, tracked: true, github_state: state }));
+    api.fetchPR.mockResolvedValue({
+      ...trackedPullRequest(),
+      github_state: state,
+      draft: true,
+      body_html: '<p>Preserved PR description</p>',
+      checks: [{ name: 'old-failure', status: 'COMPLETED', conclusion: 'FAILURE', url: null }],
+      reviews: [{ reviewer: 'octocat', state: 'APPROVED', submitted_at: '2026-08-26T00:00:00Z' }],
+    });
+    render(
+      <LinkedPullRequests
+        workItem={item}
+        selectedPrId="acme/tools#12"
+        onWorkItemReload={vi.fn()}
+        ensureSession={vi.fn()}
+        wsRef={{ current: null }}
+      />,
+    );
+
+    await userEvent.setup().click(await screen.findByRole('button', { name: /Description/u }));
+    assert.ok(screen.getByText('Preserved PR description'));
+    assert.equal(screen.getAllByLabelText(`PR ${label}`).length, 3);
+    assert.equal(screen.queryByLabelText('PR Open'), null);
+    assert.equal(screen.queryByLabelText('PR Draft'), null);
+    assert.equal(screen.queryByLabelText(/Merge (Clean|Conflict|Unknown)/u), null);
+    for (const name of ['Mark ready', 'Mark draft', 'Retrigger failed', 'Investigate failures']) {
+      assert.equal(screen.queryByRole('button', { name }), null);
+    }
+    assert.equal(screen.queryByRole('link', { name: 'Merge on GitHub' }), null);
+    assert.equal(screen.queryByRole('region', { name: 'Rules' }), null);
+    assert.ok(screen.getByText('old-failure'));
+    assert.ok(screen.getByText('octocat'));
+    assert.ok(screen.getByRole('button', { name: 'Refresh' }));
+    assert.ok(screen.getByRole('link', { name: 'View diff' }));
+    assert.ok(screen.getByRole('button', { name: 'Detach' }));
+  });
+
+  test(`refresh keeps the selected PR visible when it becomes ${label.toLowerCase()}`, async () => {
+    const user = userEvent.setup();
+    const item = workItem();
+    item.pull_requests[1].tracked = true;
+    const pr = trackedPullRequest();
+    const reload = vi.fn();
+    api.fetchPR.mockResolvedValueOnce(pr).mockResolvedValue({ ...pr, github_state: state });
+    api.refreshPR.mockResolvedValue({ removed: true, state });
+    render(
+      <LinkedPullRequests
+        workItem={item}
+        selectedPrId={pr.id}
+        onWorkItemReload={reload}
+        ensureSession={vi.fn()}
+        wsRef={{ current: null }}
+      />,
+    );
+    assert.ok(await screen.findByRole('link', { name: 'Merge on GitHub' }));
+    await user.click(screen.getByRole('button', { name: 'Refresh' }));
+    await waitFor(() => assert.equal(screen.getAllByLabelText(`PR ${label}`).length, 2));
+    assert.ok(screen.getByRole('heading', { name: `#12 ${pr.title}` }));
+    assert.ok(screen.getByRole('region', { name: 'Checks' }));
+    assert.equal(screen.queryByRole('link', { name: 'Merge on GitHub' }), null);
+    assert.equal(screen.queryByRole('button', { name: 'Mark draft' }), null);
+    assert.deepEqual(api.fetchPR.mock.calls, [[pr.id], [pr.id]]);
+    assert.equal(reload.mock.calls.length, 1);
+  });
+}
+
+test('a sync updates the selected PR from open to merged', async () => {
+  const item = workItem();
+  item.pull_requests[1].tracked = true;
+  const pr = trackedPullRequest();
+  api.fetchPR.mockResolvedValueOnce(pr).mockResolvedValue({ ...pr, github_state: 'MERGED' });
+  render(
+    <LinkedPullRequests
+      workItem={item}
+      selectedPrId={pr.id}
+      onWorkItemReload={vi.fn()}
+      ensureSession={vi.fn()}
+      wsRef={{ current: null }}
+    />,
+  );
+  assert.ok(await screen.findByLabelText('PR Open'));
+  const refreshContent = vi.mocked(useSyncEvents).mock.calls.at(-1)?.[2];
+  assert.ok(refreshContent);
+  await act(async () => {
+    await refreshContent();
+  });
+  assert.equal(screen.getAllByLabelText('PR Merged').length, 2);
+  assert.equal(screen.queryByRole('button', { name: 'Mark draft' }), null);
 });

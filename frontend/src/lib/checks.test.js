@@ -54,6 +54,8 @@ test('isMergeReady requires passing CI, a clean merge, approval and a non-draft 
     { mergeable: 'CONFLICTING' },
     { review_status: 'changes_requested' },
     { draft: true },
+    { github_state: 'MERGED' },
+    { github_state: 'CLOSED' },
   ]) {
     assert.equal(isMergeReady(/** @type {any} */ ({ ...ready, ...change })), false, JSON.stringify(change));
   }
