@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { readdir, readFile, rm } from 'node:fs/promises';
+import { readdir, readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { emitLocalChange } from './app-events.js';
 import { getDb, withTransaction } from './db.js';
@@ -10,6 +10,7 @@ import { providerSetup } from './provider-setup.js';
 import { sanitizePublicText } from './public-errors.js';
 import { execFile } from './utils.js';
 import { listWorkItemPullRequests } from './work-item-prs.js';
+import { removeWorkspaceDirectory } from './workspace-directory.js';
 
 export const WORK_ITEM_STATES = new Set(['resolving', 'preparing', 'ready', 'error', 'destroying', 'destroyed']);
 export const WORK_ITEM_STAGES = new Set([
@@ -601,6 +602,6 @@ export async function removeWorkItemRoot(rootPath, { runExec = execFile } = {}) 
       );
     }
   }
-  await rm(rootPath, { recursive: true, force: true });
+  await removeWorkspaceDirectory(rootPath);
   return warnings;
 }

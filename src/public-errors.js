@@ -4,7 +4,7 @@ const TOKEN_ASSIGNMENT_RE =
 const TOKEN_SHAPE_RE =
   /\b(?:sk-[A-Za-z0-9_-]{12,}|gh[pousr]_[A-Za-z0-9_]{12,}|github_pat_[A-Za-z0-9_]{12,}|xox[a-z]-[A-Za-z0-9-]{12,})\b/g;
 const CREDENTIAL_PATH_RE =
-  /(?:~|\/[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*)\/(?:\.claude|\.codex)(?:\/[A-Za-z0-9._/-]+)?/g;
+  /(?:~|\/[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*)\/(?:\.claude|\.codex)(?=\/|$|[\s'"`,;:)\]}])(?:\/[A-Za-z0-9._/-]+)?/g;
 
 export function truncateUtf8(value, maxBytes) {
   const text = String(value ?? '');

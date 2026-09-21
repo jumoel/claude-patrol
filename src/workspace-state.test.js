@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir, userInfo } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, test } from 'node:test';
 import { closeDb, getDb, initDb } from './db.js';
@@ -118,6 +118,32 @@ test('destroying an already-complete workspace is idempotent', async () => {
       repo: 'example/project',
     },
   );
+});
+
+test('scratch workspace destruction completes when node_modules has a delete-denying ACL', {
+  skip: process.platform !== 'darwin',
+}, async () => {
+  initDb(':memory:');
+  const { config } = createScratchConfig();
+  const workspace = await createScratchWorkspace('example/project', 'feature-acl-cleanup', config, {
+    startRevision: '@',
+  });
+  const modules = join(workspace.path, 'node_modules');
+  mkdirSync(modules);
+  writeFileSync(join(modules, 'fixture.js'), '// disposable dependency\n');
+  execFileSync('/bin/chmod', ['+a', `user:${userInfo().username} deny delete`, modules]);
+
+  try {
+    assert.deepEqual(await destroyWorkspace(workspace.id, config), { ok: true, warnings: [] });
+    assert.equal(existsSync(workspace.path), false);
+    const row = getDb().prepare('SELECT * FROM workspaces WHERE id = ?').get(workspace.id);
+    assert.equal(row.status, 'destroyed');
+    assert.equal(row.operation_step, 'destroy:complete');
+    assert.equal(row.operation_error, null);
+    assert.deepEqual(getDb().prepare('SELECT * FROM workspace_claims').all(), []);
+  } finally {
+    if (existsSync(modules)) execFileSync('/bin/chmod', ['-N', modules]);
+  }
 });
 
 test('concurrent scratch creation rejects a duplicate repo and bookmark claim', async () => {

@@ -18,6 +18,23 @@ test('public text redacts credentials and stays within its UTF-8 byte limit', ()
   assert.equal(Buffer.byteLength(truncateUtf8('\u00e9'.repeat(20), 17), 'utf8') <= 17, true);
 });
 
+test('public text preserves workspace paths with provider directory name prefixes', () => {
+  for (const path of [
+    '/Users/example/.claude-patrol/workspaces/work-items/item/.reviews/context/CLAUDE.md',
+    '~/.claude-patrol/workspaces/item',
+    '/tmp/.codex-cache/workspace',
+  ]) {
+    const message = `EACCES: permission denied, unlink '${path}'`;
+    assert.equal(sanitizePublicText(message, { env: {} }), message);
+  }
+});
+
+test('public text still redacts exact provider directory names and their contents', () => {
+  for (const path of ['/tmp/.claude', '~/.codex', '/tmp/.claude/settings.json', '~/.codex/auth.json']) {
+    assert.equal(sanitizePublicText(`Cannot read '${path}'`, { env: {} }), "Cannot read '<provider-credentials>'");
+  }
+});
+
 test('public values bound nested collections and redact their contents', () => {
   const value = sanitizePublicValue({
     token: 'access_token=super-secret-value',

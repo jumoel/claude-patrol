@@ -12,6 +12,7 @@ import { runTask } from './tasks.js';
 import { archiveTranscript } from './transcripts.js';
 import { claudeProjectDir, execFile, expandPath, relationInside, toClaudeProjectKey } from './utils.js';
 import { getPullRequestOwner } from './work-item-prs.js';
+import { removeWorkspaceDirectory } from './workspace-directory.js';
 import { writePatrolWorkspaceMarker } from './workspace-ownership.js';
 
 /**
@@ -823,7 +824,7 @@ async function compensateWorkspaceCreation({
         }
       },
     ],
-    ['create:compensation_directory', () => rm(workspacePath, { recursive: true, force: true })],
+    ['create:compensation_directory', () => removeWorkspaceDirectory(workspacePath)],
     ['create:compensation_claude_project', () => removeProviderState(workspacePath)],
   ];
   if (deleteBookmark) {
@@ -1057,7 +1058,7 @@ function destroySteps(
       label: 'Directory cleanup failed',
       async run() {
         if (beforeDirectoryRemoval) await beforeDirectoryRemoval(workspace);
-        await rm(workspace.path, { recursive: true, force: true });
+        await removeWorkspaceDirectory(workspace.path);
       },
     },
     {

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, test } from 'node:test';
@@ -569,6 +569,33 @@ test('destruction removes owned checkouts, preserves bookmark policy, and retain
     detail.repository_workspaces.every((child) => child.state === 'removed'),
     true,
   );
+});
+
+test('destruction removes read-only review snapshots and completes the work item', async () => {
+  const { service } = fixture();
+  const created = await service.create({ source: 'manual', title: 'Review cleanup', repositories: ['acme/alpha'] });
+  await service.waitForIdle(created.id);
+  const root = service.detail(created.id).root_path;
+  const snapshot = join(root, '.reviews', 'hyper-review', 'canonical');
+  const context = join(snapshot, 'context');
+  mkdirSync(context, { recursive: true });
+  writeFileSync(join(context, 'CLAUDE.md'), 'Review context\n', { mode: 0o444 });
+  chmodSync(context, 0o555);
+  chmodSync(snapshot, 0o555);
+
+  try {
+    assert.equal(service.destroy(created.id).accepted, true);
+    await service.waitForIdle(created.id);
+
+    const detail = service.detail(created.id);
+    assert.equal(detail.state, 'destroyed', detail.error?.message);
+    assert.equal(detail.stage, 'complete');
+    assert.equal(existsSync(root), false);
+  } finally {
+    for (const path of [snapshot, context]) {
+      if (existsSync(path)) chmodSync(path, 0o755);
+    }
+  }
 });
 
 test('dirty-root cleanup removes nested Git worktrees even when deregistration warns', async () => {

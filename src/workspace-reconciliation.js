@@ -1,5 +1,4 @@
 import { existsSync, lstatSync, readdirSync, realpathSync } from 'node:fs';
-import { rm } from 'node:fs/promises';
 import { basename, dirname, resolve, sep } from 'node:path';
 import { getDb, withTransaction } from './db.js';
 import { taggedError } from './errors.js';
@@ -11,6 +10,7 @@ import {
   isAlreadyForgotten,
   sourceRepositoryPath,
 } from './workspace.js';
+import { removeWorkspaceDirectory } from './workspace-directory.js';
 import {
   PATROL_WORKSPACE_MARKER,
   readPatrolWorkspaceMarker,
@@ -594,7 +594,7 @@ export async function reconcilePatrolWorkspaces(
     isPatrolAvailable = () => false,
     runExec = execFile,
     dockerDown = dockerComposeDown,
-    removeDirectory = (path) => rm(path, { recursive: true, force: true }),
+    removeDirectory = removeWorkspaceDirectory,
     now = () => new Date().toISOString(),
   } = {},
 ) {
