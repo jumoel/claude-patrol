@@ -12,6 +12,7 @@ const state = vi.hoisted(() => ({
   focusCalls: 0,
   bounds: { width: 800, height: 400 },
   fitDimensions: { cols: 80, rows: 24 },
+  mouseTrackingMode: /** @type {'none' | 'vt200'} */ ('none'),
   keyHandler: /** @type {((event: KeyboardEvent) => boolean) | null} */ (null),
   wheelHandler: /** @type {((event: WheelEvent) => boolean) | null} */ (null),
   resizeCallback: /** @type {(() => void) | null} */ (null),
@@ -23,6 +24,7 @@ vi.mock('@xterm/xterm', () => ({
     options = { disableStdin: false };
     rows = 24;
     cols = 80;
+    modes = { mouseTrackingMode: state.mouseTrackingMode };
     textarea = null;
 
     constructor() {
@@ -136,6 +138,7 @@ describe('Terminal connection lifecycle', () => {
     state.focusCalls = 0;
     state.bounds = { width: 800, height: 400 };
     state.fitDimensions = { cols: 80, rows: 24 };
+    state.mouseTrackingMode = 'none';
     state.keyHandler = null;
     state.wheelHandler = null;
     state.resizeCallback = null;
@@ -237,6 +240,21 @@ describe('Terminal connection lifecycle', () => {
 
     view.rerender(<Terminal wsUrl="/ws/sessions/one" tmuxScrollback={false} />);
     expect(state.wheelHandler?.(new WheelEvent('wheel', { deltaY: -120 }))).toBe(true);
+  });
+
+  it('leaves wheel gestures to Codex when it enables mouse tracking', async () => {
+    state.mouseTrackingMode = 'vt200';
+    render(<Terminal wsUrl="/ws/sessions/one" tmuxScrollback />);
+    await waitFor(() => expect(state.sockets).toHaveLength(1));
+    const socket = state.sockets[0];
+    await waitFor(() => expect(socket.sent).toContain(JSON.stringify({ type: 'resize', cols: 80, rows: 24 })));
+    socket.sent = [];
+    const event = new WheelEvent('wheel', { deltaY: -120, cancelable: true });
+
+    expect(state.wheelHandler?.(event)).toBe(true);
+    expect(event.defaultPrevented).toBe(false);
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    expect(socket.sent).toEqual([]);
   });
 
   it('refits and redraws after its container changes size', async () => {

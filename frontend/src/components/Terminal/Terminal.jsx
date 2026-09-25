@@ -233,6 +233,9 @@ export function Terminal({
 
     term.attachCustomWheelEventHandler((event) => {
       if (!tmuxScrollbackRef.current) return true;
+      // Apps with mouse tracking (such as Codex) own their scroll position.
+      // tmux copy mode has no history for their alternate screen.
+      if (term.modes.mouseTrackingMode !== 'none' && term.modes.mouseTrackingMode !== 'x10') return true;
       event.preventDefault();
       event.stopPropagation();
       pendingScrollLines += wheelLineDelta(event, term.rows);
