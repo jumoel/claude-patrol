@@ -38,6 +38,11 @@ function pullRequest(id, repository, number) {
     review_status: /** @type {'pending'} */ ('pending'),
     updated_at: null,
     tracked: false,
+    is_fork: false,
+    stack_root: null,
+    stack_depth: 0,
+    stack_position: 0,
+    is_stacked: false,
     linked_at: '2026-08-26T00:00:00.000Z',
     link_source: /** @type {'explicit'} */ ('explicit'),
   };

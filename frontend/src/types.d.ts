@@ -255,6 +255,11 @@ export interface WorkItemPullRequest {
   local_repository?: string | null;
   updated_at: string | null;
   tracked: boolean;
+  is_fork: boolean;
+  stack_root: string | null;
+  stack_depth: number;
+  stack_position: number;
+  is_stacked: boolean;
   linked_at: string;
   link_source: 'explicit' | 'provenance';
 }
@@ -319,6 +324,7 @@ export interface DashboardPullRequestSummary {
   tracked: boolean;
   stack_root: string | null;
   stack_depth: number;
+  stack_position: number;
   is_stacked: boolean;
 }
 

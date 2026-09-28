@@ -182,6 +182,43 @@ describe('buildDashboardRows', () => {
     expect(rows.flatMap((row) => row.pull_requests).filter((pr) => pr.id === trackedPR.id)).toHaveLength(1);
   });
 
+  it('sorts attached pull requests after merging the linked and tracked sources', () => {
+    /** @param {string} repo @param {number} number @param {string | null} [stackRoot] @param {number} [stackPosition] */
+    const linked = (repo, number, stackRoot = null, stackPosition = 0) => ({
+      ...workItem.pull_requests[0],
+      id: `chainguard/${repo}#${number}`,
+      number,
+      repo,
+      repository: `chainguard/${repo}`,
+      stack_root: stackRoot,
+      stack_position: stackPosition,
+      is_stacked: stackRoot !== null,
+    });
+    const rows = buildDashboardRows({
+      pullRequests: [{ ...trackedPR, id: 'chainguard/mono#20', number: 20, work_item_id: workItem.id }],
+      workItems: [
+        {
+          ...workItem,
+          pull_requests: [
+            linked('mono', 10, 'chainguard/mono#30', 2),
+            linked('mono', 30, 'chainguard/mono#30', 1),
+            linked('mono', 2),
+            linked('alpha', 12),
+          ],
+        },
+      ],
+      workspaces: [],
+      sessions: [],
+    });
+    expect(rows[0].pull_requests.map((pr) => pr.id)).toEqual([
+      'chainguard/alpha#12',
+      'chainguard/mono#2',
+      'chainguard/mono#20',
+      'chainguard/mono#30',
+      'chainguard/mono#10',
+    ]);
+  });
+
   it('shows a tracked pull request as standalone when its work-item source row is unavailable', () => {
     const rows = buildDashboardRows({
       pullRequests: [trackedPR],
@@ -288,6 +325,7 @@ describe('filterDashboardRows', () => {
         tracked: true,
         stack_root: null,
         stack_depth: 0,
+        stack_position: 0,
         is_stacked: false,
       },
       {
@@ -305,6 +343,7 @@ describe('filterDashboardRows', () => {
         tracked: true,
         stack_root: null,
         stack_depth: 0,
+        stack_position: 0,
         is_stacked: false,
       },
     ],

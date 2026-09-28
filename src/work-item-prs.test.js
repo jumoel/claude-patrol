@@ -79,7 +79,9 @@ test('a work item owns multiple pull requests without requiring poller rows', as
   const tracked = linkWorkItemPullRequest('one', 'https://github.com/acme/tools/pull/12');
   assert.equal(beforePoll.tracked, false);
   assert.equal(beforePoll.github_state, null);
+  assert.equal(beforePoll.stack_root, null);
   assert.equal(tracked.tracked, true);
+  assert.equal(tracked.stack_root, tracked.id);
   assert.equal(listWorkItemPullRequests('one').length, 2);
   assert.equal(getPullRequestOwner('acme/widgets#11').id, 'one');
   assert.equal(linkWorkItemPullRequest('one', 'acme/widgets#11').id, 'acme/widgets#11');
@@ -125,6 +127,44 @@ test('linked PR summaries preserve merged and closed states after authored track
   );
   assert.deepEqual(listWorkItemPullRequestsBatch(['one']).get('one'), links);
   assert.equal(getDb().prepare("SELECT state FROM work_items WHERE id = 'one'").get().state, 'ready');
+});
+
+test('work item pull requests sort by repository, numeric PR ID, and stack position', () => {
+  initDb(':memory:');
+  insertWorkItem('one', ['acme/widgets', 'acme/tools']);
+  for (const id of [
+    'acme/widgets#100',
+    'acme/widgets#10',
+    'acme/widgets#30',
+    'acme/tools#12',
+    'acme/widgets#2',
+    'acme/widgets#20',
+  ]) {
+    insertPullRequest(id);
+    linkWorkItemPullRequest('one', id);
+  }
+  linkWorkItemPullRequest('one', 'acme/widgets#3');
+  getDb().prepare('UPDATE prs SET base_branch = ? WHERE id = ?').run('feature-30', 'acme/widgets#10');
+
+  const expected = [
+    'acme/tools#12',
+    'acme/widgets#2',
+    'acme/widgets#3',
+    'acme/widgets#20',
+    'acme/widgets#30',
+    'acme/widgets#10',
+    'acme/widgets#100',
+  ];
+  const links = listWorkItemPullRequests('one');
+  assert.deepEqual(
+    links.map((pr) => pr.id),
+    expected,
+  );
+  assert.deepEqual(
+    links.filter((pr) => pr.is_stacked).map((pr) => pr.stack_position),
+    [1, 2],
+  );
+  assert.deepEqual(listWorkItemPullRequestsBatch(['one']).get('one'), links);
 });
 
 test('provenance reconciliation links only a unique immutable-history match', async () => {

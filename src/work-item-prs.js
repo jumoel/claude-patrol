@@ -1,7 +1,7 @@
 import { emitLocalChange } from './app-events.js';
 import { getDb } from './db.js';
 import { taggedError } from './errors.js';
-import { formatPR } from './pr-status.js';
+import { enrichWithStackInfo, formatPR } from './pr-status.js';
 import { execFile } from './utils.js';
 
 const PR_ID_PATTERN = /^([^\s/#]+)\/([^\s/#]+)#([1-9]\d*)$/u;
@@ -66,6 +66,11 @@ function linkedPullRequest(link, row = null) {
       details_known: false,
       updated_at: null,
       tracked: false,
+      is_fork: false,
+      stack_root: null,
+      stack_depth: 0,
+      stack_position: 0,
+      is_stacked: false,
       linked_at: link.linked_at,
       link_source: link.source,
       ownership_state: link.ownership_state,
@@ -94,11 +99,32 @@ function linkedPullRequest(link, row = null) {
     head_oid: pr.head_oid,
     updated_at: pr.updated_at,
     tracked: true,
+    is_fork: pr.is_fork,
+    stack_root: pr.id,
+    stack_depth: 0,
+    stack_position: 0,
+    is_stacked: false,
     linked_at: link.linked_at,
     link_source: link.source,
     ownership_state: link.ownership_state,
     local_repository: link.local_repository,
   };
+}
+
+function sortWorkItemPullRequests(pullRequests) {
+  // Set a stable order before stack positions are assigned to siblings at the same depth.
+  pullRequests.sort((a, b) => a.repository.localeCompare(b.repository) || a.number - b.number);
+  enrichWithStackInfo(pullRequests.filter((pr) => pr.tracked && pr.branch && pr.base_branch));
+  return pullRequests.sort((a, b) => {
+    const repositoryOrder = a.repository.localeCompare(b.repository);
+    if (repositoryOrder) return repositoryOrder;
+    const aRoot = a.is_stacked ? a.stack_root : a.id;
+    const bRoot = b.is_stacked ? b.stack_root : b.id;
+    const rootOrder = Number(aRoot.split('#')[1]) - Number(bRoot.split('#')[1]);
+    if (rootOrder) return rootOrder;
+    if (aRoot === bRoot) return a.stack_position - b.stack_position || a.number - b.number;
+    return a.number - b.number;
+  });
 }
 
 /** @param {string} workItemId */
@@ -113,9 +139,7 @@ export function listWorkItemPullRequests(workItemId) {
     )
     .all(workItemId);
   const getPr = db.prepare('SELECT * FROM prs WHERE id = ?');
-  return links
-    .map((link) => linkedPullRequest(link, getPr.get(link.pr_id) ?? null))
-    .sort((a, b) => (b.updated_at ?? b.linked_at).localeCompare(a.updated_at ?? a.linked_at));
+  return sortWorkItemPullRequests(links.map((link) => linkedPullRequest(link, getPr.get(link.pr_id) ?? null)));
 }
 
 /** @param {string[]} workItemIds */
@@ -153,7 +177,7 @@ export function listWorkItemPullRequestsBatch(workItemIds) {
     grouped.get(row.linked_work_item_id)?.push(item);
   }
   for (const pullRequests of grouped.values()) {
-    pullRequests.sort((a, b) => (b.updated_at ?? b.linked_at).localeCompare(a.updated_at ?? a.linked_at));
+    sortWorkItemPullRequests(pullRequests);
   }
   return grouped;
 }
