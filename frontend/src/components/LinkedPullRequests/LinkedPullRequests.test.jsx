@@ -183,6 +183,33 @@ test('hides merged PRs until requested while keeping closed PRs visible', async 
   assert.equal(list.queryByRole('link', { name: /#12/u }), null);
 });
 
+test('shows stack position from the full sequence when earlier PRs are merged', async () => {
+  const user = userEvent.setup();
+  const item = workItem();
+  item.pull_requests = [
+    {
+      ...pullRequest('acme/tools#10', 'acme/tools', 10),
+      github_state: 'MERGED',
+      is_stacked: true,
+      stack_position: 1,
+      stack_size: 2,
+    },
+    { ...pullRequest('acme/widgets#11', 'acme/widgets', 11), is_stacked: true, stack_position: 2, stack_size: 2 },
+    pullRequest('acme/widgets#12', 'acme/widgets', 12),
+  ];
+  render(
+    <LinkedPullRequests workItem={item} onWorkItemReload={vi.fn()} ensureSession={vi.fn()} wsRef={{ current: null }} />,
+  );
+
+  const list = within(screen.getByRole('list', { name: 'Work item pull requests' }));
+  assert.deepEqual(
+    list.getAllByRole('link').map((link) => link.textContent.includes('Stack 2/2')),
+    [true, false],
+  );
+  await user.click(screen.getByRole('button', { name: 'Show merged PRs (1)' }));
+  assert.ok(list.getByRole('link', { name: /#10.*Stack 1\/2/u }));
+});
+
 test('a selected merged PR remains available through its direct link', () => {
   const item = workItem();
   item.pull_requests = item.pull_requests.map((link) => ({ ...link, github_state: /** @type {const} */ ('MERGED') }));

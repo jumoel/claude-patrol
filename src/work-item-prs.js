@@ -6,6 +6,22 @@ import { execFile } from './utils.js';
 
 const PR_ID_PATTERN = /^([^\s/#]+)\/([^\s/#]+)#([1-9]\d*)$/u;
 const COMMIT_ID_PATTERN = /^[0-9a-f]{40,64}$/iu;
+const STACK_PART_PATTERN = /^\s*(?:>\s*)?Part ([1-9]\d*) of ([1-9]\d*)\b/imu;
+const STACK_FIRST_PR_PATTERN = /^\s*(?:>\s*)?1\.\s+(?:([\w.-]+\/[\w.-]+))?#([1-9]\d*)\s*:/imu;
+
+function declaredStack(body, repository) {
+  const part = STACK_PART_PATTERN.exec(body || '');
+  if (!part) return null;
+  const position = Number(part[1]);
+  const size = Number(part[2]);
+  if (size < 2 || position > size) return null;
+  const first = STACK_FIRST_PR_PATTERN.exec(body.slice(part.index));
+  return {
+    position,
+    size,
+    root: first ? `${first[1] || repository}#${first[2]}` : null,
+  };
+}
 
 /** @param {string} value */
 export function parsePullRequestReference(value) {
@@ -78,11 +94,12 @@ function linkedPullRequest(link, row = null) {
     };
   }
   const pr = formatPR(row);
+  const repository = `${pr.org}/${pr.repo}`;
   return {
     id: pr.id,
     org: pr.org,
     repo: pr.repo,
-    repository: `${pr.org}/${pr.repo}`,
+    repository,
     number: pr.number,
     title: pr.title,
     url: pr.url,
@@ -104,6 +121,7 @@ function linkedPullRequest(link, row = null) {
     stack_depth: 0,
     stack_position: 0,
     is_stacked: false,
+    _declared_stack: pr.body_known ? declaredStack(pr.body, repository) : null,
     linked_at: link.linked_at,
     link_source: link.source,
     ownership_state: link.ownership_state,
@@ -115,16 +133,39 @@ function sortWorkItemPullRequests(pullRequests) {
   // Set a stable order before stack positions are assigned to siblings at the same depth.
   pullRequests.sort((a, b) => a.repository.localeCompare(b.repository) || a.number - b.number);
   enrichWithStackInfo(pullRequests.filter((pr) => pr.tracked && pr.branch && pr.base_branch));
-  return pullRequests.sort((a, b) => {
-    const repositoryOrder = a.repository.localeCompare(b.repository);
-    if (repositoryOrder) return repositoryOrder;
-    const aRoot = a.is_stacked ? a.stack_root : a.id;
-    const bRoot = b.is_stacked ? b.stack_root : b.id;
-    const rootOrder = Number(aRoot.split('#')[1]) - Number(bRoot.split('#')[1]);
-    if (rootOrder) return rootOrder;
-    if (aRoot === bRoot) return a.stack_position - b.stack_position || a.number - b.number;
-    return a.number - b.number;
+  for (const pr of pullRequests) {
+    if (pr._declared_stack) {
+      pr.is_stacked = true;
+      pr.stack_root = pr._declared_stack.root || pr.stack_root || pr.id;
+      pr.stack_position = pr._declared_stack.position;
+      pr.stack_size = pr._declared_stack.size;
+    }
+  }
+  pullRequests.sort((a, b) => {
+    if (a.is_stacked !== b.is_stacked) return a.is_stacked ? -1 : 1;
+    if (a.is_stacked && b.is_stacked) {
+      const aRoot = a.stack_root || a.id;
+      const bRoot = b.stack_root || b.id;
+      if (aRoot === bRoot) {
+        const positionOrder = a.stack_position - b.stack_position;
+        if (positionOrder) return positionOrder;
+      }
+      if (Boolean(a._declared_stack) !== Boolean(b._declared_stack)) return a._declared_stack ? -1 : 1;
+      if (a._declared_stack && b._declared_stack) {
+        if (!a._declared_stack.root || !b._declared_stack.root) {
+          const positionOrder = a.stack_position - b.stack_position;
+          if (positionOrder) return positionOrder;
+        }
+      }
+      const rootOrder = aRoot.localeCompare(bRoot, undefined, { numeric: true });
+      if (rootOrder) return rootOrder;
+      const positionOrder = a.stack_position - b.stack_position;
+      if (positionOrder) return positionOrder;
+    }
+    return a.repository.localeCompare(b.repository) || a.number - b.number;
   });
+  for (const pr of pullRequests) delete pr._declared_stack;
+  return pullRequests;
 }
 
 /** @param {string} workItemId */

@@ -210,6 +210,14 @@
   font-size: 12px;
 }
 
+.stackPosition {
+  margin-left: 9px;
+  color: var(--blue);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
 .viewing {
   color: var(--blue);
   font-size: 12px;

@@ -147,12 +147,12 @@ test('work item pull requests sort by repository, numeric PR ID, and stack posit
   getDb().prepare('UPDATE prs SET base_branch = ? WHERE id = ?').run('feature-30', 'acme/widgets#10');
 
   const expected = [
+    'acme/widgets#30',
+    'acme/widgets#10',
     'acme/tools#12',
     'acme/widgets#2',
     'acme/widgets#3',
     'acme/widgets#20',
-    'acme/widgets#30',
-    'acme/widgets#10',
     'acme/widgets#100',
   ];
   const links = listWorkItemPullRequests('one');
@@ -165,6 +165,79 @@ test('work item pull requests sort by repository, numeric PR ID, and stack posit
     [1, 2],
   );
   assert.deepEqual(listWorkItemPullRequestsBatch(['one']).get('one'), links);
+});
+
+test('declared cross-repository stack order comes before free PRs, including merged members', () => {
+  initDb(':memory:');
+  insertWorkItem('one', ['acme/js', 'acme/mono']);
+  for (const id of ['acme/js#1477', 'acme/mono#61314', 'acme/mono#61657', 'acme/js#1470', 'acme/mono#61673']) {
+    insertPullRequest(id);
+    linkWorkItemPullRequest('one', id);
+  }
+  const sequence =
+    '> 1. acme/js#1470: First change\n> 2. acme/mono#61314: Second change\n> 3. acme/js#1477: Last change';
+  for (const [id, position] of [
+    ['acme/js#1477', 3],
+    ['acme/mono#61314', 2],
+    ['acme/js#1470', 1],
+  ]) {
+    getDb()
+      .prepare('UPDATE prs SET body = ? WHERE id = ?')
+      .run(`## References\n\n> Part ${position} of 3.\n\n${sequence}`, id);
+  }
+  getDb().prepare("UPDATE prs SET github_state = 'MERGED' WHERE id = 'acme/js#1470'").run();
+  const links = listWorkItemPullRequests('one');
+  assert.deepEqual(
+    links.map((pr) => pr.id),
+    ['acme/js#1470', 'acme/mono#61314', 'acme/js#1477', 'acme/mono#61657', 'acme/mono#61673'],
+  );
+  assert.deepEqual(
+    links.slice(0, 3).map((pr) => [pr.is_stacked, pr.stack_root, pr.stack_position, pr.stack_size]),
+    [
+      [true, 'acme/js#1470', 1, 3],
+      [true, 'acme/js#1470', 2, 3],
+      [true, 'acme/js#1470', 3, 3],
+    ],
+  );
+  assert.equal(links[3].is_stacked, false);
+  assert.deepEqual(listWorkItemPullRequestsBatch(['one']).get('one'), links);
+});
+
+test('part markers order a stack even without a sequence list', () => {
+  initDb(':memory:');
+  insertWorkItem('one', ['acme/js', 'acme/mono']);
+  for (const [id, part] of [
+    ['acme/js#20', 2],
+    ['acme/mono#90', 1],
+  ]) {
+    insertPullRequest(id);
+    linkWorkItemPullRequest('one', id);
+    getDb().prepare('UPDATE prs SET body = ? WHERE id = ?').run(`## References\n\n> Part ${part} of 2.`, id);
+  }
+  assert.deepEqual(
+    listWorkItemPullRequests('one').map((pr) => [pr.id, pr.stack_position]),
+    [
+      ['acme/mono#90', 1],
+      ['acme/js#20', 2],
+    ],
+  );
+});
+
+test('a declared child stays after its inferred stack parent', () => {
+  initDb(':memory:');
+  insertWorkItem('one', ['acme/js']);
+  for (const id of ['acme/js#30', 'acme/js#10']) {
+    insertPullRequest(id);
+    linkWorkItemPullRequest('one', id);
+  }
+  getDb().prepare('UPDATE prs SET base_branch = ? WHERE id = ?').run('feature-30', 'acme/js#10');
+  getDb()
+    .prepare('UPDATE prs SET body = ? WHERE id = ?')
+    .run('> Part 2 of 2.\n\n> 1. #30: Parent\n> 2. #10: Child', 'acme/js#10');
+  assert.deepEqual(
+    listWorkItemPullRequests('one').map((pr) => pr.id),
+    ['acme/js#30', 'acme/js#10'],
+  );
 });
 
 test('provenance reconciliation links only a unique immutable-history match', async () => {

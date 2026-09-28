@@ -282,7 +282,14 @@ export function LinkedPullRequests({ workItem, selectedPrId, onWorkItemReload, e
                     <span className={styles.prRowIdentity}>
                       <span className={styles.prNumber}>#{link.number}</span>
                       <span className={styles.prRowTitle}>{title || link.repository}</span>
-                      <span className={styles.prRepository}>{link.repository}</span>
+                      <span className={styles.prRepository}>
+                        {link.repository}
+                        {link.is_stacked && link.stack_position > 0 && (
+                          <span className={styles.stackPosition}>
+                            Stack {link.stack_position}/{link.stack_size}
+                          </span>
+                        )}
+                      </span>
                     </span>
                     <PullRequestStatusBadges pullRequest={statusSource} includePrState={false} />
                     {selected && <span className={styles.viewing}>Viewing</span>}
