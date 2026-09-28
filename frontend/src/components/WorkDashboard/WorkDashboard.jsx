@@ -127,15 +127,11 @@ function SessionSummary({ sessions, acknowledgedIdle }) {
   );
 }
 
-/** @param {{row: import('../../types').DashboardWorkRow}} props */
-function LocalSummary({ row }) {
+/** @param {{row: import('../../types').DashboardWorkRow, hasPullRequests?: boolean}} props */
+function LocalSummary({ row, hasPullRequests = row.pull_requests.length > 0 }) {
   if (row.workspace_count === 0) return <span className={styles.empty}>No workspace</span>;
   const scratch = row.kind === 'scratch';
-  const label = scratch
-    ? 'Scratch'
-    : row.kind === 'pull_request' || row.pull_requests.length > 0
-      ? 'PR workspace'
-      : 'Workspace';
+  const label = scratch ? 'Scratch' : row.kind === 'pull_request' || hasPullRequests ? 'PR workspace' : 'Workspace';
   const note = scratch ? 'Active' : row.workspace_count === 1 ? 'Ready' : `${row.workspace_count} ready`;
   return (
     <span className={styles.localSummary}>
@@ -370,6 +366,7 @@ export function WorkDashboard({
   onAcknowledgeSession,
 }) {
   const [visibleColumns, setVisibleColumns] = useState(readColumns);
+  const [showMerged, setShowMerged] = useState(false);
   const markdownCopy = useCopyFeedback({ resetMs: 2000 });
   const waiting = useMemo(
     () => buildWaitingSessions(dashboard.sessionSource.allSessions, acknowledgedIdle),
@@ -379,9 +376,29 @@ export function WorkDashboard({
     () => buildWorkingSessions(dashboard.sessionSource.allSessions),
     [dashboard.sessionSource.allSessions],
   );
+  const visibleRows = useMemo(() => {
+    if (showMerged) return dashboard.rows;
+    const visible = /** @type {import('../../types').DashboardWorkRow[]} */ ([]);
+    for (const row of dashboard.rows) {
+      if (row.kind === 'scratch') visible.push(row);
+      else if (row.kind === 'pull_request') {
+        if (row.pull_requests[0]?.github_state !== 'MERGED') visible.push(row);
+      } else visible.push({ ...row, pull_requests: row.pull_requests.filter((pr) => pr.github_state !== 'MERGED') });
+    }
+    return visible;
+  }, [dashboard.rows, showMerged]);
   const rows = useMemo(
-    () => sortDashboardRows(filterDashboardRows(dashboard.rows, filters), sorting, stackView),
-    [dashboard.rows, filters, sorting, stackView],
+    () => sortDashboardRows(filterDashboardRows(visibleRows, filters), sorting, stackView),
+    [visibleRows, filters, sorting, stackView],
+  );
+  const mergedCount = dashboard.rows.reduce(
+    (count, row) => count + row.pull_requests.filter((pr) => pr.github_state === 'MERGED').length,
+    0,
+  );
+  const rowsWithHiddenMerged = new Set(
+    dashboard.rows
+      .filter((row) => row.pull_requests.some((pr) => pr.github_state === 'MERGED'))
+      .map((row) => `${row.kind}:${row.id}`),
   );
   const unavailableSources = Object.entries(dashboard.sources).filter(([, source]) => source.status === 'unavailable');
   const staleSources = Object.entries(dashboard.sources).filter(([, source]) => source.status === 'stale');
@@ -394,20 +411,18 @@ export function WorkDashboard({
       void dashboard.reviewSource?.retry();
     },
   });
-  const pullRequests = dashboard.rows.flatMap((row) => row.pull_requests);
+  const pullRequests = visibleRows.flatMap((row) => row.pull_requests);
   const orgOptions = [...new Set(pullRequests.map((pr) => pr.org))].sort().map((value) => ({ value, label: value }));
   const repoOptions = [
     ...new Set([
       ...pullRequests.map((pr) => pr.repo),
-      ...dashboard.rows.flatMap((row) =>
-        row.repositories.map((repository) => repository.split('/').slice(1).join('/')),
-      ),
+      ...visibleRows.flatMap((row) => row.repositories.map((repository) => repository.split('/').slice(1).join('/'))),
     ]),
   ]
     .filter(Boolean)
     .sort()
     .map((value) => ({ value, label: value }));
-  const hasStacks = dashboard.rows.some((row) => row.kind === 'pull_request' && row.pull_requests[0]?.is_stacked);
+  const hasStacks = visibleRows.some((row) => row.kind === 'pull_request' && row.pull_requests[0]?.is_stacked);
   const hasFilters = Object.values(filters).some((value) => value === true || (Array.isArray(value) && value.length));
 
   const ownerForSession = (/** @type {import('../../types').DashboardSessionSummary} */ session) =>
@@ -588,6 +603,11 @@ export function WorkDashboard({
                 Stacks
               </button>
             )}
+            {mergedCount > 0 && (
+              <button type="button" aria-pressed={showMerged} onClick={() => setShowMerged((current) => !current)}>
+                {showMerged ? 'Hide merged PRs' : `Show merged PRs (${mergedCount})`}
+              </button>
+            )}
           </div>
           <div className={styles.advancedFilters}>
             <MultiSelect
@@ -733,13 +753,22 @@ export function WorkDashboard({
                           ))}
                         </span>
                       ) : (
-                        <span className={styles.empty}>No PR attached</span>
+                        <span className={styles.empty}>
+                          {!showMerged && rowsWithHiddenMerged.has(`${row.kind}:${row.id}`)
+                            ? 'Merged PRs hidden'
+                            : 'No PR attached'}
+                        </span>
                       )}
                     </td>
                   )}
                   {visibleColumns.has('local') && (
                     <td data-label="Local">
-                      <LocalSummary row={row} />
+                      <LocalSummary
+                        row={row}
+                        hasPullRequests={
+                          row.pull_requests.length > 0 || rowsWithHiddenMerged.has(`${row.kind}:${row.id}`)
+                        }
+                      />
                     </td>
                   )}
                   {visibleColumns.has('updated') && (

@@ -107,6 +107,56 @@ test('renders a multi-PR work item once and keeps child PR links independent', (
   assert.equal(container.querySelectorAll('[aria-label="PR Open"]').length, 0);
 });
 
+test('hides merged PRs by default and reveals them with the dashboard button', () => {
+  const workItemRow = /** @type {Extract<import('../../types').DashboardWorkRow, {kind: 'work_item'}>} */ (row);
+  const merged = {
+    ...pullRequest,
+    id: 'org/repo#2',
+    number: 2,
+    title: 'Merged PR',
+    github_state: /** @type {const} */ ('MERGED'),
+  };
+  const closed = {
+    ...pullRequest,
+    id: 'org/repo#3',
+    number: 3,
+    title: 'Closed PR',
+    github_state: /** @type {const} */ ('CLOSED'),
+  };
+  const mergedOnly = { ...workItemRow, id: 'work-merged', title: 'Merged work', pull_requests: [merged] };
+  const standalone = /** @type {import('../../types').DashboardWorkRow} */ ({
+    ...row,
+    kind: 'pull_request',
+    id: 'org/repo#4',
+    title: 'Merged standalone',
+    pull_requests: [{ ...merged, id: 'org/repo#4', number: 4 }],
+    state: null,
+  });
+  render(
+    <WorkDashboard
+      {...defaultProps}
+      dashboard={{
+        ...dashboard,
+        rows: [{ ...workItemRow, pull_requests: [pullRequest, merged, closed] }, mergedOnly, standalone],
+      }}
+    />,
+  );
+
+  assert.ok(screen.getByRole('link', { name: 'Open pull request #1: First PR' }));
+  assert.ok(screen.getByRole('link', { name: 'Open pull request #3: Closed PR' }));
+  assert.equal(screen.queryByRole('link', { name: 'Open pull request #2: Merged PR' }), null);
+  assert.ok(screen.getByRole('link', { name: 'Merged work' }));
+  assert.ok(screen.getByText('Merged PRs hidden'));
+  assert.equal(screen.getAllByText('PR workspace').length, 2);
+  assert.equal(screen.queryByRole('link', { name: 'Merged standalone' }), null);
+
+  fireEvent.click(screen.getByRole('button', { name: 'Show merged PRs (3)' }));
+  assert.ok(screen.getAllByRole('link', { name: 'Open pull request #2: Merged PR' }).length > 0);
+  assert.ok(screen.getByRole('link', { name: 'Merged standalone' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Hide merged PRs' }));
+  assert.equal(screen.queryByRole('link', { name: 'Open pull request #2: Merged PR' }), null);
+});
+
 test('omits aggregate counters', () => {
   render(<WorkDashboard {...defaultProps} />);
 

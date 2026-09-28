@@ -42,6 +42,35 @@
   font-weight: 400;
 }
 
+.relatedActions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.mergedToggle {
+  min-height: 30px;
+  padding: 0 9px;
+  color: #4f5b6a;
+  background: #f1f4f7;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.mergedToggle[aria-pressed='true'] {
+  color: var(--blue);
+  border-color: var(--line-strong);
+}
+
+.mergedToggle:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
 .ownerNote,
 .empty,
 .waitingNote {

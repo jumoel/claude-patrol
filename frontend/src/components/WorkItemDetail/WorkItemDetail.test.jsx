@@ -345,6 +345,14 @@ test('missing or invalid PR selection is replaced with the first attached PR in 
     });
     rendered.unmount();
   }
+
+  hook.workItem.pull_requests[0].github_state = 'MERGED';
+  history.replaceState(null, '', '/#/work-item/item-1');
+  const rendered = renderDetail();
+  await waitFor(() => {
+    assert.equal(window.location.hash, '#/work-item/item-1?pr=acme%2Fbeta%23102');
+  });
+  rendered.unmount();
 });
 
 test('cleanup failure shows one retry, retained root, and copy feedback', async () => {

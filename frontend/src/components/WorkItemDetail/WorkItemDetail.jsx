@@ -305,10 +305,11 @@ export function WorkItemDetail({
   const workItemState = workItem?.state;
   const expectedSessionId = workItem?.session?.id;
 
-  // With no PR selected in the route, select the first linked one. Replacing
+  // With no PR selected in the route, select the first non-merged one. Replacing
   // the hash fires hashchange, which is how App re-parses the route.
   useEffect(() => {
-    const firstPullRequest = workItem?.pull_requests[0];
+    if (!workItem) return;
+    const firstPullRequest = workItem.pull_requests.find((pullRequest) => pullRequest.github_state !== 'MERGED');
     if (!firstPullRequest || workItem.pull_requests.some((pullRequest) => pullRequest.id === selectedPrId)) return;
     window.location.replace(`#${workItemPath(workItem.id, firstPullRequest.id)}`);
   }, [selectedPrId, workItem]);
@@ -454,7 +455,9 @@ export function WorkItemDetail({
   const selectedProviderName = provider === 'codex' ? 'Codex' : 'Claude';
   const resolverName = workItem.resolver_provider === 'codex' ? 'Codex' : 'Claude';
   const selectedPullRequest =
-    workItem.pull_requests.find((pullRequest) => pullRequest.id === selectedPrId) ?? workItem.pull_requests[0] ?? null;
+    workItem.pull_requests.find((pullRequest) => pullRequest.id === selectedPrId) ??
+    workItem.pull_requests.find((pullRequest) => pullRequest.github_state !== 'MERGED') ??
+    null;
   const referenceDisplay = workItem.reference_display || workItem.reference;
   const displayTitle = workItem.title || referenceDisplay || 'Untitled work item';
   const sessionState = targetStates.get(`work-item:${workItem.id}`);

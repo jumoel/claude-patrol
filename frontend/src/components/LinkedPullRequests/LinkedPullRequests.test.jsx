@@ -153,6 +153,48 @@ test('renders multiple owned pull requests and attaches another by URL', async (
   assert.equal(reload.mock.calls.length, 1);
 });
 
+test('hides merged PRs until requested while keeping closed PRs visible', async () => {
+  const user = userEvent.setup();
+  const item = workItem();
+  item.pull_requests[1].github_state = 'MERGED';
+  item.pull_requests.push({ ...pullRequest('acme/widgets#13', 'acme/widgets', 13), github_state: 'CLOSED' });
+  render(
+    <LinkedPullRequests
+      workItem={item}
+      selectedPrId="acme/widgets#11"
+      onWorkItemReload={vi.fn()}
+      ensureSession={vi.fn()}
+      wsRef={{ current: null }}
+    />,
+  );
+
+  const list = within(screen.getByRole('list', { name: 'Work item pull requests' }));
+  assert.ok(list.getByRole('link', { name: /#11/u }));
+  assert.ok(list.getByRole('link', { name: /#13/u }));
+  assert.equal(list.queryByRole('link', { name: /#12/u }), null);
+  await user.click(screen.getByRole('button', { name: 'Show merged PRs (1)' }));
+  assert.ok(list.getByRole('link', { name: /#12/u }));
+  await user.click(screen.getByRole('button', { name: 'Hide merged PRs' }));
+  assert.equal(list.queryByRole('link', { name: /#12/u }), null);
+});
+
+test('a selected merged PR remains available through its direct link', () => {
+  const item = workItem();
+  item.pull_requests = item.pull_requests.map((link) => ({ ...link, github_state: /** @type {const} */ ('MERGED') }));
+  render(
+    <LinkedPullRequests
+      workItem={item}
+      selectedPrId="acme/tools#12"
+      onWorkItemReload={vi.fn()}
+      ensureSession={vi.fn()}
+      wsRef={{ current: null }}
+    />,
+  );
+  const list = within(screen.getByRole('list', { name: 'Work item pull requests' }));
+  assert.ok(list.getByRole('link', { name: /#12/u }));
+  assert.equal(list.queryByRole('link', { name: /#11/u }), null);
+});
+
 test('shows PR health in the list and all four statuses in the selected inspector', async () => {
   const item = workItem();
   item.pull_requests = item.pull_requests.map((link, index) =>
@@ -228,6 +270,7 @@ for (const state of /** @type {const} */ (['MERGED', 'CLOSED'])) {
       />,
     );
 
+    if (state === 'MERGED') await userEvent.setup().click(screen.getByRole('button', { name: 'Show merged PRs (2)' }));
     await userEvent.setup().click(await screen.findByRole('button', { name: /Description/u }));
     assert.ok(screen.getByText('Preserved PR description'));
     assert.equal(screen.getAllByLabelText(`PR ${label}`).length, 3);

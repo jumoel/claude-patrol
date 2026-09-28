@@ -32,8 +32,12 @@ import styles from './LinkedPullRequests.module.css';
  */
 export function LinkedPullRequests({ workItem, selectedPrId, onWorkItemReload, ensureSession, wsRef }) {
   const links = workItem.pull_requests;
+  const [showMerged, setShowMerged] = useState(false);
+  const mergedCount = links.filter((link) => link.github_state === 'MERGED').length;
+  const visibleLinks = links.filter((link) => showMerged || link.github_state !== 'MERGED' || link.id === selectedPrId);
   const selectedLink = useMemo(
-    () => links.find((link) => link.id === selectedPrId) ?? links[0] ?? null,
+    () =>
+      links.find((link) => link.id === selectedPrId) ?? links.find((link) => link.github_state !== 'MERGED') ?? null,
     [links, selectedPrId],
   );
   const [pr, setPR] = useState(/** @type {import('../../types').PullRequest | null} */ (null));
@@ -231,28 +235,40 @@ export function LinkedPullRequests({ workItem, selectedPrId, onWorkItemReload, e
               {links.length} pull request{links.length === 1 ? '' : 's'}
             </span>
           </h2>
-          <details className={styles.attachDetails}>
-            <summary>Attach existing PR</summary>
-            <Stack as="form" gap={2} wrap className={styles.attachForm} onSubmit={handleAttach}>
-              <label className={styles.attachLabel}>
-                <span>PR URL or ID</span>
-                <input
-                  name="pull-request-reference"
-                  value={attachValue}
-                  onChange={(event) => setAttachValue(event.target.value)}
-                  placeholder="owner/repo#123"
-                  disabled={attaching}
-                />
-              </label>
-              <Button size="sm" variant="primary" type="submit" disabled={attaching || !attachValue.trim()}>
-                {attaching ? 'Attaching...' : 'Attach'}
-              </Button>
-            </Stack>
-          </details>
+          <div className={styles.relatedActions}>
+            {mergedCount > 0 && (
+              <button
+                type="button"
+                className={styles.mergedToggle}
+                aria-pressed={showMerged}
+                onClick={() => setShowMerged((current) => !current)}
+              >
+                {showMerged ? 'Hide merged PRs' : `Show merged PRs (${mergedCount})`}
+              </button>
+            )}
+            <details className={styles.attachDetails}>
+              <summary>Attach existing PR</summary>
+              <Stack as="form" gap={2} wrap className={styles.attachForm} onSubmit={handleAttach}>
+                <label className={styles.attachLabel}>
+                  <span>PR URL or ID</span>
+                  <input
+                    name="pull-request-reference"
+                    value={attachValue}
+                    onChange={(event) => setAttachValue(event.target.value)}
+                    placeholder="owner/repo#123"
+                    disabled={attaching}
+                  />
+                </label>
+                <Button size="sm" variant="primary" type="submit" disabled={attaching || !attachValue.trim()}>
+                  {attaching ? 'Attaching...' : 'Attach'}
+                </Button>
+              </Stack>
+            </details>
+          </div>
         </div>
-        {links.length > 0 ? (
+        {visibleLinks.length > 0 ? (
           <ul className={styles.prList} aria-label="Work item pull requests">
-            {links.map((link) => {
+            {visibleLinks.map((link) => {
               const selected = link.id === selectedLink?.id;
               const statusSource = pr?.id === link.id ? pr : link;
               const title = pr?.id === link.id ? pr.title : link.title;
@@ -276,7 +292,9 @@ export function LinkedPullRequests({ workItem, selectedPrId, onWorkItemReload, e
             })}
           </ul>
         ) : (
-          <p className={styles.empty}>No pull requests are attached yet.</p>
+          <p className={styles.empty}>
+            {links.length > 0 ? 'Merged pull requests are hidden.' : 'No pull requests are attached yet.'}
+          </p>
         )}
         {actionError && <p className={styles.error}>{actionError}</p>}
       </section>
