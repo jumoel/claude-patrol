@@ -326,6 +326,7 @@ export interface DashboardPullRequestSummary {
   stack_root: string | null;
   stack_depth: number;
   stack_position: number;
+  stack_size?: number;
   is_stacked: boolean;
 }
 

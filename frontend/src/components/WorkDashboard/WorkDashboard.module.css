@@ -496,6 +496,13 @@ tbody tr:focus-visible {
   gap: 6px;
 }
 
+.stackPosition {
+  color: var(--blue);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
 .pullRequest + .pullRequest {
   padding-top: 5px;
   border-top: 1px solid var(--line);

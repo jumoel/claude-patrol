@@ -157,6 +157,63 @@ test('hides merged PRs by default and reveals them with the dashboard button', (
   assert.equal(screen.queryByRole('link', { name: 'Open pull request #2: Merged PR' }), null);
 });
 
+test('shows linked PRs in work-item stack order with their full sequence positions', () => {
+  const workItemRow = /** @type {Extract<import('../../types').DashboardWorkRow, {kind: 'work_item'}>} */ (row);
+  const linked = [
+    {
+      ...pullRequest,
+      id: 'org/repo#30',
+      number: 30,
+      title: 'First',
+      github_state: /** @type {const} */ ('MERGED'),
+      is_stacked: true,
+      stack_position: 1,
+      stack_size: 3,
+    },
+    {
+      ...pullRequest,
+      id: 'org/repo#20',
+      number: 20,
+      title: 'Second',
+      is_stacked: true,
+      stack_position: 2,
+      stack_size: 3,
+    },
+    {
+      ...pullRequest,
+      id: 'other/repo#10',
+      org: 'other',
+      number: 10,
+      title: 'Third',
+      is_stacked: true,
+      stack_position: 3,
+      stack_size: 3,
+    },
+    { ...pullRequest, id: 'org/repo#2', number: 2, title: 'Free PR' },
+  ];
+  render(
+    <WorkDashboard {...defaultProps} dashboard={{ ...dashboard, rows: [{ ...workItemRow, pull_requests: linked }] }} />,
+  );
+
+  const visible = () =>
+    screen.getAllByRole('link', { name: /^Open pull request #\d+: /u }).map((link) => link.getAttribute('aria-label'));
+  assert.deepEqual(visible(), [
+    'Open pull request #20: Second',
+    'Open pull request #10: Third',
+    'Open pull request #2: Free PR',
+  ]);
+  assert.ok(screen.getByText('Stack 2/3'));
+  assert.ok(screen.getByText('Stack 3/3'));
+  fireEvent.click(screen.getByRole('button', { name: 'Show merged PRs (1)' }));
+  assert.deepEqual(visible(), [
+    'Open pull request #30: First',
+    'Open pull request #20: Second',
+    'Open pull request #10: Third',
+    'Open pull request #2: Free PR',
+  ]);
+  assert.ok(screen.getByText('Stack 1/3'));
+});
+
 test('omits aggregate counters', () => {
   render(<WorkDashboard {...defaultProps} />);
 

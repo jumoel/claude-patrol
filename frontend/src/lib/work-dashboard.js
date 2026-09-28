@@ -15,8 +15,11 @@ export function dashboardSourceState(error, loading, loaded, enabled = true) {
   };
 }
 
-/** @param {import('../types').PullRequest | import('../types').WorkItemPullRequest} pr */
-function summarizePullRequest(pr) {
+/**
+ * @param {import('../types').PullRequest | import('../types').WorkItemPullRequest} pr
+ * @param {import('../types').PullRequest | import('../types').WorkItemPullRequest} [stack]
+ */
+function summarizePullRequest(pr, stack = pr) {
   const tracked = !('tracked' in pr) || pr.tracked;
   return {
     id: pr.id,
@@ -32,23 +35,12 @@ function summarizePullRequest(pr) {
     review_status: tracked ? pr.review_status : null,
     updated_at: pr.updated_at,
     tracked,
-    stack_root: 'stack_root' in pr ? pr.stack_root : null,
-    stack_depth: 'stack_depth' in pr ? pr.stack_depth : 0,
-    stack_position: 'stack_position' in pr ? pr.stack_position : 0,
-    is_stacked: 'is_stacked' in pr ? pr.is_stacked : false,
+    stack_root: 'stack_root' in stack ? stack.stack_root : null,
+    stack_depth: 'stack_depth' in stack ? stack.stack_depth : 0,
+    stack_position: 'stack_position' in stack ? stack.stack_position : 0,
+    stack_size: 'stack_size' in stack ? stack.stack_size : 0,
+    is_stacked: 'is_stacked' in stack ? stack.is_stacked : false,
   };
-}
-
-/** @param {import('../types').DashboardPullRequestSummary} a @param {import('../types').DashboardPullRequestSummary} b */
-function compareAttachedPullRequests(a, b) {
-  const repositoryOrder = `${a.org}/${a.repo}`.localeCompare(`${b.org}/${b.repo}`);
-  if (repositoryOrder) return repositoryOrder;
-  const aRoot = a.is_stacked && a.stack_root ? a.stack_root : a.id;
-  const bRoot = b.is_stacked && b.stack_root ? b.stack_root : b.id;
-  const rootOrder = Number(aRoot.split('#')[1]) - Number(bRoot.split('#')[1]);
-  if (rootOrder) return rootOrder;
-  if (aRoot === bRoot) return a.stack_position - b.stack_position || a.number - b.number;
-  return a.number - b.number;
 }
 
 /** @param {import('../types').Session} session */
@@ -120,21 +112,18 @@ export function buildDashboardRows({ pullRequests, workItems, workspaces, sessio
 
   /** @type {import('../types').DashboardWorkRow[]} */
   const rows = workItems.map((workItem) => {
+    const linkedIds = new Set(workItem.pull_requests.map((pr) => pr.id));
     const linkedPullRequests = [
       ...workItem.pull_requests,
-      ...(pullRequestsByWorkItem.get(workItem.id) || []).filter(
-        (pr) => !workItem.pull_requests.some((linked) => linked.id === pr.id),
-      ),
+      ...(pullRequestsByWorkItem.get(workItem.id) || []).filter((pr) => !linkedIds.has(pr.id)),
     ];
-    const attached = linkedPullRequests
-      .flatMap((linked) => {
-        const tracked = pullRequestById.get(linked.id);
-        if (tracked?.work_item_id && tracked.work_item_id !== workItem.id) return [];
-        if (ownedPullRequestIds.has(linked.id)) return [];
-        ownedPullRequestIds.add(linked.id);
-        return [summarizePullRequest(tracked || linked)];
-      })
-      .sort(compareAttachedPullRequests);
+    const attached = linkedPullRequests.flatMap((linked) => {
+      const tracked = pullRequestById.get(linked.id);
+      if (tracked?.work_item_id && tracked.work_item_id !== workItem.id) return [];
+      if (ownedPullRequestIds.has(linked.id)) return [];
+      ownedPullRequestIds.add(linked.id);
+      return [summarizePullRequest(tracked || linked, linked)];
+    });
     const readyWorkspaces = workItem.repository_workspaces.filter((workspace) => workspace.state === 'ready');
     const childSessions = readyWorkspaces.flatMap((workspace) =>
       workspace.workspace_id ? sessionsByWorkspace.get(workspace.workspace_id) || [] : [],

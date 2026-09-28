@@ -736,6 +736,11 @@ export function WorkDashboard({
                                 >
                                   #{pr.number} {pr.title}
                                 </a>
+                                {pr.is_stacked && pr.stack_position > 0 && (
+                                  <span className={styles.stackPosition}>
+                                    Stack {pr.stack_position}/{pr.stack_size}
+                                  </span>
+                                )}
                                 {pr.url && (
                                   <a
                                     className={styles.githubLink}
