@@ -56,15 +56,19 @@ test('ACL repair preserves unrelated denials and fails when another ACL still bl
   skip: process.platform !== 'darwin',
 }, async (t) => {
   const { workspace, protect } = await aclFixture(t);
+  const aclEntries = () => directoryAcl(workspace).map((line) => line.replace(/^\s*\d+:\s*/u, ''));
   protect(workspace, 'delete,writeextattr');
+  const [userDenial] = aclEntries();
+  assert.ok(userDenial);
+  const userPrincipal = userDenial.split(' deny ')[0];
   protect(workspace, 'delete', 'group:everyone');
+  const before = aclEntries();
+  const groupDenial = before.find((entry) => entry !== userDenial);
+  assert.ok(groupDenial);
 
   await assert.rejects(removeWorkspaceDirectory(workspace), { code: 'EACCES', syscall: 'rmdir' });
 
-  const acl = directoryAcl(workspace).join('\n');
-  assert.match(acl, /group:everyone deny delete/);
-  assert.match(acl, /user:.* deny writeextattr/);
-  assert.doesNotMatch(acl, /user:.* deny .*delete/);
+  assert.deepEqual(aclEntries().sort(), [groupDenial, `${userPrincipal} deny writeextattr`].sort());
 });
 
 test('ACL repair leaves external symlink targets and hard-linked files unchanged', {
