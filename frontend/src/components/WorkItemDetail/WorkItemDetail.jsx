@@ -305,11 +305,13 @@ export function WorkItemDetail({
   const workItemState = workItem?.state;
   const expectedSessionId = workItem?.session?.id;
 
-  // With no PR selected in the route, select the first non-merged one. Replacing
-  // the hash fires hashchange, which is how App re-parses the route.
+  // With no PR selected in the route, skip merged and closed PRs. Replacing the
+  // hash fires hashchange, which is how App re-parses the route.
   useEffect(() => {
     if (!workItem) return;
-    const firstPullRequest = workItem.pull_requests.find((pullRequest) => pullRequest.github_state !== 'MERGED');
+    const firstPullRequest = workItem.pull_requests.find(
+      (pullRequest) => pullRequest.github_state !== 'MERGED' && pullRequest.github_state !== 'CLOSED',
+    );
     if (!firstPullRequest || workItem.pull_requests.some((pullRequest) => pullRequest.id === selectedPrId)) return;
     window.location.replace(`#${workItemPath(workItem.id, firstPullRequest.id)}`);
   }, [selectedPrId, workItem]);
@@ -456,7 +458,9 @@ export function WorkItemDetail({
   const resolverName = workItem.resolver_provider === 'codex' ? 'Codex' : 'Claude';
   const selectedPullRequest =
     workItem.pull_requests.find((pullRequest) => pullRequest.id === selectedPrId) ??
-    workItem.pull_requests.find((pullRequest) => pullRequest.github_state !== 'MERGED') ??
+    workItem.pull_requests.find(
+      (pullRequest) => pullRequest.github_state !== 'MERGED' && pullRequest.github_state !== 'CLOSED',
+    ) ??
     null;
   const referenceDisplay = workItem.reference_display || workItem.reference;
   const displayTitle = workItem.title || referenceDisplay || 'Untitled work item';

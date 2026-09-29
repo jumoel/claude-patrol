@@ -107,7 +107,7 @@ test('renders a multi-PR work item once and keeps child PR links independent', (
   assert.equal(container.querySelectorAll('[aria-label="PR Open"]').length, 0);
 });
 
-test('hides merged PRs by default and reveals them with the dashboard button', () => {
+test('hides merged and closed PRs by default and reveals them with the dashboard button', () => {
   const workItemRow = /** @type {Extract<import('../../types').DashboardWorkRow, {kind: 'work_item'}>} */ (row);
   const merged = {
     ...pullRequest,
@@ -124,7 +124,8 @@ test('hides merged PRs by default and reveals them with the dashboard button', (
     github_state: /** @type {const} */ ('CLOSED'),
   };
   const mergedOnly = { ...workItemRow, id: 'work-merged', title: 'Merged work', pull_requests: [merged] };
-  const standalone = /** @type {import('../../types').DashboardWorkRow} */ ({
+  const closedOnly = { ...workItemRow, id: 'work-closed', title: 'Closed work', pull_requests: [closed] };
+  const standalone = /** @type {Extract<import('../../types').DashboardWorkRow, {kind: 'pull_request'}>} */ ({
     ...row,
     kind: 'pull_request',
     id: 'org/repo#4',
@@ -137,24 +138,40 @@ test('hides merged PRs by default and reveals them with the dashboard button', (
       {...defaultProps}
       dashboard={{
         ...dashboard,
-        rows: [{ ...workItemRow, pull_requests: [pullRequest, merged, closed] }, mergedOnly, standalone],
+        rows: [
+          { ...workItemRow, pull_requests: [pullRequest, merged, closed] },
+          mergedOnly,
+          closedOnly,
+          standalone,
+          {
+            ...standalone,
+            id: 'org/repo#5',
+            title: 'Closed standalone',
+            pull_requests: [{ ...closed, id: 'org/repo#5', number: 5 }],
+          },
+        ],
       }}
     />,
   );
 
   assert.ok(screen.getByRole('link', { name: 'Open pull request #1: First PR' }));
-  assert.ok(screen.getByRole('link', { name: 'Open pull request #3: Closed PR' }));
+  assert.equal(screen.queryByRole('link', { name: 'Open pull request #3: Closed PR' }), null);
   assert.equal(screen.queryByRole('link', { name: 'Open pull request #2: Merged PR' }), null);
   assert.ok(screen.getByRole('link', { name: 'Merged work' }));
-  assert.ok(screen.getByText('Merged PRs hidden'));
-  assert.equal(screen.getAllByText('PR workspace').length, 2);
+  assert.ok(screen.getByRole('link', { name: 'Closed work' }));
+  assert.equal(screen.getAllByText('Merged/closed PRs hidden').length, 2);
+  assert.equal(screen.getAllByText('PR workspace').length, 3);
   assert.equal(screen.queryByRole('link', { name: 'Merged standalone' }), null);
+  assert.equal(screen.queryByRole('link', { name: 'Closed standalone' }), null);
 
-  fireEvent.click(screen.getByRole('button', { name: 'Show merged PRs (3)' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Show merged/closed PRs (6)' }));
   assert.ok(screen.getAllByRole('link', { name: 'Open pull request #2: Merged PR' }).length > 0);
+  assert.ok(screen.getAllByRole('link', { name: 'Open pull request #3: Closed PR' }).length > 0);
   assert.ok(screen.getByRole('link', { name: 'Merged standalone' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Hide merged PRs' }));
+  assert.ok(screen.getByRole('link', { name: 'Closed standalone' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Hide merged/closed PRs' }));
   assert.equal(screen.queryByRole('link', { name: 'Open pull request #2: Merged PR' }), null);
+  assert.equal(screen.queryByRole('link', { name: 'Open pull request #3: Closed PR' }), null);
 });
 
 test('shows linked PRs in work-item stack order with their full sequence positions', () => {
@@ -204,7 +221,7 @@ test('shows linked PRs in work-item stack order with their full sequence positio
   ]);
   assert.ok(screen.getByText('Stack 2/3'));
   assert.ok(screen.getByText('Stack 3/3'));
-  fireEvent.click(screen.getByRole('button', { name: 'Show merged PRs (1)' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Show merged/closed PRs (1)' }));
   assert.deepEqual(visible(), [
     'Open pull request #30: First',
     'Open pull request #20: Second',

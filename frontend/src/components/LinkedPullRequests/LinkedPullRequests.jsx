@@ -32,12 +32,17 @@ import styles from './LinkedPullRequests.module.css';
  */
 export function LinkedPullRequests({ workItem, selectedPrId, onWorkItemReload, ensureSession, wsRef }) {
   const links = workItem.pull_requests;
-  const [showMerged, setShowMerged] = useState(false);
-  const mergedCount = links.filter((link) => link.github_state === 'MERGED').length;
-  const visibleLinks = links.filter((link) => showMerged || link.github_state !== 'MERGED' || link.id === selectedPrId);
+  const [showInactive, setShowInactive] = useState(false);
+  const inactiveCount = links.filter((link) => link.github_state === 'MERGED' || link.github_state === 'CLOSED').length;
+  const visibleLinks = links.filter(
+    (link) =>
+      showInactive || (link.github_state !== 'MERGED' && link.github_state !== 'CLOSED') || link.id === selectedPrId,
+  );
   const selectedLink = useMemo(
     () =>
-      links.find((link) => link.id === selectedPrId) ?? links.find((link) => link.github_state !== 'MERGED') ?? null,
+      links.find((link) => link.id === selectedPrId) ??
+      links.find((link) => link.github_state !== 'MERGED' && link.github_state !== 'CLOSED') ??
+      null,
     [links, selectedPrId],
   );
   const [pr, setPR] = useState(/** @type {import('../../types').PullRequest | null} */ (null));
@@ -236,14 +241,14 @@ export function LinkedPullRequests({ workItem, selectedPrId, onWorkItemReload, e
             </span>
           </h2>
           <div className={styles.relatedActions}>
-            {mergedCount > 0 && (
+            {inactiveCount > 0 && (
               <button
                 type="button"
-                className={styles.mergedToggle}
-                aria-pressed={showMerged}
-                onClick={() => setShowMerged((current) => !current)}
+                className={styles.inactiveToggle}
+                aria-pressed={showInactive}
+                onClick={() => setShowInactive((current) => !current)}
               >
-                {showMerged ? 'Hide merged PRs' : `Show merged PRs (${mergedCount})`}
+                {showInactive ? 'Hide merged/closed PRs' : `Show merged/closed PRs (${inactiveCount})`}
               </button>
             )}
             <details className={styles.attachDetails}>
@@ -300,7 +305,7 @@ export function LinkedPullRequests({ workItem, selectedPrId, onWorkItemReload, e
           </ul>
         ) : (
           <p className={styles.empty}>
-            {links.length > 0 ? 'Merged pull requests are hidden.' : 'No pull requests are attached yet.'}
+            {links.length > 0 ? 'Merged/closed pull requests are hidden.' : 'No pull requests are attached yet.'}
           </p>
         )}
         {actionError && <p className={styles.error}>{actionError}</p>}

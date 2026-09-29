@@ -50,7 +50,7 @@
   gap: 8px;
 }
 
-.mergedToggle {
+.inactiveToggle {
   min-height: 30px;
   padding: 0 9px;
   color: #4f5b6a;
@@ -61,12 +61,12 @@
   font-size: 12px;
 }
 
-.mergedToggle[aria-pressed='true'] {
+.inactiveToggle[aria-pressed='true'] {
   color: var(--blue);
   border-color: var(--line-strong);
 }
 
-.mergedToggle:focus-visible {
+.inactiveToggle:focus-visible {
   outline: 2px solid var(--blue);
   outline-offset: 2px;
 }
