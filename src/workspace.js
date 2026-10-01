@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, realpathSync, rmSync, symlinkSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
-import { dirname, resolve } from 'node:path';
+import { dirname, isAbsolute, resolve } from 'node:path';
 import { emitLocalChange } from './app-events.js';
 import { getDb, withTransaction } from './db.js';
 import { taggedError } from './errors.js';
@@ -698,26 +698,51 @@ function findComposeFiles(root) {
 }
 
 /**
- * Tear down docker compose stacks associated with a workspace. Walks the
- * workspace tree so it catches stacks nested under e.g. `infra/local/` and
- * with either `.yml` or `.yaml`. Stacks whose compose file is already gone
- * are handled by pruneStaleComposeStacks at server startup, so we don't
- * fall back to guessing project names from path components.
+ * Tear down existing Compose projects whose config files belong to this
+ * workspace. Files on disk only establish whether Docker needs checking:
+ * repositories can contain unused test fixtures and unrelated package recipes
+ * named docker-compose.yaml. Use Docker's recorded project names for teardown
+ * so it doesn't need to parse those files or recreate their launch environment.
+ * Stacks whose compose file is already gone are handled by
+ * pruneStaleComposeStacks at server startup.
  * @param {string} workspacePath
+ * @param {{runExec?: typeof execFile}} [options]
  * @returns {Promise<string|null>} warning message if cleanup failed, null if ok or no stack found
  */
-export async function dockerComposeDown(workspacePath) {
+export async function dockerComposeDown(workspacePath, { runExec = execFile } = {}) {
   const composeFiles = findComposeFiles(workspacePath);
   if (composeFiles.length === 0) return null;
+  let stacks;
+  try {
+    const { stdout } = await runExec('docker', ['compose', 'ls', '-a', '--format', 'json'], { timeout: 60_000 });
+    stacks = JSON.parse(stdout);
+    if (
+      !Array.isArray(stacks) ||
+      stacks.some(
+        (stack) => !stack || typeof stack.Name !== 'string' || !stack.Name || typeof stack.ConfigFiles !== 'string',
+      )
+    ) {
+      throw new Error('Invalid Docker Compose project list');
+    }
+  } catch (err) {
+    return `Docker compose project discovery failed: ${err.message}`;
+  }
+  const root = resolve(workspacePath);
   const warnings = [];
-  for (const composeFile of composeFiles) {
+  for (const stack of stacks) {
+    const configFiles = stack.ConfigFiles.split(',').filter(Boolean);
+    const owned = (file) => isAbsolute(file) && relationInside(root, file) !== null;
+    if (!configFiles.some(owned)) continue;
+    if (!configFiles.every(owned)) {
+      warnings.push(`${stack.Name}: Compose project also uses config files outside this workspace`);
+      continue;
+    }
     try {
-      await execFile('docker', ['compose', 'down', '-v', '--remove-orphans'], {
-        cwd: dirname(composeFile),
+      await runExec('docker', ['compose', '-p', stack.Name, 'down', '-v', '--remove-orphans'], {
         timeout: 60_000,
       });
     } catch (err) {
-      warnings.push(`${composeFile}: ${err.message}`);
+      warnings.push(`${stack.Name}: ${err.message}`);
     }
   }
   return warnings.length > 0 ? `Docker compose down failed for: ${warnings.join('; ')}` : null;
