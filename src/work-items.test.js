@@ -22,6 +22,7 @@ afterEach(() => {
 
 function fixture({
   resolver,
+  resolvePR,
   getSessionStates = () => [],
   sessionAlive = true,
   stopSession,
@@ -63,6 +64,7 @@ function fixture({
   const sessionOptions = [];
   let sessionNumber = 0;
   const service = createWorkItemService({
+    resolvePR,
     preflightPR: async (id) => getDb().prepare('SELECT * FROM prs WHERE id = ?').get(id),
     createPrChild: (input, { createChild }) => createChild(input),
     getConfig: () => config,
@@ -289,6 +291,130 @@ test('pull-request local work creates a one-repository aggregate and owns the PR
       .work_item_id,
     created.id,
   );
+});
+
+function insertReferencePr() {
+  const now = new Date().toISOString();
+  getDb()
+    .prepare(`INSERT OR IGNORE INTO prs (
+    id, number, title, repo, org, author, url, branch, head_oid, created_at, updated_at, synced_at
+  ) VALUES ('acme/gamma#42', 42, 'Repair gamma', 'gamma', 'acme', 'octocat',
+    'https://github.com/acme/gamma/pull/42', 'repair', ?, ?, ?, ?)`)
+    .run('c'.repeat(40), now, now, now);
+  return getDb().prepare("SELECT * FROM prs WHERE id = 'acme/gamma#42'").get();
+}
+
+test('pasted PR URLs bypass the project resolver and repository allowlist, and reuse their owner', async () => {
+  let lookups = 0;
+  const { service, config } = fixture({
+    resolver: { resolve: async () => assert.fail('PR URL reached the project resolver') },
+    resolvePR: async (reference) => {
+      assert.equal(reference, 'https://github.com/acme/gamma/pull/42/files#diff-123');
+      lookups++;
+      return insertReferencePr();
+    },
+  });
+  // URL routing also works when the project-reference MCP is not configured.
+  config.work_items = null;
+  const input = { source: 'reference', reference: ' https://github.com/acme/gamma/pull/42/files#diff-123 ' };
+  const created = await service.create(input);
+  await service.waitForIdle(created.id);
+  const detail = service.detail(created.id);
+  assert.equal(detail.creation_source, 'pull_request');
+  assert.equal(detail.state, 'ready');
+  assert.equal(detail.resolver_provider, null);
+  assert.deepEqual(detail.repositories, ['acme/gamma']);
+  assert.equal(detail.repository_workspaces[0].start_revision, 'c'.repeat(40));
+  assert.equal(detail.pull_requests[0].id, 'acme/gamma#42');
+  const again = await service.create({ reference: input.reference, workProvider: 'codex' });
+  assert.equal(again.id, created.id);
+  assert.equal(lookups, 2);
+  assert.equal(getDb().prepare('SELECT COUNT(*) AS n FROM work_items').get().n, 1);
+});
+
+test('failed PR lookup creates no work item and never falls back to MCP', async () => {
+  const { service } = fixture({
+    resolver: { resolve: async () => assert.fail('PR URL reached the project resolver') },
+    resolvePR: async () => {
+      throw new Error('PR is unavailable');
+    },
+  });
+  await assert.rejects(
+    () => service.create({ source: 'reference', reference: 'https://github.com/acme/gamma/pull/42' }),
+    /PR is unavailable/,
+  );
+  assert.equal(getDb().prepare('SELECT COUNT(*) AS n FROM work_items').get().n, 0);
+});
+
+test('concurrent pasted PR submissions return one owner', async () => {
+  const { service } = fixture({ resolvePR: async () => insertReferencePr() });
+  const input = { source: 'reference', reference: 'https://github.com/acme/gamma/pull/42' };
+  const [first, second] = await Promise.all([service.create(input), service.create(input)]);
+  assert.equal(first.id, second.id);
+  await service.waitForIdle(first.id);
+  assert.equal(getDb().prepare('SELECT COUNT(*) AS n FROM work_items').get().n, 1);
+});
+
+test('resolution retry converts a failed PR reference in place without checking the model provider', async () => {
+  const { service, config } = fixture({
+    resolver: { resolve: async () => assert.fail('PR URL reached the project resolver') },
+    resolvePR: async () => insertReferencePr(),
+  });
+  config.work_items = null;
+  insertTestWorkItem(getDb(), {
+    id: 'failed-pr',
+    path: join(config.workspace_base_path, 'work-items', 'failed-pr'),
+    reference: 'https://github.com/acme/gamma/pull/42',
+    state: 'error',
+    stage: 'reference_resolution',
+  });
+  const retry = service.retry('failed-pr');
+  assert.equal(retry.id, 'failed-pr');
+  await service.waitForIdle(retry.id);
+  const detail = service.detail(retry.id);
+  assert.equal(detail.state, 'ready', JSON.stringify(detail.error));
+  assert.equal(detail.creation_source, 'pull_request');
+  assert.equal(detail.error, null);
+  assert.equal(detail.reference, null);
+  assert.equal(detail.repository_workspaces[0].start_revision, 'c'.repeat(40));
+  assert.equal(detail.pull_requests[0].id, 'acme/gamma#42');
+});
+
+test('PR retry failure preserves the reference and remains retryable', async () => {
+  const { service } = fixture({
+    resolvePR: async () => {
+      throw new Error('GitHub unavailable');
+    },
+  });
+  insertTestWorkItem(getDb(), {
+    id: 'failed-pr',
+    reference: 'https://github.com/acme/gamma/pull/42',
+    state: 'error',
+    stage: 'reference_resolution',
+  });
+  service.retry('failed-pr');
+  await service.waitForIdle('failed-pr');
+  const detail = service.detail('failed-pr');
+  assert.equal(detail.state, 'error');
+  assert.equal(detail.error.detail, 'GitHub unavailable');
+  assert.equal(detail.error.failed_provider, null);
+  assert.equal(detail.error.retry_action, 'resolution');
+  assert.equal(detail.reference, 'https://github.com/acme/gamma/pull/42');
+  assert.deepEqual(detail.repositories, []);
+});
+
+test('PR retry cannot take ownership from another work item', async () => {
+  const { service } = fixture({ resolvePR: async () => insertReferencePr() });
+  const reference = 'https://github.com/acme/gamma/pull/42';
+  const owner = await service.create({ source: 'reference', reference });
+  await service.waitForIdle(owner.id);
+  insertTestWorkItem(getDb(), { id: 'failed-pr', reference, state: 'error', stage: 'reference_resolution' });
+  service.retry('failed-pr');
+  await service.waitForIdle('failed-pr');
+  assert.equal(service.detail('failed-pr').state, 'error');
+  assert.match(service.detail('failed-pr').error.detail, /already belongs/);
+  assert.equal(service.detail('failed-pr').creation_source, 'reference');
+  assert.equal(service.detail(owner.id).pull_requests[0].id, 'acme/gamma#42');
 });
 
 test('provider-native work-reference metadata is persisted without UI-specific normalization', async () => {

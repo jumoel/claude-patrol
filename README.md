@@ -143,6 +143,8 @@ Patrol inventories proven Patrol-owned source trees at `GET /api/workspaces/orph
 
 Work Items are independent of any issue tracker. Patrol passes the reference to the configured read-only MCP resolver and accepts only a title, summary, and subset of configured repositories. The resolver cannot select paths, revisions, bookmarks, commands, or Patrol operations.
 
+GitHub pull request URLs use the PR workspace flow automatically. Patrol looks up the PR on GitHub, pins the checkout to its current head, and links the PR to the work item. This also works for PRs outside the local cache or the MCP resolver's repository list. Retrying a PR URL that previously failed in the MCP resolver converts that work item in place.
+
 Patrol prepares the selected repository workspaces without starting an agent. When the work item is ready, choose Claude or Codex on its detail page and open a terminal explicitly. The agent starts idle and waits for your first prompt.
 
 Reference-work repositories must exist as jj repositories below `work_dir`. Manual and PR-derived work can prepare missing source repositories. A minimal configuration using Linear as the instance-specific resolver looks like this:

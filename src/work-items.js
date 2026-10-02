@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 import { emitLocalChange } from './app-events.js';
 import { getDb, withTransaction } from './db.js';
-import { preflightPullRequest } from './pr-preflight.js';
+import { githubPullRequestReference, preflightPullRequest, resolvePullRequest } from './pr-preflight.js';
 import { createSession, isSessionAlive, killSessionAndWait } from './pty-manager.js';
 import { runTask } from './tasks.js';
 import { expandPath } from './utils.js';
@@ -15,6 +15,7 @@ import {
   getWorkItem,
   mutateWorkItem,
   pendingRepositoryAddition,
+  recordFailure,
   repositoriesFor,
   repositoryMemberships,
   repositoryWorkspacesFor,
@@ -56,6 +57,7 @@ export function createWorkItemService({
   destroyChild = destroyWorkItemChild,
   prepareSourceRepository = ensureManualSourceRepository,
   preflightPR = preflightPullRequest,
+  resolvePR = resolvePullRequest,
   createPrChild = createPullRequestChild,
   launchSession = createSession,
   sessionAlive = isSessionAlive,
@@ -94,10 +96,61 @@ export function createWorkItemService({
     destroyLifecycle,
   } = lifecycle;
 
+  const pullRequestOwner = (prId) => {
+    const owner = getDb()
+      .prepare("SELECT work_item_id FROM work_item_pull_requests WHERE pr_id = ? AND ownership_state = 'active'")
+      .get(prId);
+    if (owner) return owner.work_item_id;
+    const legacyWorkspace = getDb()
+      .prepare("SELECT id FROM workspaces WHERE pr_id = ? AND work_item_id IS NULL AND status = 'active' LIMIT 1")
+      .get(prId);
+    if (legacyWorkspace) throw workItemError('legacy_workspace_exists', 'Pull request already has a legacy workspace');
+    return null;
+  };
+
+  const resolvePullRequestAndPrepare = async (id, reference, task) => {
+    try {
+      const pr = await resolvePR(reference, getConfig());
+      const title = validateTitle(pr.title);
+      const now = new Date().toISOString();
+      withTransaction(getDb(), () => {
+        const owner = pullRequestOwner(pr.id);
+        if (owner && owner !== id) {
+          throw workItemError('pull_request_owned', `Pull request ${pr.id} already belongs to work item ${owner}`);
+        }
+        if (repositoryMemberships(id).length) {
+          throw workItemError('invalid_state', 'Reference work item already has repository workspaces');
+        }
+        const updated = getDb()
+          .prepare(`UPDATE work_items SET title = ?, summary = NULL,
+          creation_source = 'pull_request', state = 'preparing', stage = 'root_generation',
+          progress_current = 0, progress_total = 0, error_code = NULL, error_detail = NULL,
+          error_provider = NULL, updated_at = ? WHERE id = ? AND state = 'resolving'`)
+          .run(title, now, id);
+        if (updated.changes !== 1) throw workItemError('invalid_state', 'Work item state changed during PR lookup');
+        getDb().prepare('DELETE FROM work_item_references WHERE work_item_id = ?').run(id);
+        getDb()
+          .prepare(`INSERT INTO work_item_repositories (
+          work_item_id, repo, start_revision, position, membership_source, state, created_at, updated_at, source_pr_number
+        ) VALUES (?, ?, ?, 0, 'initial', 'adding', ?, ?, ?)`)
+          .run(id, `${pr.org}/${pr.repo}`, pr.head_oid, now, now, pr.number);
+        getDb()
+          .prepare(`INSERT INTO work_item_pull_requests (pr_id, work_item_id, source, linked_at, local_repository)
+          VALUES (?, ?, 'explicit', ?, ?)`)
+          .run(pr.id, id, now, `${pr.org}/${pr.repo}`);
+      });
+      emitLocalChange();
+      await prepare(id, task);
+    } catch (error) {
+      if (getWorkItem(id)?.state !== 'error') recordFailure(id, error);
+      throw error;
+    }
+  };
+
   return {
     async create(input) {
       const config = getConfig();
-      const request =
+      let request =
         input?.source === undefined && Object.hasOwn(input ?? {}, 'reference')
           ? {
               source: 'reference',
@@ -119,6 +172,11 @@ export function createWorkItemService({
       let resolverProvider = null;
       let repositories = [];
       let pullRequest = null;
+
+      if (request.source === 'reference' && githubPullRequestReference(validateReference(request.reference))) {
+        pullRequest = await resolvePR(request.reference.trim(), config);
+        request = { source: 'pull_request', pr_id: pullRequest.id };
+      }
 
       if (request.source === 'reference') {
         if (!config.work_items) throw workItemError('work_items_not_configured', 'Reference work is not configured');
@@ -146,27 +204,19 @@ export function createWorkItemService({
         if (typeof request.pr_id !== 'string' || !request.pr_id.trim()) {
           throw workItemError('invalid_pull_request', 'pr_id is required for pull_request work');
         }
-        pullRequest = getDb().prepare('SELECT * FROM prs WHERE id = ?').get(request.pr_id.trim());
+        const resolvedFromUrl = pullRequest !== null;
+        pullRequest ??= getDb().prepare('SELECT * FROM prs WHERE id = ?').get(request.pr_id.trim());
         if (!pullRequest) throw workItemError('pull_request_not_found', 'Pull request not found');
-        const existingOwner = getDb()
-          .prepare("SELECT work_item_id FROM work_item_pull_requests WHERE pr_id = ? AND ownership_state = 'active'")
-          .get(pullRequest.id);
+        const existingOwner = pullRequestOwner(pullRequest.id);
         if (existingOwner) {
-          return workItemListItem(getWorkItem(existingOwner.work_item_id), { getSessionStates });
+          return workItemListItem(getWorkItem(existingOwner), { getSessionStates });
         }
-        const legacyWorkspace = getDb()
-          .prepare("SELECT id FROM workspaces WHERE pr_id = ? AND work_item_id IS NULL AND status = 'active' LIMIT 1")
-          .get(pullRequest.id);
-        if (legacyWorkspace) {
-          throw workItemError('legacy_workspace_exists', 'Pull request already has a legacy workspace');
+        if (!resolvedFromUrl) {
+          pullRequest = await preflightPR(pullRequest.id, request.expected_head_oid ?? pullRequest.head_oid, config);
         }
-        pullRequest = await preflightPR(pullRequest.id, request.expected_head_oid ?? pullRequest.head_oid, config);
         // Another creation can finish its preflight while this request is awaiting GitHub.
-        const ownerAfterPreflight = getDb()
-          .prepare("SELECT work_item_id FROM work_item_pull_requests WHERE pr_id = ? AND ownership_state = 'active'")
-          .get(pullRequest.id);
-        if (ownerAfterPreflight)
-          return workItemListItem(getWorkItem(ownerAfterPreflight.work_item_id), { getSessionStates });
+        const ownerAfterPreflight = pullRequestOwner(pullRequest.id);
+        if (ownerAfterPreflight) return workItemListItem(getWorkItem(ownerAfterPreflight), { getSessionStates });
         const repo = `${pullRequest.org}/${pullRequest.repo}`;
         title = validateTitle(pullRequest.title);
         repositories = [{ repo, startRevision: pullRequest.head_oid, sourcePrNumber: pullRequest.number }];
@@ -227,8 +277,19 @@ export function createWorkItemService({
       const action = retryAction(row);
       if (!action) throw workItemError('invalid_state', 'Work item has no retryable operation');
       if (action === 'resolution') {
-        mutateWorkItem(id, { state: 'resolving', stage: 'provider_check', ...clearErrorPatch() }, ['error']);
-        queue(id, 'work-item.create', (task) => resolveAndPrepare(id, task));
+        const isPullRequest = Boolean(githubPullRequestReference(row.reference));
+        mutateWorkItem(
+          id,
+          {
+            state: 'resolving',
+            stage: isPullRequest ? 'reference_resolution' : 'provider_check',
+            ...clearErrorPatch(),
+          },
+          ['error'],
+        );
+        queue(id, 'work-item.create', (task) =>
+          isPullRequest ? resolvePullRequestAndPrepare(id, row.reference, task) : resolveAndPrepare(id, task),
+        );
       } else if (action === 'preparation') {
         mutateWorkItem(id, { state: 'preparing', stage: 'root_generation', ...clearErrorPatch() }, ['error']);
         queue(id, 'work-item.create', (task) => prepare(id, task));
